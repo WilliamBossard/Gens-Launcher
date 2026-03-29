@@ -1,15 +1,35 @@
 {
   "name": "gens-launcher",
   "version": "1.0.0",
-  "description": "Un launcher Minecraft moderne et léger.",
+  "description": "Un launcher Minecraft ultra-rapide inspiré de MultiMC.",
+  "author": "Gens Launcher Team",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder"
   },
-  "author": "WillyLutin",
-  "license": "MIT",
+  "build": {
+    "appId": "com.gens.launcher",
+    "productName": "Gens Launcher",
+    "win": {
+      "target": "portable",
+      "icon": "assets/vanilla.png"
+    },
+    "files": [
+      "**/*",
+      "!instances/*",
+      "!accounts.json",
+      "!instances.json",
+      "!assets/fabric.png",
+      "!assets/forge.png",
+      "!assets/vanilla.png"
+    ]
+  },
   "dependencies": {
-    "electron": "^latest",
-    "minecraft-launcher-core": "^latest"
+    "minecraft-launcher-core": "latest"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest"
   }
 }
