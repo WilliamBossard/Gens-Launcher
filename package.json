@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Gens Launcher",
   "main": "main.js",
   "author": "William Bossard",
@@ -20,7 +20,9 @@
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/vanilla.png",
       "requestedExecutionLevel": "asInvoker"
     },
@@ -39,8 +41,10 @@
     ]
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "electron-updater": "^6.1.4",
-    "minecraft-launcher-core": "latest"
+    "minecraft-launcher-core": "latest",
+    "msmc": "^5.0.5"
   },
   "devDependencies": {
     "electron": "latest",

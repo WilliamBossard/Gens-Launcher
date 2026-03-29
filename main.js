@@ -1,5 +1,6 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require("electron-updater");
+const msmc = require('msmc');
 const path = require('path');
 
 function createWindow() {
@@ -19,7 +20,6 @@ function createWindow() {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-
   autoUpdater.checkForUpdates();
 }
 
@@ -29,29 +29,21 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-
 autoUpdater.on('update-available', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Mise à jour disponible',
-    message: 'Une nouvelle version a été trouvée. Téléchargement en cours en arrière-plan...',
-    buttons: ['OK']
-  });
+  dialog.showMessageBox({ type: 'info', title: 'Mise à jour', message: 'Téléchargement en cours...', buttons: ['OK'] });
 });
-
 autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'question',
-    title: 'Mise à jour prête',
-    message: 'Le téléchargement est terminé. Veux-tu redémarrer le launcher maintenant pour l\'installer ?',
-    buttons: ['Redémarrer', 'Plus tard']
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall(); 
-    }
-  });
+  dialog.showMessageBox({ type: 'question', title: 'Mise à jour prête', message: 'Redémarrer pour installer ?', buttons: ['Redémarrer', 'Plus tard'] })
+  .then((result) => { if (result.response === 0) autoUpdater.quitAndInstall(); });
 });
 
-autoUpdater.on('error', (err) => {
-  dialog.showErrorBox('Erreur de Mise à jour', err == null ? "Erreur inconnue" : (err.stack || err).toString());
+ipcMain.handle('login-microsoft', async () => {
+    try {
+        const authManager = new msmc.Auth("select_account");
+        const xboxManager = await authManager.launch("electron");
+        const token = await xboxManager.getMinecraft();
+        return { success: true, auth: token.mclc() };
+    } catch (error) {
+        return { success: false, error: error.message || String(error) };
+    }
 });

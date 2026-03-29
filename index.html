@@ -2,140 +2,280 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Gens Launcher - Pro Edition</title>
+    <title>Gens Launcher</title>
     <style>
         :root {
-            --mc-green: #3c8527; --mc-green-hover: #4a9e31;
-            --mc-blue: #007acc; --mc-dark: #121212;
-            --mc-panel: #2d2d2d; --mc-border: #000;
-            --text-gold: #FFCC00; --text-white: #ffffff;
+            --bg-main: #1e1e1e; --bg-panel: #2d2d30; --bg-toolbar: #333337;
+            --border: #3f3f46; --accent: #007acc; --accent-hover: #1c97ea;
+            --text-main: #cccccc; --text-light: #ffffff; --btn-hover: #3e3e42;
         }
-        body { 
-            margin: 0; font-family: 'Segoe UI', sans-serif; 
-            background: var(--mc-dark); color: #e0e0e0; 
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-        }
-        .header { 
-            background: linear-gradient(to bottom, #444, #222); 
-            border-bottom: 3px solid #000; padding: 12px 25px;
-            display: flex; justify-content: space-between; align-items: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            z-index: 10;
-        }
-        .header-logo { font-size: 1.5rem; font-weight: bold; color: var(--text-gold); text-shadow: 2px 2px #000; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--bg-main); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; overflow: hidden; user-select: none; }
+        .toolbar { background: var(--bg-toolbar); border-bottom: 1px solid var(--border); padding: 5px 10px; display: flex; justify-content: space-between; align-items: center; }
+        .toolbar-group { display: flex; gap: 5px; align-items: center; }
+        .tool-btn { background: transparent; border: 1px solid transparent; color: var(--text-main); padding: 6px 12px; cursor: pointer; border-radius: 3px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+        .tool-btn:hover { background: var(--btn-hover); border: 1px solid var(--border); color: var(--text-light); }
+        select.tool-select { background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border); padding: 5px; border-radius: 3px; outline: none; }
         .workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; }
-        .instances-grid { 
-            flex-grow: 1; padding: 30px; overflow-y: auto; 
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); 
-            gap: 20px; align-content: start;
-        }
-        .instance-card { 
-            background: rgba(255,255,255,0.03); border: 2px solid #444;
-            padding: 15px; border-radius: 4px; transition: all 0.2s;
-            display: flex; flex-direction: column; align-items: center; cursor: pointer;
-        }
-        .instance-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.08); border-color: var(--text-gold); }
-        .instance-card.active { border-color: var(--mc-blue); background: rgba(0, 122, 204, 0.15); box-shadow: 0 0 10px rgba(0, 122, 204, 0.2); }
-        .instance-icon { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 10px; }
-        .action-panel { 
-            width: 300px; background: var(--mc-panel); border-left: 3px solid #000; 
-            padding: 25px; display: flex; flex-direction: column; gap: 10px;
-        }
-        .mc-button {
-            background: #555; border: 2px solid #000; border-top-color: #888; border-left-color: #888;
-            color: #fff; padding: 10px; cursor: pointer; text-align: center;
-            font-weight: bold; text-transform: uppercase; font-size: 0.8rem;
-        }
-        .mc-button:hover { background: #666; }
-        .mc-button:active { border: 2px solid #888; border-top-color: #000; border-left-color: #000; padding-top: 11px; padding-bottom: 9px; }
-        .play-btn { 
-            background: var(--mc-green); border-color: #000; border-top-color: #5fa545; border-left-color: #5fa545;
-            font-size: 1.4rem; padding: 15px; margin-bottom: 10px;
-        }
-        .play-btn:disabled { background: #444; border-color: #222; color: #777; cursor: not-allowed; }
-        #console-container { 
-            display: none; position: absolute; bottom: 0; left: 0; 
-            width: calc(100% - 300px); height: 260px; 
-            background: #000; border-top: 3px solid var(--mc-blue); z-index: 100;
-        }
-        #console-header { 
-            background: #1a1a1a; padding: 8px 15px; border-bottom: 1px solid #333;
-            display: flex; justify-content: space-between; align-items: center;
-            font-weight: bold; font-size: 12px; color: #aaa;
-        }
-        #log-output { 
-            margin: 0; padding: 15px; height: 210px; overflow-y: auto; 
-            font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; line-height: 1.4; color: #fff;
-        }
-        #progress-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 4px; background: #000; z-index: 1001; }
-        #progress-bar { width: 0%; height: 100%; background: var(--mc-blue); transition: width 0.2s; box-shadow: 0 0 8px var(--mc-blue); }
-        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); align-items:center; justify-content:center; z-index: 2000; backdrop-filter: blur(3px); }
-        .modal-card { background: var(--mc-panel); padding: 25px; border: 3px solid #000; width: 400px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        input, select { width: 100%; padding: 10px; margin: 10px 0; background: #000; color: #fff; border: 1px solid #555; box-sizing: border-box; }
-        .checkbox-container { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 10px; color: #ccc; }
+        .main-area { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .search-bar-container { padding: 10px 15px; border-bottom: 1px solid var(--border); background: var(--bg-panel); display: flex; gap: 10px; align-items: center; }
+        .instances-grid { flex-grow: 1; padding: 15px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; align-content: start; background: var(--bg-main); transition: opacity 0.2s; }
+        .instance-card { padding: 10px; border: 1px solid transparent; border-radius: 3px; display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: background 0.1s; }
+        .instance-card:hover { background: rgba(255,255,255,0.05); border-color: var(--border); }
+        .instance-card.active { background: rgba(0, 122, 204, 0.3); border-color: var(--accent); }
+        .instance-icon { width: 48px; height: 48px; object-fit: cover; image-rendering: pixelated; margin-bottom: 8px; border-radius: 4px; }
+        .instance-name { font-size: 0.85rem; color: var(--text-light); text-align: center; word-break: break-word; }
+        .instance-version { font-size: 0.7rem; color: #888; margin-top: 2px; }
+        .action-panel { width: 230px; background: var(--bg-panel); border-left: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+        .panel-header { font-size: 0.95rem; color: var(--text-light); margin-bottom: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--border); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .panel-stats { font-size: 0.75rem; color: #aaa; text-align: center; margin-bottom: 10px; display: none; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 3px; }
+        .action-btn { background: transparent; border: 1px solid transparent; color: var(--text-main); padding: 6px 10px; cursor: pointer; text-align: left; border-radius: 3px; font-size: 0.85rem; transition: background 0.1s; }
+        .action-btn:hover:not(:disabled) { background: var(--btn-hover); color: var(--text-light); border: 1px solid var(--border); }
+        .action-btn:disabled { color: #555; cursor: not-allowed; }
+        .panel-divider { height: 1px; background: var(--border); margin: 6px 0; }
+        #console-container { display: none; position: absolute; bottom: 0; left: 0; width: calc(100% - 250px); height: 250px; background: #181818; border-top: 1px solid var(--border); border-right: 1px solid var(--border); z-index: 100; }
+        #console-header { background: var(--bg-panel); padding: 5px 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+        #log-output { margin: 0; padding: 10px 15px; height: 215px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.75rem; line-height: 1.5; color: #d4d4d4; box-sizing: border-box; }
+        .statusbar { background: var(--accent); height: 22px; display: flex; align-items: center; padding: 0 10px; font-size: 0.75rem; color: #fff; position: relative; }
+        #status-text { z-index: 2; }
+        #progress-bar { position: absolute; top: 0; left: 0; height: 100%; background: rgba(255,255,255,0.2); transition: width 0.2s; z-index: 1; }
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index: 2000; }
+        .modal-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); display: flex; flex-direction: column; }
+        .modal-header { padding: 10px 15px; border-bottom: 1px solid var(--border); font-weight: bold; font-size: 0.9rem; background: rgba(0,0,0,0.1); }
+        .modal-body { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .modal-footer { padding: 10px 15px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; background: rgba(0,0,0,0.1); }
+        .modal-body label { font-size: 0.8rem; color: #aaa; margin-bottom: -5px; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 6px; background: var(--bg-main); color: var(--text-light); border: 1px solid var(--border); border-radius: 3px; box-sizing: border-box; outline: none; font-family: inherit; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+        .btn-primary { background: var(--accent); color: white; border: 1px solid var(--accent); padding: 6px 15px; cursor: pointer; border-radius: 3px; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: transparent; color: var(--text-main); border: 1px solid var(--border); padding: 6px 15px; cursor: pointer; border-radius: 3px; }
+        .btn-secondary:hover { background: var(--btn-hover); color: white; }
+        .checkbox-container { display: flex; align-items: center; gap: 5px; font-size: 0.8rem; margin-top: -5px; }
+        .settings-layout { display: flex; height: 420px; }
+        .settings-sidebar { width: 130px; border-right: 1px solid var(--border); background: rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .settings-tab { padding: 10px; cursor: pointer; font-size: 0.85rem; border-left: 3px solid transparent; color: var(--text-main); }
+        .settings-tab:hover { background: var(--btn-hover); }
+        .settings-tab.active { background: var(--bg-panel); border-left-color: var(--accent); color: var(--text-light); font-weight: bold; }
+        .settings-content { flex-grow: 1; padding: 15px; overflow-y: auto; display: none; }
+        .settings-content.active { display: flex; flex-direction: column; gap: 10px; }
+        .account-item { display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px solid var(--border); }
+        .account-item:last-child { border-bottom: none; }
+        .account-skin { width: 32px; height: 32px; image-rendering: pixelated; border-radius: 4px; border: 1px solid #000; }
+        .mod-item { display: flex; justify-content: space-between; align-items: center; padding: 6px; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+        .mod-item:hover { background: rgba(255,255,255,0.05); }
+        .catalog-card { display: flex; gap: 15px; padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; align-items: center; }
+        .catalog-card:hover { border-color: var(--accent); }
+        .btn-microsoft { background: #107c10; color: white; border: 1px solid #107c10; padding: 8px 15px; cursor: pointer; border-radius: 3px; font-weight: bold; }
+        .btn-microsoft:hover { background: #0b580b; }
+        .btn-microsoft:disabled { background: #333; border-color: #333; color: #888; cursor: not-allowed; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="header-logo">GENS LAUNCHER <span id="app-version" style="font-size: 0.8rem; color: #888; font-weight: normal;">v?.?.?</span></div>
-        <div style="display: flex; gap: 12px; align-items: center;">
-            <span style="font-size: 0.8rem; color: #888;">JOUEUR :</span>
-            <select id="account-dropdown" onchange="changeAccount()" style="width: 160px; margin:0;"></select>
-            <button class="mc-button" onclick="openAccountModal()" style="padding: 5px 15px;">+ JOUEUR</button>
-            <button class="mc-button" onclick="openInstanceModal()" style="background: var(--mc-blue); padding: 5px 15px;">+ INSTANCE</button>
+    <input type="file" id="import-upload" accept=".zip" style="display: none;">
+
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <button class="tool-btn" onclick="openInstanceModal()">Ajouter une instance</button>
+            <button class="tool-btn" onclick="document.getElementById('import-upload').click()">Importer</button>
+            <button class="tool-btn" onclick="openCatalogModal()">Catalogue de Mods</button>
+            <button class="tool-btn" onclick="openGlobalSettings()">Paramètres Globaux</button>
+            <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'">Afficher les logs</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <span style="font-size: 0.8rem; color: #888;">Profil :</span>
+            <img id="active-skin" src="" style="width: 20px; height: 20px; border-radius: 2px; image-rendering: pixelated; display: none;">
+            <select id="account-dropdown" class="tool-select" onchange="changeAccount()" style="min-width: 120px;"></select>
+            <button class="tool-btn" onclick="openAccountModal()">Gérer</button>
         </div>
     </div>
+
     <div class="workspace">
-        <div class="instances-grid" id="instance-grid"></div>
-        <div id="console-container">
-            <div id="console-header">
-                <span>TERMINAL DE SORTIE (LOGS DU JEU)</span>
-                <span style="cursor:pointer; color:#ff4444; font-size: 16px;" onclick="document.getElementById('console-container').style.display='none'">✖</span>
+        <div class="main-area">
+            <div class="search-bar-container">
+                <input type="text" id="search-bar" placeholder="Rechercher une instance..." style="width: 250px;" oninput="renderUI()">
+                <select id="sort-dropdown" class="tool-select" style="width: 200px;" onchange="renderUI()">
+                    <option value="name">Trier par Nom</option>
+                    <option value="lastPlayed">Dernière utilisation</option>
+                    <option value="playTime">Temps de jeu</option>
+                </select>
             </div>
-            <pre id="log-output"></pre>
+            <div class="instances-grid" id="instance-grid"></div>
+            <div id="console-container">
+                <div id="console-header"><span>Console Minecraft</span><span style="cursor:pointer; font-size: 14px;" onclick="document.getElementById('console-container').style.display='none'">X</span></div>
+                <pre id="log-output"></pre>
+            </div>
         </div>
-        <div class="action-panel" id="action-panel" style="opacity: 0.2; pointer-events: none;">
-            <h2 id="panel-title" style="color:var(--text-gold); text-align:center; margin:0 0 20px 0; border-bottom: 2px solid #444; padding-bottom: 10px;">Instance</h2>
-            <button id="launch-btn" class="mc-button play-btn" disabled>JOUER</button>
-            <button class="mc-button" onclick="openDir('')">📂 DOSSIER INSTANCE</button>
-            <button class="mc-button" id="btn-mods" onclick="openDir('mods')">🧩 DOSSIER MODS</button>
-            <button class="mc-button" onclick="openEditModal()">⚙ CONFIGURER RAM</button>
-            <div id="status-text" style="font-size: 13px; text-align: center; margin-top: 15px; color: #fff; font-weight: bold; font-family: monospace;">Prêt.</div>
-            <button style="color:#ff5555; background:none; border:none; margin-top:auto; cursor:pointer; font-weight:bold;" onclick="deleteInstance()">[ SUPPRIMER L'INSTANCE ]</button>
+
+        <div class="action-panel" id="action-panel" style="opacity: 0.4; pointer-events: none;">
+            <div class="panel-header" id="panel-title">Sélectionnez une instance</div>
+            <div id="panel-stats" class="panel-stats">
+                Temps : <span id="stat-time" style="color:#fff; font-weight:bold;"></span><br>
+                Dernier : <span id="stat-last" style="color:#fff;"></span>
+            </div>
+            <button id="launch-btn" class="action-btn" style="font-weight: bold; color: white; background: var(--accent);" disabled>Lancer</button>
+            <button class="action-btn" id="btn-offline" onclick="document.getElementById('launch-btn').click()">Lancer en hors ligne</button>
+            <div class="panel-divider"></div>
+            <button class="action-btn" id="btn-edit" onclick="openEditModal('tab-general')">Paramètres de l'instance</button>
+            <button class="action-btn" id="btn-mods" onclick="openEditModal('tab-mods')">Gestionnaire de Mods</button>
+            <button class="action-btn" id="btn-saves" onclick="openDir('saves')">Voir les mondes</button>
+            <button class="action-btn" id="btn-screens" onclick="openDir('screenshots')">Captures d'écran</button>
+            <div class="panel-divider"></div>
+            <button class="action-btn" id="btn-folder" onclick="openDir('')">Dossier de l'instance</button>
+            <div class="panel-divider"></div>
+            <button class="action-btn" id="btn-delete" onclick="deleteInstance()" style="color: #f87171;">Supprimer</button>
+            <button class="action-btn" id="btn-copy" onclick="copyInstance()">Copier l'instance</button>
+            <button class="action-btn" id="btn-export" onclick="exportInstance()">Exporter l'instance</button>
         </div>
     </div>
-    <div id="progress-container"><div id="progress-bar"></div></div>
-    <div id="modal-instance" class="modal"><div class="modal-card">
-        <h2 style="color:var(--text-gold); margin:0 0 15px 0;">NOUVELLE INSTANCE</h2>
-        <input type="text" id="new-name" placeholder="Nom de l'instance (ex: Survie 1.21)">
-        <div class="checkbox-container">
-            <input type="checkbox" id="check-beta" style="width:auto; margin:0;" onchange="updateVersionList(this.checked)"> 
-            <label for="check-beta">Afficher les Snapshots / Bêtas</label>
+
+    <div class="statusbar">
+        <div id="progress-bar"></div>
+        <span id="status-text">Prêt</span>
+        <span id="app-version" style="position: absolute; right: 10px; opacity: 0.7;"></span>
+    </div>
+
+    <div id="modal-catalog" class="modal"><div class="modal-card" style="width: 800px; height: 600px;">
+        <div class="modal-header">Catalogue de Mods (Modrinth)</div>
+        <div class="modal-body" style="flex-grow: 1; overflow: hidden; padding: 15px; display: flex; flex-direction: column;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <input type="text" id="catalog-search" placeholder="Rechercher un mod..." style="flex-grow: 1;" onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
+                <select id="catalog-loader" style="width: 120px;">
+                    <option value="fabric">Fabric</option>
+                    <option value="forge">Forge</option>
+                </select>
+                <select id="catalog-version" style="width: 120px;"></select>
+                <button class="btn-primary" onclick="searchGlobalCatalog()">Chercher</button>
+            </div>
+            <div id="catalog-results" style="flex-grow: 1; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 10px;"></div>
         </div>
-        <select id="new-version"></select>
-        <select id="new-loader">
-            <option value="vanilla">VANILLA (Officiel)</option>
-            <option value="fabric">FABRIC (Moddé)</option>
-            <option value="forge">FORGE (Moddé)</option>
-        </select>
-        <label style="font-size: 0.8rem; color: #aaa;">RAM MAXIMUM (Go) :</label>
-        <input type="number" id="new-ram" value="4">
-        <button class="mc-button play-btn" style="width:100%; margin-top:10px;" onclick="saveInstance()">CRÉER L'INSTANCE</button>
-        <button class="mc-button" style="width:100%; margin-top:10px; background:none; border:none; color:#888;" onclick="closeInstanceModal()">ANNULER</button>
+        <div class="modal-footer">
+            <span id="catalog-status" style="margin-right: auto; font-size: 0.85rem; color: var(--accent);"></span>
+            <button class="btn-secondary" onclick="closeCatalogModal()">Fermer</button>
+        </div>
     </div></div>
-    <div id="modal-edit" class="modal"><div class="modal-card">
-        <h2 style="color:var(--text-gold); margin:0 0 15px 0;">PARAMÈTRES RAM</h2>
-        <p style="font-size: 0.9rem; color: #ccc;">Modifiez la mémoire allouée à cette instance :</p>
-        <input type="number" id="edit-ram" placeholder="Ex: 4, 8, 16...">
-        <button class="mc-button play-btn" style="width:100%" onclick="saveEdit()">APPLIQUER</button>
-        <button class="mc-button" style="width:100%; margin-top:10px; background:none; border:none; color:#888;" onclick="closeEditModal()">FERMER</button>
+
+    <div id="modal-instance" class="modal"><div class="modal-card" style="width: 350px;">
+        <div class="modal-header">Nouvelle instance</div>
+        <div class="modal-body">
+            <label>Nom</label>
+            <input type="text" id="new-name" placeholder="Ma Survie">
+            <div class="checkbox-container">
+                <input type="checkbox" id="check-beta" style="width:auto; margin:0;" onchange="updateVersionList(this.checked)"> 
+                <label for="check-beta">Afficher les Bêtas</label>
+            </div>
+            <label>Version</label>
+            <select id="new-version"></select>
+            <label>Type de chargeur (Loader)</label>
+            <select id="new-loader">
+                <option value="vanilla">Vanilla</option>
+                <option value="fabric">Fabric</option>
+                <option value="forge">Forge</option>
+            </select>
+            <div style="display: flex; justify-content: space-between; align-items:center;">
+                <label>Mémoire RAM (Mo) :</label>
+                <input type="number" id="new-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('new-ram-slider').value = this.value">
+            </div>
+            <input type="range" id="new-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('new-ram-input').value = this.value">
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeInstanceModal()">Annuler</button>
+            <button class="btn-primary" onclick="saveInstance()">Créer</button>
+        </div>
     </div></div>
-    <div id="modal-account" class="modal"><div class="modal-card">
-        <h2 style="color:var(--text-gold); margin:0 0 15px 0;">AJOUTER UN JOUEUR</h2>
-        <input type="text" id="acc-name" placeholder="Pseudo Minecraft (Offline)">
-        <button class="mc-button play-btn" style="width:100%" onclick="saveAccount()">VALIDER LE COMPTE</button>
-        <button class="mc-button" style="width:100%; margin-top:10px; background:none; border:none; color:#888;" onclick="closeAccountModal()">ANNULER</button>
+
+    <div id="modal-settings" class="modal"><div class="modal-card" style="width: 350px;">
+        <div class="modal-header">Paramètres Globaux du Launcher</div>
+        <div class="modal-body">
+            <div style="display: flex; justify-content: space-between; align-items:center;">
+                <label>RAM par défaut (Mo) :</label>
+                <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('global-ram-slider').value = this.value">
+            </div>
+            <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('global-ram-input').value = this.value">
+            <label style="margin-top: 15px;">Chemin Java par défaut</label>
+            <input type="text" id="global-java" placeholder="javaw">
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeGlobalSettings()">Annuler</button>
+            <button class="btn-primary" onclick="saveGlobalSettings()">Sauvegarder</button>
+        </div>
     </div></div>
+
+    <div id="modal-edit" class="modal"><div class="modal-card" style="width: 580px;">
+        <div class="modal-header" id="edit-modal-title">Paramètres de l'instance</div>
+        <div class="settings-layout">
+            <div class="settings-sidebar">
+                <div id="tab-btn-general" class="settings-tab active" onclick="switchTab('tab-general')">Général</div>
+                <div id="tab-btn-mods" class="settings-tab" onclick="switchTab('tab-mods')">Mods</div>
+                <div id="tab-btn-java" class="settings-tab" onclick="switchTab('tab-java')">Paramètres Java</div>
+                <div id="tab-btn-notes" class="settings-tab" onclick="switchTab('tab-notes')">Notes</div>
+            </div>
+            <div id="tab-general" class="settings-content active">
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <div style="position: relative;" title="Cliquez pour changer l'icône">
+                        <img id="edit-icon-preview" src="" style="width: 64px; height: 64px; border-radius: 6px; cursor: pointer; border: 2px dashed var(--border); object-fit: cover;" onclick="document.getElementById('edit-icon-upload').click()">
+                        <input type="file" id="edit-icon-upload" style="display:none;" accept="image/png, image/jpeg, image/jpg">
+                    </div>
+                    <div style="flex-grow: 1;">
+                        <label>Nom de l'instance</label>
+                        <input type="text" id="edit-name">
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 15px;">
+                    <label>Mémoire RAM allouée (Mo) :</label>
+                    <input type="number" id="edit-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('edit-ram-slider').value = this.value">
+                </div>
+                <input type="range" id="edit-ram-slider" min="1024" max="32768" step="128" oninput="document.getElementById('edit-ram-input').value = this.value">
+            </div>
+            <div id="tab-mods" class="settings-content" style="padding: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
+                    <span style="font-size: 0.85rem; font-weight: bold;">Vos Mods Installés</span>
+                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('mods')">Dossier</button>
+                </div>
+                <div id="mods-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;"></div>
+                <button class="btn-primary" style="margin-top: 10px;" onclick="closeEditModal(); openCatalogModal();">Télécharger de nouveaux mods</button>
+            </div>
+            <div id="tab-java" class="settings-content">
+                <label>Chemin de l'exécutable Java local</label>
+                <input type="text" id="edit-javapath" placeholder="Laisser vide pour utiliser le global">
+                <div style="display: flex; gap: 10px; margin-top: 5px;">
+                    <div style="flex: 1;"><label>Largeur de la fenêtre</label><input type="number" id="edit-res-w" placeholder="854"></div>
+                    <div style="flex: 1;"><label>Hauteur de la fenêtre</label><input type="number" id="edit-res-h" placeholder="480"></div>
+                </div>
+                <label style="margin-top: 5px;">Arguments JVM personnalisés</label>
+                <input type="text" id="edit-jvmargs" placeholder="-XX:+UseG1GC ...">
+            </div>
+            <div id="tab-notes" class="settings-content">
+                <label>Notes sur cette instance</label>
+                <textarea id="edit-notes" style="height: 250px; resize: none;"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeEditModal()">Fermer</button>
+            <button class="btn-primary" onclick="saveEdit()">Appliquer</button>
+        </div>
+    </div></div>
+
+    <div id="modal-account" class="modal"><div class="modal-card" style="width: 500px;">
+        <div class="modal-header">Gestion des Comptes</div>
+        <div class="modal-body">
+            <div id="account-list" style="max-height: 250px; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 3px; padding: 10px; display: flex; flex-direction: column; gap: 8px;"></div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-ms-login" class="btn-microsoft" style="flex: 1;" onclick="loginMicrosoft()">Ajouter un compte Microsoft</button>
+            </div>
+            
+            <div style="margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
+                <label>Ajouter un profil Hors-Ligne</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="acc-name" placeholder="Pseudo Minecraft">
+                    <button class="btn-secondary" onclick="saveOfflineAccount()" style="white-space: nowrap;">Ajouter</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" onclick="closeAccountModal()">Fermer</button></div>
+    </div></div>
+
     <script src="renderer.js"></script>
 </body>
 </html>
