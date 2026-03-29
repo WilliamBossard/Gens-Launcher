@@ -24,6 +24,8 @@ let selectedInstanceIdx = null, selectedAccountIdx = null;
 document.addEventListener('DOMContentLoaded', () => init());
 
 async function init() {
+    document.getElementById('app-version').innerText = "v" + require('./package.json').version;
+
     loadStorage();
     try {
         const res = await fetch('https://launchermeta.mojang.com/mc/game/version_manifest.json');
