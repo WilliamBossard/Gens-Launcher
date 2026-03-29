@@ -1,359 +1,102 @@
 <!DOCTYPE html>
 <html>
-
 <head>
     <meta charset="UTF-8">
-    <title>Gens Launcher</title>
+    <title>Gens Launcher - Pro Edition</title>
     <style>
         :root {
-            --bg-main: #1e1e1e;
-            --bg-panel: #252526;
-            --bg-header: #333333;
-            --border: #444444;
-            --accent: #007acc;
-            --accent-hover: #0098ff;
-            --text-main: #cccccc;
-            --text-light: #ffffff;
+            --mc-green: #3c8527; --mc-green-hover: #4a9e31;
+            --mc-blue: #007acc; --mc-dark: #121212;
+            --mc-panel: #2d2d2d; --mc-border: #000;
+            --text-gold: #FFCC00;
         }
+        
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--mc-dark); color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-        body {
-            margin: 0;
-            font-family: 'Segoe UI', sans-serif;
-            background-color: var(--bg-main);
-            color: var(--text-main);
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
-        }
+        .header { background: linear-gradient(to bottom, #444, #222); border-bottom: 3px solid #000; padding: 12px 25px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .header-logo { font-size: 1.5rem; font-weight: bold; color: var(--text-gold); text-shadow: 2px 2px #000; }
 
-        /* HEADER */
-        .header {
-            background: var(--bg-header);
-            border-bottom: 1px solid var(--border);
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+        .workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; }
 
-        .header-title {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: var(--text-light);
-        }
+        .instances-grid { flex-grow: 1; padding: 30px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px; align-content: start; }
+        .instance-card { background: rgba(255,255,255,0.03); border: 2px solid #444; padding: 15px; border-radius: 4px; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+        .instance-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.08); border-color: var(--text-gold); }
+        .instance-card.active { border-color: var(--mc-blue); background: rgba(0, 122, 204, 0.15); }
+        .instance-icon { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 10px; }
 
-        .header-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .action-panel { width: 300px; background: var(--mc-panel); border-left: 3px solid #000; padding: 25px; display: flex; flex-direction: column; gap: 10px; }
+        
+        .mc-button { background: #555; border: 2px solid #000; border-top-color: #888; border-left-color: #888; color: #fff; padding: 10px; cursor: pointer; text-align: center; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; }
+        .mc-button:hover { background: #666; }
+        .mc-button:active { border: 2px solid #888; border-top-color: #000; border-left-color: #000; padding-top: 11px; }
+        
+        .play-btn { background: var(--mc-green); border-color: #000; border-top-color: #5fa545; border-left-color: #5fa545; font-size: 1.4rem; padding: 15px; margin-bottom: 10px; }
+        .play-btn:disabled { background: #444; border-color: #222; color: #777; cursor: not-allowed; }
 
-        select.account-dropdown {
-            background: var(--bg-main);
-            color: var(--text-light);
-            border: 1px solid var(--border);
-            padding: 6px 10px;
-            border-radius: 3px;
-            cursor: pointer;
-        }
+        /* CONSOLE NOIRE / TEXTE BLANC */
+        #console-container { display: none; position: absolute; bottom: 0; left: 0; width: calc(100% - 300px); height: 280px; background: #000; border-top: 3px solid var(--mc-blue); z-index: 100; }
+        #console-header { background: #1a1a1a; padding: 8px 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 12px; color: #aaa; }
+        #log-output { margin: 0; padding: 15px; height: 230px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; line-height: 1.4; color: #fff; }
 
-        button {
-            background: #3a3a3a;
-            color: var(--text-light);
-            border: 1px solid var(--border);
-            padding: 6px 15px;
-            border-radius: 3px;
-            cursor: pointer;
-            transition: 0.1s;
-        }
+        #progress-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 4px; background: #000; z-index: 1001; }
+        #progress-bar { width: 0%; height: 100%; background: var(--mc-blue); transition: width 0.2s; }
 
-        button:hover {
-            background: #505050;
-        }
-
-        button.primary {
-            background: var(--accent);
-            border-color: var(--accent);
-            font-weight: bold;
-        }
-
-        button.primary:hover {
-            background: var(--accent-hover);
-        }
-
-        /* WORKSPACE */
-        .workspace {
-            display: flex;
-            flex-grow: 1;
-            overflow: hidden;
-        }
-
-        /* GRID */
-        .instances-grid {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            align-content: start;
-            gap: 15px;
-        }
-
-        .instance-card {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 10px;
-            border: 1px solid transparent;
-            border-radius: 4px;
-            cursor: pointer;
-            text-align: center;
-            transition: 0.1s;
-        }
-
-        .instance-card:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: #555;
-        }
-
-        .instance-card.active {
-            background: rgba(0, 122, 204, 0.2);
-            border-color: var(--accent);
-        }
-
-        .instance-icon {
-            width: 64px;
-            height: 64px;
-            object-fit: cover;
-            border-radius: 4px;
-            margin-bottom: 8px;
-            image-rendering: pixelated;
-            background: #111;
-        }
-
-        .instance-name {
-            font-size: 0.85rem;
-            color: var(--text-light);
-            word-wrap: break-word;
-            width: 100%;
-            font-weight: bold;
-        }
-
-        .instance-version {
-            font-size: 0.7rem;
-            color: #888;
-            margin-top: 3px;
-        }
-
-        /* PANEL */
-        .action-panel {
-            width: 250px;
-            background: var(--bg-panel);
-            border-left: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-
-        .action-panel h3 {
-            margin: 0 0 15px 0;
-            color: var(--text-light);
-            font-size: 1.1rem;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 10px;
-        }
-
-        .action-btn {
-            width: 100%;
-            margin-bottom: 8px;
-            padding: 10px;
-            text-align: left;
-        }
-
-        .action-btn.play {
-            background: #3c8527;
-            border-color: #47a031;
-            text-align: center;
-            font-size: 1.1rem;
-            padding: 15px;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-
-        .action-btn.play:hover {
-            background: #47a031;
-        }
-
-        .action-btn.play:disabled {
-            background: #444;
-            border-color: #333;
-            color: #888;
-            cursor: not-allowed;
-        }
-
-        .status-box {
-            margin-top: auto;
-            padding: 10px;
-            background: #111;
-            border: 1px solid var(--border);
-            border-radius: 3px;
-            font-size: 0.8rem;
-        }
-
-        .progress-bar-bg {
-            width: 100%;
-            height: 4px;
-            background: #333;
-            margin-top: 5px;
-        }
-
-        .progress-bar-fill {
-            width: 0%;
-            height: 100%;
-            background: var(--accent);
-            transition: 0.2s;
-        }
-
-        /* MODALS */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-
-        .modal-card {
-            background: var(--bg-panel);
-            padding: 25px;
-            border: 1px solid var(--border);
-            width: 400px;
-            border-radius: 4px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        }
-
-        .modal-card h2 {
-            margin-top: 0;
-            color: var(--text-light);
-        }
-
-        input,
-        select {
-            width: 100%;
-            padding: 8px;
-            margin: 8px 0 15px 0;
-            background: var(--bg-main);
-            color: var(--text-light);
-            border: 1px solid var(--border);
-            box-sizing: border-box;
-            border-radius: 2px;
-        }
-
-        .form-group {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .form-group input {
-            width: 80px;
-            margin: 0;
-        }
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); align-items:center; justify-content:center; z-index: 2000; }
+        .modal-card { background: var(--mc-panel); padding: 25px; border: 3px solid #000; width: 380px; }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; background: #000; color: #fff; border: 1px solid #555; box-sizing: border-box; }
     </style>
 </head>
-
 <body>
-
     <div class="header">
-        <div class="header-title">Gens Launcher</div>
-        <div class="header-controls">
-            <select id="account-dropdown" class="account-dropdown" onchange="changeAccount()">
-                <option value="">-- Choisir un compte --</option>
-            </select>
-            <button onclick="openAccountModal()">Nouveau compte</button>
-            <button class="primary" onclick="openInstanceModal()">+ Créer une instance</button>
+        <div class="header-logo">GENS LAUNCHER</div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <select id="account-dropdown" onchange="changeAccount()" style="width: 150px; margin:0;"></select>
+            <button class="mc-button" onclick="openAccountModal()">+ JOUEUR</button>
+            <button class="mc-button" onclick="openInstanceModal()" style="background: var(--mc-blue);">+ INSTANCE</button>
         </div>
     </div>
 
     <div class="workspace">
         <div class="instances-grid" id="instance-grid"></div>
-
-        <div class="action-panel" id="action-panel" style="opacity: 0.3; pointer-events: none;">
-            <h3 id="panel-title">Aucune instance</h3>
-            <button id="launch-btn" class="action-btn play" disabled>JOUER</button>
-            <button class="action-btn" onclick="openDir('')">📂 Dossier instance</button>
-            <button class="action-btn" id="btn-mods" onclick="openDir('mods')">🧩 Dossier Mods</button>
-            <button class="action-btn" onclick="openDir('resourcepacks')">🎨 Resource Packs</button>
-
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
-                <button class="action-btn" onclick="openEditModal()">⚙️ Paramètres</button>
-                <button class="action-btn" style="color: #ff5555;" onclick="deleteInstance()">❌ Supprimer</button>
-            </div>
-
-            <div class="status-box">
-                <div id="status-text">Prêt.</div>
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progress-bar"></div>
-                </div>
-            </div>
+        <div id="console-container">
+            <div id="console-header"><span>TERMINAL DE SORTIE</span><span style="cursor:pointer; color:red;" onclick="document.getElementById('console-container').style.display='none'">✖</span></div>
+            <pre id="log-output"></pre>
+        </div>
+        <div class="action-panel" id="action-panel" style="opacity: 0.2; pointer-events: none;">
+            <h2 id="panel-title" style="color:var(--text-gold); text-align:center; margin:0 0 15px 0;">Instance</h2>
+            <button id="launch-btn" class="mc-button play-btn" disabled>JOUER</button>
+            <button class="mc-button" onclick="openDir('')">DOSSIER INSTANCE</button>
+            <button class="mc-button" id="btn-mods" onclick="openDir('mods')">DOSSIER MODS</button>
+            <button class="mc-button" onclick="openEditModal()">CONFIGURER RAM</button>
+            <div id="status-text" style="font-size: 12px; text-align: center; margin-top: 10px; color: #fff; font-weight: bold;">Prêt.</div>
+            <button style="color:#ff5555; background:none; border:none; margin-top:auto; cursor:pointer;" onclick="deleteInstance()">Supprimer</button>
         </div>
     </div>
+    <div id="progress-container"><div id="progress-bar"></div></div>
 
-    <div id="modal-instance" class="modal">
-        <div class="modal-card">
-            <h2>Nouvelle Instance</h2>
-            <label>Nom :</label> <input type="text" id="new-name" placeholder="Ex: Survie Moddée">
-            <label>Version Minecraft :</label> <select id="new-version"></select>
-            <label>Moteur de jeu :</label>
-            <select id="new-loader">
-                <option value="vanilla">Vanilla</option>
-                <option value="fabric">Fabric</option>
-                <option value="forge">Forge</option>
-            </select>
-            <div class="form-group">
-                <label>RAM Allouée (Go) :</label>
-                <input type="number" id="new-ram" value="4">
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button class="primary" style="flex-grow: 1;" onclick="saveInstance()">Créer</button>
-                <button style="flex-grow: 1;" onclick="closeInstanceModal()">Annuler</button>
-            </div>
-        </div>
-    </div>
+    <div id="modal-instance" class="modal"><div class="modal-card">
+        <h2 style="color:var(--text-gold); margin:0;">NOUVELLE INSTANCE</h2>
+        <input type="text" id="new-name" placeholder="Nom">
+        <select id="new-version"></select>
+        <select id="new-loader"><option value="vanilla">VANILLA</option><option value="fabric">FABRIC</option><option value="forge">FORGE</option></select>
+        <input type="number" id="new-ram" value="4">
+        <button class="mc-button play-btn" style="width:100%" onclick="saveInstance()">CRÉER</button>
+        <button class="mc-button" style="width:100%; margin-top:5px;" onclick="closeInstanceModal()">ANNULER</button>
+    </div></div>
 
-    <div id="modal-edit" class="modal">
-        <div class="modal-card">
-            <h2>Paramètres</h2>
-            <label>Renommer :</label> <input type="text" id="edit-name">
-            <label>RAM (Go) :</label> <input type="number" id="edit-ram">
-            <label>Changer le Logo (.png/.jpg) :</label> <input type="file" id="edit-icon"
-                accept="image/png, image/jpeg">
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button class="primary" style="flex-grow: 1;" onclick="saveEdit()">Appliquer</button>
-                <button style="flex-grow: 1;" onclick="closeEditModal()">Fermer</button>
-            </div>
-        </div>
-    </div>
+    <div id="modal-edit" class="modal"><div class="modal-card">
+        <h2 style="color:var(--text-gold); margin:0;">CONFIGURER RAM</h2>
+        <input type="number" id="edit-ram" placeholder="RAM en Go (ex: 4)">
+        <button class="mc-button play-btn" style="width:100%" onclick="saveEdit()">APPLIQUER</button>
+        <button class="mc-button" style="width:100%; margin-top:5px;" onclick="closeEditModal()">FERMER</button>
+    </div></div>
 
-    <div id="modal-account" class="modal">
-        <div class="modal-card">
-            <h2>Ajouter un joueur</h2>
-            <label>Pseudo :</label> <input type="text" id="acc-name" placeholder="Ton pseudo">
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button class="primary" style="flex-grow: 1;" onclick="saveAccount()">Ajouter</button>
-                <button style="flex-grow: 1;" onclick="closeAccountModal()">Annuler</button>
-            </div>
-        </div>
-    </div>
-
+    <div id="modal-account" class="modal"><div class="modal-card">
+        <h2 style="color:var(--text-gold); margin:0;">JOUEUR OFFLINE</h2>
+        <input type="text" id="acc-name" placeholder="Pseudo">
+        <button class="mc-button play-btn" style="width:100%" onclick="saveAccount()">VALIDER</button>
+        <button class="mc-button" style="width:100%; margin-top:5px;" onclick="closeAccountModal()">RETOUR</button>
+    </div></div>
     <script src="renderer.js"></script>
 </body>
-
 </html>

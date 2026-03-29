@@ -1,9 +1,9 @@
 {
   "name": "gens-launcher",
-  "version": "1.0.0",
-  "description": "Un launcher Minecraft ultra-rapide inspiré de MultiMC.",
-  "author": "Gens Launcher Team",
+  "version": "1.0.1",
+  "description": "Launcher Minecraft.",
   "main": "main.js",
+  "author": "William Bossard",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder"
@@ -11,22 +11,23 @@
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "win": {
-      "target": "portable",
-      "icon": "assets/vanilla.png"
+    "publish": [{ "provider": "github", "owner": "WilliamBossard", "repo": "Gens-Launcher" }],
+    "win": { 
+      "target": ["nsis"], 
+      "icon": "assets/vanilla.png",
+      "requestedExecutionLevel": "asInvoker"
     },
-    "files": [
-      "**/*",
-      "!instances/*",
-      "!accounts.json",
-      "!instances.json",
-      "!assets/fabric.png",
-      "!assets/forge.png",
-      "!assets/vanilla.png"
-    ]
+    "nsis": { 
+      "oneClick": false, 
+      "allowToChangeInstallationDirectory": true, 
+      "createDesktopShortcut": true, 
+      "runAfterFinish": true 
+    },
+    "files": ["**/*", "!instances/*", "!accounts.json", "!instances.json", "!dist/*"]
   },
-  "dependencies": {
-    "minecraft-launcher-core": "latest"
+"dependencies": {
+  "electron-updater": "^6.1.4",
+  "minecraft-launcher-core": "latest"
   },
   "devDependencies": {
     "electron": "latest",

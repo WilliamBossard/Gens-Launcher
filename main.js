@@ -1,21 +1,24 @@
 const { app, BrowserWindow } = require('electron');
+const { autoUpdater } = require("electron-updater");
 const path = require('path');
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1250,
-    height: 800,
-    minWidth: 1000, 
+    width: 1200,
+    height: 850,
+    minWidth: 1000,
     minHeight: 700,
-    backgroundColor: '#1a2a1a', 
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
 
-  win.setMenuBarVisibility(false); 
+  win.setMenuBarVisibility(false);
   win.loadFile('index.html');
+
+  // Vérifie les mises à jour sur GitHub
+  autoUpdater.checkForUpdatesAndNotify();
 }
 
 app.whenReady().then(createWindow);
