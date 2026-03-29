@@ -17,7 +17,6 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   win.loadFile('index.html');
 
-  // Vérifie les mises à jour sur GitHub
   autoUpdater.checkForUpdatesAndNotify();
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "gens-launcher",
-  "version": "1.0.1",
-  "description": "Launcher Minecraft.",
+  "version": "1.0.2",
+  "description": "Gens Launcher",
   "main": "main.js",
   "author": "William Bossard",
   "scripts": {
@@ -19,9 +19,7 @@
       }
     ],
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "assets/vanilla.png",
       "requestedExecutionLevel": "asInvoker"
     },
