@@ -11,23 +11,37 @@
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "publish": [{ "provider": "github", "owner": "WilliamBossard", "repo": "Gens-Launcher" }],
-    "win": { 
-      "target": ["nsis"], 
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "WilliamBossard",
+        "repo": "Gens-Launcher"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/vanilla.png",
       "requestedExecutionLevel": "asInvoker"
     },
-    "nsis": { 
-      "oneClick": false, 
-      "allowToChangeInstallationDirectory": true, 
-      "createDesktopShortcut": true, 
-      "runAfterFinish": true 
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
     },
-    "files": ["**/*", "!instances/*", "!accounts.json", "!instances.json", "!dist/*"]
+    "files": [
+      "**/*",
+      "!instances/*",
+      "!accounts.json",
+      "!instances.json",
+      "!dist/*"
+    ]
   },
-"dependencies": {
-  "electron-updater": "^6.1.4",
-  "minecraft-launcher-core": "latest"
+  "dependencies": {
+    "electron-updater": "^6.1.4",
+    "minecraft-launcher-core": "latest"
   },
   "devDependencies": {
     "electron": "latest",
