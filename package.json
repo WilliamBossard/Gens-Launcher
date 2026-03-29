@@ -1,0 +1,15 @@
+{
+  "name": "gens-launcher",
+  "version": "1.0.0",
+  "description": "Un launcher Minecraft moderne et léger.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "WillyLutin",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^latest",
+    "minecraft-launcher-core": "^latest"
+  }
+}
