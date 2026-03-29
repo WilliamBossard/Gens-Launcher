@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Gens Launcher",
   "main": "main.js",
   "author": "William Bossard",
@@ -11,6 +11,7 @@
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
+    "artifactName": "GensLauncher-Setup-${version}.${ext}",
     "publish": [
       {
         "provider": "github",
