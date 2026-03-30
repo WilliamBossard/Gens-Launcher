@@ -72,6 +72,7 @@
 </head>
 <body>
     <input type="file" id="import-upload" accept=".zip" style="display: none;">
+    <datalist id="java-paths-list"></datalist>
 
     <div class="toolbar">
         <div class="toolbar-group">
@@ -184,7 +185,7 @@
         </div>
     </div></div>
 
-    <div id="modal-settings" class="modal"><div class="modal-card" style="width: 350px;">
+    <div id="modal-settings" class="modal"><div class="modal-card" style="width: 400px;">
         <div class="modal-header">Paramètres Globaux du Launcher</div>
         <div class="modal-body">
             <div style="display: flex; justify-content: space-between; align-items:center;">
@@ -192,8 +193,12 @@
                 <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('global-ram-slider').value = this.value">
             </div>
             <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('global-ram-input').value = this.value">
+            
             <label style="margin-top: 15px;">Chemin Java par défaut</label>
-            <input type="text" id="global-java" placeholder="javaw">
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="global-java" list="java-paths-list" placeholder="javaw" style="flex-grow: 1;">
+                <button class="btn-secondary" onclick="scanJavaVersions()">Scanner</button>
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn-secondary" onclick="closeGlobalSettings()">Annuler</button>
@@ -237,12 +242,15 @@
             </div>
             <div id="tab-java" class="settings-content">
                 <label>Chemin de l'exécutable Java local</label>
-                <input type="text" id="edit-javapath" placeholder="Laisser vide pour utiliser le global">
-                <div style="display: flex; gap: 10px; margin-top: 5px;">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="edit-javapath" list="java-paths-list" placeholder="Laisser vide pour utiliser le global" style="flex-grow: 1;">
+                    <button class="btn-secondary" onclick="scanJavaVersions()">Scanner</button>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
                     <div style="flex: 1;"><label>Largeur de la fenêtre</label><input type="number" id="edit-res-w" placeholder="854"></div>
                     <div style="flex: 1;"><label>Hauteur de la fenêtre</label><input type="number" id="edit-res-h" placeholder="480"></div>
                 </div>
-                <label style="margin-top: 5px;">Arguments JVM personnalisés</label>
+                <label style="margin-top: 10px;">Arguments JVM personnalisés</label>
                 <input type="text" id="edit-jvmargs" placeholder="-XX:+UseG1GC ...">
             </div>
             <div id="tab-notes" class="settings-content">

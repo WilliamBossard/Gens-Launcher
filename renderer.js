@@ -1,10 +1,37 @@
 const { ipcRenderer } = require('electron');
 const { Client } = require('minecraft-launcher-core');
 const { shell } = require('electron');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
+const DiscordRPC = require('discord-rpc');
+
 const launcher = new Client();
+const discordClientId = '1223633633633633633'; 
+
+let rpc = new DiscordRPC.Client({ transport: 'ipc' });
+let rpcReady = false;
+rpc.login({ clientId: discordClientId }).then(() => { rpcReady = true; }).catch(() => {});
+
+function updateRPC(details, state) {
+    if(!rpcReady) return;
+    try {
+        rpc.setActivity({
+            details: details,
+            state: state,
+            startTimestamp: new Date(),
+            largeImageKey: 'logo',
+            largeImageText: 'Gens Launcher',
+            instance: false,
+        });
+    } catch(e) {}
+}
+
+function clearRPC() {
+    if(!rpcReady) return;
+    try { rpc.clearActivity(); } catch(e) {}
+}
 
 const dataDir = path.join(process.env.APPDATA, 'GensLauncher');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -203,7 +230,7 @@ window.searchGlobalCatalog = async () => {
                         <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${mod.author || 'Auteur'} • ${downloads}</div>
                         <div style="font-size: 0.8rem; color: var(--text-main);">${mod.description}</div>
                     </div>
-                    <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}')">Installer</button>
+                    <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}', false)">Installer</button>
                 </div>
             `;
         });
@@ -212,46 +239,94 @@ window.searchGlobalCatalog = async () => {
     }
 };
 
-window.installGlobalMod = async (projectId) => {
-    if (selectedInstanceIdx === null) {
-        alert("Veuillez sélectionner une instance dans la liste principale avant de télécharger un mod.");
-        return;
-    }
+window.installGlobalMod = async (projectId, isDependency = false) => {
+    if (selectedInstanceIdx === null) return;
     
     const inst = allInstances[selectedInstanceIdx];
     const statusText = document.getElementById('catalog-status');
-    const loader = document.getElementById('catalog-loader').value;
-    const version = document.getElementById('catalog-version').value;
-    
-    if (inst.loader !== loader || inst.version !== version) {
-        alert(`Attention: Le mod que vous installez est prévu pour ${loader} ${version}, mais votre instance sélectionnée (${inst.name}) est en ${inst.loader} ${inst.version}.`);
-    }
+    const loader = document.getElementById('catalog-loader') ? document.getElementById('catalog-loader').value : (inst.loader === 'forge' ? 'forge' : 'fabric');
+    const version = document.getElementById('catalog-version') ? document.getElementById('catalog-version').value : inst.version;
     
     try {
-        statusText.innerText = "Téléchargement du mod en cours...";
+        if(!isDependency) statusText.innerText = "Téléchargement du mod en cours...";
         const url = `https://api.modrinth.com/v2/project/${projectId}/version?loaders=["${loader}"]&game_versions=["${version}"]`;
         const res = await fetch(url);
         const versions = await res.json();
         
         if(versions.length === 0) {
-            statusText.innerText = "Aucun fichier compatible trouvé pour cette version.";
+            if(!isDependency) statusText.innerText = "Aucun fichier compatible trouvé pour cette version.";
             return;
         }
         
-        const file = versions[0].files.find(f => f.primary) || versions[0].files[0];
+        const fileData = versions[0];
+        const file = fileData.files.find(f => f.primary) || fileData.files[0];
         const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, '_'), 'mods');
         if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
         
         const filePath = path.join(modsPath, file.filename);
-        const fileRes = await fetch(file.url);
-        const buffer = await fileRes.arrayBuffer();
-        fs.writeFileSync(filePath, Buffer.from(buffer));
+        if (!fs.existsSync(filePath)) {
+            const fileRes = await fetch(file.url);
+            const buffer = await fileRes.arrayBuffer();
+            fs.writeFileSync(filePath, Buffer.from(buffer));
+        }
+
+        if (fileData.dependencies && fileData.dependencies.length > 0) {
+            for (let dep of fileData.dependencies) {
+                if (dep.dependency_type === 'required') {
+                    let depId = dep.project_id || dep.version_id;
+                    if (depId) {
+                        statusText.innerText = "Téléchargement des dépendances...";
+                        await installGlobalMod(depId, true);
+                    }
+                }
+            }
+        }
         
-        statusText.innerText = `Mod ${file.filename} installé avec succès dans ${inst.name} !`;
-        setTimeout(() => statusText.innerText = "", 3000);
+        if(!isDependency) {
+            statusText.innerText = `Mod installé avec succès avec ses dépendances !`;
+            setTimeout(() => statusText.innerText = "", 4000);
+            const searchInput = document.getElementById('modrinth-search');
+            if(searchInput) searchInput.value = "";
+            renderModsManager();
+        }
     } catch(e) {
-        statusText.innerText = "Erreur lors du téléchargement.";
+        if(!isDependency) statusText.innerText = "Erreur lors du téléchargement.";
     }
+};
+
+window.scanJavaVersions = () => {
+    document.getElementById('status-text').innerText = "Recherche de Java...";
+    const datalist = document.getElementById('java-paths-list');
+    datalist.innerHTML = "";
+    
+    const basePaths = [
+        'C:\\Program Files\\Java',
+        'C:\\Program Files (x86)\\Java',
+        'C:\\Program Files\\Eclipse Adoptium',
+        'C:\\Program Files\\Amazon Corretto'
+    ];
+    
+    let found = 0;
+    for (let bp of basePaths) {
+        if (fs.existsSync(bp)) {
+            try {
+                const dirs = fs.readdirSync(bp);
+                for (let d of dirs) {
+                    const jPath = path.join(bp, d, 'bin', 'javaw.exe');
+                    if (fs.existsSync(jPath)) {
+                        let opt = document.createElement('option');
+                        opt.value = jPath;
+                        datalist.appendChild(opt);
+                        found++;
+                    }
+                }
+            } catch(e) {}
+        }
+    }
+    
+    document.getElementById('status-text').innerText = `${found} version(s) de Java trouvée(s).`;
+    setTimeout(() => document.getElementById('status-text').innerText = "Prêt", 3000);
+    alert(`${found} version(s) de Java trouvée(s) sur votre PC.\nCliquez sur le champ 'Chemin Java' pour voir la liste !`);
 };
 
 document.getElementById('edit-icon-upload').addEventListener('change', function() {
@@ -335,6 +410,31 @@ document.getElementById('launch-btn').addEventListener('click', async () => {
     let resW = inst.resW ? parseInt(inst.resW) : 854;
     let resH = inst.resH ? parseInt(inst.resH) : 480;
 
+    document.getElementById('status-text').innerText = "Vérification de Java...";
+    let javaToTest = jPath === "javaw" ? "java" : jPath;
+    if (javaToTest.toLowerCase().endsWith('javaw.exe')) {
+        javaToTest = javaToTest.substring(0, javaToTest.length - 9) + 'java.exe';
+    } else if (javaToTest.toLowerCase().endsWith('javaw')) {
+        javaToTest = javaToTest.substring(0, javaToTest.length - 5) + 'java';
+    }
+
+    const javaExists = await new Promise((resolve) => {
+        exec(`"${javaToTest}" -version`, (err, stdout, stderr) => {
+            if (err) {
+                const errorStr = (err.message + stdout + stderr).toLowerCase();
+                if (errorStr.includes('not recognized') || errorStr.includes('non reconnu') || errorStr.includes('introuvable') || err.code === 'ENOENT') resolve(false);
+                else resolve(true); 
+            } else resolve(true);
+        });
+    });
+
+    if (!javaExists) {
+        logOutput.insertAdjacentHTML('beforeend', `<br><span style="color:#f87171; font-weight:bold;">[ERREUR] Java n'est pas installé ou introuvable !</span><br>`);
+        document.getElementById('status-text').innerText = "Erreur Java";
+        alert("Java est introuvable sur votre ordinateur !\n\nPour jouer à Minecraft, vous devez installer Java (version 17 ou 21 recommandée).\nSi vous l'avez déjà installé, cliquez sur le bouton 'Scanner' dans les paramètres.");
+        return;
+    }
+
     let authObj = { access_token: "null", client_token: "null", uuid: "null", name: acc.name, user_properties: "{}" };
     if (acc.type === "microsoft" && acc.mclcAuth) {
         authObj = acc.mclcAuth;
@@ -374,6 +474,7 @@ document.getElementById('launch-btn').addEventListener('click', async () => {
     document.getElementById('status-text').innerText = "Préparation des fichiers...";
     setUIState(true);
     sessionStartTime = Date.now();
+    updateRPC(inst.name, "En jeu");
 
     launcher.launch(opts);
     launcher.on('progress', (e) => {
@@ -386,6 +487,7 @@ document.getElementById('launch-btn').addEventListener('click', async () => {
         document.getElementById('status-text').innerText = "Prêt"; 
         progBar.style.width = "0%";
         setUIState(false);
+        clearRPC();
         
         if (selectedInstanceIdx !== null) {
             allInstances[selectedInstanceIdx].playTime = (allInstances[selectedInstanceIdx].playTime || 0) + (Date.now() - sessionStartTime);
@@ -403,7 +505,10 @@ window.switchTab = (tabId) => {
     if(tabBtn) tabBtn.classList.add('active');
     const tabContent = document.getElementById(tabId);
     if(tabContent) tabContent.classList.add('active');
-    if(tabId === 'tab-mods') renderModsManager();
+    
+    if(tabId === 'tab-mods') {
+        renderModsManager();
+    }
 };
 
 window.openGlobalSettings = () => {
@@ -481,7 +586,7 @@ window.saveEdit = () => {
     if(!iconSrc.includes('svg+xml')) inst.icon = iconSrc; 
     
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-    renderUI(); 
+    renderUI(); closeEditModal();
 };
 
 window.openAccountModal = () => { document.getElementById('acc-name').value = ""; document.getElementById('modal-account').style.display = 'flex'; };
@@ -496,7 +601,6 @@ window.saveOfflineAccount = () => {
     document.getElementById('acc-name').value = ""; renderUI(); 
 };
 
-// --- LA FONCTION MICROSOFT CONNECTÉE AU MAIN.JS ---
 window.loginMicrosoft = async () => {
     const btn = document.getElementById('btn-ms-login');
     const originalText = btn.innerText;
@@ -517,11 +621,8 @@ window.loginMicrosoft = async () => {
             fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
             renderUI();
             closeAccountModal();
-        } else {
-            alert("Erreur Microsoft : " + result.error);
         }
     } catch (e) {
-        alert("Erreur système : " + e);
     } finally {
         btn.innerText = originalText;
         btn.disabled = false;
