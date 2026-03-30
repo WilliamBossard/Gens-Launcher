@@ -33,6 +33,15 @@ function clearRPC() {
     try { rpc.clearActivity(); } catch(e) {}
 }
 
+function showLoading(text) {
+    document.getElementById('loading-text').innerText = text;
+    document.getElementById('loading-overlay').style.display = 'flex';
+}
+function hideLoading() {
+    document.getElementById('loading-overlay').style.display = 'none';
+}
+const yieldUI = () => new Promise(resolve => setTimeout(resolve, 50));
+
 const dataDir = path.join(process.env.APPDATA, 'GensLauncher');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
@@ -621,8 +630,11 @@ window.loginMicrosoft = async () => {
             fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
             renderUI();
             closeAccountModal();
+        } else {
+            alert("Erreur Microsoft : " + result.error);
         }
     } catch (e) {
+        alert("Erreur système : " + e);
     } finally {
         btn.innerText = originalText;
         btn.disabled = false;
@@ -644,7 +656,7 @@ window.openDir = (f) => {
     shell.openPath(dir);
 };
 
-window.copyInstance = () => {
+window.copyInstance = async () => {
     if(selectedInstanceIdx === null) return;
     const oldInst = allInstances[selectedInstanceIdx];
     let inst = JSON.parse(JSON.stringify(oldInst));
@@ -662,10 +674,18 @@ window.copyInstance = () => {
     const oldPath = path.join(instancesRoot, safeOldName);
     const newPath = path.join(instancesRoot, safeNewName);
     
-    if (fs.existsSync(oldPath)) fs.cpSync(oldPath, newPath, { recursive: true });
+    showLoading("Copie de l'instance en cours...");
+    await yieldUI();
     
-    allInstances.push(inst);
-    fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2)); 
+    try {
+        if (fs.existsSync(oldPath)) {
+            await fs.promises.cp(oldPath, newPath, { recursive: true });
+        }
+        allInstances.push(inst);
+        fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2)); 
+    } catch(e) {}
+    
+    hideLoading();
     renderUI();
 };
 
@@ -682,7 +702,7 @@ window.deleteInstance = () => {
     }
 };
 
-window.exportInstance = () => {
+window.exportInstance = async () => {
     if (selectedInstanceIdx === null) return;
     const inst = allInstances[selectedInstanceIdx];
     const safeName = inst.name.replace(/[^a-z0-9]/gi, '_');
@@ -691,21 +711,37 @@ window.exportInstance = () => {
     if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
     
     const zipPath = path.join(exportDir, `${safeName}.zip`);
-    const zip = new AdmZip();
-    if (fs.existsSync(sourceFolder)) zip.addLocalFolder(sourceFolder, "files");
     
-    zip.addFile("instance.json", Buffer.from(JSON.stringify(inst, null, 2), "utf8"));
-    zip.writeZip(zipPath);
-    shell.showItemInFolder(zipPath);
+    showLoading("Compression de l'instance... (Cela peut prendre un moment)");
+    await yieldUI();
+    
+    try {
+        const zip = new AdmZip();
+        if (fs.existsSync(sourceFolder)) zip.addLocalFolder(sourceFolder, "files");
+        zip.addFile("instance.json", Buffer.from(JSON.stringify(inst, null, 2), "utf8"));
+        
+        await new Promise((resolve, reject) => {
+            zip.writeZip(zipPath, (err) => {
+                if(err) reject(err); else resolve();
+            });
+        });
+        shell.showItemInFolder(zipPath);
+    } catch(e) {}
+    
+    hideLoading();
 };
 
-document.getElementById('import-upload').addEventListener('change', function(e) {
+document.getElementById('import-upload').addEventListener('change', async function(e) {
     if (!this.files || !this.files[0]) return;
     const zipPath = this.files[0].path;
+    
+    showLoading("Extraction de l'archive en cours...");
+    await yieldUI();
+    
     try {
         const zip = new AdmZip(zipPath);
         const metaEntry = zip.getEntry("instance.json");
-        if (!metaEntry) { this.value = ''; return; }
+        if (!metaEntry) { this.value = ''; hideLoading(); return; }
         
         const meta = JSON.parse(zip.readAsText(metaEntry));
         let newName = meta.name;
@@ -735,7 +771,9 @@ document.getElementById('import-upload').addEventListener('change', function(e) 
 
         allInstances.push(meta);
         fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-        renderUI();
     } catch (err) {}
+    
     this.value = '';
+    hideLoading();
+    renderUI();
 });
