@@ -10,22 +10,31 @@
             --text-main: #cccccc; --text-light: #ffffff; --btn-hover: #3e3e42;
         }
         body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--bg-main); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; overflow: hidden; user-select: none; }
-        .toolbar { background: var(--bg-toolbar); border-bottom: 1px solid var(--border); padding: 5px 10px; display: flex; justify-content: space-between; align-items: center; }
-        .toolbar-group { display: flex; gap: 5px; align-items: center; }
+        
+        #app-background { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background-size: cover; background-position: center; pointer-events: none; transition: all 0.3s; }
+        
+        .toolbar { background: var(--bg-toolbar); border-bottom: 1px solid var(--border); padding: 6px 15px; display: flex; justify-content: space-between; align-items: center; transition: background 0.3s; }
+        .toolbar-group { display: flex; gap: 6px; align-items: center; }
         .tool-btn { background: transparent; border: 1px solid transparent; color: var(--text-main); padding: 6px 12px; cursor: pointer; border-radius: 3px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
         .tool-btn:hover { background: var(--btn-hover); border: 1px solid var(--border); color: var(--text-light); }
         select.tool-select { background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border); padding: 5px; border-radius: 3px; outline: none; }
-        .workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; }
+        .workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; background: var(--bg-main); transition: background 0.3s; }
         .main-area { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .search-bar-container { padding: 10px 15px; border-bottom: 1px solid var(--border); background: var(--bg-panel); display: flex; gap: 10px; align-items: center; }
-        .instances-grid { flex-grow: 1; padding: 15px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; align-content: start; background: var(--bg-main); transition: opacity 0.2s; }
+        .search-bar-container { padding: 10px 15px; border-bottom: 1px solid var(--border); background: var(--bg-panel); display: flex; gap: 10px; align-items: center; transition: background 0.3s; }
+        
+        #instances-container { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; align-content: start; }
+        .category-header { font-weight: bold; color: var(--text-light); padding: 6px 12px; background: rgba(0,0,0,0.3); border-radius: 4px; cursor: pointer; user-select: none; transition: background 0.1s; border-left: 3px solid var(--accent); }
+        .category-header:hover { background: rgba(0,0,0,0.5); }
+        .instances-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; }
+        
         .instance-card { padding: 10px; border: 1px solid transparent; border-radius: 3px; display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: background 0.1s; }
         .instance-card:hover { background: rgba(255,255,255,0.05); border-color: var(--border); }
         .instance-card.active { background: rgba(0, 122, 204, 0.3); border-color: var(--accent); }
         .instance-icon { width: 48px; height: 48px; object-fit: cover; image-rendering: pixelated; margin-bottom: 8px; border-radius: 4px; }
         .instance-name { font-size: 0.85rem; color: var(--text-light); text-align: center; word-break: break-word; }
         .instance-version { font-size: 0.7rem; color: #888; margin-top: 2px; }
-        .action-panel { width: 230px; background: var(--bg-panel); border-left: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+        
+        .action-panel { width: 230px; background: var(--bg-panel); border-left: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; transition: background 0.3s; }
         .panel-header { font-size: 0.95rem; color: var(--text-light); margin-bottom: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--border); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .panel-stats { font-size: 0.75rem; color: #aaa; text-align: center; margin-bottom: 10px; display: none; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 3px; }
         .action-btn { background: transparent; border: 1px solid transparent; color: var(--text-main); padding: 6px 10px; cursor: pointer; text-align: left; border-radius: 3px; font-size: 0.85rem; transition: background 0.1s; }
@@ -72,45 +81,84 @@
         #loading-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; flex-direction:column; align-items:center; justify-content:center; color:white; backdrop-filter: blur(2px); }
         .spinner { border:4px solid rgba(255,255,255,0.1); border-top:4px solid var(--accent); border-radius:50%; width:50px; height:50px; animation:spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .icon-wrapper { position: relative; width: 64px; height: 64px; border-radius: 6px; cursor: pointer; border: 2px dashed var(--border); overflow: hidden; background: #000; }
+        .icon-wrapper img { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.2s; }
+        .icon-wrapper:hover img { opacity: 0.3; }
+        .icon-wrapper::after { content: '✎ Changer'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 0.7rem; font-weight: bold; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+        .icon-wrapper:hover::after { opacity: 1; }
+
+        #drag-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,122,204,0.8); z-index:99999; border: 4px dashed #fff; box-sizing: border-box; align-items:center; justify-content:center; flex-direction:column; pointer-events:none; backdrop-filter: blur(5px); transition: all 0.2s; }
     </style>
 </head>
 <body>
+    <div id="app-background"></div>
+
+    <div id="drag-overlay">
+        <h1 style="color:white; font-size: 2.5rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5);" data-i18n="txt_drop_title">Déposez vos fichiers ici</h1>
+        <p style="color:white; font-size: 1.2rem; opacity: 0.9;" data-i18n="txt_drop_desc">.zip (Instance) • .jar (Mod) • .png/.jpg (Fond d'écran)</p>
+    </div>
+
     <div id="loading-overlay">
         <div class="spinner"></div>
         <div id="loading-text" style="margin-top:15px; font-weight:bold; font-size:1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">Traitement en cours...</div>
     </div>
 
+    <div id="modal-first-launch" class="modal" style="z-index: 99999;">
+        <div class="modal-card" style="width: 350px;">
+            <div class="modal-header">Bienvenue / Welcome</div>
+            <div class="modal-body">
+                <label>Choisissez votre langue / Select language :</label>
+                <select id="first-launch-lang">
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                </select>
+                <div style="font-size: 0.75rem; color: #aaa; margin-top: 10px;">
+                    Vous pourrez ajouter d'autres langues plus tard dans le dossier 'lang'.<br>
+                    You can add more languages later in the 'lang' folder.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="saveFirstLaunch()">Continuer / Continue</button>
+            </div>
+        </div>
+    </div>
+
     <input type="file" id="import-upload" accept=".zip" style="display: none;">
     <datalist id="java-paths-list"></datalist>
+    <datalist id="group-paths-list"></datalist>
 
     <div class="toolbar">
         <div class="toolbar-group">
-            <button class="tool-btn" onclick="openInstanceModal()">Ajouter une instance</button>
-            <button class="tool-btn" onclick="document.getElementById('import-upload').click()">Importer</button>
-            <button class="tool-btn" onclick="openCatalogModal()">Catalogue de Mods</button>
-            <button class="tool-btn" onclick="openGlobalSettings()">Paramètres Globaux</button>
-            <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'">Afficher les logs</button>
+            <button class="tool-btn" onclick="openInstanceModal()" data-i18n="toolbar_add">Ajouter une instance</button>
+            <button class="tool-btn" onclick="document.getElementById('import-upload').click()" data-i18n="toolbar_import">Importer</button>
+            <button class="tool-btn" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
+            <button class="tool-btn" onclick="openGlobalSettings()" data-i18n="toolbar_settings">Paramètres Globaux</button>
+            <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'" data-i18n="toolbar_logs">Afficher les logs</button>
+            
+            <div id="server-status" style="font-size: 0.8rem; margin-left: 10px; display: none; align-items: center; gap: 8px; background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);"></div>
         </div>
         
         <div class="toolbar-group">
-            <span style="font-size: 0.8rem; color: #888;">Profil :</span>
             <img id="active-skin" src="" style="width: 20px; height: 20px; border-radius: 2px; image-rendering: pixelated; display: none;">
             <select id="account-dropdown" class="tool-select" onchange="changeAccount()" style="min-width: 120px;"></select>
-            <button class="tool-btn" onclick="openAccountModal()">Gérer</button>
+            <button class="tool-btn" onclick="openAccountModal()" data-i18n="toolbar_manage">Gérer</button>
         </div>
     </div>
 
     <div class="workspace">
         <div class="main-area">
             <div class="search-bar-container">
-                <input type="text" id="search-bar" placeholder="Rechercher une instance..." style="width: 250px;" oninput="renderUI()">
+                <input type="text" id="search-bar" data-i18n="search_inst" placeholder="Rechercher une instance..." style="width: 250px;" oninput="renderUI()">
                 <select id="sort-dropdown" class="tool-select" style="width: 200px;" onchange="renderUI()">
-                    <option value="name">Trier par Nom</option>
-                    <option value="lastPlayed">Dernière utilisation</option>
-                    <option value="playTime">Temps de jeu</option>
+                    <option value="name" data-i18n="sort_name">Trier par Nom</option>
+                    <option value="lastPlayed" data-i18n="sort_last">Dernière utilisation</option>
+                    <option value="playTime" data-i18n="sort_time">Temps de jeu</option>
                 </select>
             </div>
-            <div class="instances-grid" id="instance-grid"></div>
+            
+            <div id="instances-container"></div>
+            
             <div id="console-container">
                 <div id="console-header"><span>Console Minecraft</span><span style="cursor:pointer; font-size: 14px;" onclick="document.getElementById('console-container').style.display='none'">X</span></div>
                 <pre id="log-output"></pre>
@@ -118,179 +166,262 @@
         </div>
 
         <div class="action-panel" id="action-panel" style="opacity: 0.4; pointer-events: none;">
-            <div class="panel-header" id="panel-title">Sélectionnez une instance</div>
+            <div class="panel-header" id="panel-title" data-i18n="panel_title">Sélectionnez une instance</div>
             <div id="panel-stats" class="panel-stats">
-                Temps : <span id="stat-time" style="color:#fff; font-weight:bold;"></span><br>
-                Dernier : <span id="stat-last" style="color:#fff;"></span>
+                <span data-i18n="panel_time">Temps :</span> <span id="stat-time" style="color:#fff; font-weight:bold;"></span><br>
+                <span data-i18n="panel_last">Dernier :</span> <span id="stat-last" style="color:#fff;"></span>
             </div>
-            <button id="launch-btn" class="action-btn" style="font-weight: bold; color: white; background: var(--accent);" disabled>Lancer</button>
-            <button class="action-btn" id="btn-offline" onclick="document.getElementById('launch-btn').click()">Lancer en hors ligne</button>
+            <button id="launch-btn" class="action-btn" style="font-weight: bold; color: white; background: var(--accent);" disabled data-i18n="btn_launch">Lancer</button>
+            <button class="action-btn" id="btn-offline" onclick="document.getElementById('launch-btn').click()" data-i18n="btn_offline">Lancer en hors ligne</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-edit" onclick="openEditModal('tab-general')">Paramètres de l'instance</button>
-            <button class="action-btn" id="btn-mods" onclick="openEditModal('tab-mods')">Gestionnaire de Mods</button>
-            <button class="action-btn" id="btn-saves" onclick="openDir('saves')">Voir les mondes</button>
-            <button class="action-btn" id="btn-screens" onclick="openDir('screenshots')">Captures d'écran</button>
+            <button class="action-btn" id="btn-edit" onclick="openEditModal('tab-general')" data-i18n="btn_settings">Paramètres de l'instance</button>
+            <button class="action-btn" id="btn-mods" onclick="openEditModal('tab-mods')" data-i18n="btn_mods">Gestionnaire de Mods</button>
+            <button class="action-btn" id="btn-saves" onclick="openDir('saves')" data-i18n="btn_saves">Voir les mondes</button>
+            <button class="action-btn" id="btn-screens" onclick="openGalleryModal()" data-i18n="btn_gallery">Galerie de Captures</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-folder" onclick="openDir('')">Dossier de l'instance</button>
+            <button class="action-btn" id="btn-folder" onclick="openDir('')" data-i18n="btn_folder">Dossier de l'instance</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-delete" onclick="deleteInstance()" style="color: #f87171;">Supprimer</button>
-            <button class="action-btn" id="btn-copy" onclick="copyInstance()">Copier l'instance</button>
-            <button class="action-btn" id="btn-export" onclick="exportInstance()">Exporter l'instance</button>
+            <button class="action-btn" id="btn-delete" onclick="deleteInstance()" style="color: #f87171;" data-i18n="btn_delete">Supprimer</button>
+            <button class="action-btn" id="btn-copy" onclick="copyInstance()" data-i18n="btn_copy">Copier l'instance</button>
+            <button class="action-btn" id="btn-export" onclick="exportInstance()" data-i18n="btn_export">Exporter l'instance</button>
         </div>
     </div>
 
     <div class="statusbar">
         <div id="progress-bar"></div>
-        <span id="status-text">Prêt</span>
+        <span id="status-text" data-i18n="status_ready">Prêt</span>
         <span id="app-version" style="position: absolute; right: 10px; opacity: 0.7;"></span>
     </div>
 
+    <div id="modal-gallery" class="modal"><div class="modal-card" style="width: 850px; height: 600px;">
+        <div class="modal-header" data-i18n="btn_gallery">Galerie de Captures d'écran</div>
+        <div class="modal-body" id="gallery-grid" style="flex-grow: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding: 15px; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; margin: 15px; align-content: start;">
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" style="margin-right: auto;" onclick="openDir('screenshots')" data-i18n="btn_folder">Ouvrir le dossier</button>
+            <button class="btn-secondary" onclick="closeGalleryModal()" data-i18n="modal_close">Fermer</button>
+        </div>
+    </div></div>
+
     <div id="modal-catalog" class="modal"><div class="modal-card" style="width: 800px; height: 600px;">
-        <div class="modal-header">Catalogue de Mods (Modrinth)</div>
+        <div class="modal-header" data-i18n="toolbar_catalog">Catalogue (Mods, Shaders, Packs)</div>
         <div class="modal-body" style="flex-grow: 1; overflow: hidden; padding: 15px; display: flex; flex-direction: column;">
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <input type="text" id="catalog-search" placeholder="Rechercher un mod..." style="flex-grow: 1;" onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
-                <select id="catalog-loader" style="width: 120px;">
+                <select id="catalog-type" style="width: 130px;" onchange="searchGlobalCatalog()">
+                    <option value="mod">Mods</option>
+                    <option value="shader">Shaders</option>
+                    <option value="resourcepack">Resource Packs</option>
+                </select>
+                <input type="text" id="catalog-search" placeholder="Rechercher..." style="flex-grow: 1;" onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
+                <select id="catalog-loader" style="width: 110px;">
                     <option value="fabric">Fabric</option>
                     <option value="forge">Forge</option>
                 </select>
-                <select id="catalog-version" style="width: 120px;"></select>
-                <button class="btn-primary" onclick="searchGlobalCatalog()">Chercher</button>
+                <select id="catalog-version" style="width: 100px;"></select>
+                <button class="btn-primary" onclick="searchGlobalCatalog()" data-i18n="btn_search">Chercher</button>
             </div>
             <div id="catalog-results" style="flex-grow: 1; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 10px;"></div>
         </div>
         <div class="modal-footer">
             <span id="catalog-status" style="margin-right: auto; font-size: 0.85rem; color: var(--accent);"></span>
-            <button class="btn-secondary" onclick="closeCatalogModal()">Fermer</button>
+            <button class="btn-secondary" onclick="closeCatalogModal()" data-i18n="modal_close">Fermer</button>
         </div>
     </div></div>
 
     <div id="modal-instance" class="modal"><div class="modal-card" style="width: 350px;">
-        <div class="modal-header">Nouvelle instance</div>
+        <div class="modal-header" data-i18n="toolbar_add">Nouvelle instance</div>
         <div class="modal-body">
             <label>Nom</label>
             <input type="text" id="new-name" placeholder="Ma Survie">
             <div class="checkbox-container">
                 <input type="checkbox" id="check-beta" style="width:auto; margin:0;" onchange="updateVersionList(this.checked)"> 
-                <label for="check-beta">Afficher les Bêtas</label>
+                <label for="check-beta" data-i18n="lbl_beta">Afficher les Bêtas</label>
             </div>
             <label>Version</label>
             <select id="new-version"></select>
-            <label>Type de chargeur (Loader)</label>
+            <label data-i18n="lbl_loader">Type de chargeur (Loader)</label>
             <select id="new-loader">
                 <option value="vanilla">Vanilla</option>
                 <option value="fabric">Fabric</option>
                 <option value="forge">Forge</option>
             </select>
             <div style="display: flex; justify-content: space-between; align-items:center;">
-                <label>Mémoire RAM (Mo) :</label>
+                <label data-i18n="lbl_ram">Mémoire RAM (Mo) :</label>
                 <input type="number" id="new-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('new-ram-slider').value = this.value">
             </div>
             <input type="range" id="new-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('new-ram-input').value = this.value">
         </div>
         <div class="modal-footer">
-            <button class="btn-secondary" onclick="closeInstanceModal()">Annuler</button>
-            <button class="btn-primary" onclick="saveInstance()">Créer</button>
+            <button class="btn-secondary" onclick="closeInstanceModal()" data-i18n="modal_cancel">Annuler</button>
+            <button class="btn-primary" onclick="saveInstance()" data-i18n="modal_create">Créer</button>
         </div>
     </div></div>
 
-    <div id="modal-settings" class="modal"><div class="modal-card" style="width: 400px;">
-        <div class="modal-header">Paramètres Globaux du Launcher</div>
-        <div class="modal-body">
-            <div style="display: flex; justify-content: space-between; align-items:center;">
-                <label>RAM par défaut (Mo) :</label>
-                <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('global-ram-slider').value = this.value">
+    <div id="modal-settings" class="modal"><div class="modal-card" style="width: 600px;">
+        <div class="modal-header" data-i18n="toolbar_settings">Paramètres Globaux du Launcher</div>
+        <div class="settings-layout">
+            <div class="settings-sidebar">
+                <div id="tab-btn-glob-gen" class="settings-tab active" onclick="switchTabGlob('tab-glob-gen')" data-i18n="tab_gen">Général</div>
+                <div id="tab-btn-glob-app" class="settings-tab" onclick="switchTabGlob('tab-glob-app')" data-i18n="tab_appearance">Apparence</div>
             </div>
-            <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('global-ram-input').value = this.value">
             
-            <label style="margin-top: 15px;">Chemin Java par défaut</label>
-            <div style="display: flex; gap: 8px;">
-                <input type="text" id="global-java" list="java-paths-list" placeholder="javaw" style="flex-grow: 1;">
-                <button class="btn-secondary" onclick="scanJavaVersions()">Scanner</button>
+            <div id="tab-glob-gen" class="settings-content active">
+                <label style="margin-top: 5px;" data-i18n="lbl_lang">Langue du Launcher</label>
+                <select id="global-lang" onchange="changeLanguage(this.value)"></select>
+
+                <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 15px;">
+                    <label data-i18n="lbl_ram">RAM par défaut (Mo) :</label>
+                    <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('global-ram-slider').value = this.value">
+                </div>
+                <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('global-ram-input').value = this.value">
+                
+                <label style="margin-top: 15px;" data-i18n="lbl_java">Chemin Java par défaut</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="global-java" list="java-paths-list" placeholder="javaw" style="flex-grow: 1;">
+                    <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
+                </div>
+
+                <label style="margin-top: 15px;" data-i18n="lbl_fav_server">Serveur favori (Afficher le statut)</label>
+                <input type="text" id="global-server-ip" placeholder="Ex: play.hypixel.net">
+            </div>
+
+            <div id="tab-glob-app" class="settings-content">
+                <div style="display: flex; justify-content: space-between; align-items:center;">
+                    <label data-i18n="lbl_accent">Couleur Principale</label>
+                    <input type="color" id="global-accent" style="width: 50px; height: 35px; padding: 2px; cursor: pointer; background: transparent; border: 1px solid var(--border);">
+                </div>
+                
+                <label style="margin-top: 15px;" data-i18n="lbl_bg">Image de fond (Fond d'écran)</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="global-bg-path" placeholder="C:\Images\bg.png" style="flex-grow: 1;">
+                    <button class="btn-secondary" onclick="document.getElementById('bg-upload').click()" data-i18n="btn_browse">Parcourir</button>
+                    <button class="btn-secondary" onclick="document.getElementById('global-bg-path').value=''" data-i18n="btn_clear">Effacer</button>
+                    <input type="file" id="bg-upload" accept="image/png, image/jpeg, image/gif" style="display:none;" onchange="document.getElementById('global-bg-path').value=this.files[0].path">
+                </div>
+
+                <label style="margin-top: 15px;" data-i18n="lbl_darkness">Assombrissement du fond (Opacité)</label>
+                <input type="range" id="global-bg-dim" min="0" max="1" step="0.05" value="0.5">
+
+                <label style="margin-top: 15px;" data-i18n="lbl_blur">Flou du fond</label>
+                <input type="range" id="global-bg-blur" min="0" max="30" step="1" value="5">
             </div>
         </div>
         <div class="modal-footer">
-            <button class="btn-secondary" onclick="closeGlobalSettings()">Annuler</button>
-            <button class="btn-primary" onclick="saveGlobalSettings()">Sauvegarder</button>
+            <button class="btn-secondary" onclick="closeGlobalSettings()" data-i18n="modal_cancel">Annuler</button>
+            <button class="btn-primary" onclick="saveGlobalSettings()" data-i18n="modal_save">Sauvegarder</button>
         </div>
     </div></div>
 
     <div id="modal-edit" class="modal"><div class="modal-card" style="width: 580px;">
-        <div class="modal-header" id="edit-modal-title">Paramètres de l'instance</div>
+        <div class="modal-header" id="edit-modal-title" data-i18n="btn_settings">Paramètres de l'instance</div>
         <div class="settings-layout">
             <div class="settings-sidebar">
-                <div id="tab-btn-general" class="settings-tab active" onclick="switchTab('tab-general')">Général</div>
-                <div id="tab-btn-mods" class="settings-tab" onclick="switchTab('tab-mods')">Mods</div>
-                <div id="tab-btn-java" class="settings-tab" onclick="switchTab('tab-java')">Paramètres Java</div>
-                <div id="tab-btn-notes" class="settings-tab" onclick="switchTab('tab-notes')">Notes</div>
+                <div id="tab-btn-general" class="settings-tab active" onclick="switchTab('tab-general')" data-i18n="tab_gen">Général</div>
+                <div id="tab-btn-mods" class="settings-tab" onclick="switchTab('tab-mods')" data-i18n="tab_mods">Mods</div>
+                <div id="tab-btn-servers" class="settings-tab" onclick="switchTab('tab-servers')" data-i18n="tab_servers">Serveurs</div>
+                <div id="tab-btn-backups" class="settings-tab" onclick="switchTab('tab-backups')" data-i18n="tab_backups">Sauvegardes</div>
+                <div id="tab-btn-java" class="settings-tab" onclick="switchTab('tab-java')" data-i18n="tab_java">Configuration</div>
+                <div id="tab-btn-notes" class="settings-tab" onclick="switchTab('tab-notes')" data-i18n="tab_notes">Notes</div>
             </div>
+
             <div id="tab-general" class="settings-content active">
                 <div style="display: flex; gap: 15px; align-items: center;">
-                    <div style="position: relative;" title="Cliquez pour changer l'icône">
-                        <img id="edit-icon-preview" src="" style="width: 64px; height: 64px; border-radius: 6px; cursor: pointer; border: 2px dashed var(--border); object-fit: cover;" onclick="document.getElementById('edit-icon-upload').click()">
+                    <div class="icon-wrapper" onclick="document.getElementById('edit-icon-upload').click()">
+                        <img id="edit-icon-preview" src="">
                         <input type="file" id="edit-icon-upload" style="display:none;" accept="image/png, image/jpeg, image/jpg">
                     </div>
                     <div style="flex-grow: 1;">
-                        <label>Nom de l'instance</label>
+                        <label data-i18n="lbl_inst_name">Nom de l'instance</label>
                         <input type="text" id="edit-name">
                     </div>
                 </div>
+                
+                <div style="margin-top: 15px;">
+                    <label data-i18n="lbl_group">Dossier / Catégorie de l'instance</label>
+                    <input type="text" id="edit-group" list="group-paths-list" placeholder="Ex: Modpacks">
+                </div>
+
                 <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 15px;">
-                    <label>Mémoire RAM allouée (Mo) :</label>
+                    <label data-i18n="lbl_ram">Mémoire RAM allouée (Mo) :</label>
                     <input type="number" id="edit-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('edit-ram-slider').value = this.value">
                 </div>
                 <input type="range" id="edit-ram-slider" min="1024" max="32768" step="128" oninput="document.getElementById('edit-ram-input').value = this.value">
             </div>
+
             <div id="tab-mods" class="settings-content" style="padding: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
-                    <span style="font-size: 0.85rem; font-weight: bold;">Vos Mods Installés</span>
-                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('mods')">Dossier</button>
+                    <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_mods">Vos Mods Installés</span>
+                    <div style="display: flex; gap: 5px;">
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="checkModUpdates()" data-i18n="btn_check_updates">Vérifier les MAJ</button>
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('mods')" data-i18n="btn_folder">Dossier</button>
+                    </div>
                 </div>
                 <div id="mods-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;"></div>
-                <button class="btn-primary" style="margin-top: 10px;" onclick="closeEditModal(); openCatalogModal();">Télécharger de nouveaux mods</button>
+                <button class="btn-primary" style="margin-top: 10px;" onclick="closeEditModal(); openCatalogModal();" data-i18n="btn_dl_mods">Télécharger de nouveaux mods</button>
             </div>
+
+            <div id="tab-servers" class="settings-content">
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="new-server-ip" placeholder="Ex: play.hypixel.net" onkeydown="if(event.key === 'Enter') addServer()">
+                    <button class="btn-primary" onclick="addServer()" data-i18n="modal_add">Ajouter</button>
+                </div>
+                <div id="server-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
+
+            <div id="tab-backups" class="settings-content">
+                <label data-i18n="lbl_backup_mode">Sauvegarde Automatique des Mondes</label>
+                <select id="edit-backup-mode">
+                    <option value="none" data-i18n="opt_none">Désactivé</option>
+                    <option value="on_launch" data-i18n="opt_launch">Au lancement du jeu</option>
+                    <option value="on_close" data-i18n="opt_close">À la fermeture du jeu</option>
+                </select>
+                <label style="margin-top: 10px;" data-i18n="lbl_backup_limit">Nombre de sauvegardes à conserver :</label>
+                <input type="number" id="edit-backup-limit" min="1" max="100" value="5" style="width: 80px;">
+                <div style="font-size: 0.75rem; color: #aaa; margin-top: 5px;" data-i18n="txt_backup_desc">Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.</div>
+                <button class="btn-secondary" style="margin-top: 15px;" onclick="openDir('backups')" data-i18n="btn_open_backups">Ouvrir le dossier des sauvegardes</button>
+            </div>
+
             <div id="tab-java" class="settings-content">
-                <label>Chemin de l'exécutable Java local</label>
+                <label data-i18n="lbl_java">Chemin de l'exécutable Java local</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="edit-javapath" list="java-paths-list" placeholder="Laisser vide pour utiliser le global" style="flex-grow: 1;">
-                    <button class="btn-secondary" onclick="scanJavaVersions()">Scanner</button>
+                    <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
                 </div>
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <div style="flex: 1;"><label>Largeur de la fenêtre</label><input type="number" id="edit-res-w" placeholder="854"></div>
-                    <div style="flex: 1;"><label>Hauteur de la fenêtre</label><input type="number" id="edit-res-h" placeholder="480"></div>
+                    <div style="flex: 1;"><label data-i18n="lbl_width">Largeur</label><input type="number" id="edit-res-w" placeholder="854"></div>
+                    <div style="flex: 1;"><label data-i18n="lbl_height">Hauteur</label><input type="number" id="edit-res-h" placeholder="480"></div>
                 </div>
-                <label style="margin-top: 10px;">Arguments JVM personnalisés</label>
+                <label style="margin-top: 10px;" data-i18n="lbl_jvm">Arguments JVM personnalisés</label>
                 <input type="text" id="edit-jvmargs" placeholder="-XX:+UseG1GC ...">
             </div>
+
             <div id="tab-notes" class="settings-content">
-                <label>Notes sur cette instance</label>
+                <label data-i18n="tab_notes">Notes sur cette instance</label>
                 <textarea id="edit-notes" style="height: 250px; resize: none;"></textarea>
             </div>
         </div>
         <div class="modal-footer">
-            <button class="btn-secondary" onclick="closeEditModal()">Fermer</button>
-            <button class="btn-primary" onclick="saveEdit()">Appliquer</button>
+            <button class="btn-secondary" onclick="closeEditModal()" data-i18n="modal_close">Fermer</button>
+            <button class="btn-primary" onclick="saveEdit()" data-i18n="modal_apply">Appliquer</button>
         </div>
     </div></div>
 
     <div id="modal-account" class="modal"><div class="modal-card" style="width: 500px;">
-        <div class="modal-header">Gestion des Comptes</div>
+        <div class="modal-header" data-i18n="toolbar_manage">Gestion des Comptes</div>
         <div class="modal-body">
             <div id="account-list" style="max-height: 250px; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 3px; padding: 10px; display: flex; flex-direction: column; gap: 8px;"></div>
-            
             <div style="display: flex; gap: 10px; margin-top: 10px;">
                 <button id="btn-ms-login" class="btn-microsoft" style="flex: 1;" onclick="loginMicrosoft()">Ajouter un compte Microsoft</button>
             </div>
-            
             <div style="margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
-                <label>Ajouter un profil Hors-Ligne</label>
+                <label data-i18n="lbl_offline">Ajouter un profil Hors-Ligne</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="acc-name" placeholder="Pseudo Minecraft">
-                    <button class="btn-secondary" onclick="saveOfflineAccount()" style="white-space: nowrap;">Ajouter</button>
+                    <button class="btn-secondary" onclick="saveOfflineAccount()" style="white-space: nowrap;" data-i18n="modal_add">Ajouter</button>
                 </div>
             </div>
         </div>
-        <div class="modal-footer"><button class="btn-secondary" onclick="closeAccountModal()">Fermer</button></div>
+        <div class="modal-footer"><button class="btn-secondary" onclick="closeAccountModal()" data-i18n="modal_close">Fermer</button></div>
     </div></div>
 
     <script src="renderer.js"></script>

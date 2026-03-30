@@ -1,54 +1,43 @@
 {
   "name": "gens-launcher",
-  "version": "1.1.1",
-  "description": "Gens Launcher",
+  "version": "1.2.0",
+  "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
-  "author": "William Bossard",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder"
   },
+  "author": "Gens",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "discord-rpc": "^4.0.1",
+    "minecraft-launcher-core": "^7.0.2",
+    "msmc": "^3.1.2",
+    "prismarine-nbt": "^2.2.1"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "artifactName": "GensLauncher-Setup-${version}.${ext}",
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "WilliamBossard",
-        "repo": "Gens-Launcher"
-      }
-    ],
+    "directories": {
+      "output": "dist"
+    },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "assets/vanilla.png",
+      "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "runAfterFinish": true
-    },
-    "files": [
-      "**/*",
-      "!instances/*",
-      "!accounts.json",
-      "!instances.json",
-      "!dist/*"
-    ]
-  },
-  "dependencies": {
-    "adm-zip": "^0.5.16",
-    "discord-rpc": "^4.0.1",
-    "electron-updater": "^6.1.4",
-    "minecraft-launcher-core": "latest",
-    "msmc": "^5.0.5"
-  },
-  "devDependencies": {
-    "electron": "latest",
-    "electron-builder": "latest"
+      "createStartMenuShortcut": true
+    }
   }
 }
