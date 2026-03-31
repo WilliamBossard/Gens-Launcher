@@ -4,6 +4,7 @@ const { shell } = require("electron");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const AdmZip = require("adm-zip");
 const DiscordRPC = require("discord-rpc");
 const crypto = require("crypto");
@@ -19,6 +20,7 @@ let rpc = new DiscordRPC.Client({ transport: "ipc" });
 let rpcReady = false;
 let pingInterval = null;
 let collapsedGroups = {};
+let maxSafeRam = 4096;
 
 rpc
   .login({ clientId: discordClientId })
@@ -47,6 +49,64 @@ function clearRPC() {
   } catch (e) {}
 }
 
+// --- SYSTEME DE TOASTS ---
+window.showToast = (msg, type = "info") => {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<span>${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+};
+
+ipcRenderer.on("update-msg", (event, data) => {
+  showToast(data.text, data.type);
+});
+
+ipcRenderer.on("update-downloaded", async () => {
+  if (
+    await showCustomConfirm(
+      t(
+        "msg_update_ready",
+        "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
+      ),
+      false,
+    )
+  ) {
+    ipcRenderer.send("restart_app");
+  }
+});
+
+window.showCustomConfirm = (msg, isDestructive = false) => {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("modal-confirm");
+    document.getElementById("confirm-message").innerText = msg;
+    const yesBtn = document.getElementById("confirm-yes");
+    yesBtn.style.background = isDestructive ? "#f87171" : "var(--accent)";
+    yesBtn.style.borderColor = isDestructive ? "#f87171" : "var(--accent)";
+    modal.style.display = "flex";
+
+    const newYes = yesBtn.cloneNode(true);
+    const newNo = document.getElementById("confirm-no").cloneNode(true);
+    yesBtn.parentNode.replaceChild(newYes, yesBtn);
+    document
+      .getElementById("confirm-no")
+      .parentNode.replaceChild(newNo, document.getElementById("confirm-no"));
+
+    newYes.addEventListener("click", () => {
+      modal.style.display = "none";
+      resolve(true);
+    });
+    newNo.addEventListener("click", () => {
+      modal.style.display = "none";
+      resolve(false);
+    });
+  });
+};
+
 function showLoading(text) {
   document.getElementById("loading-text").innerText = text;
   document.getElementById("loading-overlay").style.display = "flex";
@@ -59,6 +119,46 @@ const yieldUI = () => new Promise((resolve) => setTimeout(resolve, 50));
 const dataDir = path.join(process.env.APPDATA, "GensLauncher");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
+const logsDir = path.join(dataDir, "logs");
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+const oldLogs = fs
+  .readdirSync(logsDir)
+  .filter((f) => f.endsWith(".log"))
+  .map((f) => ({
+    file: f,
+    time: fs.statSync(path.join(logsDir, f)).mtime.getTime(),
+  }))
+  .sort((a, b) => b.time - a.time);
+if (oldLogs.length > 4) {
+  for (let i = 4; i < oldLogs.length; i++)
+    fs.unlinkSync(path.join(logsDir, oldLogs[i].file));
+}
+const currentLogFile = path.join(
+  logsDir,
+  `launcher_${new Date().toISOString().replace(/[:\.]/g, "-")}.log`,
+);
+fs.writeFileSync(
+  currentLogFile,
+  `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`,
+);
+
+function sysLog(msg, isError = false) {
+  const line = `[${new Date().toLocaleTimeString()}] ${isError ? "ERROR" : "INFO"}: ${msg}\n`;
+  fs.appendFileSync(currentLogFile, line);
+}
+
+window.copyLogs = () => {
+  const text = document.getElementById("log-output").innerText;
+  navigator.clipboard
+    .writeText(text)
+    .then(() =>
+      showToast(
+        t("msg_logs_copied", "Logs copiés dans le presse-papier !"),
+        "success",
+      ),
+    );
+};
+
 const instanceFile = path.join(dataDir, "instances.json");
 const accountFile = path.join(dataDir, "accounts.json");
 const settingsFile = path.join(dataDir, "settings.json");
@@ -66,7 +166,6 @@ const instancesRoot = path.join(dataDir, "instances");
 if (!fs.existsSync(instancesRoot))
   fs.mkdirSync(instancesRoot, { recursive: true });
 
-// --- SYSTEME DE LANGUES (FUSION INTELLIGENTE) ---
 const langDir = path.join(dataDir, "lang");
 if (!fs.existsSync(langDir)) fs.mkdirSync(langDir, { recursive: true });
 
@@ -77,6 +176,7 @@ const defaultFr = {
   toolbar_settings: "Paramètres Globaux",
   toolbar_logs: "Afficher les logs",
   toolbar_manage: "Gérer",
+  toolbar_stats: "Statistiques",
   search_inst: "Rechercher une instance...",
   sort_name: "Trier par Nom",
   sort_last: "Dernière utilisation",
@@ -105,6 +205,8 @@ const defaultFr = {
   btn_search: "Chercher",
   tab_gen: "Général",
   tab_mods: "Mods",
+  tab_shaders: "Shaders",
+  tab_resourcepacks: "Packs de Textures",
   tab_servers: "Serveurs",
   tab_backups: "Sauvegardes",
   tab_java: "Configuration",
@@ -126,6 +228,8 @@ const defaultFr = {
   lbl_loader: "Type de chargeur",
   lbl_inst_name: "Nom de l'instance",
   lbl_installed_mods: "Vos Mods Installés",
+  lbl_installed_shaders: "Vos Shaders",
+  lbl_installed_rps: "Vos Packs de Textures",
   btn_check_updates: "Vérifier les MAJ",
   btn_dl_mods: "Télécharger de nouveaux mods",
   lbl_width: "Largeur",
@@ -140,11 +244,7 @@ const defaultFr = {
   lbl_blur: "Flou du fond",
   lbl_darkness: "Assombrissement du fond",
   lbl_group: "Dossier / Catégorie de l'instance",
-  txt_drop_title: "Déposez vos fichiers ici",
-  txt_drop_desc: ".zip (Instance) • .jar (Mod) • .png/.jpg (Fond d'écran)",
-  msg_drop_bg:
-    "Voulez-vous définir cette image comme fond d'écran du launcher ?",
-  msg_mod_added: "Mod ajouté à l'instance avec succès !",
+  msg_mod_added: "Ajouté à l'instance avec succès !",
   msg_select_inst: "Sélectionnez une instance d'abord !",
   msg_search_java: "Recherche de Java...",
   msg_java_found: "version(s) de Java trouvée(s).",
@@ -184,8 +284,47 @@ const defaultFr = {
   msg_offline: "Hors-ligne",
   msg_err_ping: "Erreur",
   msg_no_mods: "Aucun mod local installé.",
+  msg_no_shaders: "Aucun shader installé.",
+  msg_no_rps: "Aucun pack de textures installé.",
   msg_no_servers: "Aucun serveur enregistré.",
   msg_no_acc: "Aucun profil enregistré.",
+  opt_modpack: "Modpacks",
+  btn_install: "Installer",
+  msg_dl_mods_pack: "Téléchargement des mods",
+  msg_logs_copied: "Logs copiés dans le presse-papier !",
+  msg_err_mrpack_invalid:
+    "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
+  msg_err_mrpack: "Erreur Modpack : ",
+  btn_copy_logs: "Copier",
+  modal_confirm: "Confirmation",
+  btn_yes: "Oui",
+  btn_no: "Non",
+  msg_err_cf:
+    "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+  msg_err_path: "Erreur : Chemin introuvable (Lancez l'app via npm start !)",
+  msg_err_format: "Format non supporté ! (.mrpack, .zip, .jar, .png)",
+  modal_worlds_title: "Gestion des Mondes",
+  msg_no_worlds: "Aucun monde trouvé.",
+  btn_world_backup: "Sauvegarder",
+  btn_world_copy: "Copier",
+  msg_copy_world_loading: "Copie du monde en cours...",
+  msg_world_copied: "Monde copié avec succès !",
+  msg_delete_world_confirm:
+    "Voulez-vous vraiment supprimer ce monde définitivement ?",
+  msg_world_deleted: "Monde supprimé !",
+  msg_world_backedup: "Sauvegarde créée dans le dossier 'backups' !",
+  lbl_folder: "Dossier : ",
+  lbl_created: "Créé le : ",
+  lbl_played: "Joué le : ",
+  modal_stats_title: "Tableau de Bord",
+  stat_total_time: "Temps de jeu total",
+  stat_total_instances: "Instances créées",
+  stat_total_mods: "Mods installés",
+  stat_fav_instance: "Instance favorite : ",
+  stat_disk_usage: "Espace disque utilisé",
+  txt_players: "Joueurs",
+  msg_update_ready:
+    "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
 };
 
 const defaultEn = {
@@ -195,6 +334,7 @@ const defaultEn = {
   toolbar_settings: "Global Settings",
   toolbar_logs: "Show Logs",
   toolbar_manage: "Manage",
+  toolbar_stats: "Statistics",
   search_inst: "Search instance...",
   sort_name: "Sort by Name",
   sort_last: "Last Played",
@@ -223,6 +363,8 @@ const defaultEn = {
   btn_search: "Search",
   tab_gen: "General",
   tab_mods: "Mods",
+  tab_shaders: "Shaders",
+  tab_resourcepacks: "Resource Packs",
   tab_servers: "Servers",
   tab_backups: "Backups",
   tab_java: "Configuration",
@@ -244,6 +386,8 @@ const defaultEn = {
   lbl_loader: "Loader Type",
   lbl_inst_name: "Instance Name",
   lbl_installed_mods: "Installed Mods",
+  lbl_installed_shaders: "Your Shaders",
+  lbl_installed_rps: "Your Resource Packs",
   btn_check_updates: "Check for Updates",
   btn_dl_mods: "Download new mods",
   lbl_width: "Width",
@@ -258,10 +402,7 @@ const defaultEn = {
   lbl_blur: "Background Blur",
   lbl_darkness: "Background Darkness",
   lbl_group: "Instance Folder / Category",
-  txt_drop_title: "Drop your files here",
-  txt_drop_desc: ".zip (Instance) • .jar (Mod) • .png/.jpg (Background)",
-  msg_drop_bg: "Do you want to set this image as the launcher background?",
-  msg_mod_added: "Mod successfully added to the instance!",
+  msg_mod_added: "Successfully added to the instance!",
   msg_select_inst: "Please select an instance first!",
   msg_search_java: "Searching for Java...",
   msg_java_found: "Java version(s) found.",
@@ -301,8 +442,46 @@ const defaultEn = {
   msg_offline: "Offline",
   msg_err_ping: "Error",
   msg_no_mods: "No local mods installed.",
+  msg_no_shaders: "No shaders installed.",
+  msg_no_rps: "No resource packs installed.",
   msg_no_servers: "No saved servers.",
   msg_no_acc: "No profiles saved.",
+  opt_modpack: "Modpacks",
+  btn_install: "Install",
+  msg_dl_mods_pack: "Downloading mods",
+  msg_logs_copied: "Logs copied to clipboard!",
+  msg_err_mrpack_invalid: "Not a valid .mrpack file.",
+  msg_err_mrpack: "Modpack Error: ",
+  btn_copy_logs: "Copy",
+  modal_confirm: "Confirmation",
+  btn_yes: "Yes",
+  btn_no: "No",
+  msg_err_cf:
+    "CurseForge (.zip) modpacks are blocked by Overwolf restrictions. Use Modrinth (.mrpack) instead!",
+  msg_err_path: "Error: Path not found (Run the app via npm start!)",
+  msg_err_format: "Unsupported format! (.mrpack, .zip, .jar, .png)",
+  modal_worlds_title: "Worlds Manager",
+  msg_no_worlds: "No worlds found.",
+  btn_world_backup: "Backup",
+  btn_world_copy: "Copy",
+  msg_copy_world_loading: "Copying world...",
+  msg_world_copied: "World copied successfully!",
+  msg_delete_world_confirm:
+    "Are you sure you want to permanently delete this world?",
+  msg_world_deleted: "World deleted!",
+  msg_world_backedup: "Backup created in 'backups' folder!",
+  lbl_folder: "Folder: ",
+  lbl_created: "Created on: ",
+  lbl_played: "Last played: ",
+  modal_stats_title: "Dashboard",
+  stat_total_time: "Total playtime",
+  stat_total_instances: "Instances created",
+  stat_total_mods: "Mods installed",
+  stat_fav_instance: "Favorite instance: ",
+  stat_disk_usage: "Disk space used",
+  txt_players: "Players",
+  msg_update_ready:
+    "A new update is ready! Do you want to restart the launcher to install it now?",
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -380,7 +559,6 @@ function populateLangDropdown() {
     });
 }
 
-// --- THEME ---
 function applyTheme() {
   const root = document.documentElement;
   const th = globalSettings.theme || {
@@ -406,68 +584,260 @@ function applyTheme() {
   }
 }
 
-// --- DRAG AND DROP GLOBALE ---
-let dragCounter = 0;
-window.addEventListener("dragenter", (e) => {
-  e.preventDefault();
-  dragCounter++;
-  document.getElementById("drag-overlay").style.display = "flex";
-});
-window.addEventListener("dragleave", (e) => {
-  e.preventDefault();
-  dragCounter--;
-  if (dragCounter === 0)
-    document.getElementById("drag-overlay").style.display = "none";
-});
-window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", async (e) => {
-  e.preventDefault();
-  dragCounter = 0;
-  document.getElementById("drag-overlay").style.display = "none";
-  if (e.dataTransfer.files.length > 0) {
-    const file = e.dataTransfer.files[0];
-    const pLower = file.path.toLowerCase();
-    if (pLower.endsWith(".zip")) {
-      await handleZipImport(file.path);
-    } else if (pLower.endsWith(".jar")) {
-      if (selectedInstanceIdx !== null) {
-        const inst = allInstances[selectedInstanceIdx];
-        const modsPath = path.join(
-          instancesRoot,
-          inst.name.replace(/[^a-z0-9]/gi, "_"),
-          "mods",
-        );
-        if (!fs.existsSync(modsPath))
-          fs.mkdirSync(modsPath, { recursive: true });
-        fs.copyFileSync(file.path, path.join(modsPath, file.name));
-        alert(t("msg_mod_added", "Mod ajouté à l'instance avec succès !"));
-        renderModsManager();
-      } else alert(t("msg_select_inst", "Sélectionnez une instance d'abord !"));
-    } else if (
-      pLower.endsWith(".png") ||
-      pLower.endsWith(".jpg") ||
-      pLower.endsWith(".jpeg")
-    ) {
-      if (
-        confirm(
-          t(
-            "msg_drop_bg",
-            "Voulez-vous définir cette image comme fond d'écran du launcher ?",
-          ),
-        )
-      ) {
-        globalSettings.theme = globalSettings.theme || {
-          accent: "#007acc",
-          dim: 0.5,
-          blur: 5,
-        };
-        globalSettings.theme.bg = file.path;
-        fs.writeFileSync(settingsFile, JSON.stringify(globalSettings, null, 2));
-        applyTheme();
-      }
-    }
+window.toggleServerDropdown = () => {
+  const container = document.getElementById("server-dropdown-container");
+  container.classList.toggle("active");
+};
+
+document.addEventListener("click", (e) => {
+  const container = document.getElementById("server-dropdown-container");
+  if (container && !container.contains(e.target)) {
+    container.classList.remove("active");
   }
 });
+
+window.checkServerStatus = async () => {
+  const ip = globalSettings.serverIp;
+  const container = document.getElementById("server-dropdown-container");
+  const content = document.getElementById("server-status-content");
+  const btn = document.getElementById("btn-server-indicator");
+
+  if (!ip) {
+    container.style.display = "none";
+    return;
+  }
+  container.style.display = "inline-block";
+
+  if (content.innerHTML === "") {
+    btn.innerHTML = `📡 <span style="color:#aaa;">${t("msg_ping", "Ping...")}</span>`;
+    content.innerHTML = `<div style="text-align:center; color:#aaa;">Recherche...</div>`;
+  }
+
+  try {
+    const res = await fetch(`https://api.mcsrvstat.us/3/${ip}`);
+    const data = await res.json();
+    const formatNum = (n) =>
+      n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
+
+    if (data.online) {
+      btn.innerHTML = `🟢 <span style="font-weight:bold;">${formatNum(data.players.online)}</span>`;
+      content.innerHTML = `
+            <div style="font-weight:bold; color:var(--text-light); text-align:center; margin-bottom:5px;">${ip}</div>
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                <span style="color:#aaa;">Statut:</span> <span style="color:#17B139; font-weight:bold;">${t("msg_online", "En ligne")}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                <span style="color:#aaa;">${t("txt_players", "Joueurs")}:</span> <span style="color:var(--text-light);">${formatNum(data.players.online)} / ${formatNum(data.players.max)}</span>
+            </div>
+        `;
+    } else {
+      btn.innerHTML = `🔴 <span style="color:#f87171;">${t("msg_offline", "Hors-ligne")}</span>`;
+      content.innerHTML = `<div style="font-weight:bold; color:var(--text-light); text-align:center;">${ip}</div><div style="text-align:center; color:#f87171; font-size:0.8rem; margin-top:5px;">Le serveur est hors-ligne.</div>`;
+    }
+  } catch (e) {
+    btn.innerHTML = `🔴 <span style="color:#f87171;">${t("msg_err_ping", "Erreur")}</span>`;
+    content.innerHTML = `<div style="font-weight:bold; color:var(--text-light); text-align:center;">${ip}</div><div style="text-align:center; color:#f87171; font-size:0.8rem; margin-top:5px;">Impossible de joindre le serveur.</div>`;
+  }
+};
+
+async function getDirSizeAsync(dirPath) {
+  let size = 0;
+  try {
+    const files = await fs.promises.readdir(dirPath);
+    for (const file of files) {
+      const filePath = path.join(dirPath, file);
+      const stats = await fs.promises.stat(filePath);
+      if (stats.isDirectory()) {
+        size += await getDirSizeAsync(filePath);
+      } else {
+        size += stats.size;
+      }
+    }
+  } catch (e) {}
+  return size;
+}
+
+window.openStatsModal = async () => {
+  let totalTimeMs = 0;
+  let totalMods = 0;
+  let favInstance = "-";
+  let maxTime = -1;
+
+  allInstances.forEach((inst) => {
+    totalTimeMs += inst.playTime || 0;
+    if ((inst.playTime || 0) > maxTime) {
+      maxTime = inst.playTime || 0;
+      favInstance = inst.name;
+    }
+
+    const modsPath = path.join(
+      instancesRoot,
+      inst.name.replace(/[^a-z0-9]/gi, "_"),
+      "mods",
+    );
+    if (fs.existsSync(modsPath)) {
+      totalMods += fs
+        .readdirSync(modsPath)
+        .filter(
+          (f) => f.endsWith(".jar") || f.endsWith(".jar.disabled"),
+        ).length;
+    }
+  });
+
+  let h = Math.floor(totalTimeMs / 3600000);
+  let m = Math.floor((totalTimeMs % 3600000) / 60000);
+
+  document.getElementById("dashboard-time").innerText = `${h}h ${m}m`;
+  document.getElementById("dashboard-instances").innerText =
+    allInstances.length;
+  document.getElementById("dashboard-mods").innerText = totalMods;
+  document.getElementById("dashboard-fav").innerText =
+    maxTime > 0 ? favInstance : "-";
+  document.getElementById("dashboard-disk").innerText = "Calcul...";
+
+  document.getElementById("modal-stats").style.display = "flex";
+
+  const sizeBytes = await getDirSizeAsync(dataDir);
+  const sizeGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+  if (document.getElementById("modal-stats").style.display === "flex") {
+    document.getElementById("dashboard-disk").innerText = `${sizeGB} Go`;
+  }
+};
+
+window.closeStatsModal = () => {
+  document.getElementById("modal-stats").style.display = "none";
+};
+
+async function handleMrPackImport(packPath) {
+  showLoading(t("msg_extract", "Extraction..."));
+  await yieldUI();
+
+  try {
+    const zip = new AdmZip(packPath);
+    const indexEntry = zip.getEntry("modrinth.index.json");
+    if (!indexEntry) {
+      hideLoading();
+      showToast(
+        t(
+          "msg_err_mrpack_invalid",
+          "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
+        ),
+        "error",
+      );
+      return;
+    }
+
+    const index = JSON.parse(zip.readAsText(indexEntry));
+    const packName = index.name || "Modpack Importé";
+    const mcVer = index.dependencies.minecraft;
+
+    let loaderType = "vanilla";
+    if (index.dependencies["fabric-loader"]) loaderType = "fabric";
+    else if (index.dependencies.forge) loaderType = "forge";
+    else if (index.dependencies["quilt-loader"]) loaderType = "fabric";
+
+    let finalName = packName;
+    let counter = 1;
+    while (allInstances.some((i) => i.name === finalName)) {
+      finalName = `${packName} (${counter})`;
+      counter++;
+    }
+
+    const newInst = {
+      name: finalName,
+      version: mcVer,
+      loader: loaderType,
+      ram: globalSettings.defaultRam.toString(),
+      javaPath: "",
+      jvmArgs: "",
+      notes: "Modpack: " + packName,
+      icon: "",
+      resW: "",
+      resH: "",
+      playTime: 0,
+      lastPlayed: 0,
+      group: "Modpacks",
+      servers: [],
+      backupMode: "none",
+      backupLimit: 5,
+    };
+
+    const instDir = path.join(
+      instancesRoot,
+      finalName.replace(/[^a-z0-9]/gi, "_"),
+    );
+    if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
+
+    zip.getEntries().forEach((entry) => {
+      if (
+        entry.entryName.startsWith("overrides/") &&
+        entry.entryName !== "overrides/"
+      ) {
+        const relPath = entry.entryName.substring(10);
+        const targetPath = path.join(instDir, relPath);
+        if (entry.isDirectory) {
+          if (!fs.existsSync(targetPath))
+            fs.mkdirSync(targetPath, { recursive: true });
+        } else {
+          const dir = path.dirname(targetPath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(targetPath, zip.readFile(entry));
+        }
+      }
+      if (
+        entry.entryName.startsWith("client-overrides/") &&
+        entry.entryName !== "client-overrides/"
+      ) {
+        const relPath = entry.entryName.substring(17);
+        const targetPath = path.join(instDir, relPath);
+        if (entry.isDirectory) {
+          if (!fs.existsSync(targetPath))
+            fs.mkdirSync(targetPath, { recursive: true });
+        } else {
+          const dir = path.dirname(targetPath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(targetPath, zip.readFile(entry));
+        }
+      }
+    });
+
+    const totalFiles = index.files.length;
+    for (let i = 0; i < totalFiles; i++) {
+      const modFile = index.files[i];
+      if (modFile.env && modFile.env.client === "unsupported") continue;
+
+      const modPath = path.join(instDir, modFile.path);
+      const dir = path.dirname(modPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      showLoading(
+        `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${i + 1}/${totalFiles})...`,
+      );
+      if (i % 5 === 0) await yieldUI();
+
+      try {
+        const res = await fetch(modFile.downloads[0]);
+        const buffer = await res.arrayBuffer();
+        fs.writeFileSync(modPath, Buffer.from(buffer));
+      } catch (e) {
+        sysLog(
+          `Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`,
+          true,
+        );
+      }
+    }
+
+    allInstances.push(newInst);
+    fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+    sysLog(`Modpack ${finalName} importé avec succès.`);
+    showToast(t("msg_install_success", "Installation réussie !"), "success");
+  } catch (err) {
+    sysLog("Erreur Modpack : " + err.message, true);
+    showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
+  }
+  hideLoading();
+  renderUI();
+}
 
 const defaultIcons = {
   vanilla:
@@ -502,9 +872,25 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function init() {
+  const totalRamMB = Math.floor(os.totalmem() / (1024 * 1024));
+  maxSafeRam = Math.max(1024, totalRamMB - 2048);
+  const ramInputs = [
+    "new-ram-input",
+    "new-ram-slider",
+    "global-ram-input",
+    "global-ram-slider",
+    "edit-ram-input",
+    "edit-ram-slider",
+  ];
+  ramInputs.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.max = maxSafeRam;
+  });
+
   loadStorage();
   populateLangDropdown();
   applyTheme();
+
   if (!globalSettings.language)
     document.getElementById("modal-first-launch").style.display = "flex";
   else loadLanguage(globalSettings.language);
@@ -519,32 +905,6 @@ async function init() {
     updateVersionList(false);
   } catch (e) {}
 }
-
-window.checkServerStatus = async () => {
-  const ip = globalSettings.serverIp;
-  const statusDiv = document.getElementById("server-status");
-  if (!ip) {
-    statusDiv.style.display = "none";
-    return;
-  }
-  statusDiv.style.display = "flex";
-  statusDiv.title = `${ip}`;
-  if (statusDiv.innerHTML === "")
-    statusDiv.innerHTML = `<span style="color:#aaa;">${t("msg_ping", "Ping...")}</span>`;
-
-  try {
-    const res = await fetch(`https://api.mcsrvstat.us/3/${ip}`);
-    const data = await res.json();
-    const formatNum = (n) =>
-      n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
-    if (data.online)
-      statusDiv.innerHTML = `<div style="width: 8px; height: 8px; background-color: #17B139; border-radius: 50%; box-shadow: 0 0 5px #17B139;"></div> <span style="font-weight:bold; color:var(--text-light); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ip}</span> <span style="color:#aaa;">| ${formatNum(data.players.online)}/${formatNum(data.players.max)}</span>`;
-    else
-      statusDiv.innerHTML = `<div style="width: 8px; height: 8px; background-color: #f87171; border-radius: 50%;"></div> <span style="font-weight:bold; color:var(--text-light); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ip}</span> <span style="color:#aaa;">| ${t("msg_offline", "Hors-ligne")}</span>`;
-  } catch (e) {
-    statusDiv.innerHTML = `<div style="width: 8px; height: 8px; background-color: #f87171; border-radius: 50%;"></div> <span style="font-weight:bold; color:var(--text-light); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ip}</span> <span style="color:#aaa;">| ${t("msg_err_ping", "Erreur")}</span>`;
-  }
-};
 
 window.updateVersionList = (showSnapshots) => {
   const select1 = document.getElementById("new-version");
@@ -566,11 +926,14 @@ window.updateVersionList = (showSnapshots) => {
 };
 
 function loadStorage() {
-  if (fs.existsSync(settingsFile))
+  if (fs.existsSync(settingsFile)) {
     globalSettings = Object.assign(
       globalSettings,
       JSON.parse(fs.readFileSync(settingsFile)),
     );
+    if (globalSettings.defaultRam > maxSafeRam)
+      globalSettings.defaultRam = maxSafeRam;
+  }
   if (fs.existsSync(instanceFile))
     allInstances = JSON.parse(fs.readFileSync(instanceFile));
   if (fs.existsSync(accountFile)) {
@@ -643,7 +1006,7 @@ function renderUI() {
             selectedInstanceIdx === inst.originalIndex ? "active" : "";
           let displaySrc =
             inst.icon || defaultIcons[inst.loader] || defaultIcons.vanilla;
-          html += `<div class="instance-card ${active}" onclick="selectInstance(${inst.originalIndex})"><img src="${displaySrc}" class="instance-icon"><div class="instance-name">${inst.name}</div><div class="instance-version">${inst.version}</div></div>`;
+          html += `<div class="instance-card ${active}" onclick="selectInstance(${inst.originalIndex})" ondblclick="selectInstance(${inst.originalIndex}); document.getElementById('launch-btn').click()"><img src="${displaySrc}" class="instance-icon"><div class="instance-name">${inst.name}</div><div class="instance-version">${inst.version}</div></div>`;
         });
         html += `</div>`;
       }
@@ -709,6 +1072,58 @@ function renderModsManager() {
     modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
 }
 
+function renderShadersManager() {
+  const listDiv = document.getElementById("shaders-list");
+  listDiv.innerHTML = "";
+  const inst = allInstances[selectedInstanceIdx];
+  if (!inst) return;
+  const targetPath = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "shaderpacks",
+  );
+  if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+  let hasItems = false;
+  fs.readdirSync(targetPath).forEach((file) => {
+    if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
+      hasItems = true;
+      const isEnabled = !file.endsWith(".disabled");
+      const displayName = file.replace(".zip.disabled", ".zip");
+      const color = isEnabled ? "var(--text-light)" : "#666";
+      const decoration = isEnabled ? "none" : "line-through";
+      listDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration};">${displayName}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader('${file}', this.checked)"></div>`;
+    }
+  });
+  if (!hasItems)
+    listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
+}
+
+function renderResourcePacksManager() {
+  const listDiv = document.getElementById("resourcepacks-list");
+  listDiv.innerHTML = "";
+  const inst = allInstances[selectedInstanceIdx];
+  if (!inst) return;
+  const targetPath = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "resourcepacks",
+  );
+  if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+  let hasItems = false;
+  fs.readdirSync(targetPath).forEach((file) => {
+    if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
+      hasItems = true;
+      const isEnabled = !file.endsWith(".disabled");
+      const displayName = file.replace(".zip.disabled", ".zip");
+      const color = isEnabled ? "var(--text-light)" : "#666";
+      const decoration = isEnabled ? "none" : "line-through";
+      listDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration};">${displayName}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack('${file}', this.checked)"></div>`;
+    }
+  });
+  if (!hasItems)
+    listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
+}
+
 window.toggleMod = (filename, isEnabled) => {
   const inst = allInstances[selectedInstanceIdx];
   const modsPath = path.join(
@@ -724,6 +1139,40 @@ window.toggleMod = (filename, isEnabled) => {
     ),
   );
   renderModsManager();
+};
+
+window.toggleShader = (filename, isEnabled) => {
+  const inst = allInstances[selectedInstanceIdx];
+  const targetPath = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "shaderpacks",
+  );
+  fs.renameSync(
+    path.join(targetPath, filename),
+    path.join(
+      targetPath,
+      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled",
+    ),
+  );
+  renderShadersManager();
+};
+
+window.toggleResourcePack = (filename, isEnabled) => {
+  const inst = allInstances[selectedInstanceIdx];
+  const targetPath = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "resourcepacks",
+  );
+  fs.renameSync(
+    path.join(targetPath, filename),
+    path.join(
+      targetPath,
+      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled",
+    ),
+  );
+  renderResourcePacksManager();
 };
 
 window.checkModUpdates = async () => {
@@ -783,12 +1232,15 @@ window.checkModUpdates = async () => {
     }
     hideLoading();
     if (updatedCount > 0) {
-      alert(`${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`);
+      showToast(
+        `${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`,
+        "success",
+      );
       renderModsManager();
-    } else alert(t("msg_mods_uptodate", "Mods déjà à jour !"));
+    } else showToast(t("msg_mods_uptodate", "Mods déjà à jour !"), "info");
   } catch (e) {
     hideLoading();
-    alert(t("msg_err_dl", "Erreur."));
+    showToast(t("msg_err_dl", "Erreur."), "error");
   }
 };
 
@@ -838,7 +1290,7 @@ window.searchGlobalCatalog = async () => {
                         <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${mod.author || "Auteur"} • ${downloads}</div>
                         <div style="font-size: 0.8rem; color: var(--text-main);">${mod.description}</div>
                     </div>
-                    <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}', false, '${type}')">Installer</button>
+                    <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}', false, '${type}')">${t("btn_install", "Installer")}</button>
                 </div>`;
     });
   } catch (e) {
@@ -852,24 +1304,43 @@ window.installGlobalMod = async (
   isDependency = false,
   projType = "mod",
 ) => {
-  if (selectedInstanceIdx === null) return;
-  const inst = allInstances[selectedInstanceIdx];
+  if (projType !== "modpack" && selectedInstanceIdx === null) {
+    showToast(
+      t("msg_select_inst", "Sélectionnez une instance d'abord !"),
+      "error",
+    );
+    return;
+  }
+
   const statusText = document.getElementById("catalog-status");
-  const loader = document.getElementById("catalog-loader")
-    ? document.getElementById("catalog-loader").value
-    : inst.loader === "forge"
-      ? "forge"
-      : "fabric";
-  const version = document.getElementById("catalog-version")
-    ? document.getElementById("catalog-version").value
-    : inst.version;
+  let loader, version;
+
+  if (projType !== "modpack") {
+    const inst = allInstances[selectedInstanceIdx];
+    loader = document.getElementById("catalog-loader")
+      ? document.getElementById("catalog-loader").value
+      : inst.loader === "forge"
+        ? "forge"
+        : "fabric";
+    version = document.getElementById("catalog-version")
+      ? document.getElementById("catalog-version").value
+      : inst.version;
+  } else {
+    version = document.getElementById("catalog-version").value;
+  }
 
   try {
     if (!isDependency)
       statusText.innerText = t("msg_dl_mod", "Téléchargement en cours...");
-    let url = `https://api.modrinth.com/v2/project/${projectId}/version?game_versions=["${version}"]`;
-    if (projType === "mod")
-      url = `https://api.modrinth.com/v2/project/${projectId}/version?loaders=["${loader}"]&game_versions=["${version}"]`;
+
+    let url = `https://api.modrinth.com/v2/project/${projectId}/version`;
+    let params = [];
+    if (version) params.push(`game_versions=["${version}"]`);
+    if (projType === "mod") params.push(`loaders=["${loader}"]`);
+    if (projType === "modpack")
+      params.push(`loaders=["fabric","forge","quilt"]`);
+
+    if (params.length > 0) url += "?" + params.join("&");
 
     const versions = await (await fetch(url)).json();
     if (versions.length === 0) {
@@ -879,11 +1350,31 @@ window.installGlobalMod = async (
     }
 
     const fileData = versions[0];
-    const file = fileData.files.find((f) => f.primary) || fileData.files[0];
+    let file = fileData.files.find((f) => f.primary) || fileData.files[0];
+
+    if (projType === "modpack") {
+      const mrpackFile = fileData.files.find((f) =>
+        f.filename.endsWith(".mrpack"),
+      );
+      if (mrpackFile) file = mrpackFile;
+
+      statusText.innerText = "Téléchargement du modpack...";
+      const tempPath = path.join(dataDir, file.filename);
+      const buffer = await (await fetch(file.url)).arrayBuffer();
+      fs.writeFileSync(tempPath, Buffer.from(buffer));
+
+      statusText.innerText = "Installation du modpack...";
+      closeCatalogModal();
+      await handleMrPackImport(tempPath);
+      fs.unlinkSync(tempPath);
+      return;
+    }
+
     let targetFolder = "mods";
     if (projType === "shader") targetFolder = "shaderpacks";
     if (projType === "resourcepack") targetFolder = "resourcepacks";
 
+    const inst = allInstances[selectedInstanceIdx];
     const destPath = path.join(
       instancesRoot,
       inst.name.replace(/[^a-z0-9]/gi, "_"),
@@ -914,11 +1405,14 @@ window.installGlobalMod = async (
     }
 
     if (!isDependency) {
-      statusText.innerText = t("msg_install_success", "Installation réussie !");
-      setTimeout(() => (statusText.innerText = ""), 4000);
+      statusText.innerText = "";
+      showToast(t("msg_install_success", "Installation réussie !"), "success");
       if (projType === "mod") renderModsManager();
+      if (projType === "shader") renderShadersManager();
+      if (projType === "resourcepack") renderResourcePacksManager();
     }
   } catch (e) {
+    sysLog("Erreur catalog install: " + e, true);
     if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur.");
   }
 };
@@ -1016,7 +1510,10 @@ window.scanJavaVersions = () => {
     }
   }
   document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-  alert(`${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`);
+  showToast(
+    `${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`,
+    "info",
+  );
 };
 
 async function downloadJavaAuto() {
@@ -1054,51 +1551,190 @@ async function downloadJavaAuto() {
     }
     throw new Error("javaw.exe introuvable.");
   } catch (e) {
-    alert(t("msg_err_java", "Erreur Java") + " : " + e);
+    sysLog("Erreur Auto-Java : " + e, true);
+    showToast(t("msg_err_java", "Erreur Java") + " : " + e, "error");
     return null;
   } finally {
     hideLoading();
   }
 }
 
-async function createBackup(inst) {
+// --- GESTION DES MONDES (WORLDS MANAGER) ---
+window.openWorldsModal = async () => {
+  if (selectedInstanceIdx === null) return;
+  const inst = allInstances[selectedInstanceIdx];
+  const savesDir = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "saves",
+  );
+  const listDiv = document.getElementById("worlds-list");
+
+  listDiv.innerHTML =
+    "<div style='text-align:center; color:#888;'>Chargement...</div>";
+  document.getElementById("modal-worlds").style.display = "flex";
+
+  if (!fs.existsSync(savesDir)) {
+    listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
+    return;
+  }
+
+  const folders = fs
+    .readdirSync(savesDir)
+    .filter((f) => fs.statSync(path.join(savesDir, f)).isDirectory());
+  if (folders.length === 0) {
+    listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
+    return;
+  }
+
+  let html = "";
+  for (const f of folders) {
+    const folderPath = path.join(savesDir, f);
+    const stats = fs.statSync(folderPath);
+    let worldName = f;
+
+    try {
+      const levelDat = path.join(folderPath, "level.dat");
+      if (fs.existsSync(levelDat)) {
+        const buffer = fs.readFileSync(levelDat);
+        const { parsed } = await parseNbt(buffer);
+        if (
+          parsed &&
+          parsed.value &&
+          parsed.value.Data &&
+          parsed.value.Data.value &&
+          parsed.value.Data.value.LevelName
+        ) {
+          worldName = parsed.value.Data.value.LevelName.value;
+        }
+      }
+    } catch (e) {}
+
+    const created =
+      stats.birthtime.toLocaleDateString() +
+      " " +
+      stats.birthtime.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    const modified =
+      stats.mtime.toLocaleDateString() +
+      " " +
+      stats.mtime.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+    html += `
+        <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-weight: bold; color: var(--text-light); font-size: 1rem;">${worldName}</span>
+                <span style="font-size: 0.75rem; color: #aaa;">${t("lbl_folder", "Dossier : ")}${f}</span>
+                <span style="font-size: 0.75rem; color: #888;">${t("lbl_created", "Créé le : ")}${created} | ${t("lbl_played", "Joué le : ")}${modified}</span>
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="backupSingleWorld('${f}')">${t("btn_world_backup", "Sauvegarder")}</button>
+                <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="copySingleWorld('${f}')">${t("btn_world_copy", "Copier")}</button>
+                <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="deleteSingleWorld('${f}')">${t("btn_delete", "Supprimer")}</button>
+            </div>
+        </div>`;
+  }
+  listDiv.innerHTML = html;
+};
+
+window.closeWorldsModal = () =>
+  (document.getElementById("modal-worlds").style.display = "none");
+
+window.copySingleWorld = async (folderName) => {
+  const inst = allInstances[selectedInstanceIdx];
+  const savesDir = path.join(
+    instancesRoot,
+    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    "saves",
+  );
+  const src = path.join(savesDir, folderName);
+
+  let destName = folderName + " - Copie";
+  let counter = 2;
+  while (fs.existsSync(path.join(savesDir, destName))) {
+    destName = `${folderName} - Copie (${counter})`;
+    counter++;
+  }
+  const dest = path.join(savesDir, destName);
+
+  showLoading(t("msg_copy_world_loading", "Copie du monde en cours..."));
+  await yieldUI();
+  try {
+    await fs.promises.cp(src, dest, { recursive: true });
+    showToast(t("msg_world_copied", "Monde copié avec succès !"), "success");
+  } catch (e) {
+    showToast("Erreur: " + e.message, "error");
+  }
+  hideLoading();
+  openWorldsModal();
+};
+
+window.deleteSingleWorld = async (folderName) => {
+  if (
+    await showCustomConfirm(
+      t(
+        "msg_delete_world_confirm",
+        "Voulez-vous vraiment supprimer ce monde définitivement ?",
+      ),
+      true,
+    )
+  ) {
+    const inst = allInstances[selectedInstanceIdx];
+    const savesDir = path.join(
+      instancesRoot,
+      inst.name.replace(/[^a-z0-9]/gi, "_"),
+      "saves",
+    );
+    const src = path.join(savesDir, folderName);
+    try {
+      await fs.promises.rm(src, { recursive: true, force: true });
+      showToast(t("msg_world_deleted", "Monde supprimé !"), "success");
+    } catch (e) {
+      showToast("Erreur: " + e.message, "error");
+    }
+    openWorldsModal();
+  }
+};
+
+window.backupSingleWorld = async (folderName) => {
+  const inst = allInstances[selectedInstanceIdx];
   const instDir = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
   );
   const savesDir = path.join(instDir, "saves");
   const backupDir = path.join(instDir, "backups");
-  if (!fs.existsSync(savesDir) || fs.readdirSync(savesDir).length === 0) return;
+  const src = path.join(savesDir, folderName);
+
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
   const zipPath = path.join(
     backupDir,
-    `backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`,
+    `${folderName}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`,
   );
+
   showLoading(t("msg_backup", "Création de la sauvegarde..."));
   await yieldUI();
-
   try {
     const zip = new AdmZip();
-    zip.addLocalFolder(savesDir, "saves");
+    zip.addLocalFolder(src, folderName);
     await new Promise((res, rej) =>
       zip.writeZip(zipPath, (err) => (err ? rej(err) : res())),
     );
-    const limit = parseInt(inst.backupLimit) || 5;
-    const backups = fs
-      .readdirSync(backupDir)
-      .filter((f) => f.endsWith(".zip"))
-      .map((f) => ({
-        file: f,
-        time: fs.statSync(path.join(backupDir, f)).mtime.getTime(),
-      }))
-      .sort((a, b) => b.time - a.time);
-    if (backups.length > limit)
-      for (let i = limit; i < backups.length; i++)
-        fs.unlinkSync(path.join(backupDir, backups[i].file));
-  } catch (e) {}
+    showToast(
+      t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"),
+      "success",
+    );
+  } catch (e) {
+    showToast("Erreur: " + e.message, "error");
+  }
   hideLoading();
-}
+};
 
 window.openGalleryModal = () => {
   if (selectedInstanceIdx === null) return;
@@ -1215,6 +1851,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     if (launcher && launcher.process) launcher.process.kill("SIGKILL");
     return;
   }
+
   const inst = allInstances[selectedInstanceIdx];
   const acc = allAccounts[selectedAccountIdx];
   const instancePath = path.join(
@@ -1225,7 +1862,9 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
   const logOutput = document.getElementById("log-output");
 
   document.getElementById("console-container").style.display = "block";
-  logOutput.innerHTML = `<span style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${inst.name}...</span>\n`;
+  logOutput.innerHTML = "";
+  sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
+  logOutput.innerHTML += `<span style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${inst.name}...</span>\n`;
 
   if (inst.backupMode === "on_launch") await createBackup(inst);
 
@@ -1268,7 +1907,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   if (!javaExists) {
     if (
-      confirm(
+      await showCustomConfirm(
         t(
           "msg_java_not_found",
           "Java introuvable ! Voulez-vous installer automatiquement Java 21 ?",
@@ -1332,7 +1971,9 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         }
       }
       if (changed) fs.writeFileSync(datPath, nbt.writeUncompressed(parsed));
-    } catch (e) {}
+    } catch (e) {
+      sysLog("Erreur de sync serveur: " + e, true);
+    }
   }
 
   let authObj = {
@@ -1379,6 +2020,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         }
       } else return;
     } catch (e) {
+      sysLog("Erreur Fabric: " + e, true);
       return;
     }
   }
@@ -1391,6 +2033,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
   sessionStartTime = Date.now();
   updateRPC(inst.name, "En jeu");
 
+  sysLog("Démarrage du processus MCLC...");
   launcher.launch(opts);
   launcher.on("progress", (e) => {
     let perc = 0;
@@ -1399,18 +2042,27 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     document.getElementById("status-text").innerText =
       `${t("msg_dl", "Téléchargement :")} ${perc}%`;
   });
+
   launcher.on("data", (data) => {
+    const dStr = data.toString();
+    sysLog("GAME: " + dStr);
     logOutput.insertAdjacentHTML(
       "beforeend",
-      `<span>[GAME] ${data}</span><br>`,
+      `<span>[GAME] ${dStr}</span><br>`,
     );
     logOutput.scrollTop = logOutput.scrollHeight;
   });
+
   launcher.on("close", async (code) => {
+    sysLog(`Le jeu s'est arrêté avec le code ${code}`, code !== 0);
     logOutput.insertAdjacentHTML(
       "beforeend",
-      `<br><span style="color:red">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")}</span><br>`,
+      `<br><span style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</span><br>`,
     );
+
+    if (code !== 0)
+      document.getElementById("console-container").style.display = "block";
+
     if (selectedInstanceIdx !== null) {
       const currentInst = allInstances[selectedInstanceIdx];
       if (currentInst.backupMode === "on_close")
@@ -1447,6 +2099,8 @@ window.switchTab = (tabId) => {
 
   clearInterval(pingInterval);
   if (tabId === "tab-mods") renderModsManager();
+  else if (tabId === "tab-shaders") renderShadersManager();
+  else if (tabId === "tab-resourcepacks") renderResourcePacksManager();
   else if (tabId === "tab-servers") {
     renderServersManager();
     pingInterval = setInterval(pingServers, 15000);
@@ -1475,7 +2129,6 @@ window.openGlobalSettings = () => {
   document.getElementById("global-java").value = globalSettings.defaultJavaPath;
   document.getElementById("global-server-ip").value =
     globalSettings.serverIp || "";
-
   document.getElementById("global-accent").value =
     globalSettings.theme?.accent || "#007acc";
   document.getElementById("global-bg-path").value =
@@ -1650,17 +2303,20 @@ window.loginMicrosoft = async () => {
       );
       renderUI();
       closeAccountModal();
-    } else alert(t("msg_err_ms", "Erreur Microsoft : ") + result.error);
+    } else
+      showToast(t("msg_err_ms", "Erreur Microsoft : ") + result.error, "error");
   } catch (e) {
-    alert(t("msg_err_sys", "Erreur système : ") + e);
+    showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
   } finally {
     btn.innerText = originalText;
     btn.disabled = false;
   }
 };
 
-window.deleteAccount = (index) => {
-  if (confirm(t("msg_remove_acc", "Retirer ce compte ?"))) {
+window.deleteAccount = async (index) => {
+  if (
+    await showCustomConfirm(t("msg_remove_acc", "Retirer ce compte ?"), true)
+  ) {
     allAccounts.splice(index, 1);
     if (selectedAccountIdx === index)
       selectedAccountIdx = allAccounts.length > 0 ? 0 : null;
@@ -1712,13 +2368,20 @@ window.copyInstance = async () => {
       );
     allInstances.push(inst);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-  } catch (e) {}
+  } catch (e) {
+    sysLog("Erreur Copie: " + e, true);
+  }
   hideLoading();
   renderUI();
 };
 
-window.deleteInstance = () => {
-  if (confirm(t("msg_delete_inst", "Supprimer l'instance ?"))) {
+window.deleteInstance = async () => {
+  if (
+    await showCustomConfirm(
+      t("msg_delete_inst", "Supprimer l'instance ?"),
+      true,
+    )
+  ) {
     allInstances.splice(selectedInstanceIdx, 1);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
     selectedInstanceIdx = null;
@@ -1755,7 +2418,9 @@ window.exportInstance = async () => {
       zip.writeZip(zipPath, (err) => (err ? rej(err) : res())),
     );
     shell.showItemInFolder(zipPath);
-  } catch (e) {}
+  } catch (e) {
+    sysLog("Erreur Export: " + e, true);
+  }
   hideLoading();
 };
 
@@ -1765,6 +2430,20 @@ async function handleZipImport(zipPath) {
   try {
     const zip = new AdmZip(zipPath);
     const metaEntry = zip.getEntry("instance.json");
+    const cfEntry = zip.getEntry("manifest.json");
+
+    if (cfEntry && !metaEntry) {
+      hideLoading();
+      showToast(
+        t(
+          "msg_err_cf",
+          "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+        ),
+        "error",
+      );
+      return;
+    }
+
     if (!metaEntry) {
       hideLoading();
       return;
@@ -1801,15 +2480,9 @@ async function handleZipImport(zipPath) {
     });
     allInstances.push(meta);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-  } catch (err) {}
+  } catch (err) {
+    sysLog("Erreur Zip Import: " + err, true);
+  }
   hideLoading();
   renderUI();
 }
-
-document
-  .getElementById("import-upload")
-  .addEventListener("change", async function (e) {
-    if (!this.files || !this.files[0]) return;
-    await handleZipImport(this.files[0].path);
-    this.value = "";
-  });

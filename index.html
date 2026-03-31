@@ -86,6 +86,33 @@
             outline: none;
         }
 
+        /* MENU DÉROULANT SERVEUR */
+        .server-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .server-dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background-color: var(--bg-panel);
+            min-width: 220px;
+            box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.6);
+            z-index: 2000;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 5px;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .server-dropdown.active .server-dropdown-content {
+            display: flex;
+        }
+
         .workspace {
             display: flex;
             flex-grow: 1;
@@ -287,6 +314,7 @@
             line-height: 1.5;
             color: #d4d4d4;
             box-sizing: border-box;
+            user-select: text;
         }
 
         .statusbar {
@@ -294,14 +322,11 @@
             height: 22px;
             display: flex;
             align-items: center;
+            justify-content: space-between;
             padding: 0 10px;
             font-size: 0.75rem;
             color: #fff;
             position: relative;
-        }
-
-        #status-text {
-            z-index: 2;
         }
 
         #progress-bar {
@@ -312,6 +337,14 @@
             background: rgba(255, 255, 255, 0.2);
             transition: width 0.2s;
             z-index: 1;
+        }
+
+        .status-left,
+        .status-right {
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
         .modal {
@@ -433,6 +466,7 @@
             background: rgba(0, 0, 0, 0.1);
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
         }
 
         .settings-tab {
@@ -610,23 +644,80 @@
             opacity: 1;
         }
 
-        #drag-overlay {
-            display: none;
+        /* --- NOTIFICATIONS (TOASTS) --- */
+        #toast-container {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 122, 204, 0.8);
-            z-index: 99999;
-            border: 4px dashed #fff;
-            box-sizing: border-box;
-            align-items: center;
-            justify-content: center;
+            bottom: 30px;
+            right: 20px;
+            display: flex;
             flex-direction: column;
+            gap: 10px;
+            z-index: 100000;
             pointer-events: none;
-            backdrop-filter: blur(5px);
-            transition: all 0.2s;
+        }
+
+        .toast {
+            background: var(--bg-panel);
+            color: var(--text-light);
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            border-left: 4px solid var(--accent);
+            font-size: 0.9rem;
+            animation: slideIn 0.3s ease-out forwards;
+            opacity: 1;
+            transition: opacity 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        .toast.error {
+            border-left-color: #f87171;
+        }
+
+        .toast.success {
+            border-left-color: #17B139;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(120%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* STATS DASHBOARD */
+        .stat-box {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--accent);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
     </style>
 </head>
@@ -634,12 +725,7 @@
 <body>
     <div id="app-background"></div>
 
-    <div id="drag-overlay">
-        <h1 style="color:white; font-size: 2.5rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5);" data-i18n="txt_drop_title">
-            Déposez vos fichiers ici</h1>
-        <p style="color:white; font-size: 1.2rem; opacity: 0.9;" data-i18n="txt_drop_desc">.zip (Instance) • .jar (Mod)
-            • .png/.jpg (Fond d'écran)</p>
-    </div>
+    <div id="toast-container"></div>
 
     <div id="loading-overlay">
         <div class="spinner"></div>
@@ -668,7 +754,7 @@
         </div>
     </div>
 
-    <input type="file" id="import-upload" accept=".zip" style="display: none;">
+    <input type="file" id="import-upload" accept=".zip,.mrpack" style="display: none;">
     <datalist id="java-paths-list"></datalist>
     <datalist id="group-paths-list"></datalist>
 
@@ -683,13 +769,17 @@
                 Globaux</button>
             <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'"
                 data-i18n="toolbar_logs">Afficher les logs</button>
-
-            <div id="server-status"
-                style="font-size: 0.8rem; margin-left: 10px; display: none; align-items: center; gap: 8px; background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);">
-            </div>
+            <button class="tool-btn" onclick="openStatsModal()" data-i18n="toolbar_stats"
+                style="color: var(--accent);">Statistiques</button>
         </div>
 
         <div class="toolbar-group">
+            <div class="server-dropdown" id="server-dropdown-container" style="display: none;">
+                <button class="tool-btn" onclick="toggleServerDropdown()" id="btn-server-indicator"
+                    style="background: rgba(0,0,0,0.2); border: 1px solid var(--border);">📡 Serveur</button>
+                <div class="server-dropdown-content" id="server-status-content"></div>
+            </div>
+
             <img id="active-skin" src=""
                 style="width: 20px; height: 20px; border-radius: 2px; image-rendering: pixelated; display: none;">
             <select id="account-dropdown" class="tool-select" onchange="changeAccount()"
@@ -713,8 +803,15 @@
             <div id="instances-container"></div>
 
             <div id="console-container">
-                <div id="console-header"><span>Console Minecraft</span><span style="cursor:pointer; font-size: 14px;"
-                        onclick="document.getElementById('console-container').style.display='none'">X</span></div>
+                <div id="console-header">
+                    <span>Console Minecraft</span>
+                    <div>
+                        <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.7rem; margin-right: 10px;"
+                            onclick="copyLogs()" data-i18n="btn_copy_logs">Copier</button>
+                        <span style="cursor:pointer; font-size: 14px;"
+                            onclick="document.getElementById('console-container').style.display='none'">X</span>
+                    </div>
+                </div>
                 <pre id="log-output"></pre>
             </div>
         </div>
@@ -736,7 +833,7 @@
                 data-i18n="btn_settings">Paramètres de l'instance</button>
             <button class="action-btn" id="btn-mods" onclick="openEditModal('tab-mods')"
                 data-i18n="btn_mods">Gestionnaire de Mods</button>
-            <button class="action-btn" id="btn-saves" onclick="openDir('saves')" data-i18n="btn_saves">Voir les
+            <button class="action-btn" id="btn-saves" onclick="openWorldsModal()" data-i18n="btn_saves">Voir les
                 mondes</button>
             <button class="action-btn" id="btn-screens" onclick="openGalleryModal()" data-i18n="btn_gallery">Galerie de
                 Captures</button>
@@ -755,8 +852,63 @@
 
     <div class="statusbar">
         <div id="progress-bar"></div>
-        <span id="status-text" data-i18n="status_ready">Prêt</span>
-        <span id="app-version" style="position: absolute; right: 10px; opacity: 0.7;"></span>
+        <div class="status-left">
+            <span id="status-text" data-i18n="status_ready">Prêt</span>
+        </div>
+        <div class="status-right">
+            <span id="app-version" style="opacity: 0.7;"></span>
+        </div>
+    </div>
+
+    <div id="modal-stats" class="modal">
+        <div class="modal-card" style="width: 600px;">
+            <div class="modal-header" data-i18n="modal_stats_title">Tableau de Bord</div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-time">0h</div>
+                        <div class="stat-label" data-i18n="stat_total_time">Temps de jeu total</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-instances">0</div>
+                        <div class="stat-label" data-i18n="stat_total_instances">Instances créées</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-mods">0</div>
+                        <div class="stat-label" data-i18n="stat_total_mods">Mods installés</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-disk" style="color: var(--text-light);">Calcul...</div>
+                        <div class="stat-label" data-i18n="stat_disk_usage">Espace disque utilisé</div>
+                    </div>
+                </div>
+                <div
+                    style="margin-top: 20px; text-align: center; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; border: 1px dashed var(--border);">
+                    <span style="color: #aaa; font-size: 0.85rem;" data-i18n="stat_fav_instance">Instance favorite :
+                    </span>
+                    <strong style="color: var(--text-light); font-size: 1rem;" id="dashboard-fav">-</strong>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeStatsModal()" data-i18n="modal_close">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-worlds" class="modal">
+        <div class="modal-card" style="width: 750px; height: 500px;">
+            <div class="modal-header" data-i18n="modal_worlds_title">Gestion des Mondes</div>
+            <div class="modal-body" id="worlds-list"
+                style="flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; margin: 15px;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" style="margin-right: auto;" onclick="openDir('saves')"
+                    data-i18n="btn_folder">Ouvrir le dossier</button>
+                <button class="btn-secondary" onclick="closeWorldsModal()" data-i18n="modal_close">Fermer</button>
+            </div>
+        </div>
     </div>
 
     <div id="modal-gallery" class="modal">
@@ -781,6 +933,7 @@
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <select id="catalog-type" style="width: 130px;" onchange="searchGlobalCatalog()">
                         <option value="mod">Mods</option>
+                        <option value="modpack" data-i18n="opt_modpack">Modpacks</option>
                         <option value="shader">Shaders</option>
                         <option value="resourcepack">Resource Packs</option>
                     </select>
@@ -917,6 +1070,10 @@
                         data-i18n="tab_gen">Général</div>
                     <div id="tab-btn-mods" class="settings-tab" onclick="switchTab('tab-mods')" data-i18n="tab_mods">
                         Mods</div>
+                    <div id="tab-btn-shaders" class="settings-tab" onclick="switchTab('tab-shaders')"
+                        data-i18n="tab_shaders">Shaders</div>
+                    <div id="tab-btn-resourcepacks" class="settings-tab" onclick="switchTab('tab-resourcepacks')"
+                        data-i18n="tab_resourcepacks">Packs de Textures</div>
                     <div id="tab-btn-servers" class="settings-tab" onclick="switchTab('tab-servers')"
                         data-i18n="tab_servers">Serveurs</div>
                     <div id="tab-btn-backups" class="settings-tab" onclick="switchTab('tab-backups')"
@@ -971,8 +1128,40 @@
                         style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
                     <button class="btn-primary" style="margin-top: 10px;"
-                        onclick="closeEditModal(); openCatalogModal();" data-i18n="btn_dl_mods">Télécharger de nouveaux
-                        mods</button>
+                        onclick="closeEditModal(); document.getElementById('catalog-type').value='mod'; openCatalogModal();"
+                        data-i18n="btn_dl_mods">Télécharger de nouveaux mods</button>
+                </div>
+
+                <div id="tab-shaders" class="settings-content" style="padding: 10px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
+                        <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_shaders">Vos
+                            Shaders</span>
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;"
+                            onclick="openDir('shaderpacks')" data-i18n="btn_folder">Dossier</button>
+                    </div>
+                    <div id="shaders-list"
+                        style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                    </div>
+                    <button class="btn-primary" style="margin-top: 10px;"
+                        onclick="closeEditModal(); document.getElementById('catalog-type').value='shader'; openCatalogModal();">Télécharger
+                        de nouveaux shaders</button>
+                </div>
+
+                <div id="tab-resourcepacks" class="settings-content" style="padding: 10px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
+                        <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_rps">Vos Packs de
+                            Textures</span>
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;"
+                            onclick="openDir('resourcepacks')" data-i18n="btn_folder">Dossier</button>
+                    </div>
+                    <div id="resourcepacks-list"
+                        style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                    </div>
+                    <button class="btn-primary" style="margin-top: 10px;"
+                        onclick="closeEditModal(); document.getElementById('catalog-type').value='resourcepack'; openCatalogModal();">Télécharger
+                        de nouveaux packs</button>
                 </div>
 
                 <div id="tab-servers" class="settings-content">
@@ -1052,6 +1241,18 @@
             </div>
             <div class="modal-footer"><button class="btn-secondary" onclick="closeAccountModal()"
                     data-i18n="modal_close">Fermer</button></div>
+        </div>
+    </div>
+
+    <div id="modal-confirm" class="modal" style="z-index: 100000;">
+        <div class="modal-card" style="width: 400px;">
+            <div class="modal-header" id="confirm-title" data-i18n="modal_confirm">Confirmation</div>
+            <div class="modal-body" id="confirm-message"
+                style="padding: 20px 15px; text-align: center; line-height: 1.5;">...</div>
+            <div class="modal-footer" style="justify-content: center; gap: 15px;">
+                <button class="btn-secondary" id="confirm-no" data-i18n="btn_no" style="width: 100px;">Non</button>
+                <button class="btn-primary" id="confirm-yes" data-i18n="btn_yes" style="width: 100px;">Oui</button>
+            </div>
         </div>
     </div>
 

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { Auth } = require("msmc");
+const { autoUpdater } = require("electron-updater");
 
 let mainWindow;
 
@@ -10,7 +11,7 @@ function createWindow() {
     height: 800,
     minWidth: 1000,
     minHeight: 600,
-    icon: path.join(__dirname, "assets/logo.png"),
+    icon: path.join(__dirname, "assets/icon.ico"),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -23,6 +24,8 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  autoUpdater.checkForUpdatesAndNotify();
 
   app.on("activate", function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -46,4 +49,16 @@ ipcMain.handle("login-microsoft", async (event) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+autoUpdater.on('update-available', () => {
+    if (mainWindow) mainWindow.webContents.send('update-msg', { text: "Une mise à jour est disponible ! Téléchargement en arrière-plan...", type: "info" });
+});
+
+autoUpdater.on('update-downloaded', () => {
+    if (mainWindow) mainWindow.webContents.send('update-downloaded');
+});
+
+ipcMain.on('restart_app', () => {
+    autoUpdater.quitAndInstall();
 });
