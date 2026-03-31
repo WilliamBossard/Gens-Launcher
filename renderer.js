@@ -2486,3 +2486,24 @@ async function handleZipImport(zipPath) {
   hideLoading();
   renderUI();
 }
+
+ipcRenderer.on('update-progress', (event, percent) => {
+    const statusText = document.getElementById("status-text");
+    const progBar = document.getElementById("progress-bar");
+    
+    
+    if(progBar) progBar.style.width = percent + "%";
+    if(statusText) statusText.innerText = `Mise à jour : ${percent}%`;
+});
+
+
+ipcRenderer.on('update-downloaded', async () => {
+    hideLoading();
+    const restart = await showCustomConfirm(
+        t("msg_update_ready", "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?"), 
+        false
+    );
+    if (restart) {
+        ipcRenderer.send('restart_app');
+    }
+});

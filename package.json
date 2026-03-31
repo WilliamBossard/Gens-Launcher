@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.2.1",
+  "version": "1.2.0",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
   "scripts": {
@@ -23,16 +23,24 @@
   },
   "build": {
     "appId": "com.gens.launcher",
-    "productName": "Gens Launcher",
+    "productName": "Gens.Launcher",
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "WilliamBossard",
+        "repo": "Gens-Launcher"
+      }
+    ],
     "win": {
       "target": [
         "nsis"
       ],
       "icon": "assets/icon.ico",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}.Setup.${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
