@@ -7,4 +7,4 @@ Console Ergonomics: * I added a "Copy" button in the console so that the user ca
 If the game stops with an error code (Crash), the console automatically opens on the screen so that the user understands that there was a problem.
 
 
-I'm thinking of adding modpacks to the catalog as well as a better update system
+I'm thinking of adding modpacks to the catalog as well as a better update system and further improve ergonomics
