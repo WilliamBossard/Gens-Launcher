@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
   "scripts": {
