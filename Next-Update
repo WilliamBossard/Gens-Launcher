@@ -1,0 +1,10 @@
+RAM Security (Anti-PC Crash): The launcher now uses the native Node.js OS module to detect the user's total physical RAM. It automatically sets the maximum limit of the cursors while always keeping 2 GB of margin for Windows. (No more crashes because a player has added 16 GB of RAM when he only has 8!).
+
+Persistent Logs System: The launcher creates a logs folder in AppData. Each launch generates a text file (launcher_date.log). It intelligently only keeps the last 5 files so as not to pollute the hard drive.
+
+Console Ergonomics: * I added a "Copy" button in the console so that the user can send you their logs in one click.
+
+If the game stops with an error code (Crash), the console automatically opens on the screen so that the user understands that there was a problem.
+
+
+I'm thinking of adding modpacks to the catalog as well as a better update system and further improve ergonomics
