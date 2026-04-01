@@ -1,11 +1,24 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { Auth } = require("msmc");
 const { autoUpdater } = require("electron-updater");
 
-// Désactiver temporairement la vérification stricte des certificats (utile pour GitHub sans signature)
+const SPOOF_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+app.userAgentFallback = SPOOF_UA;
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+function applySpoofing(sess) {
+    sess.webRequest.onBeforeSendHeaders((details, callback) => {
+        details.requestHeaders['User-Agent'] = SPOOF_UA;
+        
+        delete details.requestHeaders['sec-ch-ua'];
+        delete details.requestHeaders['sec-ch-ua-mobile'];
+        delete details.requestHeaders['sec-ch-ua-platform'];
+        
+        callback({ cancel: false, requestHeaders: details.requestHeaders });
+    });
+}
 
 let mainWindow;
 
@@ -28,32 +41,20 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  applySpoofing(session.defaultSession);
+  
+  app.on('session-created', applySpoofing);
+
   createWindow();
 
-  // --- CONFIGURATION UPDATER ---
   autoUpdater.logger = { info: (m) => mainLog(m), warn: (m) => mainLog("WARN: "+m), error: (m) => mainLog("ERR: "+m) };
+  autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
+  autoUpdater.autoDownload = true;
   
-  // Simuler un navigateur pour éviter le blocage GitHub
-  autoUpdater.requestHeaders = { 
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" 
-  };
-
-  // Optionnel : permettre le test en mode dev si le fichier dev-app-update.yml existe
-  if (!app.isPackaged && fs.existsSync(path.join(__dirname, 'dev-app-update.yml'))) {
-      autoUpdater.forceDevUpdateConfig = true;
-  }
-
   setTimeout(() => {
-    mainLog("Vérification des mises à jour...");
-    autoUpdater.checkForUpdatesAndNotify();
+      mainLog("Vérification des mises à jour...");
+      autoUpdater.checkForUpdatesAndNotify();
   }, 3000);
-
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
-
-// --- ÉVÉNEMENTS UPDATER ---
-autoUpdater.on('checking-for-update', () => {
-    if (mainWindow) mainWindow.webContents.send('update-msg', { text: "Vérification des mises à jour...", type: "info" });
 });
 
 autoUpdater.on('update-not-available', () => {
@@ -61,7 +62,6 @@ autoUpdater.on('update-not-available', () => {
 });
 
 autoUpdater.on('update-available', (info) => {
-    mainLog(`MAJ trouvée : ${info.version}`);
     if (mainWindow) mainWindow.webContents.send('update-msg', { text: `Version ${info.version} trouvée ! Téléchargement...`, type: "info" });
 });
 
@@ -70,31 +70,34 @@ autoUpdater.on('download-progress', (progress) => {
 });
 
 autoUpdater.on('update-downloaded', () => {
-    mainLog("MAJ téléchargée.");
     if (mainWindow) mainWindow.webContents.send('update-downloaded');
-});
-
-autoUpdater.on('error', (err) => {
-    // On affiche l'erreur brute pour comprendre le code (404, 403, etc.)
-    mainLog(`ERREUR DÉTAILLÉE : ${err.message}`);
-    if (mainWindow) {
-        mainWindow.webContents.send('update-msg', { 
-            text: `Erreur : ${err.message.split('\n')[0]}`, 
-            type: "error" 
-        });
-    }
 });
 
 ipcMain.on('restart_app', () => { autoUpdater.quitAndInstall(); });
 
-// Login MS (inchangé)
+ipcMain.on('hide-window', () => { if (mainWindow) mainWindow.hide(); });
+ipcMain.on('show-window', () => { if (mainWindow) mainWindow.show(); });
+
 ipcMain.handle("login-microsoft", async () => {
   try {
+    const { Auth } = require("msmc");
+    mainLog("Lancement de l'authentification MSMC v4...");
+
+    await session.defaultSession.clearStorageData();
+
+    // Lancement de la fenêtre Microsoft
     const authManager = new Auth("select_account");
-    const xboxManager = await authManager.launch("raw");
+    const xboxManager = await authManager.launch("electron");
     const token = await xboxManager.getMinecraft();
+    
+    mainLog("Authentification réussie !");
     return { success: true, auth: token.mclc() };
-  } catch (error) { return { success: false, error: error.message }; }
+  } catch (err) {
+    mainLog("Erreur MSMC : " + err.message);
+    return { success: false, error: err.message };
+  }
 });
 
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});

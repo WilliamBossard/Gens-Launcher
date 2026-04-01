@@ -49,7 +49,6 @@ function clearRPC() {
   } catch (e) {}
 }
 
-// --- SYSTEME DE TOASTS ---
 window.showToast = (msg, type = "info") => {
   const container = document.getElementById("toast-container");
   const toast = document.createElement("div");
@@ -216,8 +215,7 @@ const defaultFr = {
   opt_none: "Désactivé",
   opt_launch: "Au lancement du jeu",
   opt_close: "À la fermeture du jeu",
-  txt_backup_desc:
-    "Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.",
+  txt_backup_desc: "Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.",
   btn_open_backups: "Ouvrir le dossier des sauvegardes",
   lbl_lang: "Langue du Launcher",
   lbl_ram: "Mémoire RAM (Mo) :",
@@ -243,6 +241,7 @@ const defaultFr = {
   btn_clear: "Effacer",
   lbl_blur: "Flou du fond",
   lbl_darkness: "Assombrissement du fond",
+  lbl_panel_opacity: "Opacité de l'interface (Panneaux gris)",
   lbl_group: "Dossier / Catégorie de l'instance",
   msg_mod_added: "Ajouté à l'instance avec succès !",
   msg_select_inst: "Sélectionnez une instance d'abord !",
@@ -255,8 +254,7 @@ const defaultFr = {
   msg_no_screen: "Aucune capture d'écran.",
   msg_launching: "Lancement de ",
   msg_check_java: "Vérification de Java...",
-  msg_java_not_found:
-    "Java introuvable ! Voulez-vous installer automatiquement Java 21 ?",
+  msg_java_not_found: "Java introuvable ! Voulez-vous installer automatiquement Java 21 ?",
   msg_sync_servers: "Synchronisation des serveurs...",
   msg_install_fabric: "Installation de Fabric...",
   msg_prep_files: "Préparation des fichiers...",
@@ -292,15 +290,13 @@ const defaultFr = {
   btn_install: "Installer",
   msg_dl_mods_pack: "Téléchargement des mods",
   msg_logs_copied: "Logs copiés dans le presse-papier !",
-  msg_err_mrpack_invalid:
-    "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
+  msg_err_mrpack_invalid: "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
   msg_err_mrpack: "Erreur Modpack : ",
   btn_copy_logs: "Copier",
   modal_confirm: "Confirmation",
   btn_yes: "Oui",
   btn_no: "Non",
-  msg_err_cf:
-    "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+  msg_err_cf: "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
   msg_err_path: "Erreur : Chemin introuvable (Lancez l'app via npm start !)",
   msg_err_format: "Format non supporté ! (.mrpack, .zip, .jar, .png)",
   modal_worlds_title: "Gestion des Mondes",
@@ -309,8 +305,7 @@ const defaultFr = {
   btn_world_copy: "Copier",
   msg_copy_world_loading: "Copie du monde en cours...",
   msg_world_copied: "Monde copié avec succès !",
-  msg_delete_world_confirm:
-    "Voulez-vous vraiment supprimer ce monde définitivement ?",
+  msg_delete_world_confirm: "Voulez-vous vraiment supprimer ce monde définitivement ?",
   msg_world_deleted: "Monde supprimé !",
   msg_world_backedup: "Sauvegarde créée dans le dossier 'backups' !",
   lbl_folder: "Dossier : ",
@@ -323,8 +318,37 @@ const defaultFr = {
   stat_fav_instance: "Instance favorite : ",
   stat_disk_usage: "Espace disque utilisé",
   txt_players: "Joueurs",
-  msg_update_ready:
-    "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
+  msg_update_ready: "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
+  btn_auto_ram: "🪄 Optimiser",
+  tt_auto_ram: "Analyse votre PC et vos mods pour allouer la RAM parfaite (Min 4Go).",
+  msg_ram_optimized: "RAM optimisée à ",
+  modal_updates_title: "Mises à jour disponibles",
+  msg_updates_available: "Les mods suivants vont être mis à jour :",
+  btn_update_all: "Tout installer",
+  msg_no_updates: "Tous vos mods sont à jour !",
+  lbl_options_profile: "Profil d'Options (options.txt)",
+  txt_options_desc: "Sélectionnez une instance pour que ses touches deviennent celles par défaut.",
+  btn_save_options: "Définir comme défaut",
+  msg_options_saved: "Profil d'options sauvegardé !",
+  msg_no_options_found: "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !",
+  msg_drop_mod: "Relâchez pour installer le mod",
+  msg_drop_shader: "Relâchez pour installer le shader",
+  msg_drop_rp: "Relâchez pour installer le pack",
+  msg_files_added: "fichier(s) ajouté(s) !",
+  modal_import_mc: "Importer un monde officiel",
+  btn_import_official_world: "Importer depuis .minecraft",
+  msg_no_mc_worlds: "Aucun monde trouvé dans .minecraft",
+  msg_world_imported: "Monde importé avec succès !",
+  lbl_sync_options: "Touches & Options",
+  txt_sync_options: "Écrase les paramètres avec votre profil par défaut.",
+  btn_sync_now: "📥 Injecter",
+  msg_force_sync_success: "Touches synchronisées avec succès !",
+  msg_force_sync_error: "Aucun profil par défaut défini dans les Paramètres Globaux.",
+  lbl_visibility: "Comportement au lancement",
+  opt_keep: "Garder le launcher ouvert",
+  opt_hide: "Cacher le launcher (Mode Fantôme)",
+  btn_auto_connect: "Auto",
+  msg_warn_deps: "Dépendance manquante potentielle : "
 };
 
 const defaultEn = {
@@ -374,8 +398,7 @@ const defaultEn = {
   opt_none: "Disabled",
   opt_launch: "On game launch",
   opt_close: "On game close",
-  txt_backup_desc:
-    "The launcher will automatically keep your latest backups in the 'backups' folder.",
+  txt_backup_desc: "The launcher will automatically keep your latest backups in the 'backups' folder.",
   btn_open_backups: "Open Backups Folder",
   lbl_lang: "Launcher Language",
   lbl_ram: "Allocated RAM (MB):",
@@ -401,6 +424,7 @@ const defaultEn = {
   btn_clear: "Clear",
   lbl_blur: "Background Blur",
   lbl_darkness: "Background Darkness",
+  lbl_panel_opacity: "Interface Opacity (Panels)",
   lbl_group: "Instance Folder / Category",
   msg_mod_added: "Successfully added to the instance!",
   msg_select_inst: "Please select an instance first!",
@@ -413,8 +437,7 @@ const defaultEn = {
   msg_no_screen: "No screenshots.",
   msg_launching: "Launching ",
   msg_check_java: "Verifying Java...",
-  msg_java_not_found:
-    "Java not found! Do you want to automatically install Java 21?",
+  msg_java_not_found: "Java not found! Do you want to automatically install Java 21?",
   msg_sync_servers: "Synchronizing servers...",
   msg_install_fabric: "Installing Fabric...",
   msg_prep_files: "Preparing files...",
@@ -456,8 +479,7 @@ const defaultEn = {
   modal_confirm: "Confirmation",
   btn_yes: "Yes",
   btn_no: "No",
-  msg_err_cf:
-    "CurseForge (.zip) modpacks are blocked by Overwolf restrictions. Use Modrinth (.mrpack) instead!",
+  msg_err_cf: "CurseForge (.zip) modpacks are blocked by Overwolf restrictions. Use Modrinth (.mrpack) instead!",
   msg_err_path: "Error: Path not found (Run the app via npm start!)",
   msg_err_format: "Unsupported format! (.mrpack, .zip, .jar, .png)",
   modal_worlds_title: "Worlds Manager",
@@ -466,8 +488,7 @@ const defaultEn = {
   btn_world_copy: "Copy",
   msg_copy_world_loading: "Copying world...",
   msg_world_copied: "World copied successfully!",
-  msg_delete_world_confirm:
-    "Are you sure you want to permanently delete this world?",
+  msg_delete_world_confirm: "Are you sure you want to permanently delete this world?",
   msg_world_deleted: "World deleted!",
   msg_world_backedup: "Backup created in 'backups' folder!",
   lbl_folder: "Folder: ",
@@ -480,8 +501,37 @@ const defaultEn = {
   stat_fav_instance: "Favorite instance: ",
   stat_disk_usage: "Disk space used",
   txt_players: "Players",
-  msg_update_ready:
-    "A new update is ready! Do you want to restart the launcher to install it now?",
+  msg_update_ready: "A new update is ready! Do you want to restart the launcher to install it now?",
+  btn_auto_ram: "🪄 Optimize",
+  tt_auto_ram: "Analyzes your PC and mods to allocate perfect RAM (Min 4GB).",
+  msg_ram_optimized: "RAM optimized to ",
+  modal_updates_title: "Updates Available",
+  msg_updates_available: "The following mods will be updated:",
+  btn_update_all: "Install All",
+  msg_no_updates: "All mods are up to date!",
+  lbl_options_profile: "Options Profile (options.txt)",
+  txt_options_desc: "Set an instance's options as default for future instances.",
+  btn_save_options: "Set as default",
+  msg_options_saved: "Options profile saved!",
+  msg_no_options_found: "No options.txt found. Launch the game at least once on this instance!",
+  msg_drop_mod: "Drop to install mod",
+  msg_drop_shader: "Drop to install shader",
+  msg_drop_rp: "Drop to install pack",
+  msg_files_added: "file(s) added!",
+  modal_import_mc: "Import Official World",
+  btn_import_official_world: "Import from .minecraft",
+  msg_no_mc_worlds: "No worlds found in .minecraft",
+  msg_world_imported: "World imported successfully!",
+  lbl_sync_options: "Keybinds & Options",
+  txt_sync_options: "Overwrite settings with your default profile.",
+  btn_sync_now: "📥 Inject",
+  msg_force_sync_success: "Options synced successfully!",
+  msg_force_sync_error: "No default profile set in Global Settings.",
+  lbl_visibility: "Launcher behavior on launch",
+  opt_keep: "Keep open",
+  opt_hide: "Hide launcher (Ghost Mode)",
+  btn_auto_connect: "Auto",
+  msg_warn_deps: "Potential missing dependency: "
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -519,6 +569,14 @@ function applyTranslations() {
       else el.innerText = currentLangObj[key];
     }
   });
+  
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-title");
+    if (currentLangObj[key]) {
+        el.title = currentLangObj[key];
+    }
+  });
+  
   updateLaunchButton();
 }
 
@@ -566,16 +624,20 @@ function applyTheme() {
     bg: "",
     dim: 0.5,
     blur: 5,
+    panelOpacity: 0.6
   };
   root.style.setProperty("--accent", th.accent);
 
+  const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
   const appBg = document.getElementById("app-background");
+  
   if (th.bg && fs.existsSync(th.bg)) {
-    appBg.style.backgroundImage = `url("file:///${th.bg.replace(/\\/g, "/")}")`;
+    appBg.style.backgroundImage = `url("file:///${encodeURI(th.bg.replace(/\\/g, "/"))}")`;
     appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;
-    root.style.setProperty("--bg-main", "rgba(30, 30, 30, 0.45)");
-    root.style.setProperty("--bg-panel", "rgba(45, 45, 48, 0.65)");
-    root.style.setProperty("--bg-toolbar", "rgba(51, 51, 55, 0.7)");
+    
+    root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
+    root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
+    root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
   } else {
     appBg.style.backgroundImage = "none";
     root.style.setProperty("--bg-main", "#1e1e1e");
@@ -768,6 +830,11 @@ async function handleMrPackImport(packPath) {
     );
     if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
+    const defaultOpt = path.join(dataDir, "default_options.txt");
+    if (fs.existsSync(defaultOpt)) {
+        fs.copyFileSync(defaultOpt, path.join(instDir, "options.txt"));
+    }
+
     zip.getEntries().forEach((entry) => {
       if (
         entry.entryName.startsWith("overrides/") &&
@@ -856,7 +923,8 @@ let globalSettings = {
   defaultJavaPath: "",
   serverIp: "",
   language: null,
-  theme: { accent: "#007acc", bg: "", dim: 0.5, blur: 5 },
+  theme: { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 },
+  launcherVisibility: "keep"
 };
 let selectedInstanceIdx = null,
   selectedAccountIdx = null;
@@ -944,6 +1012,19 @@ function loadStorage() {
   }
   renderUI();
   checkServerStatus();
+
+  if (allInstances.length > 0) {
+      let lastPlayedIdx = 0;
+      let highestTime = -1;
+      allInstances.forEach((inst, index) => {
+          const playedTime = inst.lastPlayed || 0;
+          if (playedTime > highestTime) {
+              highestTime = playedTime;
+              lastPlayedIdx = index;
+          }
+      });
+      setTimeout(() => selectInstance(lastPlayedIdx), 100);
+  }
 }
 
 window.toggleGroup = (group) => {
@@ -1046,6 +1127,55 @@ function renderAccountManager() {
   });
 }
 
+function getModWarnings(inst) {
+    const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+    let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
+    let reqs = {};
+    if (!fs.existsSync(modsPath)) return {};
+    
+    const files = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
+    
+    files.forEach(f => {
+        try {
+            const zip = new AdmZip(path.join(modsPath, f));
+            let entry = zip.getEntry("fabric.mod.json") || zip.getEntry("quilt.mod.json");
+            if (entry) {
+                const json = JSON.parse(zip.readAsText(entry));
+                if (json.id) provided.add(json.id);
+                if (json.provides) json.provides.forEach(p => provided.add(p));
+                if (json.depends) {
+                    reqs[f] = Object.keys(json.depends);
+                }
+            } else {
+                let forgeEntry = zip.getEntry("META-INF/mods.toml");
+                if (forgeEntry) {
+                    const text = zip.readAsText(forgeEntry);
+                    const idMatch = text.match(/modId\s*=\s*"([^"]+)"/);
+                    if (idMatch) provided.add(idMatch[1]);
+                    
+                    const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
+                    let m;
+                    while ((m = blockRegex.exec(text)) !== null) {
+                        if (!reqs[f]) reqs[f] = [];
+                        reqs[f].push(m[1]);
+                    }
+                }
+            }
+        } catch(e) {}
+    });
+
+    let warnings = {};
+    for (let f in reqs) {
+        reqs[f].forEach(reqId => {
+            if (!provided.has(reqId) && !reqId.includes("forge")) {
+                if (!warnings[f]) warnings[f] = [];
+                warnings[f].push(reqId);
+            }
+        });
+    }
+    return warnings;
+}
+
 function renderModsManager() {
   const modsListDiv = document.getElementById("mods-list");
   modsListDiv.innerHTML = "";
@@ -1057,7 +1187,10 @@ function renderModsManager() {
     "mods",
   );
   if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
+  
+  const warnings = getModWarnings(inst);
   let hasMods = false;
+  
   fs.readdirSync(modsPath).forEach((file) => {
     if (file.endsWith(".jar") || file.endsWith(".jar.disabled")) {
       hasMods = true;
@@ -1065,7 +1198,13 @@ function renderModsManager() {
       const displayName = file.replace(".jar.disabled", ".jar");
       const color = isEnabled ? "var(--text-light)" : "#666";
       const decoration = isEnabled ? "none" : "line-through";
-      modsListDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration};">${displayName}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod('${file}', this.checked)"></div>`;
+      
+      let warningHtml = "";
+      if (warnings[file]) {
+          warningHtml = `<span title="${t("msg_warn_deps")}${warnings[file].join(', ')}" style="cursor:help; margin-left:6px; color:#f87171; font-size:0.9rem;">⚠️</span>`;
+      }
+      
+      modsListDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center;">${displayName}${warningHtml}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod('${file}', this.checked)"></div>`;
     }
   });
   if (!hasMods)
@@ -1175,6 +1314,8 @@ window.toggleResourcePack = (filename, isEnabled) => {
   renderResourcePacksManager();
 };
 
+let pendingUpdates = [];
+
 window.checkModUpdates = async () => {
   const inst = allInstances[selectedInstanceIdx];
   if (!inst) return;
@@ -1212,37 +1353,59 @@ window.checkModUpdates = async () => {
       },
     );
     const data = await res.json();
-    let updatedCount = 0;
+    
+    pendingUpdates = [];
+    let listHTML = "";
+
     for (let oldHash in data) {
       const newFileObj =
         data[oldHash].files.find((f) => f.primary) || data[oldHash].files[0];
       if (newFileObj.filename !== hashes[oldHash]) {
-        showLoading(
-          `${t("msg_updating", "Mise à jour :")} ${newFileObj.filename}...`,
-        );
-        await yieldUI();
-        const buffer = await (await fetch(newFileObj.url)).arrayBuffer();
-        fs.writeFileSync(
-          path.join(modsPath, newFileObj.filename),
-          Buffer.from(buffer),
-        );
-        fs.unlinkSync(path.join(modsPath, hashes[oldHash]));
-        updatedCount++;
+          pendingUpdates.push({
+              oldFile: hashes[oldHash],
+              newFileObj: newFileObj
+          });
+          listHTML += `<div style="margin-bottom: 5px;">• <span style="color:#f87171; text-decoration:line-through;">${hashes[oldHash]}</span> ➔ <span style="color:#17B139;">${newFileObj.filename}</span></div>`;
       }
     }
     hideLoading();
-    if (updatedCount > 0) {
-      showToast(
-        `${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`,
-        "success",
-      );
-      renderModsManager();
-    } else showToast(t("msg_mods_uptodate", "Mods déjà à jour !"), "info");
+    
+    if (pendingUpdates.length > 0) {
+        document.getElementById("updates-list").innerHTML = listHTML;
+        document.getElementById("modal-updates").style.display = "flex";
+        
+        document.getElementById("btn-confirm-updates").onclick = async () => {
+            document.getElementById("modal-updates").style.display = "none";
+            await executeModUpdates();
+        };
+    } else {
+        showToast(t("msg_no_updates", "Aucune mise à jour trouvée."), 'info');
+    }
   } catch (e) {
     hideLoading();
     showToast(t("msg_err_dl", "Erreur."), "error");
   }
 };
+
+async function executeModUpdates() {
+    const inst = allInstances[selectedInstanceIdx];
+    const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+    
+    let updatedCount = 0;
+    for (let update of pendingUpdates) {
+        showLoading(`${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`);
+        await yieldUI();
+        try {
+            const buffer = await (await fetch(update.newFileObj.url)).arrayBuffer();
+            fs.writeFileSync(path.join(modsPath, update.newFileObj.filename), Buffer.from(buffer));
+            fs.unlinkSync(path.join(modsPath, update.oldFile));
+            updatedCount++;
+        } catch(e) {}
+    }
+    hideLoading();
+    showToast(`${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`, 'success');
+    renderModsManager();
+}
 
 window.openCatalogModal = () => {
   document.getElementById("catalog-status").innerText = "";
@@ -1436,6 +1599,17 @@ window.removeServer = (index) => {
   renderServersManager();
 };
 
+window.setAutoConnect = (ip) => {
+    const inst = allInstances[selectedInstanceIdx];
+    if (inst.autoConnect === ip) {
+        inst.autoConnect = null; 
+    } else {
+        inst.autoConnect = ip;
+    }
+    fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+    renderServersManager();
+};
+
 window.renderServersManager = () => {
   const list = document.getElementById("server-list");
   list.innerHTML = "";
@@ -1446,13 +1620,17 @@ window.renderServersManager = () => {
   }
 
   inst.servers.forEach((ip, i) => {
+    const isAuto = inst.autoConnect === ip;
     list.innerHTML += `
-            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid ${isAuto ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <span style="font-weight: bold; color: var(--text-light);">${ip}</span>
                     <div id="srv-ping-${i}" style="font-size: 0.75rem; color: #aaa;">🔄 ${t("msg_ping", "Ping...")}</div>
                 </div>
-                <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
+                <div style="display: flex; gap: 5px;">
+                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip}')" title="Quick-Connect">🚀 ${t("btn_auto_connect", "Auto")}</button>
+                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
+                </div>
             </div>`;
   });
   pingServers();
@@ -1559,7 +1737,53 @@ async function downloadJavaAuto() {
   }
 }
 
-// --- GESTION DES MONDES (WORLDS MANAGER) ---
+window.openImportMCWorldsModal = () => {
+    const mcDir = path.join(process.env.APPDATA, ".minecraft", "saves");
+    const listDiv = document.getElementById("mc-worlds-list");
+    listDiv.innerHTML = "";
+    document.getElementById("modal-import-mc").style.display = "flex";
+
+    if (!fs.existsSync(mcDir)) {
+        listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
+        return;
+    }
+    const folders = fs.readdirSync(mcDir).filter(f => fs.statSync(path.join(mcDir, f)).isDirectory());
+    if (folders.length === 0) {
+        listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
+        return;
+    }
+
+    let html = "";
+    folders.forEach(f => {
+        html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border);">
+            <div style="font-weight: bold; color: var(--text-light);">${f}</div>
+            <button class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="importOfficialWorld('${f.replace(/'/g, "\\'")}')">${t("toolbar_import", "Importer")}</button>
+        </div>`;
+    });
+    listDiv.innerHTML = html;
+};
+
+window.importOfficialWorld = async (folderName) => {
+    const inst = allInstances[selectedInstanceIdx];
+    if (!inst) return;
+    const mcDir = path.join(process.env.APPDATA, ".minecraft", "saves", folderName);
+    const targetDir = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves", folderName);
+
+    showLoading(t("msg_copy", "Copie en cours..."));
+    await yieldUI();
+    try {
+        if (!fs.existsSync(path.dirname(targetDir))) fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+        await fs.promises.cp(mcDir, targetDir, { recursive: true });
+        showToast(t("msg_world_imported", "Monde importé avec succès !"), "success");
+        document.getElementById("modal-import-mc").style.display = "none";
+        openWorldsModal();
+    } catch (e) {
+        showToast("Error: " + e.message, "error");
+    }
+    hideLoading();
+};
+
 window.openWorldsModal = async () => {
   if (selectedInstanceIdx === null) return;
   const inst = allInstances[selectedInstanceIdx];
@@ -1763,7 +1987,7 @@ window.openGalleryModal = () => {
           .replace(/'/g, "\\'");
         grid.innerHTML += `
                     <div style="position: relative; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; cursor: pointer; aspect-ratio: 16/9; background: #000;" onclick="openSystemPath('${clickPath}')">
-                        <img src="file:///${fullPath}" style="width: 100%; height: 100%; object-fit: cover;">
+                        <img src="file:///${encodeURI(fullPath)}" style="width: 100%; height: 100%; object-fit: cover;">
                         <div style="position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.7); font-size: 0.75rem; padding: 4px; box-sizing: border-box; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${f}</div>
                     </div>`;
       });
@@ -1802,6 +2026,34 @@ window.selectInstance = (i) => {
   document.getElementById("stat-last").innerText = inst.lastPlayed
     ? new Date(inst.lastPlayed).toLocaleDateString()
     : "Jamais";
+    
+  const appBg = document.getElementById("app-background");
+  const root = document.documentElement; 
+  const screensDir = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
+  let bgSet = false;
+  
+  if (fs.existsSync(screensDir)) {
+      const files = fs.readdirSync(screensDir).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
+      if (files.length > 0) {
+          const randomFile = files[Math.floor(Math.random() * files.length)];
+          const imgPath = path.join(screensDir, randomFile).replace(/\\/g, "/");
+          
+          const th = globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
+          const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
+          
+          appBg.style.backgroundImage = `url("file:///${encodeURI(imgPath)}")`;
+          appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;
+          
+          root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
+          root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
+          root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
+          
+          bgSet = true;
+      }
+  }
+  
+  if (!bgSet) applyTheme();
+
   renderUI();
 };
 
@@ -1868,6 +2120,15 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   if (inst.backupMode === "on_launch") await createBackup(inst);
 
+  const destOpt = path.join(instancePath, "options.txt");
+  const defaultOpt = path.join(dataDir, "default_options.txt");
+  if (!fs.existsSync(destOpt) && fs.existsSync(defaultOpt)) {
+      try {
+          fs.copyFileSync(defaultOpt, destOpt);
+          sysLog("Injection du profil options.txt par défaut avant le lancement.");
+      } catch(e) {}
+  }
+
   let ramMB = inst.ram ? parseInt(inst.ram) : globalSettings.defaultRam;
   if (ramMB < 128) ramMB = ramMB * 1024;
   let jPath =
@@ -1876,6 +2137,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
       : globalSettings.defaultJavaPath || "javaw";
   let customArgs =
     inst.jvmArgs && inst.jvmArgs.trim() !== "" ? inst.jvmArgs.split(" ") : [];
+
   let resW = inst.resW ? parseInt(inst.resW) : 854;
   let resH = inst.resH ? parseInt(inst.resH) : 480;
 
@@ -1996,6 +2258,25 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     spawnOptions: { detached: false, shell: false, windowsHide: true },
   };
 
+  // --- CORRECTION DU QUICK CONNECT ---
+  if (inst.autoConnect) {
+      const parts = inst.autoConnect.split(":");
+      const srvHost = parts[0];
+      const srvPort = parts[1] ? parts[1] : "25565";
+
+      // L'API officielle de minecraft-launcher-core pour les serveurs
+      opts.server = {
+          host: srvHost,
+          port: srvPort
+      };
+
+      // Sécurité pour les versions > 1.20
+      opts.quickPlay = {
+          type: "multiplayer",
+          identifier: `${srvHost}:${srvPort}`
+      };
+  }
+
   if (inst.loader === "fabric") {
     try {
       document.getElementById("status-text").innerText = t(
@@ -2029,6 +2310,11 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     "msg_prep_files",
     "Préparation des fichiers...",
   );
+  
+  if (globalSettings.launcherVisibility === "hide") {
+      ipcRenderer.send("hide-window");
+  }
+  
   setUIState(true);
   sessionStartTime = Date.now();
   updateRPC(inst.name, "En jeu");
@@ -2071,8 +2357,14 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         (currentInst.playTime || 0) + (Date.now() - sessionStartTime);
       currentInst.lastPlayed = Date.now();
       fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+      
       selectInstance(selectedInstanceIdx);
     }
+    
+    if (globalSettings.launcherVisibility === "hide") {
+        ipcRenderer.send("show-window");
+    }
+    
     document.getElementById("status-text").innerText = t(
       "status_ready",
       "Prêt",
@@ -2122,6 +2414,35 @@ window.switchTabGlob = (tabId) => {
   if (tabContent) tabContent.classList.add("active");
 };
 
+window.autoOptimizeRAM = () => {
+    const inst = allInstances[selectedInstanceIdx];
+    if(!inst) return;
+    const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+    
+    let modCount = 0;
+    if (fs.existsSync(modsPath)) {
+        modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled")).length;
+    }
+
+    let idealRam = 2048; 
+    if (inst.loader !== "vanilla") {
+        idealRam = 4096; 
+        if (modCount > 50) idealRam = 6144;
+        if (modCount > 100) idealRam = 8192;
+    }
+
+    if (idealRam > maxSafeRam) idealRam = maxSafeRam;
+    
+    const totalSysRam = Math.floor(os.totalmem() / (1024 * 1024));
+    if (idealRam < 4096 && totalSysRam >= 6144) {
+        idealRam = 4096;
+    }
+
+    document.getElementById("edit-ram-input").value = idealRam;
+    document.getElementById("edit-ram-slider").value = idealRam;
+    showToast(`${t("msg_ram_optimized", "RAM optimisée à ")}${idealRam} Mo`, "success");
+};
+
 window.openGlobalSettings = () => {
   document.getElementById("global-ram-input").value = globalSettings.defaultRam;
   document.getElementById("global-ram-slider").value =
@@ -2137,12 +2458,24 @@ window.openGlobalSettings = () => {
     globalSettings.theme?.dim || 0.5;
   document.getElementById("global-bg-blur").value =
     globalSettings.theme?.blur || 5;
+  document.getElementById("global-panel-opacity").value = 
+    globalSettings.theme?.panelOpacity !== undefined ? globalSettings.theme.panelOpacity : 0.6;
+  document.getElementById("global-visibility").value =
+    globalSettings.launcherVisibility || "keep";
+
+  const optSelect = document.getElementById("global-options-source");
+  optSelect.innerHTML = "<option value=''>-- Choisir une instance --</option>";
+  allInstances.forEach((inst, i) => {
+      optSelect.innerHTML += `<option value="${i}">${inst.name}</option>`;
+  });
 
   switchTabGlob("tab-glob-gen");
   document.getElementById("modal-settings").style.display = "flex";
 };
+
 window.closeGlobalSettings = () =>
   (document.getElementById("modal-settings").style.display = "none");
+
 window.saveGlobalSettings = () => {
   globalSettings.defaultRam = parseInt(
     document.getElementById("global-ram-input").value,
@@ -2151,18 +2484,55 @@ window.saveGlobalSettings = () => {
   globalSettings.serverIp = document
     .getElementById("global-server-ip")
     .value.trim();
+  globalSettings.launcherVisibility = document.getElementById("global-visibility").value;
 
   globalSettings.theme = {
     accent: document.getElementById("global-accent").value,
     bg: document.getElementById("global-bg-path").value,
     dim: parseFloat(document.getElementById("global-bg-dim").value),
     blur: parseInt(document.getElementById("global-bg-blur").value),
+    panelOpacity: parseFloat(document.getElementById("global-panel-opacity").value),
   };
 
   fs.writeFileSync(settingsFile, JSON.stringify(globalSettings, null, 2));
-  applyTheme();
+  
+  if(selectedInstanceIdx !== null) selectInstance(selectedInstanceIdx);
+  else applyTheme();
+  
   closeGlobalSettings();
   checkServerStatus();
+};
+
+window.saveDefaultOptions = () => {
+    const idx = document.getElementById("global-options-source").value;
+    if (idx === "") return;
+    const inst = allInstances[idx];
+    const sourceOpt = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
+    if (fs.existsSync(sourceOpt)) {
+        fs.copyFileSync(sourceOpt, path.join(dataDir, "default_options.txt"));
+        showToast(t("msg_options_saved", "Profil d'options sauvegardé !"), "success");
+    } else {
+        showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !"), "error");
+    }
+};
+
+window.forceInjectOptions = () => {
+    const inst = allInstances[selectedInstanceIdx];
+    if (!inst) return;
+    const destOpt = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
+    const defaultOpt = path.join(dataDir, "default_options.txt");
+    
+    if (!fs.existsSync(defaultOpt)) {
+        showToast(t("msg_force_sync_error", "Aucun profil par défaut défini dans les Paramètres Globaux."), "error");
+        return;
+    }
+    
+    try {
+        fs.copyFileSync(defaultOpt, destOpt);
+        showToast(t("msg_force_sync_success", "Touches synchronisées avec succès !"), "success");
+    } catch(e) {
+        showToast("Erreur de synchronisation.", "error");
+    }
 };
 
 window.openInstanceModal = () => {
@@ -2230,6 +2600,14 @@ window.saveInstance = () => {
     backupLimit: 5,
   });
   fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+
+  const destFolder = path.join(instancesRoot, name.replace(/[^a-z0-9]/gi, "_"));
+  fs.mkdirSync(destFolder, { recursive: true });
+  const defaultOpt = path.join(dataDir, "default_options.txt");
+  if (fs.existsSync(defaultOpt)) {
+      try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
+  }
+
   renderUI();
   closeInstanceModal();
 };
@@ -2250,6 +2628,8 @@ window.saveEdit = () => {
   const iconSrc = document.getElementById("edit-icon-preview").src;
   if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
   fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+  
+  selectInstance(selectedInstanceIdx);
   renderUI();
   closeEditModal();
 };
@@ -2392,6 +2772,7 @@ window.deleteInstance = async () => {
       "panel_title",
       "Sélectionnez une instance",
     );
+    applyTheme();
     renderUI();
   }
 };
@@ -2462,6 +2843,11 @@ async function handleZipImport(zipPath) {
     if (!fs.existsSync(destFolder))
       fs.mkdirSync(destFolder, { recursive: true });
 
+    const defaultOpt = path.join(dataDir, "default_options.txt");
+    if (fs.existsSync(defaultOpt)) {
+        try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
+    }
+
     zip.getEntries().forEach((entry) => {
       if (
         entry.entryName.startsWith("files/") &&
@@ -2487,23 +2873,76 @@ async function handleZipImport(zipPath) {
   renderUI();
 }
 
-ipcRenderer.on('update-progress', (event, percent) => {
-    const statusText = document.getElementById("status-text");
-    const progBar = document.getElementById("progress-bar");
-    
-    
-    if(progBar) progBar.style.width = percent + "%";
-    if(statusText) statusText.innerText = `Mise à jour : ${percent}%`;
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (document.getElementById("modal-edit").style.display === "flex") {
+        const tabMods = document.getElementById("tab-mods").classList.contains("active");
+        const tabShaders = document.getElementById("tab-shaders").classList.contains("active");
+        const tabRp = document.getElementById("tab-resourcepacks").classList.contains("active");
+        
+        if (tabMods || tabShaders || tabRp) {
+            const overlay = document.getElementById("drop-overlay");
+            if (tabMods) overlay.innerText = t("msg_drop_mod", "Relâchez pour installer le mod");
+            if (tabShaders) overlay.innerText = t("msg_drop_shader", "Relâchez pour installer le shader");
+            if (tabRp) overlay.innerText = t("msg_drop_rp", "Relâchez pour installer le pack");
+            overlay.style.display = "flex";
+        }
+    }
 });
 
+document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+});
 
-ipcRenderer.on('update-downloaded', async () => {
-    hideLoading();
-    const restart = await showCustomConfirm(
-        t("msg_update_ready", "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?"), 
-        false
-    );
-    if (restart) {
-        ipcRenderer.send('restart_app');
+document.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter === 0) {
+        document.getElementById("drop-overlay").style.display = "none";
+    }
+});
+
+document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    document.getElementById("drop-overlay").style.display = "none";
+
+    if (document.getElementById("modal-edit").style.display !== "flex") return;
+    const inst = allInstances[selectedInstanceIdx];
+    if (!inst) return;
+
+    const tabMods = document.getElementById("tab-mods").classList.contains("active");
+    const tabShaders = document.getElementById("tab-shaders").classList.contains("active");
+    const tabRp = document.getElementById("tab-resourcepacks").classList.contains("active");
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    let targetFolder = "";
+    let validExt = "";
+    let renderFn = null;
+
+    if (tabMods) { targetFolder = "mods"; validExt = ".jar"; renderFn = renderModsManager; }
+    else if (tabShaders) { targetFolder = "shaderpacks"; validExt = ".zip"; renderFn = renderShadersManager; }
+    else if (tabRp) { targetFolder = "resourcepacks"; validExt = ".zip"; renderFn = renderResourcePacksManager; }
+    else return;
+
+    const destDir = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+    let copied = 0;
+    for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (f.name.endsWith(validExt)) {
+            fs.copyFileSync(f.path, path.join(destDir, f.name));
+            copied++;
+        }
+    }
+    if (copied > 0) {
+        showToast(`${copied} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
+        renderFn();
     }
 });
