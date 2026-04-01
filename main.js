@@ -85,7 +85,6 @@ ipcMain.handle("login-microsoft", async () => {
 
     await session.defaultSession.clearStorageData();
 
-    // Lancement de la fenêtre Microsoft
     const authManager = new Auth("select_account");
     const xboxManager = await authManager.launch("electron");
     const token = await xboxManager.getMinecraft();
