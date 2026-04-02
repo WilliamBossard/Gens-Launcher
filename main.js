@@ -8,14 +8,34 @@ app.userAgentFallback = SPOOF_UA;
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
+// Domaines Microsoft OAuth à ne jamais altérer (sinon erreur 400)
+const MS_AUTH_HOSTS = [
+    "login.live.com",
+    "login.microsoftonline.com",
+    "microsoftlogin.com",
+    "account.live.com",
+    "sisu.xboxlive.com",
+    "xsts.auth.xboxlive.com"
+];
+
 function applySpoofing(sess) {
     sess.webRequest.onBeforeSendHeaders((details, callback) => {
+        try {
+            const url = new URL(details.url);
+            // Ne pas toucher aux requêtes Microsoft OAuth
+            if (MS_AUTH_HOSTS.some(h => url.hostname.endsWith(h))) {
+                return callback({ cancel: false, requestHeaders: details.requestHeaders });
+            }
+        } catch (e) {
+            // URL invalide, on laisse passer
+            return callback({ cancel: false, requestHeaders: details.requestHeaders });
+        }
+
         details.requestHeaders['User-Agent'] = SPOOF_UA;
-        
         delete details.requestHeaders['sec-ch-ua'];
         delete details.requestHeaders['sec-ch-ua-mobile'];
         delete details.requestHeaders['sec-ch-ua-platform'];
-        
+
         callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
 }
@@ -83,7 +103,8 @@ ipcMain.handle("login-microsoft", async () => {
     const { Auth } = require("msmc");
     mainLog("Lancement de l'authentification MSMC v4...");
 
-    await session.defaultSession.clearStorageData();
+    // ⚠️ NE PAS appeler clearStorageData() ici
+    // Cela détruisait la session OAuth en cours et causait l'erreur 400
 
     const authManager = new Auth("select_account");
     const xboxManager = await authManager.launch("electron");

@@ -14,7 +14,7 @@
     "discord-rpc": "^4.0.1",
     "electron-updater": "^6.8.3",
     "minecraft-launcher-core": "^3.18.2",
-    "msmc": "^5.0.5",
+    "msmc": "^4.1.0",
     "prismarine-nbt": "^2.2.1"
   },
   "devDependencies": {
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.gens.launcher",
-    "productName": "Gens.Launcher",
+    "productName": "Gens Launcher",
     "directories": {
       "output": "dist"
     },
