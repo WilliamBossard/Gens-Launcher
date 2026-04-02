@@ -107,32 +107,6 @@
             cursor: pointer;
         }
 
-        .server-dropdown {
-            position: relative;
-            display: inline-block;
-        }
-
-        .server-dropdown-content {
-            display: none;
-            position: absolute;
-            right: 0;
-            top: 100%;
-            background-color: var(--bg-panel);
-            min-width: 220px;
-            box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.6);
-            z-index: 2000;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 12px;
-            margin-top: 5px;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .server-dropdown.active .server-dropdown-content {
-            display: flex;
-        }
-
         .workspace {
             display: flex;
             flex-grow: 1;
@@ -157,6 +131,60 @@
             gap: 10px;
             align-items: center;
             transition: background 0.3s;
+        }
+
+        #news-container {
+            display: none; 
+            padding: 15px 15px 5px 15px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+        }
+        
+        #news-content-wrapper {
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 10px;
+        }
+
+        .news-card {
+            display: inline-block;
+            width: 260px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-right: 15px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .news-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+        }
+
+        .news-img {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .news-content {
+            padding: 10px;
+            white-space: normal;
+        }
+
+        /* NOUVEAU : Le Server Banner */
+        #server-banner-container {
+            display: none;
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.4);
+            flex-shrink: 0;
+            align-items: center;
+            backdrop-filter: blur(5px);
         }
 
         #instances-container {
@@ -335,6 +363,11 @@
             color: #d4d4d4;
             box-sizing: border-box;
             user-select: text;
+        }
+
+        .log-line {
+            display: block;
+            word-wrap: break-word;
         }
 
         .statusbar {
@@ -829,6 +862,25 @@
         </div>
     </div>
 
+    <div id="modal-export" class="modal" style="z-index: 3000;">
+        <div class="modal-card" style="width: 400px;">
+            <div class="modal-header" data-i18n="btn_export">Exporter l'instance</div>
+            <div class="modal-body" style="text-align: center; gap: 15px;">
+                <button class="btn-primary" onclick="doExport('zip')" style="width:100%; padding: 10px; text-align: left;">
+                    <div style="font-weight: bold; font-size: 1rem;">📦 Export Complet (.zip)</div>
+                    <div style="font-size:0.75rem; font-weight:normal; opacity: 0.8;">Contient absolument tous vos mods et mondes (Fichier lourd).</div>
+                </button>
+                <button class="btn-secondary" onclick="doExport('mrpack')" style="width:100%; padding: 10px; border-color: var(--accent); color: var(--text-light); text-align: left;">
+                    <div style="font-weight: bold; font-size: 1rem; color: var(--accent);">⚡ Export Léger (.mrpack)</div>
+                    <div style="font-size:0.75rem; font-weight:normal; opacity: 0.8;">Génère un fichier de quelques Ko idéal pour partager avec vos amis.</div>
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+            </div>
+        </div>
+    </div>
+
     <input type="file" id="import-upload" accept=".zip,.mrpack" style="display: none;">
     <datalist id="java-paths-list"></datalist>
     <datalist id="group-paths-list"></datalist>
@@ -849,12 +901,6 @@
         </div>
 
         <div class="toolbar-group">
-            <div class="server-dropdown" id="server-dropdown-container" style="display: none;">
-                <button class="tool-btn" onclick="toggleServerDropdown()" id="btn-server-indicator"
-                    style="background: rgba(0,0,0,0.2); border: 1px solid var(--border);">📡 Serveur</button>
-                <div class="server-dropdown-content" id="server-status-content"></div>
-            </div>
-
             <img id="active-skin" src=""
                 style="width: 20px; height: 20px; border-radius: 2px; image-rendering: pixelated; display: none;">
             <select id="account-dropdown" class="tool-select" onchange="changeAccount()"
@@ -875,11 +921,18 @@
                 </select>
             </div>
 
+            <div id="news-container"></div>
+            
+            <div id="server-banner-container"></div>
+
             <div id="instances-container"></div>
 
             <div id="console-container">
                 <div id="console-header">
-                    <span>Console Minecraft</span>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span>Console Minecraft</span>
+                        <input type="text" id="console-filter" placeholder="Filtrer les logs..." style="width: 180px; font-size: 0.7rem; padding: 3px 6px; background: #222; border: 1px solid var(--border); color: var(--text-light); border-radius: 3px;">
+                    </div>
                     <div>
                         <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.7rem; margin-right: 10px;"
                             onclick="copyLogs()" data-i18n="btn_copy_logs">Copier</button>
@@ -887,7 +940,7 @@
                             onclick="document.getElementById('console-container').style.display='none'">X</span>
                     </div>
                 </div>
-                <pre id="log-output"></pre>
+                <div id="log-output"></div>
             </div>
         </div>
 
@@ -898,6 +951,15 @@
                     style="color:#fff; font-weight:bold;"></span><br>
                 <span data-i18n="panel_last">Dernier :</span> <span id="stat-last" style="color:#fff;"></span>
             </div>
+            
+            <div id="live-stats" style="display:none; margin-bottom: 10px; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 4px;">
+                <div style="text-align:center; font-size:0.8rem; font-weight:bold; color:var(--text-light); margin-bottom:10px;">📊 Monitoring Système</div>
+                <div style="font-size:0.75rem; color:#aaa;">RAM Globale : <span id="live-ram" style="color:var(--accent);">0%</span></div>
+                <div style="width:100%; height:6px; background:#222; border-radius:3px; margin: 4px 0 10px 0;"><div id="live-ram-bar" style="width:0%; height:100%; background:var(--accent); border-radius:3px; transition:0.5s;"></div></div>
+                <div style="font-size:0.75rem; color:#aaa;">Charge CPU : <span id="live-cpu" style="color:#17B139;">0%</span></div>
+                <div style="width:100%; height:6px; background:#222; border-radius:3px; margin-top: 4px;"><div id="live-cpu-bar" style="width:0%; height:100%; background:#17B139; border-radius:3px; transition:0.5s;"></div></div>
+            </div>
+
             <button id="launch-btn" class="action-btn"
                 style="font-weight: bold; color: white; background: var(--accent);" disabled
                 data-i18n="btn_launch">Lancer</button>
@@ -1020,7 +1082,11 @@
             <div class="modal-body"
                 style="flex-grow: 1; overflow: hidden; padding: 15px; display: flex; flex-direction: column;">
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <select id="catalog-type" style="width: 130px;" onchange="searchGlobalCatalog()">
+                    <select id="catalog-source" style="width: 120px;" onchange="searchGlobalCatalog()">
+                        <option value="modrinth">Modrinth</option>
+                        <option value="curseforge">CurseForge</option>
+                    </select>
+                    <select id="catalog-type" style="width: 120px;" onchange="searchGlobalCatalog()">
                         <option value="mod">Mods</option>
                         <option value="modpack" data-i18n="opt_modpack">Modpacks</option>
                         <option value="shader">Shaders</option>
@@ -1028,11 +1094,12 @@
                     </select>
                     <input type="text" id="catalog-search" placeholder="Rechercher..." style="flex-grow: 1;"
                         onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
-                    <select id="catalog-loader" style="width: 110px;">
+                    <select id="catalog-loader" style="width: 100px;">
                         <option value="fabric">Fabric</option>
                         <option value="forge">Forge</option>
+                        <option value="neoforge">NeoForge</option>
                     </select>
-                    <select id="catalog-version" style="width: 100px;"></select>
+                    <select id="catalog-version" style="width: 90px;"></select>
                     <button class="btn-primary" onclick="searchGlobalCatalog()" data-i18n="btn_search">Chercher</button>
                 </div>
                 <div id="catalog-results"
@@ -1057,15 +1124,23 @@
                         onchange="updateVersionList(this.checked)">
                     <label for="check-beta" data-i18n="lbl_beta">Afficher les Bêtas</label>
                 </div>
-                <label>Version</label>
-                <select id="new-version"></select>
+                <label>Version Minecraft</label>
+                <select id="new-version" onchange="updateLoaderVersions()"></select>
+                
                 <label data-i18n="lbl_loader">Type de chargeur (Loader)</label>
-                <select id="new-loader">
+                <select id="new-loader" onchange="updateLoaderVersions()">
                     <option value="vanilla">Vanilla</option>
                     <option value="fabric">Fabric</option>
                     <option value="forge">Forge</option>
+                    <option value="neoforge">NeoForge</option>
                 </select>
-                <div style="display: flex; justify-content: space-between; align-items:center;">
+
+                <div id="loader-version-container" style="display:none; margin-top: 5px;">
+                    <label data-i18n="lbl_loader_version">Version du chargeur</label>
+                    <select id="new-loader-version"></select>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 10px;">
                     <label data-i18n="lbl_ram">Mémoire RAM (Mo) :</label>
                     <input type="number" id="new-ram-input" min="1024" max="32768"
                         style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;"
@@ -1117,6 +1192,10 @@
                             style="flex-grow: 1;">
                         <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
                     </div>
+                    
+                    <label style="margin-top: 15px;">Clé API CurseForge (Optionnel)</label>
+                    <div style="font-size: 0.7rem; color: #aaa; margin-bottom: 5px;">Nécessaire uniquement pour utiliser le catalogue CurseForge. Obtenez une clé gratuite sur EternalDeveloper.</div>
+                    <input type="text" id="global-cf-api" placeholder="$2a$10$xxxxxxxxxxxxxxxx...">
 
                     <label style="margin-top: 15px;" data-i18n="lbl_options_profile">Profil d'Options (options.txt)</label>
                     <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;" data-i18n="txt_options_desc">Sélectionnez une instance pour que ses touches deviennent celles par défaut.</div>
