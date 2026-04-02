@@ -1,10 +1,42 @@
-RAM Security (Anti-PC Crash): The launcher now uses the native Node.js OS module to detect the user's total physical RAM. It automatically sets the maximum limit of the cursors while always keeping 2 GB of margin for Windows. (No more crashes because a player has added 16 GB of RAM when he only has 8!).
+#  Gens Launcher - Patch Notes
 
-Persistent Logs System: The launcher creates a logs folder in AppData. Each launch generates a text file (launcher_date.log). It intelligently only keeps the last 5 files so as not to pollute the hard drive.
+## Version 1.3.0: "The Stability Update" (Current)
+*Focus: Clean authentication, multi-language support, and UI customization.*
 
-Console Ergonomics: * I added a "Copy" button in the console so that the user can send you their logs in one click.
+### **Microsoft Authentication **
+* **Error 400 Fix**: Implemented a specialized network strategy by excluding Microsoft OAuth domains from header alterations, successfully preventing authentication blocks.
+* **Stable Login Flow**: Integrated the `msmc` v4 library to ensure reliable Minecraft profile retrieval and session handling.
 
-If the game stops with an error code (Crash), the console automatically opens on the screen so that the user understands that there was a problem.
+### **Local Account Management**
+* **Persistent Storage**: Automated saving and loading of player profiles (Microsoft & Offline) via a local `accounts.json` storage system.
+* **Multi-Account Support**: Added the ability to manage multiple accounts and switch between them directly from the toolbar.
 
+### **UI & Internationalization **
+* **Localization**: Full **English** and **French** support implemented via external translation files.
+* **Visual Engine**: New background engine supporting custom images, dynamic blur effects, and adjustable panel opacity for a personalized look.
 
-I'm thinking of adding modpacks to the catalog as well as a better update system and further improve ergonomics
+### **Integrated Features**
+* **Discord RPC**: Real-time "Rich Presence" to show your current game status and instance name on your Discord profile.
+* **Ghost Mode**: Optional setting to automatically hide the launcher while the game is running to save system resources.
+* **Instance Tools**: Dedicated tools to add, edit, copy, and export Minecraft instances with specific RAM and Java configurations.
+
+---
+
+##  Version 1.4.0: "The Pro-Launcher Update" (Upcoming)
+*Focus: Automation, advanced debugging, and broader modding support.*
+
+#### **1. Full Modloader Support**
+* **Forge & NeoForge Auto-install**: Building on the existing Fabric installation logic to support the complex library requirements of Forge and NeoForge loaders.
+
+#### **2. "Smart Java" Management**
+The launcher will automatically select the required Java version based on the Minecraft version to prevent startup crashes:
+* **MC 1.7.10 to 1.16.5**: Java 8
+* **MC 1.17 to 1.20.4**: Java 17
+* **MC 1.21+**: Java 21
+
+#### **3. Advanced Debug Console**
+* **Log Colorization**: Real-time color coding (`[INFO]` in Gray, `[WARN]` in Orange, `[ERROR]` in Red) to make identifying crashes effortless.
+* **Search & Filter**: A dedicated search bar within the logs to quickly find specific errors or keywords.
+
+#### **4. RAM Optimization 2.0**
+* **" Optimize" Tool**: A smart diagnostic feature that suggests the best RAM allocation based on your hardware and the number of mods installed in your instance.
