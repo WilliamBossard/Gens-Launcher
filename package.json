@@ -40,7 +40,7 @@
       ],
       "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker",
-      "artifactName": "${productName}.Setup.${version}.${ext}"
+      "artifactName": "GensLauncher-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
