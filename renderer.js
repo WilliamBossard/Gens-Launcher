@@ -2540,6 +2540,27 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   if (inst.backupMode === "on_launch") await createBackup(inst);
 
+  // Rafraîchir le token Microsoft avant le lancement (valide 24h seulement)
+  if (acc.type === "microsoft" && acc.mclcAuth?.meta?.msaCacheKey) {
+      try {
+          document.getElementById("status-text").innerText = t("msg_check_java", "Vérification du compte...");
+          const refreshed = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
+          if (refreshed.success) {
+              acc.mclcAuth.access_token = refreshed.access_token;
+              allAccounts[selectedAccountIdx].mclcAuth.access_token = refreshed.access_token;
+              fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
+              sysLog("Token Microsoft rafraîchi avec succès.");
+          } else {
+              sysLog("Refresh token échoué (token expiré ?): " + refreshed.error, true);
+              showToast(t("msg_err_ms", "Erreur Microsoft : ") + "Token expiré, reconnectez-vous.", "error");
+              setUIState(false);
+              return;
+          }
+      } catch(e) {
+          sysLog("Refresh token erreur système: " + e, true);
+      }
+  }
+
   const destOpt = path.join(instancePath, "options.txt");
   const defaultOpt = path.join(dataDir, "default_options.txt");
   if (!fs.existsSync(destOpt) && fs.existsSync(defaultOpt)) {
@@ -3155,7 +3176,7 @@ window.loginMicrosoft = async () => {
       );
       renderUI();
       closeAccountModal();
-      showToast("Connexion réussie !", "success");
+      showToast(t("msg_login_success", "Connexion réussie !"), "success");
     } else if (result.cancelled) {
       showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
     } else {
@@ -3175,6 +3196,11 @@ window.deleteAccount = async (index) => {
   if (
     await showCustomConfirm(t("msg_remove_acc", "Retirer ce compte ?"), true)
   ) {
+    // Supprimer le cache MSA si c'est un compte Microsoft
+    const acc = allAccounts[index];
+    if (acc.type === "microsoft" && acc.mclcAuth?.meta?.msaCacheKey) {
+        ipcRenderer.send("delete-msa-cache", acc.mclcAuth.meta.msaCacheKey);
+    }
     allAccounts.splice(index, 1);
     if (selectedAccountIdx === index)
       selectedAccountIdx = allAccounts.length > 0 ? 0 : null;

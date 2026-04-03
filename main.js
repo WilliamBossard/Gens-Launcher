@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -8,6 +8,15 @@ const { Authflow, Titles } = require("prismarine-auth");
 const CHROME_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+// Domaines Mojang/Minecraft — spoofing UA pour éviter les blocages réseau
+const MOJANG_HOSTS = [
+    "mojang.com", "minecraft.net", "minecraftservices.com",
+    "launchermeta.mojang.com", "launcher.mojang.com",
+    "resources.download.minecraft.net", "libraries.minecraft.net"
+];
 
 let mainWindow;
 const logPath = path.join(app.getPath("userData"), "main-process.log");
@@ -33,6 +42,20 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    // Spoofing UA uniquement sur les domaines Mojang pour éviter les blocages réseau
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+        try {
+            const url = new URL(details.url);
+            if (MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h))) {
+                details.requestHeaders['User-Agent'] = CHROME_UA;
+                delete details.requestHeaders['sec-ch-ua'];
+                delete details.requestHeaders['sec-ch-ua-mobile'];
+                delete details.requestHeaders['sec-ch-ua-platform'];
+            }
+        } catch(e) {}
+        callback({ cancel: false, requestHeaders: details.requestHeaders });
+    });
+
     createWindow();
 
     autoUpdater.logger = {
@@ -194,6 +217,38 @@ ipcMain.handle("login-microsoft", async () => {
     } finally {
         activeMicrosoftAuthFlow = null;
         isAuthRunning = false;
+    }
+});
+
+// Rafraîchissement du token Microsoft avant chaque lancement
+ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
+    try {
+        const cacheDir = path.join(app.getPath("userData"), "msa-cache");
+        const flow = new Authflow(sessionLabel, cacheDir, {
+            flow: "live",
+            authTitle: Titles.MinecraftNintendoSwitch,
+            deviceType: "Nintendo",
+            deviceVersion: "0.0.0",
+        });
+        const response = await flow.getMinecraftJavaToken({ fetchProfile: false });
+        mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
+        return { success: true, access_token: response.token };
+    } catch(err) {
+        mainLog("Erreur refresh token : " + err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+// Suppression du cache MSA quand un compte est supprimé
+ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
+    try {
+        const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
+        if (fs.existsSync(cacheDir)) {
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+            mainLog(`Cache MSA supprimé pour : ${sessionLabel}`);
+        }
+    } catch(e) {
+        mainLog("Erreur suppression cache MSA : " + e.message);
     }
 });
 
