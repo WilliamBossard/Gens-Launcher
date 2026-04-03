@@ -1,6 +1,6 @@
 const { ipcRenderer } = require("electron");
 const { Client } = require("minecraft-launcher-core");
-const { shell } = require("electron");
+const { shell, clipboard } = require("electron");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -29,19 +29,34 @@ rpc
   })
   .catch(() => {});
 
-function updateRPC(details, state) {
-  if (!rpcReady) return;
+function updateRPC(inst) {
+  if (!rpcReady || !inst) return;
   try {
+    let stateText = t("lbl_discord_solo", "En jeu");
+    
+    if (inst.autoConnect) {
+        stateText = `${t("lbl_discord_playing", "Joue sur")} ${inst.autoConnect.split(':')[0]}`;
+    } else {
+        const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        if (fs.existsSync(modsPath)) {
+            const modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar")).length;
+            if (modCount > 0) stateText = `${modCount} mods`;
+        }
+    }
+
     rpc.setActivity({
-      details,
-      state,
+      details: inst.name,
+      state: stateText,
       startTimestamp: new Date(),
       largeImageKey: "logo",
       largeImageText: "Gens Launcher",
-      instance: false,
+      buttons: [
+          { label: t("btn_discord_download", "Telecharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" }
+      ]
     });
   } catch (e) {}
 }
+
 function clearRPC() {
   if (!rpcReady) return;
   try {
@@ -70,13 +85,95 @@ ipcRenderer.on("update-downloaded", async () => {
     await showCustomConfirm(
       t(
         "msg_update_ready",
-        "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
+        "Une nouvelle mise a jour est prete ! Voulez-vous redemarrer le launcher pour l'installer maintenant ?"
       ),
-      false,
+      false
     )
   ) {
     ipcRenderer.send("restart_app");
   }
+});
+
+let _msDeviceVerificationUri = "";
+let _msDeviceUserCode = "";
+let _msDeviceFinalizeHintTimer = null;
+
+function applyMsDeviceModalI18n() {
+  const titleEl = document.querySelector("#modal-ms-device .modal-header");
+  if (titleEl) titleEl.textContent = t("ms_device_title", "Connexion Microsoft");
+  const copyBtn = document.getElementById("ms-device-btn-copy");
+  if (copyBtn) copyBtn.textContent = t("ms_device_copy", "Copier le code");
+  const openBtn = document.getElementById("ms-device-btn-open");
+  if (openBtn) openBtn.textContent = t("ms_device_open", "Ouvrir la page Microsoft");
+  const cancelBtn = document.getElementById("ms-device-btn-cancel");
+  if (cancelBtn) cancelBtn.textContent = t("ms_device_cancel", "Annuler");
+}
+
+window.copyMsDeviceCode = () => {
+  const code = _msDeviceUserCode;
+  if (!code) return;
+  try {
+    clipboard.writeText(code);
+    showToast(t("ms_device_copied", "Code copié."), "success");
+  } catch {
+    showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
+  }
+};
+
+window.openMsDevicePage = () => {
+  const uri = _msDeviceVerificationUri;
+  const code = _msDeviceUserCode;
+  if (uri && /^https?:\/\//i.test(uri)) shell.openExternal(uri);
+  else if (code)
+    shell.openExternal(`https://www.microsoft.com/link?otc=${encodeURIComponent(code)}`);
+};
+
+window.cancelMsDeviceLogin = () => {
+  ipcRenderer.send("cancel-login-microsoft");
+  closeMicrosoftDeviceModal();
+};
+
+function openMicrosoftDeviceModal(data) {
+  _msDeviceVerificationUri = data.verification_uri || "";
+  _msDeviceUserCode = data.user_code || "";
+  applyMsDeviceModalI18n();
+  document.getElementById("ms-device-help").textContent = t(
+    "ms_device_help",
+    "Copie le code…"
+  );
+  document.getElementById("ms-device-code-display").textContent = _msDeviceUserCode;
+  document.getElementById("ms-device-status").textContent = t(
+    "ms_device_status_1",
+    "En attente…"
+  );
+  document.getElementById("ms-device-footer-note").textContent = t(
+    "ms_device_footer",
+    ""
+  );
+  document.getElementById("modal-ms-device").style.display = "flex";
+  if (_msDeviceFinalizeHintTimer) clearTimeout(_msDeviceFinalizeHintTimer);
+  _msDeviceFinalizeHintTimer = setTimeout(() => {
+    const modal = document.getElementById("modal-ms-device");
+    const statusEl = document.getElementById("ms-device-status");
+    if (modal && modal.style.display === "flex" && statusEl) {
+      statusEl.textContent = t("ms_device_status_2", "Finalisation…");
+    }
+  }, 7000);
+}
+
+function closeMicrosoftDeviceModal() {
+  document.getElementById("modal-ms-device").style.display = "none";
+  if (_msDeviceFinalizeHintTimer) {
+    clearTimeout(_msDeviceFinalizeHintTimer);
+    _msDeviceFinalizeHintTimer = null;
+  }
+  _msDeviceVerificationUri = "";
+  _msDeviceUserCode = "";
+}
+
+ipcRenderer.on("microsoft-device-code", (_event, data) => {
+  if (!window._msLoginSessionActive) return;
+  openMicrosoftDeviceModal(data);
 });
 
 window.showCustomConfirm = (msg, isDestructive = false) => {
@@ -134,11 +231,11 @@ if (oldLogs.length > 4) {
 }
 const currentLogFile = path.join(
   logsDir,
-  `launcher_${new Date().toISOString().replace(/[:\.]/g, "-")}.log`,
+  `launcher_${new Date().toISOString().replace(/[:\.]/g, "-")}.log`
 );
 fs.writeFileSync(
   currentLogFile,
-  `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`,
+  `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`
 );
 
 function sysLog(msg, isError = false) {
@@ -152,9 +249,9 @@ window.copyLogs = () => {
     .writeText(text)
     .then(() =>
       showToast(
-        t("msg_logs_copied", "Logs copiés dans le presse-papier !"),
-        "success",
-      ),
+        t("msg_logs_copied", "Logs copies dans le presse-papier !"),
+        "success"
+      )
     );
 };
 
@@ -181,21 +278,21 @@ const defaultFr = {
   toolbar_add: "Ajouter une instance",
   toolbar_import: "Importer",
   toolbar_catalog: "Catalogue de Contenu",
-  toolbar_settings: "Paramètres Globaux",
+  toolbar_settings: "Parametres Globaux",
   toolbar_logs: "Afficher les logs",
-  toolbar_manage: "Gérer",
+  toolbar_manage: "Gerer",
   toolbar_stats: "Statistiques",
   search_inst: "Rechercher une instance...",
   sort_name: "Trier par Nom",
-  sort_last: "Dernière utilisation",
+  sort_last: "Derniere utilisation",
   sort_time: "Temps de jeu",
-  panel_title: "Sélectionnez une instance",
+  panel_title: "Selectionnez une instance",
   panel_time: "Temps :",
   panel_last: "Dernier :",
   btn_launch: "Lancer",
-  btn_stop: "Forcer l'arrêt",
+  btn_stop: "Forcer l'arret",
   btn_offline: "Lancer en hors ligne",
-  btn_settings: "Paramètres de l'instance",
+  btn_settings: "Parametres de l'instance",
   btn_mods: "Gestionnaire de Mods",
   btn_saves: "Voir les mondes",
   btn_gallery: "Galerie de Captures",
@@ -203,15 +300,15 @@ const defaultFr = {
   btn_delete: "Supprimer",
   btn_copy: "Copier l'instance",
   btn_export: "Exporter l'instance",
-  status_ready: "Prêt",
+  status_ready: "Pret",
   modal_cancel: "Annuler",
   modal_save: "Sauvegarder",
   modal_close: "Fermer",
   modal_apply: "Appliquer",
-  modal_create: "Créer",
+  modal_create: "Creer",
   modal_add: "Ajouter",
   btn_search: "Chercher",
-  tab_gen: "Général",
+  tab_gen: "General",
   tab_mods: "Mods",
   tab_shaders: "Shaders",
   tab_resourcepacks: "Packs de Textures",
@@ -220,26 +317,26 @@ const defaultFr = {
   tab_java: "Configuration",
   tab_notes: "Notes",
   lbl_backup_mode: "Sauvegarde Automatique des Mondes",
-  lbl_backup_limit: "Nombre de sauvegardes à conserver :",
-  opt_none: "Désactivé",
+  lbl_backup_limit: "Nombre de sauvegardes a conserver :",
+  opt_none: "Desactive",
   opt_launch: "Au lancement du jeu",
-  opt_close: "À la fermeture du jeu",
+  opt_close: "A la fermeture du jeu",
   txt_backup_desc: "Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.",
   btn_open_backups: "Ouvrir le dossier des sauvegardes",
   lbl_lang: "Langue du Launcher",
-  lbl_ram: "Mémoire RAM (Mo) :",
-  lbl_java: "Chemin Java par défaut",
+  lbl_ram: "Memoire RAM (Mo) :",
+  lbl_java: "Chemin Java par defaut",
   btn_scan: "Scanner",
   lbl_fav_server: "Serveur favori",
-  lbl_beta: "Afficher les Bêtas",
+  lbl_beta: "Afficher les Betas",
   lbl_loader: "Type de chargeur",
   lbl_loader_version: "Version du chargeur",
   lbl_inst_name: "Nom de l'instance",
-  lbl_installed_mods: "Vos Mods Installés",
+  lbl_installed_mods: "Vos Mods Installes",
   lbl_installed_shaders: "Vos Shaders",
   lbl_installed_rps: "Vos Packs de Textures",
-  btn_check_updates: "Vérifier les MAJ",
-  btn_dl_mods: "Télécharger de nouveaux mods",
+  btn_check_updates: "Verifier les MAJ",
+  btn_dl_mods: "Telecharger de nouveaux mods",
   lbl_width: "Largeur",
   lbl_height: "Hauteur",
   lbl_jvm: "Arguments JVM",
@@ -251,114 +348,149 @@ const defaultFr = {
   btn_clear: "Effacer",
   lbl_blur: "Flou du fond",
   lbl_darkness: "Assombrissement du fond",
-  lbl_panel_opacity: "Opacité de l'interface (Panneaux gris)",
-  lbl_group: "Dossier / Catégorie de l'instance",
-  msg_mod_added: "Ajouté à l'instance avec succès !",
-  msg_select_inst: "Sélectionnez une instance d'abord !",
+  lbl_panel_opacity: "Opacite de l'interface (Panneaux)",
+  lbl_group: "Dossier / Categorie de l'instance",
+  msg_mod_added: "Ajoute a l'instance avec succes !",
+  msg_select_inst: "Selectionnez une instance d'abord !",
   msg_search_java: "Recherche de Java...",
-  msg_java_found: "version(s) de Java trouvée(s).",
+  msg_java_found: "version(s) de Java trouvee(s).",
   msg_extract_java: "Extraction de Java...",
   msg_err_java: "Erreur Java",
-  msg_backup: "Création de la sauvegarde...",
-  msg_no_screen: "Aucune capture d'écran.",
+  msg_backup: "Creation de la sauvegarde...",
+  msg_no_screen: "Aucune capture d'ecran.",
   msg_launching: "Lancement de ",
-  msg_check_java: "Vérification de Java...",
+  msg_check_java: "Verification de Java...",
   msg_sync_servers: "Synchronisation des serveurs...",
   msg_install_fabric: "Installation de Fabric...",
-  msg_prep_files: "Préparation des fichiers...",
-  msg_dl: "Téléchargement : ",
-  msg_game_stop: "Le jeu s'est arrêté",
+  msg_prep_files: "Preparation des fichiers...",
+  msg_dl: "Telechargement : ",
+  msg_game_stop: "Le jeu s'est arrete",
   msg_conn_ms: "Connexion...",
+  ms_device_title: "Connexion Microsoft",
+  ms_device_help:
+    "Copie le code ci-dessous, ouvre la page Microsoft, puis saisis le code quand le site le demande.",
+  ms_device_copy: "Copier le code",
+  ms_device_open: "Ouvrir la page Microsoft",
+  ms_device_copied: "Code copié dans le presse-papiers.",
+  ms_device_status_1: "En attente : valide le code sur le site Microsoft.",
+  ms_device_status_2:
+    "Finalisation côté launcher (serveurs Xbox / Mojang)… Peut prendre une dizaine de secondes.",
+  ms_device_footer:
+    "Tu peux fermer l’onglet du navigateur une fois la connexion acceptée ; cette fenêtre se fermera quand le compte sera enregistré.",
+  ms_device_cancel: "Annuler",
+  ms_device_cancelled: "Connexion Microsoft annulée.",
   msg_err_ms: "Erreur Microsoft : ",
-  msg_err_sys: "Erreur système : ",
+  msg_err_sys: "Erreur systeme : ",
   msg_remove_acc: "Retirer ce compte ?",
   msg_copy: "Copie en cours...",
   msg_delete_inst: "Supprimer l'instance ?",
   msg_compress: "Compression...",
   msg_extract: "Extraction...",
-  msg_check_updates: "Vérification des mises à jour...",
-  msg_updating: "Mise à jour : ",
-  msg_mods_updated: "mod(s) mis à jour !",
-  msg_mods_uptodate: "Mods déjà à jour !",
-  msg_dl_mod: "Téléchargement en cours...",
+  msg_check_updates: "Verification des mises a jour...",
+  msg_updating: "Mise a jour : ",
+  msg_mods_updated: "mod(s) mis a jour !",
+  msg_mods_uptodate: "Mods deja a jour !",
+  msg_dl_mod: "Telechargement en cours...",
   msg_no_compat: "Aucun fichier compatible.",
-  msg_deps: "Téléchargement des dépendances...",
-  msg_install_success: "Installation réussie !",
-  msg_err_dl: "Erreur lors du téléchargement.",
+  msg_deps: "Telechargement des dependances...",
+  msg_install_success: "Installation reussie !",
+  msg_err_dl: "Erreur lors du telechargement.",
   msg_ping: "Ping...",
   msg_online: "En ligne",
   msg_offline: "Hors-ligne",
   msg_err_ping: "Erreur",
-  msg_no_mods: "Aucun mod local installé.",
-  msg_no_shaders: "Aucun shader installé.",
-  msg_no_rps: "Aucun pack de textures installé.",
-  msg_no_servers: "Aucun serveur enregistré.",
-  msg_no_acc: "Aucun profil enregistré.",
+  msg_no_mods: "Aucun mod local installe.",
+  msg_no_shaders: "Aucun shader installe.",
+  msg_no_rps: "Aucun pack de textures installe.",
+  msg_no_servers: "Aucun serveur enregistre.",
+  msg_no_acc: "Aucun profil enregistre.",
   opt_modpack: "Modpacks",
   btn_install: "Installer",
-  msg_dl_mods_pack: "Téléchargement des mods",
-  msg_logs_copied: "Logs copiés dans le presse-papier !",
+  msg_dl_mods_pack: "Telechargement des mods",
+  msg_logs_copied: "Logs copies dans le presse-papier !",
   msg_err_mrpack_invalid: "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
   msg_err_mrpack: "Erreur Modpack : ",
   btn_copy_logs: "Copier",
   modal_confirm: "Confirmation",
   btn_yes: "Oui",
   btn_no: "Non",
-  msg_err_cf: "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+  msg_err_cf: "Les modpacks CurseForge (.zip) sont bloques par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
   msg_err_path: "Erreur : Chemin introuvable (Lancez l'app via npm start !)",
-  msg_err_format: "Format non supporté ! (.mrpack, .zip, .jar, .png)",
+  msg_err_format: "Format non supporte ! (.mrpack, .zip, .jar, .png)",
   modal_worlds_title: "Gestion des Mondes",
-  msg_no_worlds: "Aucun monde trouvé.",
+  msg_no_worlds: "Aucun monde trouve.",
   btn_world_backup: "Sauvegarder",
   btn_world_copy: "Copier",
   msg_copy_world_loading: "Copie du monde en cours...",
-  msg_world_copied: "Monde copié avec succès !",
-  msg_delete_world_confirm: "Voulez-vous vraiment supprimer ce monde définitivement ?",
-  msg_world_deleted: "Monde supprimé !",
-  msg_world_backedup: "Sauvegarde créée dans le dossier 'backups' !",
+  msg_world_copied: "Monde copie avec succes !",
+  msg_delete_world_confirm: "Voulez-vous vraiment supprimer ce monde definitivement ?",
+  msg_world_deleted: "Monde supprime !",
+  msg_world_backedup: "Sauvegarde creee dans le dossier 'backups' !",
   lbl_folder: "Dossier : ",
-  lbl_created: "Créé le : ",
-  lbl_played: "Joué le : ",
+  lbl_created: "Cree le : ",
+  lbl_played: "Joue le : ",
   modal_stats_title: "Tableau de Bord",
   stat_total_time: "Temps de jeu total",
-  stat_total_instances: "Instances créées",
-  stat_total_mods: "Mods installés",
+  stat_total_instances: "Instances creees",
+  stat_total_mods: "Mods installes",
   stat_fav_instance: "Instance favorite : ",
-  stat_disk_usage: "Espace disque utilisé",
+  stat_disk_usage: "Espace disque utilise",
   txt_players: "Joueurs",
-  msg_update_ready: "Une nouvelle mise à jour est prête ! Voulez-vous redémarrer le launcher pour l'installer maintenant ?",
-  btn_auto_ram: "🪄 Optimiser",
+  msg_update_ready: "Une nouvelle mise a jour est prete ! Voulez-vous redemarrer le launcher pour l'installer maintenant ?",
+  btn_auto_ram: "Optimiser",
   tt_auto_ram: "Analyse votre PC et vos mods pour allouer la RAM parfaite (Min 4Go).",
-  msg_ram_optimized: "RAM optimisée à ",
-  modal_updates_title: "Mises à jour disponibles",
-  msg_updates_available: "Les mods suivants vont être mis à jour :",
+  msg_ram_optimized: "RAM optimisee a ",
+  modal_updates_title: "Mises a jour disponibles",
+  msg_updates_available: "Les mods suivants vont etre mis a jour :",
   btn_update_all: "Tout installer",
-  msg_no_updates: "Tous vos mods sont à jour !",
+  msg_no_updates: "Tous vos mods sont a jour !",
   lbl_options_profile: "Profil d'Options (options.txt)",
-  txt_options_desc: "Sélectionnez une instance pour que ses touches deviennent celles par défaut.",
-  btn_save_options: "Définir comme défaut",
-  msg_options_saved: "Profil d'options sauvegardé !",
-  msg_no_options_found: "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !",
-  msg_drop_mod: "Relâchez pour installer le mod",
-  msg_drop_shader: "Relâchez pour installer le shader",
-  msg_drop_rp: "Relâchez pour installer le pack",
-  msg_files_added: "fichier(s) ajouté(s) !",
+  txt_options_desc: "Selectionnez une instance pour que ses touches deviennent celles par defaut.",
+  btn_save_options: "Definir comme defaut",
+  msg_options_saved: "Profil d'options sauvegarde !",
+  msg_no_options_found: "Aucun options.txt trouve. Lancez le jeu au moins une fois sur cette instance !",
+  msg_drop_mod: "Relacher pour installer le mod",
+  msg_drop_shader: "Relacher pour installer le shader",
+  msg_drop_rp: "Relacher pour installer le pack",
+  msg_files_added: "fichier(s) ajoute(s) !",
   modal_import_mc: "Importer un monde officiel",
   btn_import_official_world: "Importer depuis .minecraft",
-  msg_no_mc_worlds: "Aucun monde trouvé dans .minecraft",
-  msg_world_imported: "Monde importé avec succès !",
+  msg_no_mc_worlds: "Aucun monde trouve dans .minecraft",
+  msg_world_imported: "Monde importe avec succes !",
   lbl_sync_options: "Touches & Options",
-  txt_sync_options: "Écrase les paramètres avec votre profil par défaut.",
-  btn_sync_now: "📥 Injecter",
-  msg_force_sync_success: "Touches synchronisées avec succès !",
-  msg_force_sync_error: "Aucun profil par défaut défini dans les Paramètres Globaux.",
+  txt_sync_options: "Ecrase les parametres avec votre profil par defaut.",
+  btn_sync_now: "Injecter",
+  msg_force_sync_success: "Touches synchronisees avec succes !",
+  msg_force_sync_error: "Aucun profil par defaut defini dans les Parametres Globaux.",
   lbl_visibility: "Comportement au lancement",
   opt_keep: "Garder le launcher ouvert",
-  opt_hide: "Cacher le launcher (Mode Fantôme)",
+  opt_hide: "Cacher le launcher (Mode Fantome)",
   btn_auto_connect: "Auto",
-  msg_warn_deps: "Dépendance manquante potentielle : ",
+  msg_warn_deps: "Dependance manquante potentielle : ",
   btn_show: "Afficher",
-  btn_hide: "Masquer"
+  btn_hide: "Masquer",
+  lbl_news: "Actualites Minecraft",
+  msg_server_search: "Recherche du serveur",
+  msg_server_offline_desc: "Le serveur est actuellement hors-ligne ou injoignable.",
+  msg_server_error: "Erreur de connexion a",
+  lbl_players: "joueurs",
+  modal_export_zip: "Export Complet (.zip)",
+  txt_export_zip_desc: "Contient absolument tous vos mods et mondes (Fichier lourd).",
+  modal_export_mrpack: "Export Leger (.mrpack)",
+  txt_export_mrpack_desc: "Genere un fichier de quelques Ko ideal pour partager avec vos amis.",
+  lbl_live_stats: "Monitoring Systeme",
+  lbl_live_ram: "RAM Globale :",
+  lbl_live_cpu: "Charge CPU :",
+  msg_mrpack_analyze: "Analyse des mods et generation du .mrpack...",
+  msg_mrpack_success: "Export .mrpack reussi !",
+  msg_mrpack_error: "Erreur lors de l'export .mrpack",
+  lbl_discord_playing: "Joue sur",
+  lbl_discord_solo: "En jeu",
+  btn_discord_download: "Telecharger Gens Launcher",
+  msg_dl_browser: "Lien de telechargement securise... Ouverture du navigateur.",
+  msg_cf_api_req: "CurseForge necessite une clef API.\nAjoutez-la dans les Parametres Globaux du launcher.",
+  msg_cf_api_invalid: "Clef API CurseForge invalide ou erreur reseau.",
+  lbl_warning: "[!]"
 };
 
 const defaultEn = {
@@ -453,6 +585,19 @@ const defaultEn = {
   msg_dl: "Downloading: ",
   msg_game_stop: "Game stopped",
   msg_conn_ms: "Logging in...",
+  ms_device_title: "Microsoft sign-in",
+  ms_device_help:
+    "Copy the code below, open the Microsoft page, then enter the code when the site asks for it.",
+  ms_device_copy: "Copy code",
+  ms_device_open: "Open Microsoft page",
+  ms_device_copied: "Code copied to clipboard.",
+  ms_device_status_1: "Waiting: confirm the code on the Microsoft website.",
+  ms_device_status_2:
+    "Finishing in the launcher (Xbox / Mojang servers)… This can take around 10 seconds.",
+  ms_device_footer:
+    "You can close the browser tab after sign-in is accepted ; this window closes when the account is saved.",
+  ms_device_cancel: "Cancel",
+  ms_device_cancelled: "Microsoft sign-in cancelled.",
   msg_err_ms: "Microsoft Error: ",
   msg_err_sys: "System Error: ",
   msg_remove_acc: "Remove this account?",
@@ -511,7 +656,7 @@ const defaultEn = {
   stat_disk_usage: "Disk space used",
   txt_players: "Players",
   msg_update_ready: "A new update is ready! Do you want to restart the launcher to install it now?",
-  btn_auto_ram: "🪄 Optimize",
+  btn_auto_ram: "Optimize",
   tt_auto_ram: "Analyzes your PC and mods to allocate perfect RAM (Min 4GB).",
   msg_ram_optimized: "RAM optimized to ",
   modal_updates_title: "Updates Available",
@@ -533,7 +678,7 @@ const defaultEn = {
   msg_world_imported: "World imported successfully!",
   lbl_sync_options: "Keybinds & Options",
   txt_sync_options: "Overwrite settings with your default profile.",
-  btn_sync_now: "📥 Inject",
+  btn_sync_now: "Inject",
   msg_force_sync_success: "Options synced successfully!",
   msg_force_sync_error: "No default profile set in Global Settings.",
   lbl_visibility: "Launcher behavior on launch",
@@ -542,7 +687,29 @@ const defaultEn = {
   btn_auto_connect: "Auto",
   msg_warn_deps: "Potential missing dependency: ",
   btn_show: "Show",
-  btn_hide: "Hide"
+  btn_hide: "Hide",
+  lbl_news: "Minecraft News",
+  msg_server_search: "Searching for server",
+  msg_server_offline_desc: "The server is currently offline or unreachable.",
+  msg_server_error: "Connection error to",
+  lbl_players: "players",
+  modal_export_zip: "Full Export (.zip)",
+  txt_export_zip_desc: "Contains absolutely all your mods and worlds (Large file).",
+  modal_export_mrpack: "Light Export (.mrpack)",
+  txt_export_mrpack_desc: "Generates a tiny file ideal for sharing with friends.",
+  lbl_live_stats: "System Monitoring",
+  lbl_live_ram: "Global RAM:",
+  lbl_live_cpu: "CPU Load:",
+  msg_mrpack_analyze: "Analyzing mods and generating .mrpack...",
+  msg_mrpack_success: ".mrpack export successful!",
+  msg_mrpack_error: "Error during .mrpack export",
+  lbl_discord_playing: "Playing on",
+  lbl_discord_solo: "In game",
+  btn_discord_download: "Download Gens Launcher",
+  msg_dl_browser: "Secure download link... Opening browser.",
+  msg_cf_api_req: "CurseForge requires an API Key.\nAdd it in the Launcher Global Settings.",
+  msg_cf_api_invalid: "Invalid CurseForge API Key or network error.",
+  lbl_warning: "[!]"
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -668,7 +835,7 @@ async function loadNews() {
         
         let html = `
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
-            <div style="font-weight: bold; color: var(--text-light);">📰 Actualités Minecraft</div>
+            <div style="font-weight: bold; color: var(--text-light);">${t("lbl_news", "Actualités Minecraft")}</div>
             <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleNews()" id="btn-toggle-news">${toggleText}</button>
         </div>
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
@@ -710,6 +877,18 @@ window.toggleNews = () => {
     renderUI();
 };
 
+window.toggleServerDropdown = () => {
+  const container = document.getElementById("server-dropdown-container");
+  container.classList.toggle("active");
+};
+
+document.addEventListener("click", (e) => {
+  const container = document.getElementById("server-dropdown-container");
+  if (container && !container.contains(e.target)) {
+    container.classList.remove("active");
+  }
+});
+
 window.checkServerStatus = async () => {
   const ip = globalSettings.serverIp;
   const banner = document.getElementById("server-banner-container");
@@ -721,7 +900,7 @@ window.checkServerStatus = async () => {
   banner.style.display = "flex";
   
   if (banner.innerHTML === "") {
-      banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">Recherche du serveur ${ip}...</div>`;
+      banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${t("msg_server_search", "Recherche du serveur")} ${ip}...</div>`;
   }
 
   try {
@@ -739,21 +918,21 @@ window.checkServerStatus = async () => {
             <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;">${motdHtml}</div>
         </div>
         <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
-            <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">🟢 En ligne</div>
-            <div style="color: var(--text-light);">${data.players.online} / ${data.players.max} joueurs</div>
+            <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${t("msg_online", "En ligne")}</div>
+            <div style="color: var(--text-light);">${data.players.online} / ${data.players.max} ${t("lbl_players", "joueurs")}</div>
         </div>
       `;
     } else {
       banner.innerHTML = `
-        <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff;">❌</div>
+        <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
         <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
             <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${ip}</div>
-            <div style="font-size: 0.85rem; color: #f87171;">Le serveur est actuellement hors-ligne ou injoignable.</div>
+            <div style="font-size: 0.85rem; color: #f87171;">${t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne ou injoignable.")}</div>
         </div>
       `;
     }
   } catch (e) {
-     banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">Erreur de connexion à ${ip}</div>`;
+     banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${t("msg_server_error", "Erreur de connexion à")} ${ip}</div>`;
   }
 };
 
@@ -790,13 +969,13 @@ window.openStatsModal = async () => {
     const modsPath = path.join(
       instancesRoot,
       inst.name.replace(/[^a-z0-9]/gi, "_"),
-      "mods",
+      "mods"
     );
     if (fs.existsSync(modsPath)) {
       totalMods += fs
         .readdirSync(modsPath)
         .filter(
-          (f) => f.endsWith(".jar") || f.endsWith(".jar.disabled"),
+          (f) => f.endsWith(".jar") || f.endsWith(".jar.disabled")
         ).length;
     }
   });
@@ -825,9 +1004,6 @@ window.closeStatsModal = () => {
   document.getElementById("modal-stats").style.display = "none";
 };
 
-// ==========================================
-// ⚡ TÉLÉCHARGEMENTS EN PARALLÈLE (.mrpack)
-// ==========================================
 async function handleMrPackImport(packPath) {
   showLoading(t("msg_extract", "Extraction..."));
   await yieldUI();
@@ -840,9 +1016,9 @@ async function handleMrPackImport(packPath) {
       showToast(
         t(
           "msg_err_mrpack_invalid",
-          "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
+          "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant)."
         ),
-        "error",
+        "error"
       );
       return;
     }
@@ -894,7 +1070,7 @@ async function handleMrPackImport(packPath) {
 
     const instDir = path.join(
       instancesRoot,
-      finalName.replace(/[^a-z0-9]/gi, "_"),
+      finalName.replace(/[^a-z0-9]/gi, "_")
     );
     if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
@@ -936,7 +1112,6 @@ async function handleMrPackImport(packPath) {
       }
     });
 
-    // ⚡ SYSTÈME DE TÉLÉCHARGEMENT EN PARALLÈLE
     const queue = index.files.filter(f => !(f.env && f.env.client === "unsupported"));
     const totalToDownload = queue.length;
     let downloadedCount = 0;
@@ -944,7 +1119,7 @@ async function handleMrPackImport(packPath) {
     showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`);
     await yieldUI();
 
-    const concurrencyLimit = 10; // Télécharge 10 mods simultanément
+    const concurrencyLimit = 10; 
     const workers = Array(concurrencyLimit).fill(null).map(async () => {
         while (queue.length > 0) {
             const modFile = queue.shift();
@@ -963,14 +1138,13 @@ async function handleMrPackImport(packPath) {
             }
             downloadedCount++;
             
-            // Mise à jour de l'UI tous les X mods pour ne pas faire lagger le visuel
             if (downloadedCount % 3 === 0 || downloadedCount === totalToDownload) {
                 document.getElementById("loading-text").innerText = `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`;
             }
         }
     });
 
-    await Promise.all(workers); // On attend que tous les workers aient fini !
+    await Promise.all(workers); 
 
     allInstances.push(newInst);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
@@ -1160,7 +1334,6 @@ function renderUI() {
   const search = document.getElementById("search-bar").value.toLowerCase();
   const sort = document.getElementById("sort-dropdown").value;
 
-  // FIX : Les actualités s'affichent toujours sauf si l'utilisateur fait une recherche !
   const newsContainer = document.getElementById("news-container");
   if (search === "") {
       newsContainer.style.display = "block";
@@ -1173,7 +1346,7 @@ function renderUI() {
     originalIndex: i,
   }));
   displayList = displayList.filter((inst) =>
-    inst.name.toLowerCase().includes(search),
+    inst.name.toLowerCase().includes(search)
   );
   displayList.sort((a, b) => {
     if (sort === "name") return a.name.localeCompare(b.name);
@@ -1208,7 +1381,7 @@ function renderUI() {
     .sort()
     .forEach((g) => {
       const isCollapsed = collapsedGroups[g];
-      const icon = isCollapsed ? "▶" : "▼";
+      const icon = isCollapsed ? ">" : "v";
       html += `<div class="category-header" onclick="toggleGroup('${g}')">${icon} ${g} <span style="color:#aaa; font-weight:normal; font-size:0.8rem;">(${groups[g].length})</span></div>`;
       if (!isCollapsed) {
         html += `<div class="instances-grid">`;
@@ -1331,7 +1504,7 @@ function renderModsManager() {
       
       let warningHtml = "";
       if (warnings[file]) {
-          warningHtml = `<span title="${t("msg_warn_deps")}${warnings[file].join(', ')}" style="cursor:help; margin-left:6px; color:#f87171; font-size:0.9rem;">⚠️</span>`;
+          warningHtml = `<span title="${t("msg_warn_deps")}${warnings[file].join(', ')}" style="cursor:help; margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
       }
       
       modsListDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center;">${displayName}${warningHtml}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod('${file}', this.checked)"></div>`;
@@ -1398,14 +1571,14 @@ window.toggleMod = (filename, isEnabled) => {
   const modsPath = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "mods",
+    "mods"
   );
   fs.renameSync(
     path.join(modsPath, filename),
     path.join(
       modsPath,
-      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled",
-    ),
+      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled"
+    )
   );
   renderModsManager();
 };
@@ -1415,14 +1588,14 @@ window.toggleShader = (filename, isEnabled) => {
   const targetPath = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "shaderpacks",
+    "shaderpacks"
   );
   fs.renameSync(
     path.join(targetPath, filename),
     path.join(
       targetPath,
-      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled",
-    ),
+      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled"
+    )
   );
   renderShadersManager();
 };
@@ -1432,14 +1605,14 @@ window.toggleResourcePack = (filename, isEnabled) => {
   const targetPath = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "resourcepacks",
+    "resourcepacks"
   );
   fs.renameSync(
     path.join(targetPath, filename),
     path.join(
       targetPath,
-      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled",
-    ),
+      isEnabled ? filename.replace(".disabled", "") : filename + ".disabled"
+    )
   );
   renderResourcePacksManager();
 };
@@ -1452,7 +1625,7 @@ window.checkModUpdates = async () => {
   const modsPath = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "mods",
+    "mods"
   );
   if (!fs.existsSync(modsPath)) return;
   const files = fs.readdirSync(modsPath).filter((f) => f.endsWith(".jar"));
@@ -1480,7 +1653,7 @@ window.checkModUpdates = async () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reqBody),
-      },
+      }
     );
     const data = await res.json();
     
@@ -1495,7 +1668,7 @@ window.checkModUpdates = async () => {
               oldFile: hashes[oldHash],
               newFileObj: newFileObj
           });
-          listHTML += `<div style="margin-bottom: 5px;">• <span style="color:#f87171; text-decoration:line-through;">${hashes[oldHash]}</span> ➔ <span style="color:#17B139;">${newFileObj.filename}</span></div>`;
+          listHTML += `<div style="margin-bottom: 5px;">- <span style="color:#f87171; text-decoration:line-through;">${hashes[oldHash]}</span> -> <span style="color:#17B139;">${newFileObj.filename}</span></div>`;
       }
     }
     hideLoading();
@@ -1584,7 +1757,7 @@ window.searchGlobalCatalog = async () => {
                         <img src="${mod.icon_url || ""}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                         <div style="flex-grow: 1; display: flex; flex-direction: column;">
                             <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${mod.title}</div>
-                            <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${mod.author || "Auteur"} • ${downloads} (Modrinth)</div>
+                            <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${mod.author || "Auteur"} - ${downloads} (Modrinth)</div>
                             <div style="font-size: 0.8rem; color: var(--text-main);">${mod.description}</div>
                         </div>
                         <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>
@@ -1594,7 +1767,7 @@ window.searchGlobalCatalog = async () => {
     else if (source === "curseforge") {
         const apiKey = globalSettings.cfApiKey;
         if (!apiKey) {
-            resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>CurseForge nécessite une clé API.<br><span style="font-size:0.8rem; color:#aaa;">Ajoutez-la dans les Paramètres Globaux du launcher.</span></div>`;
+            resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_cf_api_req")}</div>`;
             return;
         }
 
@@ -1611,7 +1784,7 @@ window.searchGlobalCatalog = async () => {
         const url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&modLoaderType=${modLoaderType}&sortField=2&sortOrder=desc&pageSize=20`;
         
         const res = await fetch(url, { headers: { "x-api-key": apiKey } });
-        if (!res.ok) throw new Error("Clé API CurseForge invalide ou erreur réseau.");
+        if (!res.ok) throw new Error(t("msg_cf_api_invalid"));
         const data = await res.json();
 
         resDiv.innerHTML = "";
@@ -1630,7 +1803,7 @@ window.searchGlobalCatalog = async () => {
                         <img src="${icon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                         <div style="flex-grow: 1; display: flex; flex-direction: column;">
                             <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${mod.name}</div>
-                            <div style="font-size: 0.75rem; color: #f48a21; margin-bottom: 5px;">${author} • ${downloads} (CurseForge)</div>
+                            <div style="font-size: 0.75rem; color: #f48a21; margin-bottom: 5px;">${author} - ${downloads} (CurseForge)</div>
                             <div style="font-size: 0.8rem; color: var(--text-main);">${mod.summary}</div>
                         </div>
                         <button class="btn-primary" onclick="installGlobalMod('${mod.id}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>
@@ -1746,7 +1919,7 @@ window.installGlobalMod = async (projectId, isDependency = false, projType = "mo
 
         let downloadUrl = fileData.downloadUrl;
         if (!downloadUrl) {
-            statusText.innerText = "Lien de téléchargement sécurisé... Ouverture du navigateur.";
+            statusText.innerText = t("msg_dl_browser", "Lien de téléchargement sécurisé... Ouverture du navigateur.");
             openSystemPath(`https://www.curseforge.com/minecraft/mc-mods/${projectId}`);
             return;
         }
@@ -1833,10 +2006,10 @@ window.renderServersManager = () => {
             <div style="background: rgba(0,0,0,0.2); border: 1px solid ${isAuto ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <span style="font-weight: bold; color: var(--text-light);">${ip}</span>
-                    <div id="srv-ping-${i}" style="font-size: 0.75rem; color: #aaa;">🔄 ${t("msg_ping", "Ping...")}</div>
+                    <div id="srv-ping-${i}" style="font-size: 0.75rem; color: #aaa;">- ${t("msg_ping", "Ping...")}</div>
                 </div>
                 <div style="display: flex; gap: 5px;">
-                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip}')" title="Quick-Connect">🚀 ${t("btn_auto_connect", "Auto")}</button>
+                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>
                     <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
@@ -1857,11 +2030,11 @@ window.pingServers = async () => {
       const formatNum = (n) =>
         n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
       if (data.online)
-        statusDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">🟢 ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">• ${formatNum(data.players.online)}/${formatNum(data.players.max)}</span>`;
+        statusDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players.online)}/${formatNum(data.players.max)}</span>`;
       else
-        statusDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">🔴 ${t("msg_offline", "Hors-ligne")}</span>`;
+        statusDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
     } catch (e) {
-      statusDiv.innerHTML = `<span style="color:#f87171;">🔴 ${t("msg_err_ping", "Erreur")}</span>`;
+      statusDiv.innerHTML = `<span style="color:#f87171;">[x] ${t("msg_err_ping", "Erreur")}</span>`;
     }
   }
 };
@@ -1869,7 +2042,7 @@ window.pingServers = async () => {
 window.scanJavaVersions = () => {
   document.getElementById("status-text").innerText = t(
     "msg_search_java",
-    "Recherche de Java...",
+    "Recherche de Java..."
   );
   const datalist = document.getElementById("java-paths-list");
   datalist.innerHTML = "";
@@ -1898,7 +2071,7 @@ window.scanJavaVersions = () => {
   document.getElementById("status-text").innerText = t("status_ready", "Prêt");
   showToast(
     `${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`,
-    "info",
+    "info"
   );
 };
 
@@ -2000,7 +2173,7 @@ window.openWorldsModal = async () => {
   const savesDir = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "saves",
+    "saves"
   );
   const listDiv = document.getElementById("worlds-list");
 
@@ -2084,7 +2257,7 @@ window.copySingleWorld = async (folderName) => {
   const savesDir = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "saves",
+    "saves"
   );
   const src = path.join(savesDir, folderName);
 
@@ -2113,16 +2286,16 @@ window.deleteSingleWorld = async (folderName) => {
     await showCustomConfirm(
       t(
         "msg_delete_world_confirm",
-        "Voulez-vous vraiment supprimer ce monde définitivement ?",
+        "Voulez-vous vraiment supprimer ce monde définitivement ?"
       ),
-      true,
+      true
     )
   ) {
     const inst = allInstances[selectedInstanceIdx];
     const savesDir = path.join(
       instancesRoot,
       inst.name.replace(/[^a-z0-9]/gi, "_"),
-      "saves",
+      "saves"
     );
     const src = path.join(savesDir, folderName);
     try {
@@ -2139,7 +2312,7 @@ window.backupSingleWorld = async (folderName) => {
   const inst = allInstances[selectedInstanceIdx];
   const instDir = path.join(
     instancesRoot,
-    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    inst.name.replace(/[^a-z0-9]/gi, "_")
   );
   const savesDir = path.join(instDir, "saves");
   const backupDir = path.join(instDir, "backups");
@@ -2149,7 +2322,7 @@ window.backupSingleWorld = async (folderName) => {
 
   const zipPath = path.join(
     backupDir,
-    `${folderName}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`,
+    `${folderName}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`
   );
 
   showLoading(t("msg_backup", "Création de la sauvegarde..."));
@@ -2158,11 +2331,11 @@ window.backupSingleWorld = async (folderName) => {
     const zip = new AdmZip();
     zip.addLocalFolder(src, folderName);
     await new Promise((res, rej) =>
-      zip.writeZip(zipPath, (err) => (err ? rej(err) : res())),
+      zip.writeZip(zipPath, (err) => (err ? rej(err) : res()))
     );
     showToast(
       t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"),
-      "success",
+      "success"
     );
   } catch (e) {
     showToast("Erreur: " + e.message, "error");
@@ -2176,7 +2349,7 @@ window.openGalleryModal = () => {
   const screensDir = path.join(
     instancesRoot,
     inst.name.replace(/[^a-z0-9]/gi, "_"),
-    "screenshots",
+    "screenshots"
   );
   const grid = document.getElementById("gallery-grid");
   grid.innerHTML = "";
@@ -2275,8 +2448,8 @@ window.changeAccount = () => {
     JSON.stringify(
       { list: allAccounts, lastUsed: selectedAccountIdx },
       null,
-      2,
-    ),
+      2
+    )
   );
   renderUI();
 };
@@ -2303,7 +2476,7 @@ function setUIState(running) {
     ? "0.5"
     : "1";
   ["btn-offline", "btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
-    (id) => (document.getElementById(id).disabled = running),
+    (id) => (document.getElementById(id).disabled = running)
   );
   updateLaunchButton();
 }
@@ -2355,7 +2528,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
   const acc = allAccounts[selectedAccountIdx];
   const instancePath = path.join(
     instancesRoot,
-    inst.name.replace(/[^a-z0-9]/gi, "_"),
+    inst.name.replace(/[^a-z0-9]/gi, "_")
   );
   const progBar = document.getElementById("progress-bar");
   const logOutput = document.getElementById("log-output");
@@ -2393,7 +2566,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   document.getElementById("status-text").innerText = t(
     "msg_check_java",
-    "Vérification de Java...",
+    "Vérification de Java..."
   );
   let javaToTest = jPath === "javaw" ? "java" : jPath;
   if (javaToTest.toLowerCase().endsWith("javaw.exe"))
@@ -2590,7 +2763,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   document.getElementById("status-text").innerText = t(
     "msg_prep_files",
-    "Préparation des fichiers...",
+    "Préparation des fichiers..."
   );
   
   if (globalSettings.launcherVisibility === "hide") {
@@ -2599,7 +2772,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
   
   setUIState(true);
   sessionStartTime = Date.now();
-  updateRPC(inst.name, "En jeu");
+  updateRPC(inst); 
   
   document.getElementById("live-stats").style.display = "block";
   lastCpuTimes = os.cpus().map(c => c.times); 
@@ -2644,7 +2817,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     sysLog(`Le jeu s'est arrêté avec le code ${code}`, code !== 0);
     logOutput.insertAdjacentHTML(
       "beforeend",
-      `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`,
+      `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`
     );
 
     if (code !== 0)
@@ -2671,7 +2844,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
     document.getElementById("status-text").innerText = t(
       "status_ready",
-      "Prêt",
+      "Prêt"
     );
     progBar.style.width = "0%";
     setUIState(false);
@@ -2687,7 +2860,7 @@ window.switchTab = (tabId) => {
     .querySelectorAll(".settings-content")
     .forEach((c) => c.classList.remove("active"));
   const tabBtn = document.getElementById(
-    "tab-btn-" + tabId.replace("tab-", ""),
+    "tab-btn-" + tabId.replace("tab-", "")
   );
   if (tabBtn) tabBtn.classList.add("active");
   const tabContent = document.getElementById(tabId);
@@ -2711,7 +2884,7 @@ window.switchTabGlob = (tabId) => {
     .querySelectorAll("#modal-settings .settings-content")
     .forEach((c) => c.classList.remove("active"));
   const tabBtn = document.getElementById(
-    "tab-btn-" + tabId.replace("tab-", ""),
+    "tab-btn-" + tabId.replace("tab-", "")
   );
   if (tabBtn) tabBtn.classList.add("active");
   const tabContent = document.getElementById(tabId);
@@ -2947,8 +3120,8 @@ window.saveOfflineAccount = () => {
     JSON.stringify(
       { list: allAccounts, lastUsed: selectedAccountIdx },
       null,
-      2,
-    ),
+      2
+    )
   );
   document.getElementById("acc-name").value = "";
   renderUI();
@@ -2959,8 +3132,11 @@ window.loginMicrosoft = async () => {
   const originalText = btn.innerText;
   btn.innerText = t("msg_conn_ms", "Connexion...");
   btn.disabled = true;
+  window._msLoginSessionActive = true;
+
   try {
     const result = await ipcRenderer.invoke("login-microsoft");
+
     if (result.success) {
       allAccounts.push({
         type: "microsoft",
@@ -2974,16 +3150,22 @@ window.loginMicrosoft = async () => {
         JSON.stringify(
           { list: allAccounts, lastUsed: selectedAccountIdx },
           null,
-          2,
-        ),
+          2
+        )
       );
       renderUI();
       closeAccountModal();
-    } else
+      showToast("Connexion réussie !", "success");
+    } else if (result.cancelled) {
+      showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
+    } else {
       showToast(t("msg_err_ms", "Erreur Microsoft : ") + result.error, "error");
+    }
   } catch (e) {
     showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
   } finally {
+    window._msLoginSessionActive = false;
+    closeMicrosoftDeviceModal();
     btn.innerText = originalText;
     btn.disabled = false;
   }
@@ -3002,8 +3184,8 @@ window.deleteAccount = async (index) => {
       JSON.stringify(
         { list: allAccounts, lastUsed: selectedAccountIdx },
         null,
-        2,
-      ),
+        2
+      )
     );
     renderUI();
   }
@@ -3013,7 +3195,7 @@ window.openDir = (f) => {
   const dir = path.join(
     instancesRoot,
     allInstances[selectedInstanceIdx].name.replace(/[^a-z0-9]/gi, "_"),
-    f,
+    f
   );
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   shell.openPath(dir);
@@ -3034,13 +3216,13 @@ window.copyInstance = async () => {
   try {
     const oldPath = path.join(
       instancesRoot,
-      oldInst.name.replace(/[^a-z0-9]/gi, "_"),
+      oldInst.name.replace(/[^a-z0-9]/gi, "_")
     );
     if (fs.existsSync(oldPath))
       await fs.promises.cp(
         oldPath,
         path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_")),
-        { recursive: true },
+        { recursive: true }
       );
     allInstances.push(inst);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
@@ -3055,7 +3237,7 @@ window.deleteInstance = async () => {
   if (
     await showCustomConfirm(
       t("msg_delete_inst", "Supprimer l'instance ?"),
-      true,
+      true
     )
   ) {
     allInstances.splice(selectedInstanceIdx, 1);
@@ -3066,16 +3248,13 @@ window.deleteInstance = async () => {
     document.getElementById("action-panel").style.pointerEvents = "none";
     document.getElementById("panel-title").innerText = t(
       "panel_title",
-      "Sélectionnez une instance",
+      "Sélectionnez une instance"
     );
     applyTheme();
     renderUI();
   }
 };
 
-// ==========================================
-// 📤 EXPORT MULTI-FORMAT (.zip ou .mrpack)
-// ==========================================
 window.exportInstance = () => {
   if (selectedInstanceIdx === null) return;
   document.getElementById('modal-export').style.display = 'flex';
@@ -3099,10 +3278,10 @@ window.doExport = async (type) => {
         if (fs.existsSync(sourceFolder)) zip.addLocalFolder(sourceFolder, "files");
         zip.addFile(
           "instance.json",
-          Buffer.from(JSON.stringify(inst, null, 2), "utf8"),
+          Buffer.from(JSON.stringify(inst, null, 2), "utf8")
         );
         await new Promise((res, rej) =>
-          zip.writeZip(zipPath, (err) => (err ? rej(err) : res())),
+          zip.writeZip(zipPath, (err) => (err ? rej(err) : res()))
         );
         shell.showItemInFolder(zipPath);
       } catch (e) {
@@ -3112,7 +3291,7 @@ window.doExport = async (type) => {
   } 
   else if (type === "mrpack") {
       const zipPath = path.join(exportDir, `${safeName}.mrpack`);
-      showLoading("Analyse des mods et génération du .mrpack...");
+      showLoading(t("msg_mrpack_analyze", "Analyse des mods et génération du .mrpack..."));
       await yieldUI();
 
       try {
@@ -3130,7 +3309,6 @@ window.doExport = async (type) => {
                   hashes[hash] = { file: f, sha1: hash, sha512: hash512, size: buf.length };
               });
 
-              // Récupère les URL depuis Modrinth grâce au hash !
               const res = await fetch("https://api.modrinth.com/v2/version_files", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -3150,13 +3328,11 @@ window.doExport = async (type) => {
                           fileSize: hashes[hash].size
                       });
                   } else {
-                      // Mod introuvable sur Modrinth (ex: mod privé) -> on l'inclus directement dans le fichier
                       zip.addFile(`overrides/mods/${hashes[hash].file}`, fs.readFileSync(path.join(modsPath, hashes[hash].file)));
                   }
               }
           }
 
-          // Ajout des configurations et packs de textures
           if (fs.existsSync(path.join(sourceFolder, "config"))) {
               zip.addLocalFolder(path.join(sourceFolder, "config"), "overrides/config");
           }
@@ -3183,10 +3359,10 @@ window.doExport = async (type) => {
           zip.addFile("modrinth.index.json", Buffer.from(JSON.stringify(indexJson, null, 2), "utf8"));
           zip.writeZip(zipPath);
           shell.showItemInFolder(zipPath);
-          showToast("Export .mrpack réussi !", "success");
+          showToast(t("msg_mrpack_success", "Export .mrpack réussi !"), "success");
       } catch(e) {
           sysLog("Erreur MrPack export: " + e, true);
-          showToast("Erreur lors de l'export .mrpack", "error");
+          showToast(t("msg_mrpack_error", "Erreur lors de l'export .mrpack"), "error");
       }
       hideLoading();
   }
@@ -3205,9 +3381,9 @@ async function handleZipImport(zipPath) {
       showToast(
         t(
           "msg_err_cf",
-          "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+          "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !"
         ),
-        "error",
+        "error"
       );
       return;
     }
@@ -3225,7 +3401,7 @@ async function handleZipImport(zipPath) {
     meta.lastPlayed = 0;
     const destFolder = path.join(
       instancesRoot,
-      meta.name.replace(/[^a-z0-9]/gi, "_"),
+      meta.name.replace(/[^a-z0-9]/gi, "_")
     );
     if (!fs.existsSync(destFolder))
       fs.mkdirSync(destFolder, { recursive: true });

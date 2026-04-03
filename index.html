@@ -627,6 +627,68 @@
             cursor: not-allowed;
         }
 
+        #modal-ms-device .ms-device-help {
+            font-size: 0.85rem;
+            line-height: 1.45;
+            color: var(--text-light);
+            margin: 0;
+        }
+
+        #modal-ms-device .ms-device-code-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 14px;
+        }
+
+        #modal-ms-device #ms-device-code-display {
+            flex: 1;
+            font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: var(--text-light);
+            user-select: all;
+            word-break: break-all;
+        }
+
+        #modal-ms-device .ms-device-waiting {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-top: 8px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        #modal-ms-device .ms-device-spinner {
+            flex-shrink: 0;
+            width: 22px;
+            height: 22px;
+            border: 3px solid rgba(255, 255, 255, 0.12);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.85s linear infinite;
+            margin-top: 2px;
+        }
+
+        #modal-ms-device #ms-device-status {
+            font-size: 0.82rem;
+            line-height: 1.4;
+            color: #ccc;
+            margin: 0;
+        }
+
+        #modal-ms-device .modal-footer {
+            justify-content: space-between;
+            align-items: center;
+        }
+
         #loading-overlay {
             display: none;
             position: fixed;
@@ -1438,6 +1500,33 @@
             </div>
             <div class="modal-footer"><button class="btn-secondary" onclick="closeAccountModal()"
                     data-i18n="modal_close">Fermer</button></div>
+        </div>
+    </div>
+
+    <div id="modal-ms-device" class="modal" style="z-index: 4500;">
+        <div class="modal-card" style="width: 440px;">
+            <div class="modal-header" data-i18n="ms_device_title">Connexion Microsoft</div>
+            <div class="modal-body">
+                <p class="ms-device-help" id="ms-device-help"></p>
+                <div class="ms-device-code-row">
+                    <span id="ms-device-code-display"></span>
+                    <button type="button" class="btn-secondary" id="ms-device-btn-copy" onclick="copyMsDeviceCode()"
+                        data-i18n="ms_device_copy">Copier le code</button>
+                </div>
+                <button type="button" class="btn-microsoft" style="width: 100%; margin-top: 4px;"
+                    id="ms-device-btn-open" onclick="openMsDevicePage()" data-i18n="ms_device_open">Ouvrir la page
+                    Microsoft</button>
+                <div class="ms-device-waiting">
+                    <div class="ms-device-spinner" aria-hidden="true"></div>
+                    <p id="ms-device-status"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span id="ms-device-footer-note"
+                    style="font-size: 0.75rem; color: #aaa; line-height: 1.35; text-align: left; flex: 1; min-width: 0;"></span>
+                <button type="button" class="btn-secondary" id="ms-device-btn-cancel" onclick="cancelMsDeviceLogin()"
+                    data-i18n="ms_device_cancel" style="flex-shrink: 0;">Annuler</button>
+            </div>
         </div>
     </div>
 
