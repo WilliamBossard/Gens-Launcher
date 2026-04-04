@@ -12,7 +12,15 @@ const nbt = require("prismarine-nbt");
 const util = require("util");
 const parseNbt = util.promisify(nbt.parse);
 
-window.openSystemPath = (p) => shell.openPath(p);
+window.openSystemPath = (p) => {
+    if (p.startsWith("http")) {
+        shell.openExternal(p); 
+    } else if (process.platform === "win32") {
+        exec(`explorer "${p}"`); 
+    } else {
+        shell.openPath(p); 
+    }
+};
 const launcher = new Client();
 const discordClientId = "1223633633633633633";
 
@@ -21,6 +29,10 @@ let rpcReady = false;
 let pingInterval = null;
 let collapsedGroups = {};
 let maxSafeRam = 4096;
+let skinViewer = null;
+let activeAccountViewerIndex = null;
+let pendingUpdateInfo = null;
+let dragCounter = 0;
 
 rpc
   .login({ clientId: discordClientId })
@@ -51,7 +63,7 @@ function updateRPC(inst) {
       largeImageKey: "logo",
       largeImageText: "Gens Launcher",
       buttons: [
-          { label: t("btn_discord_download", "Telecharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" }
+          { label: t("btn_discord_download", "Télécharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" }
       ]
     });
   } catch (e) {}
@@ -78,20 +90,6 @@ window.showToast = (msg, type = "info") => {
 
 ipcRenderer.on("update-msg", (event, data) => {
   showToast(data.text, data.type);
-});
-
-ipcRenderer.on("update-downloaded", async () => {
-  if (
-    await showCustomConfirm(
-      t(
-        "msg_update_ready",
-        "Une nouvelle mise a jour est prete ! Voulez-vous redemarrer le launcher pour l'installer maintenant ?"
-      ),
-      false
-    )
-  ) {
-    ipcRenderer.send("restart_app");
-  }
 });
 
 let _msDeviceVerificationUri = "";
@@ -203,13 +201,23 @@ window.showCustomConfirm = (msg, isDestructive = false) => {
   });
 };
 
-function showLoading(text) {
-  document.getElementById("loading-text").innerText = text;
-  document.getElementById("loading-overlay").style.display = "flex";
-}
-function hideLoading() {
-  document.getElementById("loading-overlay").style.display = "none";
-}
+window.showLoading = (text, percent = null) => {
+    document.getElementById("loading-text").innerText = text;
+    const pctEl = document.getElementById("loading-percent");
+    pctEl.innerText = percent !== null ? percent + "%" : "";
+    document.getElementById("loading-overlay").style.display = "flex";
+};
+
+window.updateLoadingPercent = (percent, text = null) => {
+    const pctEl = document.getElementById("loading-percent");
+    if (percent !== null) pctEl.innerText = percent + "%";
+    if (text !== null) document.getElementById("loading-text").innerText = text;
+};
+
+window.hideLoading = () => {
+    document.getElementById("loading-overlay").style.display = "none";
+};
+
 const yieldUI = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 const dataDir = path.join(process.env.APPDATA, "GensLauncher");
@@ -249,7 +257,7 @@ window.copyLogs = () => {
     .writeText(text)
     .then(() =>
       showToast(
-        t("msg_logs_copied", "Logs copies dans le presse-papier !"),
+        t("msg_logs_copied", "Logs copiés dans le presse-papier !"),
         "success"
       )
     );
@@ -278,21 +286,21 @@ const defaultFr = {
   toolbar_add: "Ajouter une instance",
   toolbar_import: "Importer",
   toolbar_catalog: "Catalogue de Contenu",
-  toolbar_settings: "Parametres Globaux",
+  toolbar_settings: "Paramètres Globaux",
   toolbar_logs: "Afficher les logs",
-  toolbar_manage: "Gerer",
+  toolbar_manage: "Gérer",
   toolbar_stats: "Statistiques",
   search_inst: "Rechercher une instance...",
   sort_name: "Trier par Nom",
-  sort_last: "Derniere utilisation",
+  sort_last: "Dernière utilisation",
   sort_time: "Temps de jeu",
-  panel_title: "Selectionnez une instance",
+  panel_title: "Sélectionnez une instance",
   panel_time: "Temps :",
   panel_last: "Dernier :",
   btn_launch: "Lancer",
-  btn_stop: "Forcer l'arret",
+  btn_stop: "Forcer l'arrêt",
   btn_offline: "Lancer en hors ligne",
-  btn_settings: "Parametres de l'instance",
+  btn_settings: "Paramètres de l'instance",
   btn_mods: "Gestionnaire de Mods",
   btn_saves: "Voir les mondes",
   btn_gallery: "Galerie de Captures",
@@ -300,15 +308,15 @@ const defaultFr = {
   btn_delete: "Supprimer",
   btn_copy: "Copier l'instance",
   btn_export: "Exporter l'instance",
-  status_ready: "Pret",
+  status_ready: "Prêt",
   modal_cancel: "Annuler",
   modal_save: "Sauvegarder",
   modal_close: "Fermer",
   modal_apply: "Appliquer",
-  modal_create: "Creer",
+  modal_create: "Créer",
   modal_add: "Ajouter",
   btn_search: "Chercher",
-  tab_gen: "General",
+  tab_gen: "Général",
   tab_mods: "Mods",
   tab_shaders: "Shaders",
   tab_resourcepacks: "Packs de Textures",
@@ -316,27 +324,32 @@ const defaultFr = {
   tab_backups: "Sauvegardes",
   tab_java: "Configuration",
   tab_notes: "Notes",
+  tab_updates: "Mises à jour",
+  btn_check_launcher_updates: "Vérifier les mises à jour",
+  msg_up_to_date: "Le launcher est à jour.",
+  msg_update_found: "Une mise à jour a été trouvée",
+  msg_download_update: "Voulez-vous la télécharger en arrière-plan ?",
   lbl_backup_mode: "Sauvegarde Automatique des Mondes",
-  lbl_backup_limit: "Nombre de sauvegardes a conserver :",
-  opt_none: "Desactive",
+  lbl_backup_limit: "Nombre de sauvegardes à conserver :",
+  opt_none: "Désactivé",
   opt_launch: "Au lancement du jeu",
   opt_close: "A la fermeture du jeu",
   txt_backup_desc: "Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.",
   btn_open_backups: "Ouvrir le dossier des sauvegardes",
   lbl_lang: "Langue du Launcher",
-  lbl_ram: "Memoire RAM (Mo) :",
-  lbl_java: "Chemin Java par defaut",
+  lbl_ram: "Mémoire RAM (Mo) :",
+  lbl_java: "Chemin Java par défaut",
   btn_scan: "Scanner",
   lbl_fav_server: "Serveur favori",
-  lbl_beta: "Afficher les Betas",
+  lbl_beta: "Afficher les Bêtas",
   lbl_loader: "Type de chargeur",
   lbl_loader_version: "Version du chargeur",
   lbl_inst_name: "Nom de l'instance",
-  lbl_installed_mods: "Vos Mods Installes",
+  lbl_installed_mods: "Vos Mods Installés",
   lbl_installed_shaders: "Vos Shaders",
   lbl_installed_rps: "Vos Packs de Textures",
-  btn_check_updates: "Verifier les MAJ",
-  btn_dl_mods: "Telecharger de nouveaux mods",
+  btn_check_updates: "Vérifier les MAJ",
+  btn_dl_mods: "Télécharger de nouveaux mods",
   lbl_width: "Largeur",
   lbl_height: "Hauteur",
   lbl_jvm: "Arguments JVM",
@@ -348,149 +361,172 @@ const defaultFr = {
   btn_clear: "Effacer",
   lbl_blur: "Flou du fond",
   lbl_darkness: "Assombrissement du fond",
-  lbl_panel_opacity: "Opacite de l'interface (Panneaux)",
-  lbl_group: "Dossier / Categorie de l'instance",
-  msg_mod_added: "Ajoute a l'instance avec succes !",
-  msg_select_inst: "Selectionnez une instance d'abord !",
+  lbl_panel_opacity: "Opacité de l'interface (Panneaux)",
+  lbl_group: "Dossier / Catégorie de l'instance",
+  msg_mod_added: "Ajouté à l'instance avec succès !",
+  msg_select_inst: "Sélectionnez une instance d'abord !",
   msg_search_java: "Recherche de Java...",
-  msg_java_found: "version(s) de Java trouvee(s).",
+  msg_java_found: "version(s) de Java trouvée(s).",
   msg_extract_java: "Extraction de Java...",
   msg_err_java: "Erreur Java",
-  msg_backup: "Creation de la sauvegarde...",
-  msg_no_screen: "Aucune capture d'ecran.",
+  msg_backup: "Création de la sauvegarde...",
+  msg_no_screen: "Aucune capture d'écran.",
   msg_launching: "Lancement de ",
-  msg_check_java: "Verification de Java...",
+  msg_check_java: "Vérification de Java...",
   msg_sync_servers: "Synchronisation des serveurs...",
   msg_install_fabric: "Installation de Fabric...",
-  msg_prep_files: "Preparation des fichiers...",
-  msg_dl: "Telechargement : ",
-  msg_game_stop: "Le jeu s'est arrete",
+  msg_prep_files: "Préparation des fichiers...",
+  msg_dl: "Téléchargement : ",
+  msg_game_stop: "Le jeu s'est arrêté",
   msg_conn_ms: "Connexion...",
   ms_device_title: "Connexion Microsoft",
-  ms_device_help:
-    "Copie le code ci-dessous, ouvre la page Microsoft, puis saisis le code quand le site le demande.",
+  ms_device_help: "Copie le code ci-dessous, ouvre la page Microsoft, puis saisis le code quand le site le demande.",
   ms_device_copy: "Copier le code",
   ms_device_open: "Ouvrir la page Microsoft",
   ms_device_copied: "Code copié dans le presse-papiers.",
   ms_device_status_1: "En attente : valide le code sur le site Microsoft.",
-  ms_device_status_2:
-    "Finalisation côté launcher (serveurs Xbox / Mojang)… Peut prendre une dizaine de secondes.",
-  ms_device_footer:
-    "Tu peux fermer l’onglet du navigateur une fois la connexion acceptée ; cette fenêtre se fermera quand le compte sera enregistré.",
+  ms_device_status_2: "Finalisation côté launcher (serveurs Xbox / Mojang)… Peut prendre une dizaine de secondes.",
+  ms_device_footer: "Tu peux fermer l’onglet du navigateur une fois la connexion acceptée ; cette fenêtre se fermera quand le compte sera enregistré.",
   ms_device_cancel: "Annuler",
   ms_device_cancelled: "Connexion Microsoft annulée.",
   msg_err_ms: "Erreur Microsoft : ",
-  msg_err_sys: "Erreur systeme : ",
+  msg_err_sys: "Erreur système : ",
   msg_remove_acc: "Retirer ce compte ?",
   msg_copy: "Copie en cours...",
   msg_delete_inst: "Supprimer l'instance ?",
   msg_compress: "Compression...",
   msg_extract: "Extraction...",
-  msg_check_updates: "Verification des mises a jour...",
-  msg_updating: "Mise a jour : ",
-  msg_mods_updated: "mod(s) mis a jour !",
-  msg_mods_uptodate: "Mods deja a jour !",
-  msg_dl_mod: "Telechargement en cours...",
+  msg_check_updates: "Vérification des mises à jour...",
+  msg_updating: "Mise à jour : ",
+  msg_mods_updated: "mod(s) mis à jour !",
+  msg_mods_uptodate: "Mods déjà à jour !",
+  msg_dl_mod: "Téléchargement en cours...",
   msg_no_compat: "Aucun fichier compatible.",
-  msg_deps: "Telechargement des dependances...",
-  msg_install_success: "Installation reussie !",
-  msg_err_dl: "Erreur lors du telechargement.",
+  msg_deps: "Téléchargement des dépendances...",
+  msg_install_success: "Installation réussie !",
+  msg_err_dl: "Erreur lors du téléchargement.",
   msg_ping: "Ping...",
   msg_online: "En ligne",
   msg_offline: "Hors-ligne",
   msg_err_ping: "Erreur",
-  msg_no_mods: "Aucun mod local installe.",
-  msg_no_shaders: "Aucun shader installe.",
-  msg_no_rps: "Aucun pack de textures installe.",
-  msg_no_servers: "Aucun serveur enregistre.",
-  msg_no_acc: "Aucun profil enregistre.",
+  msg_no_mods: "Aucun mod local installé.",
+  msg_no_shaders: "Aucun shader installé.",
+  msg_no_rps: "Aucun pack de textures installé.",
+  msg_no_servers: "Aucun serveur enregistré.",
+  msg_no_acc: "Aucun profil enregistré.",
   opt_modpack: "Modpacks",
   btn_install: "Installer",
-  msg_dl_mods_pack: "Telechargement des mods",
-  msg_logs_copied: "Logs copies dans le presse-papier !",
+  msg_dl_mods_pack: "Téléchargement des mods",
+  msg_logs_copied: "Logs copiés dans le presse-papier !",
   msg_err_mrpack_invalid: "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant).",
   msg_err_mrpack: "Erreur Modpack : ",
   btn_copy_logs: "Copier",
   modal_confirm: "Confirmation",
   btn_yes: "Oui",
   btn_no: "Non",
-  msg_err_cf: "Les modpacks CurseForge (.zip) sont bloques par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
+  msg_err_cf: "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !",
   msg_err_path: "Erreur : Chemin introuvable (Lancez l'app via npm start !)",
-  msg_err_format: "Format non supporte ! (.mrpack, .zip, .jar, .png)",
+  msg_err_format: "Format non supporté ! (.mrpack, .zip, .jar, .png)",
   modal_worlds_title: "Gestion des Mondes",
-  msg_no_worlds: "Aucun monde trouve.",
+  msg_no_worlds: "Aucun monde trouvé.",
   btn_world_backup: "Sauvegarder",
   btn_world_copy: "Copier",
   msg_copy_world_loading: "Copie du monde en cours...",
-  msg_world_copied: "Monde copie avec succes !",
-  msg_delete_world_confirm: "Voulez-vous vraiment supprimer ce monde definitivement ?",
-  msg_world_deleted: "Monde supprime !",
-  msg_world_backedup: "Sauvegarde creee dans le dossier 'backups' !",
+  msg_world_copied: "Monde copié avec succès !",
+  msg_delete_world_confirm: "Voulez-vous vraiment supprimer ce monde définitivement ?",
+  msg_world_deleted: "Monde supprimé !",
+  msg_world_backedup: "Sauvegarde créée dans le dossier 'backups' !",
   lbl_folder: "Dossier : ",
-  lbl_created: "Cree le : ",
-  lbl_played: "Joue le : ",
+  lbl_created: "Créé le : ",
+  lbl_played: "Joué le : ",
   modal_stats_title: "Tableau de Bord",
   stat_total_time: "Temps de jeu total",
-  stat_total_instances: "Instances creees",
-  stat_total_mods: "Mods installes",
+  stat_total_instances: "Instances créées",
+  stat_total_mods: "Mods installés",
   stat_fav_instance: "Instance favorite : ",
-  stat_disk_usage: "Espace disque utilise",
+  stat_disk_usage: "Espace disque utilisé",
   txt_players: "Joueurs",
-  msg_update_ready: "Une nouvelle mise a jour est prete ! Voulez-vous redemarrer le launcher pour l'installer maintenant ?",
   btn_auto_ram: "Optimiser",
   tt_auto_ram: "Analyse votre PC et vos mods pour allouer la RAM parfaite (Min 4Go).",
-  msg_ram_optimized: "RAM optimisee a ",
-  modal_updates_title: "Mises a jour disponibles",
-  msg_updates_available: "Les mods suivants vont etre mis a jour :",
+  msg_ram_optimized: "RAM optimisée à ",
+  modal_updates_title: "Mises à jour disponibles",
+  msg_updates_available: "Les mods suivants vont être mis à jour :",
   btn_update_all: "Tout installer",
-  msg_no_updates: "Tous vos mods sont a jour !",
+  msg_no_updates: "Tous vos mods sont à jour !",
   lbl_options_profile: "Profil d'Options (options.txt)",
-  txt_options_desc: "Selectionnez une instance pour que ses touches deviennent celles par defaut.",
-  btn_save_options: "Definir comme defaut",
-  msg_options_saved: "Profil d'options sauvegarde !",
-  msg_no_options_found: "Aucun options.txt trouve. Lancez le jeu au moins une fois sur cette instance !",
-  msg_drop_mod: "Relacher pour installer le mod",
-  msg_drop_shader: "Relacher pour installer le shader",
-  msg_drop_rp: "Relacher pour installer le pack",
-  msg_files_added: "fichier(s) ajoute(s) !",
+  txt_options_desc: "Sélectionnez une instance pour que ses touches deviennent celles par défaut.",
+  btn_save_options: "Définir comme défaut",
+  msg_options_saved: "Profil d'options sauvegardé !",
+  msg_no_options_found: "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !",
+  msg_drop_mod: "Relâcher pour installer le mod",
+  msg_drop_shader: "Relâcher pour installer le shader",
+  msg_drop_rp: "Relâcher pour installer le pack",
+  msg_files_added: "fichier(s) ajouté(s) !",
   modal_import_mc: "Importer un monde officiel",
   btn_import_official_world: "Importer depuis .minecraft",
-  msg_no_mc_worlds: "Aucun monde trouve dans .minecraft",
-  msg_world_imported: "Monde importe avec succes !",
+  msg_no_mc_worlds: "Aucun monde trouvé dans .minecraft",
+  msg_world_imported: "Monde importé avec succès !",
   lbl_sync_options: "Touches & Options",
-  txt_sync_options: "Ecrase les parametres avec votre profil par defaut.",
+  txt_sync_options: "Écrase les paramètres avec votre profil par défaut.",
   btn_sync_now: "Injecter",
-  msg_force_sync_success: "Touches synchronisees avec succes !",
-  msg_force_sync_error: "Aucun profil par defaut defini dans les Parametres Globaux.",
+  msg_force_sync_success: "Touches synchronisées avec succès !",
+  msg_force_sync_error: "Aucun profil par défaut défini dans les Paramètres Globaux.",
   lbl_visibility: "Comportement au lancement",
   opt_keep: "Garder le launcher ouvert",
-  opt_hide: "Cacher le launcher (Mode Fantome)",
+  opt_hide: "Cacher le launcher (Mode Fantôme)",
   btn_auto_connect: "Auto",
-  msg_warn_deps: "Dependance manquante potentielle : ",
+  msg_warn_deps: "Dépendance manquante potentielle : ",
   btn_show: "Afficher",
   btn_hide: "Masquer",
-  lbl_news: "Actualites Minecraft",
+  lbl_news: "Actualités Minecraft",
   msg_server_search: "Recherche du serveur",
   msg_server_offline_desc: "Le serveur est actuellement hors-ligne ou injoignable.",
-  msg_server_error: "Erreur de connexion a",
+  msg_server_error: "Erreur de connexion à",
   lbl_players: "joueurs",
   modal_export_zip: "Export Complet (.zip)",
   txt_export_zip_desc: "Contient absolument tous vos mods et mondes (Fichier lourd).",
-  modal_export_mrpack: "Export Leger (.mrpack)",
-  txt_export_mrpack_desc: "Genere un fichier de quelques Ko ideal pour partager avec vos amis.",
-  lbl_live_stats: "Monitoring Systeme",
+  modal_export_mrpack: "Export Léger (.mrpack)",
+  txt_export_mrpack_desc: "Génère un fichier de quelques Ko idéal pour partager avec vos amis.",
+  lbl_live_stats: "Monitoring Système",
   lbl_live_ram: "RAM Globale :",
   lbl_live_cpu: "Charge CPU :",
-  msg_mrpack_analyze: "Analyse des mods et generation du .mrpack...",
-  msg_mrpack_success: "Export .mrpack reussi !",
+  msg_mrpack_analyze: "Analyse des mods et génération du .mrpack...",
+  msg_mrpack_success: "Export .mrpack réussi !",
   msg_mrpack_error: "Erreur lors de l'export .mrpack",
   lbl_discord_playing: "Joue sur",
   lbl_discord_solo: "En jeu",
-  btn_discord_download: "Telecharger Gens Launcher",
-  msg_dl_browser: "Lien de telechargement securise... Ouverture du navigateur.",
-  msg_cf_api_req: "CurseForge necessite une clef API.\nAjoutez-la dans les Parametres Globaux du launcher.",
-  msg_cf_api_invalid: "Clef API CurseForge invalide ou erreur reseau.",
-  lbl_warning: "[!]"
+  btn_discord_download: "Télécharger Gens Launcher",
+  msg_dl_browser: "Lien de téléchargement sécurisé... Ouverture du navigateur.",
+  msg_cf_api_req: "CurseForge nécessite une clef API.\nAjoutez-la dans les Paramètres Globaux du launcher.",
+  msg_cf_api_invalid: "Clef API CurseForge invalide ou erreur réseau.",
+  lbl_warning: "[!]",
+  lbl_accounts_title: "Comptes",
+  lbl_add_microsoft: "Ajouter Microsoft",
+  lbl_add_offline: "Ajouter Hors-Ligne",
+  lbl_use_account: "Utiliser le compte",
+  lbl_skin_cape: "Skin & Cape",
+  lbl_active_acc: "Actif",
+  modal_skin_title: "Visionneuse 3D de Skin",
+  btn_test_skin: "Tester un Skin (Aperçu)",
+  btn_export_skin: "Exporter le Skin actuel",
+  btn_change_mojang: "Changer sur Minecraft.net",
+  tip_skin_3d: "💡 Astuce : Cliquez et glissez pour pivoter. Molette pour zoomer.",
+  btn_dl_shaders: "Télécharger de nouveaux shaders",
+  btn_dl_rps: "Télécharger de nouveaux packs",
+  ph_java_local: "Laisser vide pour utiliser le global",
+  lbl_group_general: "Général",
+  lbl_current_version: "Version actuelle :",
+  ph_inst_name: "Ma Survie",
+  ph_filter_logs: "Filtrer les logs...",
+  msg_calc: "Calcul...",
+  lbl_gb: "Go",
+  msg_open_mp: "Ouverture de la page du modpack...",
+  msg_dl_mp: "Téléchargement du modpack...",
+  msg_install_mp: "Installation du modpack...",
+  msg_patch_notes: "Correction de bugs et améliorations.",
+  msg_update_ready: "Téléchargement terminé ! Voulez-vous redémarrer le launcher pour installer la mise à jour ?",
+  lbl_cf_api: "Clé API CurseForge (Optionnel)",
+  txt_cf_api_desc: "Nécessaire uniquement pour utiliser le catalogue CurseForge. Obtenez une clé gratuite sur EternalDeveloper."
 };
 
 const defaultEn = {
@@ -535,6 +571,11 @@ const defaultEn = {
   tab_backups: "Backups",
   tab_java: "Configuration",
   tab_notes: "Notes",
+  tab_updates: "Updates",
+  btn_check_launcher_updates: "Check for updates",
+  msg_up_to_date: "The launcher is up to date.",
+  msg_update_found: "An update was found",
+  msg_download_update: "Do you want to download it in the background?",
   lbl_backup_mode: "World Auto-Backups",
   lbl_backup_limit: "Number of backups to keep:",
   opt_none: "Disabled",
@@ -586,16 +627,13 @@ const defaultEn = {
   msg_game_stop: "Game stopped",
   msg_conn_ms: "Logging in...",
   ms_device_title: "Microsoft sign-in",
-  ms_device_help:
-    "Copy the code below, open the Microsoft page, then enter the code when the site asks for it.",
+  ms_device_help: "Copy the code below, open the Microsoft page, then enter the code when the site asks for it.",
   ms_device_copy: "Copy code",
   ms_device_open: "Open Microsoft page",
   ms_device_copied: "Code copied to clipboard.",
   ms_device_status_1: "Waiting: confirm the code on the Microsoft website.",
-  ms_device_status_2:
-    "Finishing in the launcher (Xbox / Mojang servers)… This can take around 10 seconds.",
-  ms_device_footer:
-    "You can close the browser tab after sign-in is accepted ; this window closes when the account is saved.",
+  ms_device_status_2: "Finishing in the launcher (Xbox / Mojang servers)… This can take around 10 seconds.",
+  ms_device_footer: "You can close the browser tab after sign-in is accepted ; this window closes when the account is saved.",
   ms_device_cancel: "Cancel",
   ms_device_cancelled: "Microsoft sign-in cancelled.",
   msg_err_ms: "Microsoft Error: ",
@@ -655,7 +693,6 @@ const defaultEn = {
   stat_fav_instance: "Favorite instance: ",
   stat_disk_usage: "Disk space used",
   txt_players: "Players",
-  msg_update_ready: "A new update is ready! Do you want to restart the launcher to install it now?",
   btn_auto_ram: "Optimize",
   tt_auto_ram: "Analyzes your PC and mods to allocate perfect RAM (Min 4GB).",
   msg_ram_optimized: "RAM optimized to ",
@@ -709,7 +746,34 @@ const defaultEn = {
   msg_dl_browser: "Secure download link... Opening browser.",
   msg_cf_api_req: "CurseForge requires an API Key.\nAdd it in the Launcher Global Settings.",
   msg_cf_api_invalid: "Invalid CurseForge API Key or network error.",
-  lbl_warning: "[!]"
+  lbl_warning: "[!]",
+  lbl_accounts_title: "Accounts",
+  lbl_add_microsoft: "Add Microsoft",
+  lbl_add_offline: "Add Offline",
+  lbl_use_account: "Use Account",
+  lbl_skin_cape: "Skin & Cape",
+  lbl_active_acc: "Active",
+  modal_skin_title: "3D Skin Viewer",
+  btn_test_skin: "Test a Skin (Preview)",
+  btn_export_skin: "Export current Skin",
+  btn_change_mojang: "Change on Minecraft.net",
+  tip_skin_3d: "💡 Tip: Click and drag to rotate. Scroll to zoom.",
+  btn_dl_shaders: "Download new shaders",
+  btn_dl_rps: "Download new packs",
+  ph_java_local: "Leave empty to use global",
+  lbl_group_general: "General",
+  lbl_current_version: "Current version:",
+  ph_inst_name: "My Survival",
+  ph_filter_logs: "Filter logs...",
+  msg_calc: "Calculating...",
+  lbl_gb: "GB",
+  msg_open_mp: "Opening modpack page...",
+  msg_dl_mp: "Downloading modpack...",
+  msg_install_mp: "Installing modpack...",
+  msg_patch_notes: "Bug fixes and improvements.",
+  msg_update_ready: "Download complete! Do you want to restart the launcher to install the update?",
+  lbl_cf_api: "CurseForge API Key (Optional)",
+  txt_cf_api_desc: "Required only to use the CurseForge catalog. Get a free key on EternalDeveloper."
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -738,7 +802,7 @@ function t(key, fallback) {
   return currentLangObj[key] || fallback;
 }
 
-function applyTranslations() {
+window.applyTranslations = () => {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     if (currentLangObj[key]) {
@@ -754,6 +818,16 @@ function applyTranslations() {
         el.title = currentLangObj[key];
     }
   });
+
+  document.querySelectorAll("[data-i18n-tooltip]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-tooltip");
+      if (currentLangObj[key]) {
+          el.setAttribute("data-tooltip", currentLangObj[key]);
+      }
+  });
+
+  const cv = document.getElementById("current-app-version");
+  if(cv) cv.innerText = "v" + require("./package.json").version;
   
   updateLaunchButton();
 }
@@ -842,7 +916,7 @@ async function loadNews() {
         
         data.entries.slice(0, 6).forEach(news => {
             const imgUrl = `https://launchercontent.mojang.com${news.playPageImage.url}`;
-            const link = `https://minecraft.net${news.readMoreLink}`;
+            const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
             html += `
             <div class="news-card" onclick="openSystemPath('${link}')">
                 <img src="${imgUrl}" class="news-img">
@@ -984,25 +1058,116 @@ window.openStatsModal = async () => {
   let m = Math.floor((totalTimeMs % 3600000) / 60000);
 
   document.getElementById("dashboard-time").innerText = `${h}h ${m}m`;
-  document.getElementById("dashboard-instances").innerText =
-    allInstances.length;
+  document.getElementById("dashboard-instances").innerText = allInstances.length;
   document.getElementById("dashboard-mods").innerText = totalMods;
-  document.getElementById("dashboard-fav").innerText =
-    maxTime > 0 ? favInstance : "-";
-  document.getElementById("dashboard-disk").innerText = "Calcul...";
+  document.getElementById("dashboard-fav").innerText = maxTime > 0 ? favInstance : "-";
+  document.getElementById("dashboard-disk").innerText = t("msg_calc", "Calcul...");
+
+  const graphDiv = document.getElementById("dashboard-graph");
+  if (graphDiv) {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().slice(0, 10));
+    }
+    const totals = {};
+    days.forEach(d => totals[d] = 0);
+    allInstances.forEach(inst => {
+      (inst.sessionHistory || []).forEach(s => {
+        if (totals[s.date] !== undefined) totals[s.date] += s.ms;
+      });
+    });
+    const maxMs = Math.max(...Object.values(totals), 1);
+    graphDiv.innerHTML = days.map(d => {
+      const ms = totals[d];
+      const perc = Math.round((ms / maxMs) * 100);
+      const label = d.slice(5); 
+      const hh = Math.floor(ms / 3600000);
+      const mm = Math.floor((ms % 3600000) / 60000);
+      const title = ms > 0 ? `${hh}h ${mm}m` : "0";
+      return `<div title="${label} : ${title}" style="flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:default;">
+        <div style="width:100%; background:var(--accent); border-radius:3px 3px 0 0; opacity:${ms > 0 ? 0.85 : 0.15}; height:${Math.max(perc, ms > 0 ? 4 : 2)}%; transition:height 0.3s;"></div>
+        <div style="font-size:0.6rem; color:#aaa; white-space:nowrap;">${label}</div>
+      </div>`;
+    }).join("");
+  }
 
   document.getElementById("modal-stats").style.display = "flex";
 
   const sizeBytes = await getDirSizeAsync(dataDir);
   const sizeGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
   if (document.getElementById("modal-stats").style.display === "flex") {
-    document.getElementById("dashboard-disk").innerText = `${sizeGB} Go`;
+    document.getElementById("dashboard-disk").innerText = `${sizeGB} ${t("lbl_gb", "Go")}`;
   }
 };
 
 window.closeStatsModal = () => {
   document.getElementById("modal-stats").style.display = "none";
 };
+
+window.handleImport = async (input) => {
+    const file = input.files[0];
+    if (!file) return;
+    const p = file.path;
+    input.value = ""; 
+    
+    if (p.endsWith('.zip')) await handleZipImport(p);
+    else if (p.endsWith('.mrpack')) await handleMrPackImport(p);
+    else showToast(t("msg_err_format", "Format non supporté !"), "error");
+};
+
+async function handleZipImport(zipPath) {
+    showLoading(t("msg_extract", "Extraction..."));
+    await yieldUI();
+    try {
+        const zip = new AdmZip(zipPath);
+        const instanceEntry = zip.getEntry("instance.json");
+
+        if (!instanceEntry) {
+            throw new Error("Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher.");
+        }
+
+        const instData = JSON.parse(zip.readAsText(instanceEntry));
+        const originalName = instData.name || "Instance Importée";
+
+        let finalName = originalName;
+        let counter = 1;
+        while (allInstances.some(i => i.name === finalName)) {
+            finalName = `${originalName} (${counter})`;
+            counter++;
+        }
+
+        instData.name = finalName;
+        const instDir = path.join(instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
+        if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
+
+        zip.getEntries().forEach(entry => {
+            if (entry.entryName.startsWith("files/") && entry.entryName !== "files/") {
+                const relPath = entry.entryName.substring(6);
+                const targetPath = path.join(instDir, relPath);
+
+                if (entry.isDirectory) {
+                    if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+                } else {
+                    const dir = path.dirname(targetPath);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    fs.writeFileSync(targetPath, zip.readFile(entry));
+                }
+            }
+        });
+
+        allInstances.push(instData);
+        fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+
+        showToast(t("msg_install_success", "Installation réussie !"), "success");
+    } catch (err) {
+        sysLog("Erreur Import ZIP : " + err.message, true);
+        showToast("Erreur Import : " + err.message, "error");
+    }
+    hideLoading();
+    renderUI();
+}
 
 async function handleMrPackImport(packPath) {
   showLoading(t("msg_extract", "Extraction..."));
@@ -1120,6 +1285,9 @@ async function handleMrPackImport(packPath) {
     await yieldUI();
 
     const concurrencyLimit = 10; 
+    
+    showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
+
     const workers = Array(concurrencyLimit).fill(null).map(async () => {
         while (queue.length > 0) {
             const modFile = queue.shift();
@@ -1138,13 +1306,12 @@ async function handleMrPackImport(packPath) {
             }
             downloadedCount++;
             
-            if (downloadedCount % 3 === 0 || downloadedCount === totalToDownload) {
-                document.getElementById("loading-text").innerText = `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`;
-            }
+            let pct = Math.round((downloadedCount / totalToDownload) * 100);
+            updateLoadingPercent(pct, `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
         }
     });
 
-    await Promise.all(workers); 
+    await Promise.all(workers);
 
     allInstances.push(newInst);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
@@ -1162,6 +1329,7 @@ const defaultIcons = {
   vanilla: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' fill='%2317B139'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='5' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='3' y='4' width='2' height='3' fill='%23000'/%3E%3C/svg%3E",
   forge: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232b2b2b'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%238c8c8c'/%3E%3C/svg%3E",
   fabric: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23e2d4b7'/%3E%3Cpath d='M0 4h16v2H0zM0 10h16v2H0zM4 0h2v16H4zM10 0h2v16H10z' fill='%23c8b593'/%3E%3C/svg%3E",
+  quilt: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%237c3aed'/%3E%3Crect x='0' y='0' width='8' height='8' fill='%239f67f5'/%3E%3Crect x='8' y='8' width='8' height='8' fill='%239f67f5'/%3E%3Crect x='3' y='3' width='2' height='2' fill='%23fff'/%3E%3Crect x='11' y='11' width='2' height='2' fill='%23fff'/%3E%3C/svg%3E",
   neoforge: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f48a21'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%23ffffff'/%3E%3C/svg%3E"
 };
 
@@ -1184,10 +1352,6 @@ let isGameRunning = false;
 let sessionStartTime = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
-  try {
-    document.getElementById("app-version").innerText =
-      "v" + require("./package.json").version;
-  } catch (e) {}
   init();
 });
 
@@ -1269,6 +1433,11 @@ window.updateLoaderVersions = async () => {
             const data = await res.json();
             versions = data.map(d => d.loader.version);
             
+        } else if (loader === "quilt") {
+            const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
+            const data = await res.json();
+            versions = data.map(d => d.loader.version);
+            
         } else if (loader === "forge") {
             const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
             const data = await res.json();
@@ -1296,7 +1465,7 @@ window.updateLoaderVersions = async () => {
             });
         }
     } catch(e) {
-        select.innerHTML = `<option value="">Erreur</option>`;
+        select.innerHTML = `<option value="">Incompatible</option>`;
     }
 };
 
@@ -1321,6 +1490,28 @@ function loadStorage() {
   }
   renderUI();
   checkServerStatus();
+
+  setTimeout(async () => {
+      for (let i = 0; i < allAccounts.length; i++) {
+          const acc = allAccounts[i];
+          if (acc.type === "microsoft" && acc.mclcAuth?.meta?.msaCacheKey) {
+              try {
+                  const refreshed = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
+                  if (refreshed.success) {
+                      allAccounts[i].mclcAuth.access_token = refreshed.access_token;
+                      sysLog(`Token Microsoft rafraîchi au démarrage pour : ${acc.name}`);
+                  } else {
+                      sysLog(`Refresh échoué pour ${acc.name} : ${refreshed.error}`, true);
+                  }
+              } catch(e) {
+                  sysLog(`Erreur refresh démarrage ${acc.name}: ${e}`, true);
+              }
+          }
+      }
+      if (allAccounts.some(a => a.type === "microsoft")) {
+          fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
+      }
+  }, 2000);
 }
 
 window.toggleGroup = (group) => {
@@ -1357,7 +1548,7 @@ function renderUI() {
   const groups = {};
   const groupSet = new Set();
   displayList.forEach((inst) => {
-    const g = inst.group && inst.group.trim() !== "" ? inst.group : "Général";
+    const g = inst.group && inst.group.trim() !== "" ? inst.group : t("lbl_group_general", "Général");
     if (!groups[g]) groups[g] = [];
     groups[g].push(inst);
     groupSet.add(g);
@@ -1381,7 +1572,7 @@ function renderUI() {
     .sort()
     .forEach((g) => {
       const isCollapsed = collapsedGroups[g];
-      const icon = isCollapsed ? ">" : "v";
+      const icon = isCollapsed ? "▶" : "▼";
       html += `<div class="category-header" onclick="toggleGroup('${g}')">${icon} ${g} <span style="color:#aaa; font-weight:normal; font-size:0.8rem;">(${groups[g].length})</span></div>`;
       if (!isCollapsed) {
         html += `<div class="instances-grid">`;
@@ -1411,24 +1602,120 @@ function renderUI() {
   } else activeSkin.style.display = "none";
 
   updateLaunchButton();
-  renderAccountManager();
 }
 
+let uiSelectedAccRow = null; 
+
+window.openAccountModal = () => {
+    document.getElementById("acc-name").value = "";
+    document.getElementById("offline-input-container").style.display = "none";
+    document.getElementById("modal-account").style.display = "flex";
+    
+    uiSelectedAccRow = selectedAccountIdx;
+    renderAccountManager();
+};
+
 function renderAccountManager() {
-  const list = document.getElementById("account-list");
-  list.innerHTML = "";
-  if (allAccounts.length === 0) {
-    list.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_acc", "Aucun profil enregistré.")}</div>`;
-    return;
-  }
-  allAccounts.forEach((acc, i) => {
-    const typeLabel =
-      acc.type === "microsoft"
-        ? '<span style="color:#107c10; font-weight:bold;">Microsoft</span>'
-        : `<span style="color:#888;">${t("lbl_offline", "Hors-Ligne")}</span>`;
-    list.innerHTML += `<div class="account-item"><div style="display: flex; align-items: center; gap: 10px;"><img src="https://mc-heads.net/avatar/${acc.name}/32" class="account-skin"><div><div style="color: white; font-weight: bold;">${acc.name}</div><div style="font-size: 0.7rem;">${typeLabel}</div></div></div><button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px;" onclick="deleteAccount(${i})">${t("btn_delete", "Supprimer")}</button></div>`;
-  });
+    const list = document.getElementById("account-list");
+    list.innerHTML = "";
+    
+    const btnUse = document.getElementById("btn-use-acc");
+    const btnDel = document.getElementById("btn-del-acc");
+    const btnSkin = document.getElementById("btn-skin-acc");
+
+    if (allAccounts.length === 0) {
+        list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">Aucun profil enregistré.</div>`;
+        if (btnUse) btnUse.disabled = true;
+        if (btnDel) btnDel.disabled = true;
+        if (btnSkin) btnSkin.disabled = true;
+        uiSelectedAccRow = null;
+        return;
+    }
+
+    if (btnUse) btnUse.disabled = (uiSelectedAccRow === null || uiSelectedAccRow === selectedAccountIdx);
+    if (btnDel) btnDel.disabled = (uiSelectedAccRow === null);
+    if (btnSkin) btnSkin.disabled = (uiSelectedAccRow === null);
+
+    allAccounts.forEach((acc, i) => {
+        const isSelected = uiSelectedAccRow === i;
+        const isActive = selectedAccountIdx === i;
+
+        const typeText = acc.type === "microsoft" ? "Compte Microsoft" : "Hors-Ligne (Crack)";
+        const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
+
+        list.innerHTML += `
+        <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
+            <img src="https://mc-heads.net/avatar/${acc.name}/32" alt="${acc.name}">
+            <div class="mmc-info">
+                <div class="mmc-name">${acc.name}</div>
+                <div class="mmc-type">${typeText}</div>
+            </div>
+            <div class="mmc-active-label">${activeText}</div>
+        </div>`;
+    });
 }
+
+window.selectAccountRow = (index) => {
+    uiSelectedAccRow = index;
+    renderAccountManager();
+};
+
+window.useSelectedRow = () => {
+    if (uiSelectedAccRow !== null) {
+        selectedAccountIdx = uiSelectedAccRow;
+        changeAccountFromCode();
+        renderAccountManager();
+    }
+};
+
+window.deleteSelectedRow = async () => {
+    if (uiSelectedAccRow === null) return;
+    if (await showCustomConfirm(t("msg_remove_acc", "Retirer ce compte ?"), true)) {
+        allAccounts.splice(uiSelectedAccRow, 1);
+        
+        if (selectedAccountIdx === uiSelectedAccRow) {
+            selectedAccountIdx = allAccounts.length > 0 ? 0 : null;
+        } else if (selectedAccountIdx > uiSelectedAccRow) {
+            selectedAccountIdx--;
+        }
+        
+        uiSelectedAccRow = selectedAccountIdx;
+        changeAccountFromCode();
+        renderAccountManager();
+    }
+};
+
+window.toggleOfflineInput = () => {
+    const container = document.getElementById("offline-input-container");
+    container.style.display = container.style.display === "none" ? "flex" : "none";
+    if (container.style.display === "flex") {
+        document.getElementById("acc-name").focus();
+    }
+};
+
+window.saveOfflineAccount = () => {
+    const name = document.getElementById("acc-name").value.trim();
+    if (!name) return;
+    allAccounts.push({ type: "offline", name });
+    selectedAccountIdx = allAccounts.length - 1;
+    uiSelectedAccRow = selectedAccountIdx; 
+    fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
+    
+    document.getElementById("acc-name").value = "";
+    document.getElementById("offline-input-container").style.display = "none";
+    
+    renderAccountManager();
+    changeAccountFromCode();
+};
+
+window.closeAccountModal = () => {
+    document.getElementById("modal-account").style.display = "none";
+};
+
+window.changeAccountFromCode = () => {
+    fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
+    renderUI();
+};
 
 function getModWarnings(inst) {
     const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
@@ -1504,7 +1791,7 @@ function renderModsManager() {
       
       let warningHtml = "";
       if (warnings[file]) {
-          warningHtml = `<span title="${t("msg_warn_deps")}${warnings[file].join(', ')}" style="cursor:help; margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
+          warningHtml = `<span class="custom-tooltip-trigger" data-tooltip="${t("msg_warn_deps", "Dépendance manquante potentielle : ")}${warnings[file].join(', ')}" style="margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
       }
       
       modsListDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center;">${displayName}${warningHtml}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod('${file}', this.checked)"></div>`;
@@ -1513,7 +1800,6 @@ function renderModsManager() {
   if (!hasMods)
     modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
 }
-
 function renderShadersManager() {
   const listDiv = document.getElementById("shaders-list");
   listDiv.innerHTML = "";
@@ -1695,9 +1981,14 @@ async function executeModUpdates() {
     const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
     
     let updatedCount = 0;
+    const total = pendingUpdates.length;
+
+    showLoading(`${t("msg_updating", "Mise à jour...")}`, 0);
+
     for (let update of pendingUpdates) {
-        showLoading(`${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`);
+        updateLoadingPercent(Math.round((updatedCount / total) * 100), `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`);
         await yieldUI();
+        
         try {
             const buffer = await (await fetch(update.newFileObj.url)).arrayBuffer();
             fs.writeFileSync(path.join(modsPath, update.newFileObj.filename), Buffer.from(buffer));
@@ -1705,6 +1996,7 @@ async function executeModUpdates() {
             updatedCount++;
         } catch(e) {}
     }
+    
     hideLoading();
     showToast(`${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`, 'success');
     renderModsManager();
@@ -1856,12 +2148,12 @@ window.installGlobalMod = async (projectId, isDependency = false, projType = "mo
           const mrpackFile = fileData.files.find((f) => f.filename.endsWith(".mrpack"));
           if (mrpackFile) file = mrpackFile;
 
-          statusText.innerText = "Téléchargement du modpack...";
+          statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
           const tempPath = path.join(dataDir, file.filename);
           const buffer = await (await fetch(file.url)).arrayBuffer();
           fs.writeFileSync(tempPath, Buffer.from(buffer));
 
-          statusText.innerText = "Installation du modpack...";
+          statusText.innerText = t("msg_install_mp", "Installation du modpack...");
           closeCatalogModal();
           await handleMrPackImport(tempPath);
           fs.unlinkSync(tempPath);
@@ -1912,7 +2204,7 @@ window.installGlobalMod = async (projectId, isDependency = false, projType = "mo
 
         const fileData = data.data[0]; 
         if (projType === "modpack") {
-            statusText.innerText = "Ouverture de la page du modpack...";
+            statusText.innerText = t("msg_open_mp", "Ouverture de la page du modpack...");
             openSystemPath(`https://www.curseforge.com/minecraft/modpacks/${projectId}`);
             return;
         }
@@ -2284,10 +2576,7 @@ window.copySingleWorld = async (folderName) => {
 window.deleteSingleWorld = async (folderName) => {
   if (
     await showCustomConfirm(
-      t(
-        "msg_delete_world_confirm",
-        "Voulez-vous vraiment supprimer ce monde définitivement ?"
-      ),
+      t("msg_delete_world_confirm", "Voulez-vous vraiment supprimer ce monde définitivement ?"),
       true
     )
   ) {
@@ -2381,17 +2670,6 @@ window.openGalleryModal = () => {
 };
 window.closeGalleryModal = () =>
   (document.getElementById("modal-gallery").style.display = "none");
-
-document
-  .getElementById("edit-icon-upload")
-  .addEventListener("change", function () {
-    if (this.files && this.files[0]) {
-      let r = new FileReader();
-      r.onload = (e) =>
-        (document.getElementById("edit-icon-preview").src = e.target.result);
-      r.readAsDataURL(this.files[0]);
-    }
-  });
 
 window.selectInstance = (i) => {
   selectedInstanceIdx = i;
@@ -2520,8 +2798,17 @@ function getRequiredJavaVersion(mcVersion) {
 
 document.getElementById("launch-btn").addEventListener("click", async () => {
   if (isGameRunning) {
-    if (launcher && launcher.process) launcher.process.kill("SIGKILL");
-    return;
+      try {
+          if (process.platform === 'win32') {
+              exec('taskkill /F /IM java.exe /IM javaw.exe /T');
+          } else {
+              exec('killall -9 java');
+          }
+          showToast("Tentative d'arrêt forcé envoyée.", "info");
+      } catch(e) {
+          console.error(e);
+      }
+      return;
   }
 
   const inst = allInstances[selectedInstanceIdx];
@@ -2539,27 +2826,6 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
   logOutput.innerHTML += `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${inst.name}...</div>`;
 
   if (inst.backupMode === "on_launch") await createBackup(inst);
-
-  // Rafraîchir le token Microsoft avant le lancement (valide 24h seulement)
-  if (acc.type === "microsoft" && acc.mclcAuth?.meta?.msaCacheKey) {
-      try {
-          document.getElementById("status-text").innerText = t("msg_check_java", "Vérification du compte...");
-          const refreshed = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
-          if (refreshed.success) {
-              acc.mclcAuth.access_token = refreshed.access_token;
-              allAccounts[selectedAccountIdx].mclcAuth.access_token = refreshed.access_token;
-              fs.writeFileSync(accountFile, JSON.stringify({ list: allAccounts, lastUsed: selectedAccountIdx }, null, 2));
-              sysLog("Token Microsoft rafraîchi avec succès.");
-          } else {
-              sysLog("Refresh token échoué (token expiré ?): " + refreshed.error, true);
-              showToast(t("msg_err_ms", "Erreur Microsoft : ") + "Token expiré, reconnectez-vous.", "error");
-              setUIState(false);
-              return;
-          }
-      } catch(e) {
-          sysLog("Refresh token erreur système: " + e, true);
-      }
-  }
 
   const destOpt = path.join(instancePath, "options.txt");
   const defaultOpt = path.join(dataDir, "default_options.txt");
@@ -2734,6 +3000,31 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
       sysLog("Erreur Fabric: " + e, true);
       return;
     }
+  }
+  else if (inst.loader === "quilt") {
+    try {
+      document.getElementById("status-text").innerText = "Installation de Quilt...";
+      let loaderVer = inst.loaderVersion;
+      if (!loaderVer) {
+          const qRes = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
+          const qData = await qRes.json();
+          loaderVer = qData[0].loader.version;
+      }
+      if (loaderVer) {
+        const customVerName = `quilt-loader-${loaderVer}-${inst.version}`;
+        opts.version.custom = customVerName;
+        const vPath = path.join(instancePath, "versions", customVerName);
+        if (!fs.existsSync(vPath)) fs.mkdirSync(vPath, { recursive: true });
+        const jsonPath = path.join(vPath, `${customVerName}.json`);
+        if (!fs.existsSync(jsonPath)) {
+          const response = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}/${loaderVer}/profile/json`);
+          fs.writeFileSync(jsonPath, await response.text());
+        }
+      }
+    } catch (e) {
+      sysLog("Erreur Quilt: " + e, true);
+      return;
+    }
   } 
   else if (inst.loader === "forge" || inst.loader === "neoforge") {
     document.getElementById("status-text").innerText = `Préparation de ${inst.loader}...`;
@@ -2801,12 +3092,19 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
   sysLog("Démarrage du processus MCLC...");
   launcher.launch(opts);
+
+  let lastLogPerc = -1;
   launcher.on("progress", (e) => {
     let perc = 0;
     if (e.total > 0) perc = Math.round((e.task / e.total) * 100);
     progBar.style.width = perc + "%";
-    document.getElementById("status-text").innerText =
-      `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+    document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+
+    if (perc % 10 === 0 && perc !== lastLogPerc) {
+        lastLogPerc = perc;
+        logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#aaa;">[SYSTEM] ${t("msg_dl", "Téléchargement :")} ${perc}%</div>`);
+        if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
+    }
   });
 
   launcher.on("data", (data) => {
@@ -2848,11 +3146,19 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
       const currentInst = allInstances[selectedInstanceIdx];
       if (currentInst.backupMode === "on_close")
         await createBackup(currentInst);
-      currentInst.playTime =
-        (currentInst.playTime || 0) + (Date.now() - sessionStartTime);
+
+      const sessionDuration = Date.now() - sessionStartTime;
+      currentInst.playTime = (currentInst.playTime || 0) + sessionDuration;
       currentInst.lastPlayed = Date.now();
+
+      if (!currentInst.sessionHistory) currentInst.sessionHistory = [];
+      const today = new Date().toISOString().slice(0, 10);
+      const existing = currentInst.sessionHistory.find(s => s.date === today);
+      if (existing) existing.ms += sessionDuration;
+      else currentInst.sessionHistory.push({ date: today, ms: sessionDuration });
+      currentInst.sessionHistory = currentInst.sessionHistory.slice(-30);
+
       fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-      
       selectInstance(selectedInstanceIdx);
     }
     
@@ -2863,10 +3169,17 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     clearInterval(monitorInterval);
     document.getElementById("live-stats").style.display = "none";
 
-    document.getElementById("status-text").innerText = t(
-      "status_ready",
-      "Prêt"
-    );
+    try {
+        const notif = new Notification("Gens Launcher", {
+            body: code === 0
+                ? `${allInstances[selectedInstanceIdx]?.name || "Minecraft"} s'est fermé normalement.`
+                : `Le jeu s'est arrêté avec une erreur (code ${code}).`,
+            silent: true
+        });
+        notif.onclick = () => { ipcRenderer.send("show-window"); };
+    } catch(e) {}
+
+    document.getElementById("status-text").innerText = t("status_ready", "Prêt");
     progBar.style.width = "0%";
     setUIState(false);
     clearRPC();
@@ -3065,6 +3378,7 @@ window.openEditModal = (targetTab = "tab-general") => {
 window.closeEditModal = () => {
   document.getElementById("modal-edit").style.display = "none";
   clearInterval(pingInterval);
+  pendingIconPath = null;
 };
 
 window.saveInstance = () => {
@@ -3113,39 +3427,32 @@ window.saveEdit = () => {
   inst.jvmArgs = document.getElementById("edit-jvmargs").value;
   inst.notes = document.getElementById("edit-notes").value;
   inst.backupMode = document.getElementById("edit-backup-mode").value;
-  inst.backupLimit =
-    parseInt(document.getElementById("edit-backup-limit").value) || 5;
-  const iconSrc = document.getElementById("edit-icon-preview").src;
-  if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
+  inst.backupLimit = parseInt(document.getElementById("edit-backup-limit").value) || 5;
+
+  if (pendingIconPath && fs.existsSync(pendingIconPath)) {
+      const instFolder = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+      if (!fs.existsSync(instFolder)) fs.mkdirSync(instFolder, { recursive: true });
+      
+      const ext = path.extname(pendingIconPath);
+      const newIconPath = path.join(instFolder, "icon" + ext);
+      
+      try {
+          fs.copyFileSync(pendingIconPath, newIconPath);
+          inst.icon = "file:///" + encodeURI(newIconPath.replace(/\\/g, "/"));
+      } catch(e) {
+          console.error("Erreur lors de la copie de l'image", e);
+      }
+      pendingIconPath = null;
+  } else {
+      const iconSrc = document.getElementById("edit-icon-preview").src;
+      if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
+  }
+
   fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
   
   selectInstance(selectedInstanceIdx);
   renderUI();
   closeEditModal();
-};
-
-window.openAccountModal = () => {
-  document.getElementById("acc-name").value = "";
-  document.getElementById("modal-account").style.display = "flex";
-};
-window.closeAccountModal = () =>
-  (document.getElementById("modal-account").style.display = "none");
-
-window.saveOfflineAccount = () => {
-  const name = document.getElementById("acc-name").value.trim();
-  if (!name) return;
-  allAccounts.push({ type: "offline", name });
-  selectedAccountIdx = allAccounts.length - 1;
-  fs.writeFileSync(
-    accountFile,
-    JSON.stringify(
-      { list: allAccounts, lastUsed: selectedAccountIdx },
-      null,
-      2
-    )
-  );
-  document.getElementById("acc-name").value = "";
-  renderUI();
 };
 
 window.loginMicrosoft = async () => {
@@ -3166,6 +3473,7 @@ window.loginMicrosoft = async () => {
         mclcAuth: result.auth,
       });
       selectedAccountIdx = allAccounts.length - 1;
+      uiSelectedAccRow = selectedAccountIdx;
       fs.writeFileSync(
         accountFile,
         JSON.stringify(
@@ -3174,9 +3482,10 @@ window.loginMicrosoft = async () => {
           2
         )
       );
-      renderUI();
+      renderAccountManager();
+      changeAccountFromCode();
       closeAccountModal();
-      showToast(t("msg_login_success", "Connexion réussie !"), "success");
+      showToast("Connexion réussie !", "success");
     } else if (result.cancelled) {
       showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
     } else {
@@ -3196,11 +3505,6 @@ window.deleteAccount = async (index) => {
   if (
     await showCustomConfirm(t("msg_remove_acc", "Retirer ce compte ?"), true)
   ) {
-    // Supprimer le cache MSA si c'est un compte Microsoft
-    const acc = allAccounts[index];
-    if (acc.type === "microsoft" && acc.mclcAuth?.meta?.msaCacheKey) {
-        ipcRenderer.send("delete-msa-cache", acc.mclcAuth.meta.msaCacheKey);
-    }
     allAccounts.splice(index, 1);
     if (selectedAccountIdx === index)
       selectedAccountIdx = allAccounts.length > 0 ? 0 : null;
@@ -3213,7 +3517,8 @@ window.deleteAccount = async (index) => {
         2
       )
     );
-    renderUI();
+    renderAccountManager();
+    changeAccountFromCode();
   }
 };
 
@@ -3224,7 +3529,12 @@ window.openDir = (f) => {
     f
   );
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  shell.openPath(dir);
+  
+  if (process.platform === "win32") {
+      exec(`explorer "${dir}"`); 
+  } else {
+      shell.openPath(dir);
+  }
 };
 
 window.copyInstance = async () => {
@@ -3309,7 +3619,11 @@ window.doExport = async (type) => {
         await new Promise((res, rej) =>
           zip.writeZip(zipPath, (err) => (err ? rej(err) : res()))
         );
-        shell.showItemInFolder(zipPath);
+        if (process.platform === "win32") {
+            exec(`explorer /select,"${zipPath}"`);
+        } else {
+            shell.showItemInFolder(zipPath);
+        }
       } catch (e) {
         sysLog("Erreur Export: " + e, true);
       }
@@ -3384,7 +3698,11 @@ window.doExport = async (type) => {
 
           zip.addFile("modrinth.index.json", Buffer.from(JSON.stringify(indexJson, null, 2), "utf8"));
           zip.writeZip(zipPath);
-          shell.showItemInFolder(zipPath);
+          if (process.platform === "win32") {
+            exec(`explorer /select,"${zipPath}"`);
+        } else {
+            shell.showItemInFolder(zipPath);
+        }
           showToast(t("msg_mrpack_success", "Export .mrpack réussi !"), "success");
       } catch(e) {
           sysLog("Erreur MrPack export: " + e, true);
@@ -3393,76 +3711,6 @@ window.doExport = async (type) => {
       hideLoading();
   }
 };
-
-async function handleZipImport(zipPath) {
-  showLoading(t("msg_extract", "Extraction..."));
-  await yieldUI();
-  try {
-    const zip = new AdmZip(zipPath);
-    const metaEntry = zip.getEntry("instance.json");
-    const cfEntry = zip.getEntry("manifest.json");
-
-    if (cfEntry && !metaEntry) {
-      hideLoading();
-      showToast(
-        t(
-          "msg_err_cf",
-          "Les modpacks CurseForge (.zip) sont bloqués par Overwolf. Cherchez la version Modrinth (.mrpack) dans le catalogue !"
-        ),
-        "error"
-      );
-      return;
-    }
-
-    if (!metaEntry) {
-      hideLoading();
-      return;
-    }
-    const meta = JSON.parse(zip.readAsText(metaEntry));
-    let newName = meta.name;
-    while (allInstances.some((i) => i.name === newName))
-      newName += " (Importé)";
-    meta.name = newName;
-    meta.playTime = 0;
-    meta.lastPlayed = 0;
-    const destFolder = path.join(
-      instancesRoot,
-      meta.name.replace(/[^a-z0-9]/gi, "_")
-    );
-    if (!fs.existsSync(destFolder))
-      fs.mkdirSync(destFolder, { recursive: true });
-
-    const defaultOpt = path.join(dataDir, "default_options.txt");
-    if (fs.existsSync(defaultOpt)) {
-        try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
-    }
-
-    zip.getEntries().forEach((entry) => {
-      if (
-        entry.entryName.startsWith("files/") &&
-        entry.entryName !== "files/"
-      ) {
-        const targetPath = path.join(destFolder, entry.entryName.substring(6));
-        if (entry.isDirectory) {
-          if (!fs.existsSync(targetPath))
-            fs.mkdirSync(targetPath, { recursive: true });
-        } else {
-          const dir = path.dirname(targetPath);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(targetPath, zip.readFile(entry));
-        }
-      }
-    });
-    allInstances.push(meta);
-    fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
-  } catch (err) {
-    sysLog("Erreur Zip Import: " + err, true);
-  }
-  hideLoading();
-  renderUI();
-}
-
-let dragCounter = 0;
 
 document.addEventListener('dragenter', (e) => {
     e.preventDefault();
@@ -3535,3 +3783,218 @@ document.addEventListener('drop', (e) => {
         renderFn();
     }
 });
+
+window.checkLauncherUpdates = async () => {
+    const btn = document.getElementById("btn-check-launcher");
+    btn.disabled = true;
+    document.getElementById("update-status").innerText = t("msg_check_updates", "Recherche en cours...");
+    
+    const res = await ipcRenderer.invoke("check-for-updates");
+    
+    if (!res.success) {
+        document.getElementById("update-status").innerText = "Erreur: " + res.error;
+    } else if (!res.info) {
+        document.getElementById("update-status").innerText = t("msg_up_to_date", "Le launcher est à jour.");
+        pendingUpdateInfo = null;
+    }
+    btn.disabled = false;
+};
+
+ipcRenderer.on("update-available-prompt", async (event, info) => {
+    pendingUpdateInfo = info;
+    const msg = `${t("msg_update_found", "Une mise à jour a été trouvée")} (v${info.version}). ${t("msg_download_update", "Voulez-vous la télécharger en arrière-plan ?")}`;
+    
+    if(await showCustomConfirm(msg)) {
+        startUpdateDownload();
+    } else {
+        renderUpdateTab(); 
+    }
+});
+
+window.renderUpdateTab = () => {
+    if (pendingUpdateInfo) {
+        let patchNotes = pendingUpdateInfo.releaseNotes || t("msg_patch_notes", "Correction de bugs et améliorations.");
+        patchNotes = patchNotes.replace(/<[^>]*>?/gm, ''); 
+
+        document.getElementById("update-status").innerHTML = `
+            <div style="color: #17B139; font-weight: bold; margin-bottom: 5px;">Nouvelle version en attente : v${pendingUpdateInfo.version}</div>
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; max-height: 150px; overflow-y: auto; color: #ccc; font-size: 0.8rem; white-space: pre-wrap;">${patchNotes}</div>
+            <button class="btn-primary" style="margin-top: 10px; width: 100%;" onclick="startUpdateDownload()">Télécharger l'exécutable</button>
+        `;
+    }
+};
+
+window.startUpdateDownload = () => {
+    ipcRenderer.send("download-update");
+    document.getElementById("update-status").innerText = t("msg_dl", "Téléchargement en arrière-plan en cours...");
+    showToast("Téléchargement de la mise à jour lancé.", "info");
+};
+
+ipcRenderer.on("update-downloaded", async () => {
+    document.getElementById("update-status").innerText = "Prêt à installer !";
+    if(await showCustomConfirm(t("msg_update_ready", "Téléchargement terminé ! Voulez-vous redémarrer le launcher pour installer la mise à jour ?"))) {
+        ipcRenderer.send("restart_app");
+    }
+});
+
+let fullscreenSkinViewer = null;
+async function getMojangCapeUrl(uuid) {
+    try {
+        const cleanUuid = uuid.replace(/-/g, "");
+        const res = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${cleanUuid}`);
+        if (!res.ok) return null;
+        
+        const data = await res.json();
+        const texturesProp = data.properties.find(p => p.name === "textures");
+        if (!texturesProp) return null;
+        
+        const texturesJson = JSON.parse(atob(texturesProp.value));
+        
+        if (texturesJson.textures && texturesJson.textures.CAPE) {
+            return texturesJson.textures.CAPE.url;
+        }
+    } catch (e) {
+        console.error("Erreur récupération cape Mojang :", e);
+    }
+    return null;
+}
+
+window.openSkinModal = () => {
+    if (uiSelectedAccRow === null) return;
+    const acc = allAccounts[uiSelectedAccRow];
+    
+    const btnUpload = document.getElementById("btn-upload-skin");
+    const btnLink = document.getElementById("btn-link-ms-skin");
+    const divider = document.getElementById("skin-divider");
+    const titleName = document.getElementById("skin-modal-name");
+
+    titleName.innerText = acc.name;
+    document.getElementById("modal-skin").style.display = "flex";
+
+    if (acc.type === "offline") {
+        btnUpload.style.display = "none";
+        btnLink.style.display = "none";
+        divider.style.display = "none";
+    } else {
+        btnUpload.style.display = "block";
+        btnUpload.innerText = t("btn_test_skin", "Tester un Skin (Aperçu)");
+        btnLink.style.display = "block";
+        divider.style.display = "block";
+    }
+
+    if (!fullscreenSkinViewer) {
+        fullscreenSkinViewer = new skinview3d.SkinViewer({
+            canvas: document.getElementById("fullscreen-skin-canvas"),
+            width: 200,
+            height: 300,
+            skin: "https://minotar.net/skin/Steve"
+        });
+        fullscreenSkinViewer.controls.enableRotate = true;
+        fullscreenSkinViewer.controls.enableZoom = true;
+        fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
+    }
+
+    fullscreenSkinViewer.loadSkin(`https://minotar.net/skin/${acc.name}`);
+    
+    if (acc.type === "microsoft" && acc.uuid) {
+        getMojangCapeUrl(acc.uuid).then(mojangCapeUrl => {
+            if (mojangCapeUrl) {
+                fullscreenSkinViewer.loadCape(mojangCapeUrl);
+            } else {
+                fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${acc.name}.png`).catch(() => {
+                    fullscreenSkinViewer.loadCape(null);
+                });
+            }
+        });
+    } else {
+        fullscreenSkinViewer.loadCape(null);
+    }
+};
+
+window.closeSkinModal = () => {
+    document.getElementById("modal-skin").style.display = "none";
+};
+
+window.previewLocalSkin = (input) => {
+    const file = input.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        if (fullscreenSkinViewer) {
+            fullscreenSkinViewer.loadSkin(e.target.result);
+            showToast("Aperçu du skin chargé en 3D !", "info");
+        }
+    };
+    reader.readAsDataURL(file);
+    input.value = ""; 
+};
+
+window.exportSkin = async () => {
+    if (uiSelectedAccRow === null) return;
+    const acc = allAccounts[uiSelectedAccRow];
+    
+    try {
+        const res = await fetch(`https://minotar.net/skin/${acc.name}`);
+        if (!res.ok) throw new Error("Impossible de récupérer le skin");
+        
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${acc.name}_skin.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showToast("Skin exporté avec succès !", "success");
+    } catch (e) {
+        showToast("Erreur lors de l'exportation du skin.", "error");
+    }
+};
+
+document.addEventListener('mouseover', (e) => {
+    const trigger = e.target.closest('.custom-tooltip-trigger');
+    if (trigger) {
+        let tooltipEl = document.getElementById('global-tooltip');
+        if (!tooltipEl) {
+            tooltipEl = document.createElement('div');
+            tooltipEl.id = 'global-tooltip';
+            document.body.appendChild(tooltipEl);
+        }
+        tooltipEl.innerText = trigger.getAttribute('data-tooltip');
+        tooltipEl.style.opacity = '1';
+    }
+});
+
+document.addEventListener('mousemove', (e) => {
+    const tooltipEl = document.getElementById('global-tooltip');
+    if (tooltipEl && tooltipEl.style.opacity === '1') {
+        tooltipEl.style.left = e.clientX + 'px';
+        tooltipEl.style.top = (e.clientY - 15) + 'px'; 
+    }
+});
+
+document.addEventListener('mouseout', (e) => {
+    const trigger = e.target.closest('.custom-tooltip-trigger');
+    if (trigger) {
+        const tooltipEl = document.getElementById('global-tooltip');
+        if (tooltipEl) {
+            tooltipEl.style.opacity = '0'; 
+        }
+    }
+});
+
+let pendingIconPath = null;
+
+window.previewInstanceIcon = (input) => {
+    const file = input.files[0];
+    if (file) {
+        pendingIconPath = file.path; 
+        const localPath = "file:///" + encodeURI(file.path.replace(/\\/g, "/"));
+        document.getElementById("edit-icon-preview").src = localPath;
+    }
+    input.value = ""; 
+};

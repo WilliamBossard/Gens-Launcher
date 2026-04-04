@@ -11,7 +11,6 @@ app.userAgentFallback = CHROME_UA;
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-// Domaines Mojang/Minecraft — spoofing UA pour éviter les blocages réseau
 const MOJANG_HOSTS = [
     "mojang.com", "minecraft.net", "minecraftservices.com",
     "launchermeta.mojang.com", "launcher.mojang.com",
@@ -42,7 +41,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-    // Spoofing UA uniquement sur les domaines Mojang pour éviter les blocages réseau
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         try {
             const url = new URL(details.url);
@@ -64,12 +62,29 @@ app.whenReady().then(() => {
         error: (m) => mainLog("ERR: " + m),
     };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false; 
 
     setTimeout(() => {
-        mainLog("Vérification des mises à jour...");
-        autoUpdater.checkForUpdatesAndNotify();
+        mainLog("Vérification silencieuse des mises à jour...");
+        autoUpdater.checkForUpdates();
     }, 3000);
+});
+
+ipcMain.handle("check-for-updates", async () => {
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { success: true, version: result?.updateInfo?.version || null };
+    } catch(e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.on("download-update", () => {
+    autoUpdater.downloadUpdate();
+});
+
+autoUpdater.on("update-available", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-available-prompt", info);
 });
 
 autoUpdater.on("update-not-available", () => {
@@ -79,16 +94,11 @@ autoUpdater.on("update-not-available", () => {
             type: "success",
         });
 });
-autoUpdater.on("update-available", (info) => {
-    if (mainWindow)
-        mainWindow.webContents.send("update-msg", {
-            text: `Version ${info.version} trouvée ! Téléchargement...`,
-            type: "info",
-        });
-});
+
 autoUpdater.on("download-progress", (progress) => {
     if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent));
 });
+
 autoUpdater.on("update-downloaded", () => {
     if (mainWindow) mainWindow.webContents.send("update-downloaded");
 });
@@ -115,12 +125,6 @@ ipcMain.on("cancel-login-microsoft", () => {
     mainLog("Annulation demandée (connexion Microsoft).");
 });
 
-/**
- * Connexion Microsoft via « device code » (prismarine-auth).
- * IMPORTANT : avec flow "live", utiliser MinecraftNintendoSwitch (client Live valide pour la chaîne Xbox).
- * Titles.MinecraftJava provoque un 403 sur title.auth.xboxlive.com — voir prismarine-auth issue #140.
- * getMinecraftJavaToken() récupère quand même le jeton + profil PC Java.
- */
 ipcMain.handle("login-microsoft", async () => {
     if (isAuthRunning) return { success: false, error: "Une connexion est déjà en cours." };
     isAuthRunning = true;
@@ -154,9 +158,6 @@ ipcMain.handle("login-microsoft", async () => {
         );
         activeMicrosoftAuthFlow = flow;
 
-        // prismarine-auth utilise retry() qui ignore toutes les erreurs sauf URIError : après une annulation,
-        // l'erreur était ravalée puis getMsaToken() était rappelé → nouveau device code et popup qui revient,
-        // invoke bloqué donc bouton « Connexion... » figé. Propager une URIError coupe la chaîne de retry.
         const origGetMsaToken = flow.getMsaToken.bind(flow);
         flow.getMsaToken = async function () {
             if (loginMicrosoftUserCancelled) {
@@ -220,7 +221,6 @@ ipcMain.handle("login-microsoft", async () => {
     }
 });
 
-// Rafraîchissement du token Microsoft avant chaque lancement
 ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     try {
         const cacheDir = path.join(app.getPath("userData"), "msa-cache");
@@ -239,7 +239,6 @@ ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     }
 });
 
-// Suppression du cache MSA quand un compte est supprimé
 ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
     try {
         const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
