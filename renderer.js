@@ -38,35 +38,53 @@ rpc
   .login({ clientId: discordClientId })
   .then(() => {
     rpcReady = true;
+    updateRPC();
   })
   .catch(() => {});
 
-function updateRPC(inst) {
-  if (!rpcReady || !inst) return;
+function updateRPC(inst, customState) {
+  if (!rpcReady) return;
+  if (globalSettings.disableRPC) {
+      rpc.clearActivity().catch(()=>{});
+      return; 
+  }
   try {
-    let stateText = t("lbl_discord_solo", "En jeu");
-    
-    if (inst.autoConnect) {
-        stateText = `${t("lbl_discord_playing", "Joue sur")} ${inst.autoConnect.split(':')[0]}`;
-    } else {
-        const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
-        if (fs.existsSync(modsPath)) {
-            const modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar")).length;
-            if (modCount > 0) stateText = `${modCount} mods`;
+    if (inst) {
+        let modSuffix = "";
+        if (inst.loader !== "vanilla") {
+            const modsPath = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+            if (fs.existsSync(modsPath)) {
+                const modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar")).length;
+                if (modCount > 0) modSuffix = ` (${modCount} mods)`;
+            }
         }
-    }
 
-    rpc.setActivity({
-      details: inst.name,
-      state: stateText,
-      startTimestamp: new Date(),
-      largeImageKey: "logo",
-      largeImageText: "Gens Launcher",
-      buttons: [
-          { label: t("btn_discord_download", "Télécharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" }
-      ]
-    });
-  } catch (e) {}
+        let stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix;
+
+        rpc.setActivity({
+          details: inst.name,
+          state: stateText,
+          startTimestamp: sessionStartTime || new Date(),
+          largeImageKey: "logo",
+          largeImageText: " Joue avec Gens Launcher !", 
+          buttons: [
+              { label: " Télécharger le Launcher", url: "https://github.com/WilliamBossard/Gens-Launcher" },
+          ]
+        });
+    } else {
+        rpc.setActivity({
+          details: "Dans les menus",
+          state: "Prépare sa prochaine survie",
+          largeImageKey: "logo",
+          largeImageText: "Gens Launcher", 
+          buttons: [
+              { label: "Télécharger", url: "https://github.com/WilliamBossard/Gens-Launcher" },
+          ]
+        });
+    }
+  } catch (e) {
+      console.error("Erreur RPC:", e);
+  }
 }
 
 function clearRPC() {
@@ -530,7 +548,11 @@ const defaultFr = {
   msg_err_name_req: "Le nom de l'instance est obligatoire !",
   msg_profile_disabled: "Profil par défaut désactivé.",
   msg_err_install_loader: "Impossible d'installer le chargeur pour cette version.",
-  msg_force_stop_sent: "Tentative d'arrêt forcé envoyée."
+  msg_force_stop_sent: "Tentative d'arrêt forcé envoyée.",
+  lbl_discord_rpc: "Discord RPC (Statut en jeu)",
+  lbl_multi_inst: "Lancement Multi-instances",
+  opt_enabled: "Activé",
+  opt_disabled: "Désactivé",
 };
 
 const defaultEn = {
@@ -781,7 +803,11 @@ const defaultEn = {
   msg_err_name_req: "Instance name is required!",
   msg_profile_disabled: "Default profile disabled.",
   msg_err_install_loader: "Cannot install loader for this version.",
-  msg_force_stop_sent: "Force stop request sent."
+  msg_force_stop_sent: "Force stop request sent.",
+  lbl_discord_rpc: "Discord RPC (In-game status)",
+  lbl_multi_inst: "Multi-instance Launch",
+  opt_enabled: "Enabled",
+  opt_disabled: "Disabled",
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -1406,7 +1432,9 @@ let globalSettings = {
   language: null,
   theme: { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 },
   launcherVisibility: "keep",
-  newsCollapsed: false
+  newsCollapsed: false,
+  disableRPC: false,       
+  multiInstance: false     
 };
 let selectedInstanceIdx = null,
   selectedAccountIdx = null;
@@ -2819,6 +2847,11 @@ window.selectInstance = (i) => {
   if (!bgSet) applyTheme();
 
   renderUI();
+  if (!isGameRunning) {
+      updateRPC(); 
+  }
+  
+  renderUI();
 };
 
 window.changeAccount = () => {
@@ -2837,12 +2870,14 @@ window.changeAccount = () => {
 
 function updateLaunchButton() {
   const btn = document.getElementById("launch-btn");
-  if (isGameRunning) {
+  
+  if (isGameRunning && !globalSettings.multiInstance) {
     btn.innerText = t("btn_stop", "Forcer l'arrêt");
     btn.style.background = "#f87171";
     btn.disabled = false;
     return;
   }
+  
   btn.innerText = t("btn_launch", "Lancer");
   btn.style.background = "var(--accent)";
   btn.disabled = selectedInstanceIdx === null || selectedAccountIdx === null;
@@ -2850,14 +2885,14 @@ function updateLaunchButton() {
 
 function setUIState(running) {
   isGameRunning = running;
-  document.getElementById("instances-container").style.pointerEvents = running
-    ? "none"
-    : "auto";
-  document.getElementById("instances-container").style.opacity = running
-    ? "0.5"
-    : "1";
+  
+  const lockUI = running && !globalSettings.multiInstance;
+  
+  document.getElementById("instances-container").style.pointerEvents = lockUI ? "none" : "auto";
+  document.getElementById("instances-container").style.opacity = lockUI ? "0.5" : "1";
+  
   ["btn-offline", "btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
-    (id) => (document.getElementById(id).disabled = running)
+    (id) => (document.getElementById(id).disabled = lockUI)
   );
   updateLaunchButton();
 }
@@ -2903,7 +2938,7 @@ function getRequiredJavaVersion(mcVersion) {
 }
 
 document.getElementById("launch-btn").addEventListener("click", async () => {
-  if (isGameRunning) {
+  if (isGameRunning && !globalSettings.multiInstance) {
       try {
           if (process.platform === 'win32') {
               exec('taskkill /F /IM java.exe /IM javaw.exe /T');
@@ -3245,16 +3280,77 @@ let downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${i
     }
   });
 
-let windowHidden = false;
+  let windowHidden = false;
+  let menuTimer = null;
+  let currentServerIP = ""; 
+
   launcher.on("data", (data) => {
     if (globalSettings.launcherVisibility === "hide" && !windowHidden) {
         ipcRenderer.send("hide-window");
         windowHidden = true;
     }
+    
     const dStr = data.toString().trim();
     if (!dStr) return;
     
     sysLog("GAME: " + dStr);
+
+    const pBar = document.getElementById("progress-bar");
+    if (pBar && pBar.style.width !== "0%") {
+        pBar.style.width = "0%";
+        document.getElementById("status-text").innerText = "Jeu en cours d'exécution...";
+    }
+
+    try {
+        if (dStr.includes("Started") && dStr.includes("worker threads")) {
+            if (menuTimer) {
+                clearTimeout(menuTimer);
+                menuTimer = null;
+            }
+        }
+
+        if (dStr.includes("Connecting to")) {
+            const parts = dStr.split("Connecting to ");
+            if (parts[1]) {
+                currentServerIP = parts[1].split(",")[0].trim();
+                updateRPC(inst, `Sur un serveur (${currentServerIP})`);
+            }
+        } 
+        
+        else if (
+            dStr.includes("Saving and pausing game...") ||
+            dStr.includes("lost connection") || 
+            dStr.includes("Stopping singleplayer server") ||
+            dStr.includes("Stopping server") ||
+            dStr.includes("Disconnecting from server") ||
+            dStr.includes("Clearing local world") ||
+            dStr.includes("Quitting")
+        ) {
+            currentServerIP = ""; 
+            updateRPC(inst, "Dans le menu du jeu");
+        }
+
+        else if (dStr.includes("Stopping worker threads")) {
+            menuTimer = setTimeout(() => {
+                currentServerIP = ""; 
+                updateRPC(inst, "Dans le menu du jeu");
+            }, 1500); 
+        }
+        
+        else if (
+            dStr.includes("logged in with entity id") || 
+            dStr.includes("Starting integrated minecraft server")
+        ) {
+            if (currentServerIP) {
+                updateRPC(inst, `Sur un serveur (${currentServerIP})`);
+            } else {
+                updateRPC(inst, "En survie Solo"); 
+            }
+        }
+
+    } catch (e) {
+        console.error("Erreur détection RPC:", e);
+    }
 
     let color = "#d4d4d4"; 
     if (dStr.includes("WARN")) color = "#ffaa00"; 
@@ -3284,22 +3380,18 @@ let windowHidden = false;
 
     if (code !== 0) {
         document.getElementById("console-container").style.display = "block";
-        
         const culprit = await analyzeCrash(allInstances[selectedInstanceIdx].name);
         if (culprit) {
             const action = await showCustomConfirm(
                 `Le jeu a planté ! \n\nL'analyseur intelligent a détecté que le mod [ ${culprit} ] est probablement responsable de ce crash.\n\nVoulez-vous ouvrir le gestionnaire de mods pour le désactiver ?`
             );
-            if (action) {
-                openEditModal('tab-mods'); 
-            }
+            if (action) { openEditModal('tab-mods'); }
         }
     }
 
     if (selectedInstanceIdx !== null) {
       const currentInst = allInstances[selectedInstanceIdx];
-      if (currentInst.backupMode === "on_close")
-        await createBackup(currentInst);
+      if (currentInst.backupMode === "on_close") await createBackup(currentInst);
 
       const sessionDuration = Date.now() - sessionStartTime;
       currentInst.playTime = (currentInst.playTime || 0) + sessionDuration;
@@ -3336,9 +3428,10 @@ let windowHidden = false;
     document.getElementById("status-text").innerText = t("status_ready", "Prêt");
     progBar.style.width = "0%";
     setUIState(false);
-    clearRPC();
-  });
-});
+    
+    updateRPC(); 
+  }); 
+}); 
 
 window.switchTab = (tabId) => {
   document
@@ -3420,6 +3513,8 @@ window.openGlobalSettings = () => {
   document.getElementById("global-bg-blur").value = globalSettings.theme?.blur || 5;
   document.getElementById("global-panel-opacity").value = globalSettings.theme?.panelOpacity !== undefined ? globalSettings.theme.panelOpacity : 0.6;
   document.getElementById("global-visibility").value = globalSettings.launcherVisibility || "keep";
+  document.getElementById("global-discord-rpc").value = globalSettings.disableRPC ? "false" : "true";
+  document.getElementById("global-multi-inst").value = globalSettings.multiInstance ? "true" : "false";
 
 const optSelect = document.getElementById("global-options-source");
   optSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
@@ -3476,6 +3571,8 @@ window.saveGlobalSettings = () => {
   globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
   globalSettings.serverIp = document.getElementById("global-server-ip").value.trim();
   globalSettings.launcherVisibility = document.getElementById("global-visibility").value;
+  globalSettings.disableRPC = document.getElementById("global-discord-rpc").value === "false";
+  globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
 
   globalSettings.theme = {
     accent: document.getElementById("global-accent").value,

@@ -1403,6 +1403,17 @@
                     <select id="global-lang" onchange="changeLanguage(this.value)"></select>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_visibility">Comportement au lancement</label>
+                    <label style="margin-top: 15px;" data-i18n="lbl_discord_rpc">Discord RPC (Statut en jeu)</label>
+                    <select id="global-discord-rpc">
+                        <option value="true" data-i18n="opt_enabled">Activé</option>
+                        <option value="false" data-i18n="opt_disabled">Désactivé</option>
+                    </select>
+
+                    <label style="margin-top: 15px;" data-i18n="lbl_multi_inst">Lancement Multi-instances</label>
+                    <select id="global-multi-inst">
+                        <option value="false" data-i18n="opt_disabled">Désactivé (Bloque le launcher en jeu)</option>
+                        <option value="true" data-i18n="opt_enabled">Activé (Permet de lancer plusieurs jeux)</option>
+                    </select>
                     <select id="global-visibility">
                         <option value="keep" data-i18n="opt_keep">Garder le launcher ouvert</option>
                         <option value="hide" data-i18n="opt_hide">Cacher le launcher (Mode Fantôme)</option>
