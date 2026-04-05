@@ -22,7 +22,7 @@ window.openSystemPath = (p) => {
     }
 };
 const launcher = new Client();
-const discordClientId = "1223633633633633633";
+const discordClientId = "1490353507218227301";
 
 let rpc = new DiscordRPC.Client({ transport: "ipc" });
 let rpcReady = false;
@@ -1103,11 +1103,65 @@ window.openStatsModal = async () => {
 
   document.getElementById("modal-stats").style.display = "flex";
 
-  const sizeBytes = await getDirSizeAsync(dataDir);
+const sizeBytes = await getDirSizeAsync(dataDir);
   const sizeGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+  
+  // NOUVEAU : Calcul de la taille du cache
+  const cacheInfo = await getCacheFiles();
+  const cacheMB = (cacheInfo.size / (1024 * 1024)).toFixed(1);
+
   if (document.getElementById("modal-stats").style.display === "flex") {
     document.getElementById("dashboard-disk").innerText = `${sizeGB} ${t("lbl_gb", "Go")}`;
+    document.getElementById("dashboard-cache-size").innerText = `${cacheMB} Mo`;
   }
+};
+
+async function getCacheFiles() {
+    let filesToDelete = [];
+    let totalSize = 0;
+
+    const checkDir = async (dir, condition) => {
+        if (!fs.existsSync(dir)) return;
+        const files = await fs.promises.readdir(dir);
+        for (const file of files) {
+            const filePath = path.join(dir, file);
+            const stats = await fs.promises.stat(filePath);
+            if (!stats.isDirectory() && condition(file)) {
+                filesToDelete.push(filePath);
+                totalSize += stats.size;
+            }
+        }
+    };
+
+    await checkDir(path.join(dataDir, "installers"), f => f.endsWith(".jar"));
+    await checkDir(path.join(dataDir, "java"), f => f.endsWith(".zip"));
+    await checkDir(path.join(dataDir, "exports"), f => true);
+
+    return { files: filesToDelete, size: totalSize };
+}
+
+window.cleanCache = async () => {
+    const cacheInfo = await getCacheFiles();
+    if (cacheInfo.files.length === 0) {
+        showToast("Le cache est déjà vide !", "info");
+        return;
+    }
+
+    const cacheMB = (cacheInfo.size / (1024 * 1024)).toFixed(1);
+    if (await showCustomConfirm(`Voulez-vous supprimer définitivement ${cacheInfo.files.length} fichiers temporaires et libérer ${cacheMB} Mo d'espace ?`, true)) {
+        showLoading("Nettoyage en cours...");
+        await yieldUI();
+        let deleted = 0;
+        for (const file of cacheInfo.files) {
+            try {
+                await fs.promises.unlink(file);
+                deleted++;
+            } catch (e) {}
+        }
+        hideLoading();
+        showToast(`Nettoyage terminé ! ${deleted} fichiers supprimés.`, "success");
+        openStatsModal(); 
+    }
 };
 
 window.closeStatsModal = () => {
@@ -1576,20 +1630,20 @@ function renderUI() {
   });
 
   let html = "";
-  Object.keys(groups)
+Object.keys(groups)
     .sort()
     .forEach((g) => {
       const isCollapsed = collapsedGroups[g];
       const icon = isCollapsed ? "▶" : "▼";
-      html += `<div class="category-header" onclick="toggleGroup('${g}')">${icon} ${g} <span style="color:#aaa; font-weight:normal; font-size:0.8rem;">(${groups[g].length})</span></div>`;
+      const safeG = encodeURIComponent(g).replace(/'/g, "\\'");
+      
+      html += `<div class="category-header" onclick="toggleGroup('${g}')" ondragover="event.preventDefault()" ondrop="dropInstanceOnGroup(event, decodeURIComponent('${safeG}'))">${icon} ${g} <span style="color:#aaa; font-weight:normal; font-size:0.8rem;">(${groups[g].length})</span></div>`;
       if (!isCollapsed) {
-        html += `<div class="instances-grid">`;
+        html += `<div class="instances-grid" ondragover="event.preventDefault()" ondrop="dropInstanceOnGroup(event, decodeURIComponent('${safeG}'))" style="min-height: 50px;">`;
         groups[g].forEach((inst) => {
-          const active =
-            selectedInstanceIdx === inst.originalIndex ? "active" : "";
-          let displaySrc =
-            inst.icon || defaultIcons[inst.loader] || defaultIcons.vanilla;
-          html += `<div class="instance-card ${active}" onclick="selectInstance(${inst.originalIndex})" ondblclick="selectInstance(${inst.originalIndex}); document.getElementById('launch-btn').click()"><img src="${displaySrc}" class="instance-icon"><div class="instance-name">${inst.name}</div><div class="instance-version">${inst.version}</div></div>`;
+          const active = selectedInstanceIdx === inst.originalIndex ? "active" : "";
+          let displaySrc = inst.icon || defaultIcons[inst.loader] || defaultIcons.vanilla;
+          html += `<div class="instance-card ${active}" draggable="true" ondragstart="dragInstanceStart(event, ${inst.originalIndex})" onclick="selectInstance(${inst.originalIndex})" ondblclick="selectInstance(${inst.originalIndex}); document.getElementById('launch-btn').click()"><img src="${displaySrc}" class="instance-icon"><div class="instance-name">${inst.name}</div><div class="instance-version">${inst.version}</div></div>`;
         });
         html += `</div>`;
       }
@@ -2340,42 +2394,66 @@ window.pingServers = async () => {
 };
 
 window.scanJavaVersions = () => {
-  document.getElementById("status-text").innerText = t(
-    "msg_search_java",
-    "Recherche de Java..."
-  );
+  document.getElementById("status-text").innerText = t("msg_search_java", "Recherche de Java...");
   const datalist = document.getElementById("java-paths-list");
   datalist.innerHTML = "";
+
+  const isGlobal = document.getElementById("modal-settings").style.display === "flex";
+  if (isGlobal) document.getElementById("global-java").value = "";
+  else document.getElementById("edit-javapath").value = "";
+
   const basePaths = [
+    path.join(dataDir, "java"),
     "C:\\Program Files\\Java",
     "C:\\Program Files (x86)\\Java",
     "C:\\Program Files\\Eclipse Adoptium",
     "C:\\Program Files\\Amazon Corretto",
   ];
+  
   let found = 0;
+
+  function findJavaW(dir, depth = 0) {
+    if (depth > 3) return null; 
+    try {
+      const files = fs.readdirSync(dir);
+      for (let f of files) {
+        const fullPath = path.join(dir, f);
+        if (fs.statSync(fullPath).isDirectory()) {
+          const res = findJavaW(fullPath, depth + 1);
+          if (res) return res;
+        } else if (f.toLowerCase() === "javaw.exe") {
+          return fullPath;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
   for (let bp of basePaths) {
     if (fs.existsSync(bp)) {
       try {
         fs.readdirSync(bp).forEach((d) => {
-          const jPath = path.join(bp, d, "bin", "javaw.exe");
-          if (fs.existsSync(jPath)) {
-            let opt = document.createElement("option");
-            opt.value = jPath;
-            datalist.appendChild(opt);
-            found++;
+          const subDir = path.join(bp, d);
+          if (fs.statSync(subDir).isDirectory()) {
+            const jPath = findJavaW(subDir);
+            if (jPath) {
+              let opt = document.createElement("option");
+              opt.value = jPath;
+              opt.innerText = jPath; 
+              datalist.appendChild(opt);
+              found++;
+            }
           }
         });
       } catch (e) {}
     }
   }
+  
   document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-  showToast(
-    `${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`,
-    "info"
-  );
+  showToast(`${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`, "info");
 };
 
-async function downloadJavaAuto(version = 21) {
+window.downloadJavaAuto = async (version = 21) => {
   showLoading(`Téléchargement de Java ${version}...`);
   await yieldUI();
   const javaDir = path.join(dataDir, "java");
@@ -2383,15 +2461,21 @@ async function downloadJavaAuto(version = 21) {
   const zipPath = path.join(javaDir, `jre${version}.zip`);
 
   try {
-    let url = "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse";
-    if (version === 17) url = "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse";
-    if (version === 8)  url = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse";
+    const releaseType = version >= 25 ? "ea" : "ga";
+    const imageType = version >= 21 ? "jdk" : "jre";
+    const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/windows/x64/${imageType}/hotspot/normal/eclipse`;
 
     const res = await fetch(url);
+    if (!res.ok) throw new Error("Version de Java introuvable sur le serveur.");
+    
     fs.writeFileSync(zipPath, Buffer.from(await res.arrayBuffer()));
     showLoading(t("msg_extract_java", "Extraction de Java..."));
     await yieldUI();
-    new AdmZip(zipPath).extractAllTo(javaDir, true);
+    
+    const extractDir = path.join(javaDir, `jre${version}`);
+    if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+    
+    new AdmZip(zipPath).extractAllTo(extractDir, true);
     fs.unlinkSync(zipPath);
 
     function findJavaExe(dir) {
@@ -2404,10 +2488,21 @@ async function downloadJavaAuto(version = 21) {
       }
       return null;
     }
-    const javaExePath = findJavaExe(javaDir);
+    
+    const javaExePath = findJavaExe(extractDir);
     if (javaExePath) {
       globalSettings.defaultJavaPath = javaExePath;
       fs.writeFileSync(settingsFile, JSON.stringify(globalSettings, null, 2));
+      
+      // On met à jour le bouton visuellement
+      const btn = document.getElementById(`btn-dl-java-${version}`);
+      if (btn) {
+          btn.innerText = "Installé";
+          btn.style.color = "#17B139";
+          btn.style.borderColor = "#17B139";
+      }
+      
+      showToast(`Java ${version} installé avec succès !`, "success");
       return javaExePath;
     }
     throw new Error("javaw.exe introuvable.");
@@ -2418,7 +2513,7 @@ async function downloadJavaAuto(version = 21) {
   } finally {
     hideLoading();
   }
-}
+};
 
 window.openImportMCWorldsModal = () => {
     const mcDir = path.join(process.env.APPDATA, ".minecraft", "saves");
@@ -2799,8 +2894,11 @@ function getRequiredJavaVersion(mcVersion) {
     if (!mcVersion) return 21;
     const parts = mcVersion.split('.');
     const minor = parseInt(parts[1]) || 0;
-    if (minor >= 21) return 21; 
+    const patch = parseInt(parts[2]) || 0;
+    if (minor > 26 || (minor === 26 && patch >= 1)) return 25; 
+    if (minor > 20 || (minor === 20 && patch >= 5)) return 21; 
     if (minor >= 17) return 17; 
+    
     return 8;                   
 }
 
@@ -3072,8 +3170,6 @@ let downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${i
 
             if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
 
-if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
-
             let fakePerc = 0;
             const fakeProgress = setInterval(() => {
                 if (fakePerc < 95) fakePerc += Math.floor(Math.random() * 5) + 2; 
@@ -3186,8 +3282,19 @@ let windowHidden = false;
       `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`
     );
 
-    if (code !== 0)
-      document.getElementById("console-container").style.display = "block";
+    if (code !== 0) {
+        document.getElementById("console-container").style.display = "block";
+        
+        const culprit = await analyzeCrash(allInstances[selectedInstanceIdx].name);
+        if (culprit) {
+            const action = await showCustomConfirm(
+                `Le jeu a planté ! \n\nL'analyseur intelligent a détecté que le mod [ ${culprit} ] est probablement responsable de ce crash.\n\nVoulez-vous ouvrir le gestionnaire de mods pour le désactiver ?`
+            );
+            if (action) {
+                openEditModal('tab-mods'); 
+            }
+        }
+    }
 
     if (selectedInstanceIdx !== null) {
       const currentInst = allInstances[selectedInstanceIdx];
@@ -3319,6 +3426,41 @@ const optSelect = document.getElementById("global-options-source");
   allInstances.forEach((inst, i) => {
       const isSelected = (inst.name === globalSettings.defaultOptionsInstance) ? "selected" : "";
       optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
+  });
+
+  [25, 21, 17, 8].forEach(v => {
+      const btn = document.getElementById("btn-dl-java-" + v);
+      if (!btn) return;
+
+      let isInstalled = fs.existsSync(path.join(dataDir, "java", `jre${v}`));
+      
+      if (!isInstalled) {
+          const basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
+          for (let bp of basePaths) {
+              if (fs.existsSync(bp)) {
+                  try {
+                      const dirs = fs.readdirSync(bp);
+                      if (dirs.some(d => d.includes(v.toString()) && fs.existsSync(path.join(bp, d, "bin", "javaw.exe")))) {
+                          isInstalled = true;
+                      }
+                  } catch(e) {}
+              }
+          }
+      }
+
+if (isInstalled) {
+          btn.innerText = "Déjà sur le PC";
+          btn.style.color = "#17B139";
+          btn.style.borderColor = "#17B139";
+          btn.disabled = true;          
+          btn.style.cursor = "default"; 
+      } else {
+          btn.innerText = "Télécharger";
+          btn.style.color = "";
+          btn.style.borderColor = "";
+          btn.disabled = false;          
+          btn.style.cursor = "pointer";  
+      }
   });
 
   switchTabGlob("tab-glob-gen");
@@ -4081,4 +4223,89 @@ window.previewInstanceIcon = (input) => {
         document.getElementById("edit-icon-preview").src = localPath;
     }
     input.value = ""; 
+};
+
+window.filterLocalMods = () => {
+    const filter = document.getElementById("local-mod-search").value.toLowerCase();
+    const items = document.querySelectorAll("#mods-list .mod-item");
+    items.forEach(item => {
+        const text = item.innerText.toLowerCase();
+        item.style.display = text.includes(filter) ? "flex" : "none";
+    });
+};
+
+window.dragInstanceStart = (e, idx) => {
+    e.dataTransfer.setData("instIdx", idx);
+};
+
+window.dropInstanceOnGroup = (e, targetGroup) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = e.dataTransfer.getData("instIdx");
+    if (idx !== "") {
+        allInstances[idx].group = targetGroup;
+        fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
+        renderUI();
+    }
+};
+
+const defaultGalleryIcons = [
+    defaultIcons.vanilla, defaultIcons.forge, defaultIcons.fabric, defaultIcons.quilt, defaultIcons.neoforge,
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 2h12v12H2z' fill='%238b8b8b'/%3E%3Cpath d='M4 4h8v8H4z' fill='%23555'/%3E%3C/svg%3E", 
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2l6 6-6 6-6-6z' fill='%2355ffff'/%3E%3C/svg%3E", 
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff5555'/%3E%3Cpath d='M8 2v4' stroke='%2300aa00' stroke-width='2'/%3E%3C/svg%3E", 
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 4h14v8H1z' fill='%238b5a2b'/%3E%3Crect x='7' y='6' width='2' height='3' fill='%23ccc'/%3E%3C/svg%3E", 
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300aaaa'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23aaffff'/%3E%3C/svg%3E", 
+];
+
+window.openIconGallery = () => {
+    const grid = document.getElementById("icon-gallery-grid");
+    grid.innerHTML = "";
+defaultGalleryIcons.forEach(icon => {
+        grid.innerHTML += `<img src="${icon}" style="width: 64px; height: 64px; cursor: pointer; border: 2px solid transparent; border-radius: 4px;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='transparent'" onclick="selectGalleryIcon('${icon}')">`;
+    });
+    document.getElementById("modal-icon-gallery").style.display = "flex";
+};
+
+window.selectGalleryIcon = (icon) => {
+    pendingIconPath = null; 
+    document.getElementById("edit-icon-preview").src = icon;
+    document.getElementById("modal-icon-gallery").style.display = "none";
+};
+
+window.analyzeCrash = async (instanceName) => {
+    const instDir = path.join(instancesRoot, instanceName.replace(/[^a-z0-9]/gi, "_"));
+    const crashDir = path.join(instDir, "crash-reports");
+    let suspectedMod = null;
+
+    try {
+        if (fs.existsSync(crashDir)) {
+            const reports = fs.readdirSync(crashDir).filter(f => f.endsWith(".txt")).sort((a, b) => {
+                return fs.statSync(path.join(crashDir, b)).mtime.getTime() - fs.statSync(path.join(crashDir, a)).mtime.getTime();
+            });
+            if (reports.length > 0) {
+                const latestReport = fs.readFileSync(path.join(crashDir, reports[0]), 'utf8');
+                const susMatch = latestReport.match(/Suspected Mods: (.*?)\s*\(/i) || latestReport.match(/Suspected mods: (.*?)\s*\(/i);
+                if (susMatch && susMatch[1] && !susMatch[1].includes("Minecraft") && !susMatch[1].includes("Forge")) {
+                    suspectedMod = susMatch[1].trim();
+                } else {
+                    const mixinMatch = latestReport.match(/at ([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\.mixins\.json/);
+                    if (mixinMatch) suspectedMod = mixinMatch[1];
+                }
+            }
+        }
+        
+        if (!suspectedMod) {
+            const logPath = path.join(instDir, "logs", "latest.log");
+            if (fs.existsSync(logPath)) {
+                const logData = fs.readFileSync(logPath, 'utf8');
+                const errMatch = logData.match(/Failed to load mod (.*?)\n/i) || logData.match(/Could not find required mod: (.*?) requires/i);
+                if (errMatch) suspectedMod = errMatch[1].trim();
+            }
+        }
+    } catch(e) {
+        console.error("Erreur de l'analyseur de crash : ", e);
+    }
+    
+    return suspectedMod;
 };

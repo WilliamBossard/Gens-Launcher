@@ -1224,7 +1224,7 @@
                         <div class="stat-label" data-i18n="stat_total_instances">Instances créées</div>
                     </div>
                 </div>
-                <div style="display: flex; gap: 15px;">
+<div style="display: flex; gap: 15px;">
                     <div class="stat-box">
                         <div class="stat-value" id="dashboard-mods">0</div>
                         <div class="stat-label" data-i18n="stat_total_mods">Mods installés</div>
@@ -1233,6 +1233,14 @@
                         <div class="stat-value" id="dashboard-disk" style="color: var(--text-light);">Calcul...</div>
                         <div class="stat-label" data-i18n="stat_disk_usage">Espace disque utilisé</div>
                     </div>
+                </div>
+
+                <div style="margin-top: 15px; background: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="color: #f87171; font-weight: bold; font-size: 0.9rem;">Fichiers temporaires (Cache)</div>
+                        <div style="font-size: 0.75rem; color: #aaa;">Installeurs Forge, archives Java et anciens exports.<br>Espace libérable : <span id="dashboard-cache-size" style="color:var(--text-light); font-weight:bold;">Calcul...</span></div>
+                    </div>
+                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 10px; font-size: 0.8rem;" onclick="cleanCache()">Nettoyer</button>
                 </div>
                 <div
                     style="margin-top: 20px; text-align: center; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; border: 1px dashed var(--border);">
@@ -1387,6 +1395,7 @@
                         data-i18n="tab_appearance">Apparence</div>
                     <div id="tab-btn-glob-updates" class="settings-tab" onclick="switchTabGlob('tab-glob-updates')"
                         data-i18n="tab_updates">Mises à jour</div>
+                        <div id="tab-btn-glob-java" class="settings-tab" onclick="switchTabGlob('tab-glob-java')">Gérer Java</div>
                 </div>
 
                 <div id="tab-glob-gen" class="settings-content active">
@@ -1459,15 +1468,53 @@
                     <input type="range" id="global-panel-opacity" min="0.1" max="1" step="0.05" value="0.6">
                 </div>
 
-                <div id="tab-glob-updates" class="settings-content">
+<div id="tab-glob-updates" class="settings-content">
                     <div style="font-weight: bold; margin-bottom: 10px; color: var(--text-light);"><span data-i18n="lbl_current_version">Version actuelle :</span> <span id="current-app-version" style="color: var(--accent);"></span></div>
                     <button class="btn-primary" onclick="checkLauncherUpdates()" id="btn-check-launcher" data-i18n="btn_check_launcher_updates">Vérifier les mises à jour</button>
                     <div id="update-status" style="margin-top: 15px; color: #aaa; font-size: 0.85rem;"></div>
                 </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeGlobalSettings()" data-i18n="modal_cancel">Annuler</button>
-                <button class="btn-primary" onclick="saveGlobalSettings()" data-i18n="modal_save">Sauvegarder</button>
+
+                <div id="tab-glob-java" class="settings-content">
+                    <label>Téléchargeur automatique de Java</label>
+                    <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 15px;">Installez rapidement la version dont vous avez besoin si une instance refuse de se lancer. Le chemin sera automatiquement configuré.</div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: var(--text-light);">Java 25</div>
+                                <div style="font-size: 0.7rem; color: #888;">Pour Minecraft 26.1 et +</div>
+                            </div>
+                            <button class="btn-secondary" id="btn-dl-java-25" onclick="downloadJavaAuto(25)">Télécharger</button>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: var(--text-light);">Java 21</div>
+                                <div style="font-size: 0.7rem; color: #888;">Pour Minecraft 1.20.5 à 26.1</div>
+                            </div>
+                            <button class="btn-secondary" id="btn-dl-java-21" onclick="downloadJavaAuto(21)">Télécharger</button>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: var(--text-light);">Java 17</div>
+                                <div style="font-size: 0.7rem; color: #888;">Pour Minecraft 1.17 à 1.20.4</div>
+                            </div>
+                            <button class="btn-secondary" id="btn-dl-java-17" onclick="downloadJavaAuto(17)">Télécharger</button>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: var(--text-light);">Java 8</div>
+                                <div style="font-size: 0.7rem; color: #888;">Pour Minecraft 1.16.5 et inférieur</div>
+                            </div>
+                            <button class="btn-secondary" id="btn-dl-java-8" onclick="downloadJavaAuto(8)">Télécharger</button>
+                        </div>
+                    </div>
+                </div>
+            </div> <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeGlobalSettings()" data-i18n="modal_close">Fermer</button>
+                <button class="btn-primary" onclick="saveGlobalSettings()" data-i18n="modal_apply">Appliquer</button>
             </div>
         </div>
     </div>
@@ -1496,11 +1543,14 @@
                 </div>
 
                 <div id="tab-general" class="settings-content active">
-                    <div style="display: flex; gap: 15px; align-items: center;">
-                        <div class="icon-wrapper" onclick="document.getElementById('edit-icon-upload').click()">
-                            <img id="edit-icon-preview" src="">
-                            <input type="file" id="edit-icon-upload" style="display:none;"
-                                accept="image/png, image/jpeg, image/jpg" onchange="previewInstanceIcon(this)">
+                    <div style="display: flex; gap: 15px; align-items: flex-start;">
+<div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                            <div class="icon-wrapper" onclick="document.getElementById('edit-icon-upload').click()">
+                                <img id="edit-icon-preview" src="">
+                                <input type="file" id="edit-icon-upload" style="display:none;"
+                                    accept="image/png, image/jpeg, image/jpg" onchange="previewInstanceIcon(this)">
+                            </div>
+                            <button class="btn-secondary" style="padding: 4px 0; font-size: 0.8rem; width: 100%; text-align: center;" onclick="openIconGallery()">Galerie</button>
                         </div>
                         <div style="flex-grow: 1;">
                             <label data-i18n="lbl_inst_name">Nom de l'instance</label>
@@ -1518,8 +1568,7 @@
                             <label data-i18n="lbl_ram">Mémoire RAM allouée (Mo) :</label>
                             <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_auto_ram" data-tooltip="Analyse votre PC et vos mods pour allouer la RAM parfaite.">?</div>
                         </div>
-                        <div style="display:flex; gap: 8px; align-items: center;">
-                            <button class="btn-secondary" style="padding: 2px 6px; font-size: 0.75rem;" onclick="autoOptimizeRAM()" data-i18n="btn_auto_ram">🪄 Optimiser</button>
+<div style="display:flex; gap: 8px; align-items: center;">
                             <input type="number" id="edit-ram-input" min="1024" max="32768"
                                 style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;"
                                 oninput="document.getElementById('edit-ram-slider').value = this.value">
@@ -1533,7 +1582,7 @@
                             <div style="font-size: 0.85rem; font-weight: bold; color: var(--text-light);" data-i18n="lbl_sync_options">Touches & Options</div>
                             <div style="font-size: 0.7rem; color: #aaa;" data-i18n="txt_sync_options">Écrase les paramètres avec votre profil par défaut.</div>
                         </div>
-                        <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px; white-space: nowrap;" onclick="forceInjectOptions()" data-i18n="btn_sync_now">📥 Injecter</button>
+                        <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px; white-space: nowrap;" onclick="forceInjectOptions()" data-i18n="btn_sync_now">Injecter</button>
                     </div>
                 </div>
 
@@ -1548,6 +1597,9 @@
                             <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;"
                                 onclick="openDir('mods')" data-i18n="btn_folder">Dossier</button>
                         </div>
+                    </div>
+                    <div style="display: flex; gap: 5px; margin-bottom: 5px; padding-top: 10px;">
+                        <input type="text" id="local-mod-search" placeholder="Rechercher un mod installé..." style="flex-grow: 1; padding: 4px; font-size: 0.8rem;" oninput="filterLocalMods()">
                     </div>
                     <div id="mods-list"
                         style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
@@ -1731,6 +1783,17 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+<div id="modal-icon-gallery" class="modal" style="z-index: 3500;">
+        <div class="modal-card" style="width: 420px;">
+            <div class="modal-header">Galerie d'icônes</div>
+            <div class="modal-body" id="icon-gallery-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 20px;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modal-icon-gallery').style.display='none'">Fermer</button>
             </div>
         </div>
     </div>
