@@ -4405,4 +4405,5 @@ window.analyzeCrash = async (instanceName) => {
     }
     
     return suspectedMod;
+    
 };
