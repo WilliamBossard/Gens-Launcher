@@ -526,7 +526,11 @@ const defaultFr = {
   msg_patch_notes: "Correction de bugs et améliorations.",
   msg_update_ready: "Téléchargement terminé ! Voulez-vous redémarrer le launcher pour installer la mise à jour ?",
   lbl_cf_api: "Clé API CurseForge (Optionnel)",
-  txt_cf_api_desc: "Nécessaire uniquement pour utiliser le catalogue CurseForge. Obtenez une clé gratuite sur EternalDeveloper."
+  txt_cf_api_desc: "Nécessaire uniquement pour utiliser le catalogue CurseForge. Obtenez une clé gratuite sur EternalDeveloper.",
+  msg_err_name_req: "Le nom de l'instance est obligatoire !",
+  msg_profile_disabled: "Profil par défaut désactivé.",
+  msg_err_install_loader: "Impossible d'installer le chargeur pour cette version.",
+  msg_force_stop_sent: "Tentative d'arrêt forcé envoyée."
 };
 
 const defaultEn = {
@@ -773,7 +777,11 @@ const defaultEn = {
   msg_patch_notes: "Bug fixes and improvements.",
   msg_update_ready: "Download complete! Do you want to restart the launcher to install the update?",
   lbl_cf_api: "CurseForge API Key (Optional)",
-  txt_cf_api_desc: "Required only to use the CurseForge catalog. Get a free key on EternalDeveloper."
+  txt_cf_api_desc: "Required only to use the CurseForge catalog. Get a free key on EternalDeveloper.",
+  msg_err_name_req: "Instance name is required!",
+  msg_profile_disabled: "Default profile disabled.",
+  msg_err_install_loader: "Cannot install loader for this version.",
+  msg_force_stop_sent: "Force stop request sent."
 };
 
 function syncLangFile(filePath, defaultObj) {
@@ -1239,11 +1247,6 @@ async function handleMrPackImport(packPath) {
     );
     if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
-    const defaultOpt = path.join(dataDir, "default_options.txt");
-    if (fs.existsSync(defaultOpt)) {
-        fs.copyFileSync(defaultOpt, path.join(instDir, "options.txt"));
-    }
-
     zip.getEntries().forEach((entry) => {
       if (
         entry.entryName.startsWith("overrides/") &&
@@ -1312,6 +1315,11 @@ async function handleMrPackImport(packPath) {
     });
 
     await Promise.all(workers);
+
+    const defaultOpt = path.join(dataDir, "default_options.txt");
+    if (fs.existsSync(defaultOpt)) {
+        try { fs.copyFileSync(defaultOpt, path.join(instDir, "options.txt")); } catch(e) {}
+    }
 
     allInstances.push(newInst);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
@@ -1598,7 +1606,7 @@ function renderUI() {
   const activeSkin = document.getElementById("active-skin");
   if (selectedAccountIdx !== null && allAccounts[selectedAccountIdx]) {
     activeSkin.style.display = "block";
-    activeSkin.src = `https://mc-heads.net/avatar/${allAccounts[selectedAccountIdx].name}/20`;
+    activeSkin.src = `https://mc-heads.net/avatar/${allAccounts[selectedAccountIdx].name}/20?t=${Date.now()}`;
   } else activeSkin.style.display = "none";
 
   updateLaunchButton();
@@ -1643,9 +1651,9 @@ function renderAccountManager() {
         const typeText = acc.type === "microsoft" ? "Compte Microsoft" : "Hors-Ligne (Crack)";
         const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
 
-        list.innerHTML += `
+list.innerHTML += `
         <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
-            <img src="https://mc-heads.net/avatar/${acc.name}/32" alt="${acc.name}">
+            <img src="https://mc-heads.net/avatar/${acc.name}/32?t=${Date.now()}" alt="${acc.name}">
             <div class="mmc-info">
                 <div class="mmc-name">${acc.name}</div>
                 <div class="mmc-type">${typeText}</div>
@@ -2804,7 +2812,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
           } else {
               exec('killall -9 java');
           }
-          showToast("Tentative d'arrêt forcé envoyée.", "info");
+          showToast(t("msg_force_stop_sent", "Tentative d'arrêt forcé envoyée."), "info");
       } catch(e) {
           console.error(e);
       }
@@ -3046,41 +3054,75 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         try {
             document.getElementById("status-text").innerText = `Téléchargement de ${inst.loader} (Patientez)...`;
             await yieldUI();
-            let downloadUrl = "";
+let downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${inst.version}-${inst.loaderVersion}/forge-${inst.version}-${inst.loaderVersion}-installer.jar`;
             
-            if (inst.loader === "forge") {
-                downloadUrl = `https://bmclapi2.bangbang93.com/forge/download?mcversion=${inst.version}&version=${inst.loaderVersion}&category=installer&format=jar`;
-            } else if (inst.loader === "neoforge") {
+            if (inst.loader === "neoforge") {
                 downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${inst.loaderVersion}/neoforge-${inst.loaderVersion}-installer.jar`;
             }
 
             sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
-            const res = await fetch(downloadUrl);
-            if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
+            let res = await fetch(downloadUrl);
             
-            const buffer = await res.arrayBuffer();
-            fs.writeFileSync(installerPath, Buffer.from(buffer));
+            // Si le lien officiel échoue (très vieilles versions), on tente le miroir
+            if (!res.ok && inst.loader === "forge") {
+                sysLog("Lien officiel échoué, essai du miroir secondaire...");
+                downloadUrl = `https://bmclapi2.bangbang93.com/forge/download?mcversion=${inst.version}&version=${inst.loaderVersion}&category=installer&format=jar`;
+                res = await fetch(downloadUrl);
+            }
+
+            if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
+
+if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
+
+            let fakePerc = 0;
+            const fakeProgress = setInterval(() => {
+                if (fakePerc < 95) fakePerc += Math.floor(Math.random() * 5) + 2; 
+                if (fakePerc > 95) fakePerc = 95;
+                document.getElementById("progress-bar").style.width = fakePerc + "%";
+                document.getElementById("status-text").innerText = `Téléchargement de ${inst.loader} : ${fakePerc}%`;
+            }, 400);
+
+            try {
+                const buffer = await res.arrayBuffer();
+                fs.writeFileSync(installerPath, Buffer.from(buffer));
+                
+                document.getElementById("progress-bar").style.width = "100%";
+                document.getElementById("status-text").innerText = `Téléchargement terminé !`;
+            } finally {
+                clearInterval(fakeProgress); 
+            }
+            
             sysLog(`Installeur ${inst.loader} téléchargé avec succès.`);
             
-        } catch (err) {
+} catch (err) {
             sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
-            showToast(`Impossible d'installer ${inst.loader} pour cette version.`, "error");
+            showToast(t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
             document.getElementById("status-text").innerText = t("status_ready", "Prêt");
             setUIState(false);
             return;
         }
     }
-    opts.forge = installerPath;
+
+    let needsInstall = true;
+    const versionsDir = path.join(instancePath, "versions");
+    if (fs.existsSync(versionsDir)) {
+        const subDirs = fs.readdirSync(versionsDir);
+        const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
+        if (forgeDir) {
+            needsInstall = false;
+            opts.version.custom = forgeDir; 
+        }
+    }
+
+    if (needsInstall) {
+        opts.forge = installerPath;
+    }
   }
 
   document.getElementById("status-text").innerText = t(
     "msg_prep_files",
     "Préparation des fichiers..."
   );
-  
-  if (globalSettings.launcherVisibility === "hide") {
-      ipcRenderer.send("hide-window");
-  }
   
   setUIState(true);
   sessionStartTime = Date.now();
@@ -3107,7 +3149,12 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
     }
   });
 
+let windowHidden = false;
   launcher.on("data", (data) => {
+    if (globalSettings.launcherVisibility === "hide" && !windowHidden) {
+        ipcRenderer.send("hide-window");
+        windowHidden = true;
+    }
     const dStr = data.toString().trim();
     if (!dStr) return;
     
@@ -3267,10 +3314,11 @@ window.openGlobalSettings = () => {
   document.getElementById("global-panel-opacity").value = globalSettings.theme?.panelOpacity !== undefined ? globalSettings.theme.panelOpacity : 0.6;
   document.getElementById("global-visibility").value = globalSettings.launcherVisibility || "keep";
 
-  const optSelect = document.getElementById("global-options-source");
-  optSelect.innerHTML = "<option value=''>-- Choisir une instance --</option>";
+const optSelect = document.getElementById("global-options-source");
+  optSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
   allInstances.forEach((inst, i) => {
-      optSelect.innerHTML += `<option value="${i}">${inst.name}</option>`;
+      const isSelected = (inst.name === globalSettings.defaultOptionsInstance) ? "selected" : "";
+      optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
   });
 
   switchTabGlob("tab-glob-gen");
@@ -3306,11 +3354,23 @@ window.saveGlobalSettings = () => {
 
 window.saveDefaultOptions = () => {
     const idx = document.getElementById("global-options-source").value;
+    
+    if (idx === "none") {
+        const defaultOpt = path.join(dataDir, "default_options.txt");
+        if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
+        globalSettings.defaultOptionsInstance = null;
+        fs.writeFileSync(settingsFile, JSON.stringify(globalSettings, null, 2));
+        showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
+        return;
+    }
+    
     if (idx === "") return;
     const inst = allInstances[idx];
     const sourceOpt = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
-    if (fs.existsSync(sourceOpt)) {
+if (fs.existsSync(sourceOpt)) {
         fs.copyFileSync(sourceOpt, path.join(dataDir, "default_options.txt"));
+        globalSettings.defaultOptionsInstance = inst.name;
+        fs.writeFileSync(settingsFile, JSON.stringify(globalSettings, null, 2));
         showToast(t("msg_options_saved", "Profil d'options sauvegardé !"), "success");
     } else {
         showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !"), "error");
@@ -3382,8 +3442,13 @@ window.closeEditModal = () => {
 };
 
 window.saveInstance = () => {
-  const name = document.getElementById("new-name").value;
-  if (!name) return;
+  const nameInput = document.getElementById("new-name");
+  const name = nameInput.value.trim();
+  if (!name) {
+      nameInput.style.borderColor = "#f87171";
+      showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
+      return;
+  }
   allInstances.push({
     name,
     version: document.getElementById("new-version").value,
@@ -3570,12 +3635,16 @@ window.copyInstance = async () => {
 };
 
 window.deleteInstance = async () => {
-  if (
-    await showCustomConfirm(
-      t("msg_delete_inst", "Supprimer l'instance ?"),
-      true
-    )
-  ) {
+  if (await showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance ?"), true)) {
+    const inst = allInstances[selectedInstanceIdx];
+    const instFolder = path.join(instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+    try {
+        if (fs.existsSync(instFolder)) {
+            await fs.promises.rm(instFolder, { recursive: true, force: true });
+        }
+    } catch(e) {
+        sysLog("Erreur lors de la suppression du dossier: " + e, true);
+    }
     allInstances.splice(selectedInstanceIdx, 1);
     fs.writeFileSync(instanceFile, JSON.stringify(allInstances, null, 2));
     selectedInstanceIdx = null;
@@ -3793,9 +3862,14 @@ window.checkLauncherUpdates = async () => {
     
     if (!res.success) {
         document.getElementById("update-status").innerText = "Erreur: " + res.error;
-    } else if (!res.info) {
-        document.getElementById("update-status").innerText = t("msg_up_to_date", "Le launcher est à jour.");
-        pendingUpdateInfo = null;
+    } else {
+        const currentVer = require("./package.json").version;
+        if (!res.version || res.version === currentVer || res.version === "v" + currentVer) {
+            document.getElementById("update-status").innerText = t("msg_up_to_date", "Le launcher est à jour.");
+            pendingUpdateInfo = null;
+        } else {
+            document.getElementById("update-status").innerText = "";
+        }
     }
     btn.disabled = false;
 };
@@ -3882,26 +3956,36 @@ window.openSkinModal = () => {
         divider.style.display = "block";
     }
 
+    const canvas = document.getElementById("fullscreen-skin-canvas");
+    canvas.style.transition = "opacity 0.2s ease";
+    canvas.style.opacity = "0";
+
+    const skinUrl = `https://minotar.net/skin/${acc.name}?t=${Date.now()}`;
+
     if (!fullscreenSkinViewer) {
         fullscreenSkinViewer = new skinview3d.SkinViewer({
-            canvas: document.getElementById("fullscreen-skin-canvas"),
+            canvas: canvas,
             width: 200,
             height: 300,
-            skin: "https://minotar.net/skin/Steve"
+            skin: skinUrl
         });
         fullscreenSkinViewer.controls.enableRotate = true;
         fullscreenSkinViewer.controls.enableZoom = true;
         fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
+        
+        setTimeout(() => { canvas.style.opacity = "1"; }, 150);
+    } else {
+        fullscreenSkinViewer.loadSkin(skinUrl).then(() => {
+            canvas.style.opacity = "1";
+        });
     }
-
-    fullscreenSkinViewer.loadSkin(`https://minotar.net/skin/${acc.name}`);
     
     if (acc.type === "microsoft" && acc.uuid) {
         getMojangCapeUrl(acc.uuid).then(mojangCapeUrl => {
             if (mojangCapeUrl) {
                 fullscreenSkinViewer.loadCape(mojangCapeUrl);
             } else {
-                fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${acc.name}.png`).catch(() => {
+                fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${acc.name}.png?t=${Date.now()}`).catch(() => {
                     fullscreenSkinViewer.loadCape(null);
                 });
             }
