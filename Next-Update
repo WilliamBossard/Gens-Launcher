@@ -1,42 +1,31 @@
-#  Gens Launcher - Patch Notes
+Patch Notes - Structure & Stability Update Architecture & Optimization Full Modularization: Code has been extracted from the massive renderer.js file and redistributed into specialized modules (auth.js, instances.js, uiCore.js, etc.) for easier maintenance.
 
-## Version 1.3.0: "The Stability Update" (Current)
-*Focus: Clean authentication, multi-language support, and UI customization.*
+New UI Core (uiCore.js): Created a centralized engine to manage displays, toast notifications, loading states, and database queries.
 
-### **Microsoft Authentication **
-* **Error 400 Fix**: Implemented a specialized network strategy by excluding Microsoft OAuth domains from header alterations, successfully preventing authentication blocks.
-* **Stable Login Flow**: Integrated the `msmc` v4 library to ensure reliable Minecraft profile retrieval and session handling.
+Secure Paths: Migrated all user data (instances, settings, accounts) to the standard %AppData%/GensLauncher folder to prevent data loss during code updates.
 
-### **Local Account Management**
-* **Persistent Storage**: Automated saving and loading of player profiles (Microsoft & Offline) via a local `accounts.json` storage system.
-* **Multi-Account Support**: Added the ability to manage multiple accounts and switch between them directly from the toolbar.
+Account Management (Auth) Account Persistence: Fixed UTF-8 encoding issues when writing JSON files, preventing accounts from disappearing upon restart.
 
-### **UI & Internationalization **
-* **Localization**: Full **English** and **French** support implemented via external translation files.
-* **Visual Engine**: New background engine supporting custom images, dynamic blur effects, and adjustable panel opacity for a personalized look.
+Dynamic Dropdown Menu: The account selector (top right) now updates instantly whenever a profile is added, deleted, or switched.
 
-### **Integrated Features**
-* **Discord RPC**: Real-time "Rich Presence" to show your current game status and instance name on your Discord profile.
-* **Ghost Mode**: Optional setting to automatically hide the launcher while the game is running to save system resources.
-* **Instance Tools**: Dedicated tools to add, edit, copy, and export Minecraft instances with specific RAM and Java configurations.
+Microsoft Flow Fix: Stabilized the Device Code login system with automatic cleanup of active sessions.
 
----
+Instances & Gameplay Icon Auto-Detection: The launcher now automatically scans the instance folder for an icon.png or icon.jpg file if no custom icon is set.
 
-##  Version 1.4.0: "The Pro-Launcher Update" (Upcoming)
-*Focus: Automation, advanced debugging, and broader modding support.*
+Multi-Instance Fix: The "Launch" button no longer switches to "Force Quit" on other instances when the multi-launch option is enabled in settings.
 
-#### **1. Full Modloader Support**
-* **Forge & NeoForge Auto-install**: Building on the existing Fabric installation logic to support the complex library requirements of Forge and NeoForge loaders.
+Form Cleanup: Fields (name, version, RAM) are now automatically reset when opening the "Add Instance" window to avoid duplicate data.
 
-#### **2. "Smart Java" Management**
-The launcher will automatically select the required Java version based on the Minecraft version to prevent startup crashes:
-* **MC 1.7.10 to 1.16.5**: Java 8
-* **MC 1.17 to 1.20.4**: Java 17
-* **MC 1.21+**: Java 21
+User Interface (UI) Tab Refresh: Clicking on "Mods," "Shaders," or "Resource Packs" tabs now forces a real-time refresh of the folder contents.
 
-#### **3. Advanced Debug Console**
-* **Log Colorization**: Real-time color coding (`[INFO]` in Gray, `[WARN]` in Orange, `[ERROR]` in Red) to make identifying crashes effortless.
-* **Search & Filter**: A dedicated search bar within the logs to quickly find specific errors or keywords.
+Smart Search Bar:
 
-#### **4. RAM Optimization 2.0**
-* **" Optimize" Tool**: A smart diagnostic feature that suggests the best RAM allocation based on your hardware and the number of mods installed in your instance.
+Fixed the search filter for local mods.
+
+Automatic clearing of search text when closing windows to prevent empty lists upon reopening.
+
+News System: Fixed a bug where Minecraft news would sometimes remain hidden by default.
+
+Network & Server New Status Engine: Switched to the mcstatus.io API for the favorite server, providing better compatibility with anti-DDoS protections and more reliable detection.
+
+IP Sanitization: Added an automatic .trim() function to server addresses to ignore accidental leading or trailing spaces.
