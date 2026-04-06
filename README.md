@@ -29,7 +29,8 @@ Gens Launcher is a lightweight, open-source Minecraft launcher designed for powe
 1. Download the latest version from the **[Releases](https://github.com/WilliamBossard/Gens-Launcher/releases)** tab.
 2. Run the `GensLauncher-Setup.exe` file.
 3. Add your account, create an instance, and hit **Play**!
-   <img width="889" height="628" alt="image" src="https://github.com/user-attachments/assets/19110e3e-294e-4bd1-b554-66ab3640650b" />
+   <img width="889" height="594" alt="image" src="https://github.com/user-attachments/assets/666e44b3-d06b-4bed-8034-bd2c771e538a" />
+
 
 
 ## Development (For Developers)
