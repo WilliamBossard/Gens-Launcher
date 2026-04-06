@@ -2,20 +2,22 @@ const { app, BrowserWindow, ipcMain, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { exec } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
+const { Client } = require("minecraft-launcher-core");
 
 const CHROME_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const MOJANG_HOSTS = [
     "mojang.com", "minecraft.net", "minecraftservices.com",
     "launchermeta.mojang.com", "launcher.mojang.com",
     "resources.download.minecraft.net", "libraries.minecraft.net"
 ];
+
+const DiscordRPC = require("discord-rpc");
 
 let mainWindow;
 const logPath = path.join(app.getPath("userData"), "main-process.log");
@@ -33,7 +35,12 @@ function createWindow() {
         minWidth: 1000,
         minHeight: 600,
         icon: path.join(__dirname, "assets/icon.ico"),
-        webPreferences: { nodeIntegration: true, contextIsolation: false },
+        webPreferences: { 
+            nodeIntegration: false, 
+            contextIsolation: true, 
+            sandbox: false, 
+            preload: path.join(__dirname, "preload.js") 
+        },
     });
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile("index.html");
@@ -68,6 +75,37 @@ app.whenReady().then(() => {
         mainLog("Vérification silencieuse des mises à jour...");
         autoUpdater.checkForUpdates();
     }, 3000);
+});
+
+ipcMain.on("get-paths-sync", (event) => {
+    event.returnValue = {
+        appData: app.getPath("appData"),
+        platform: process.platform,
+    };
+});
+
+ipcMain.handle("check-java", async (_, javaPath) => {
+    return new Promise((resolve) => {
+        exec(`"${javaPath}" -version`, (err, stdout, stderr) => {
+            resolve({
+                err: err ? { message: err.message, code: err.code } : null,
+                stdout: stdout || "",
+                stderr: stderr || "",
+            });
+        });
+    });
+});
+
+ipcMain.handle("force-stop-game", async () => {
+    return new Promise((resolve) => {
+        const cmd = process.platform === "win32"
+            ? "taskkill /F /IM java.exe /IM javaw.exe /T"
+            : "killall -9 java";
+        exec(cmd, (err) => {
+            mainLog(err ? "Force-stop: " + err.message : "Jeu arrêté de force.");
+            resolve({ success: !err });
+        });
+    });
 });
 
 ipcMain.handle("check-for-updates", async () => {
@@ -187,7 +225,7 @@ ipcMain.handle("login-microsoft", async () => {
             const hint =
                 profile?.errorMessage ||
                 profile?.error ||
-                "Pas de profil Minecraft sur ce compte. Lance le launcher officiel une fois ou vérifie l’achat Java.";
+                "Pas de profil Minecraft sur ce compte. Lance le launcher officiel une fois ou vérifie l'achat Java.";
             return { success: false, error: String(hint) };
         }
 
@@ -250,6 +288,41 @@ ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
         mainLog("Erreur suppression cache MSA : " + e.message);
     }
 });
+
+const discordClientId = "1490353507218227301";
+let rpc = new DiscordRPC.Client({ transport: "ipc" });
+let rpcReady = false;
+
+rpc.login({ clientId: discordClientId }).then(() => {
+    rpcReady = true;
+    mainLog("Discord RPC connecté !");
+}).catch(() => {
+    mainLog("Discord non détecté au lancement.");
+});
+
+ipcMain.on("update-discord", (event, data) => {
+    if (!rpcReady) return;
+    if (data === "clear") {
+        rpc.clearActivity().catch(()=>{});
+        return;
+    }
+    rpc.setActivity(data).catch((e) => mainLog("Erreur RPC: " + e));
+});
+
+const launcher = new Client();
+
+ipcMain.on("launch-game", (event, opts) => {
+    if (!opts || !opts.authorization || !opts.version || !opts.root) {
+        mainLog("ERR: Options de lancement invalides reçues.");
+        mainWindow?.webContents.send("mc-close", 1);
+        return;
+    }
+    launcher.launch(opts);
+});
+
+launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", e));
+launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", e.toString()));
+launcher.on("close", (e) => mainWindow?.webContents.send("mc-close", e));
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

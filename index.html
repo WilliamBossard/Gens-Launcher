@@ -1280,10 +1280,24 @@
             <div class="modal-body" id="worlds-list"
                 style="flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; margin: 15px; margin-top: 0;">
             </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" style="margin-right: auto;" onclick="openDir('saves')"
-                    data-i18n="btn_folder">Ouvrir le dossier</button>
+              <div class="modal-footer">
+                <div style="display: flex; gap: 8px; margin-right: auto;">
+                    <button class="btn-secondary" onclick="openDir('')" data-i18n="btn_folder_inst">Dossier de l'instance</button>
+                    <button class="btn-secondary" onclick="openDir('saves')" data-i18n="btn_folder_saves">Dossier Mondes</button>
+                    <button class="btn-secondary" onclick="openDir('backups')" data-i18n="btn_folder_backups">Dossier Sauvegardes</button>
+                </div>
                 <button class="btn-secondary" onclick="closeWorldsModal()" data-i18n="modal_close">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+      <div id="modal-restore" class="modal" style="z-index: 3500;">
+        <div class="modal-card" style="width: 550px;">
+            <div class="modal-header"><span data-i18n="modal_restore_title">Restaurer une sauvegarde</span> : <span id="restore-world-name" style="color: var(--accent);"></span></div>
+            <div class="modal-body" id="restore-list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 15px;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modal-restore').style.display='none'" data-i18n="modal_cancel">Annuler</button>
             </div>
         </div>
     </div>
@@ -1294,9 +1308,11 @@
             <div class="modal-body" id="gallery-grid"
                 style="flex-grow: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding: 15px; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; margin: 15px; align-content: start;">
             </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" style="margin-right: auto;" onclick="openDir('screenshots')"
-                    data-i18n="btn_folder">Ouvrir le dossier</button>
+              <div class="modal-footer">
+                <div style="display: flex; gap: 8px; margin-right: auto;">
+                    <button class="btn-secondary" onclick="openDir('')" data-i18n="btn_folder_inst">Dossier de l'instance</button>
+                    <button class="btn-secondary" onclick="openDir('screenshots')" data-i18n="btn_folder_screens">Dossier Captures</button>
+                </div>
                 <button class="btn-secondary" onclick="closeGalleryModal()" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
@@ -1809,7 +1825,7 @@
         </div>
     </div>
     
-    <script src="renderer.js"></script>
+    <script type="module" src="renderer.js"></script>
     
 </body>
 </html>
