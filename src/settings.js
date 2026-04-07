@@ -23,6 +23,7 @@ export function setupSettings() {
         document.getElementById("global-visibility").value = store.globalSettings.launcherVisibility || "keep";
         document.getElementById("global-discord-rpc").value = store.globalSettings.disableRPC ? "false" : "true";
         document.getElementById("global-multi-inst").value = store.globalSettings.multiInstance ? "true" : "false";
+        document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
 
         const optSelect = document.getElementById("global-options-source");
         optSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
@@ -52,13 +53,13 @@ export function setupSettings() {
             }
 
             if (isInstalled) {
-                btn.innerText = "Déjà sur le PC";
+                btn.innerText = t("btn_java_installed", "Déjà sur le PC");
                 btn.style.color = "#17B139";
                 btn.style.borderColor = "#17B139";
                 btn.disabled = true;          
                 btn.style.cursor = "default"; 
             } else {
-                btn.innerText = "Télécharger";
+                btn.innerText = t("btn_java_dl", "Télécharger");
                 btn.style.color = "";
                 btn.style.borderColor = "";
                 btn.disabled = false;          
@@ -70,8 +71,9 @@ export function setupSettings() {
         document.getElementById("modal-settings").style.display = "flex";
     };
 
-    window.closeGlobalSettings = () =>
-        (document.getElementById("modal-settings").style.display = "none");
+    window.closeGlobalSettings = () => {
+        document.getElementById("modal-settings").style.display = "none";
+    };
 
     window.saveGlobalSettings = () => {
         store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value);
@@ -81,10 +83,24 @@ export function setupSettings() {
         store.globalSettings.launcherVisibility = document.getElementById("global-visibility").value;
         store.globalSettings.disableRPC = document.getElementById("global-discord-rpc").value === "false";
         store.globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
+        store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
+        window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
+
+        let bgPath = document.getElementById("global-bg-path").value.trim();
+        if (bgPath && fs.existsSync(bgPath) && !bgPath.startsWith(store.dataDir)) {
+            const ext = path.extname(bgPath);
+            const newBgPath = path.join(store.dataDir, "background_copy" + ext);
+            try {
+                fs.copyFileSync(bgPath, newBgPath);
+                bgPath = newBgPath;
+            } catch(e) {
+                console.error("Erreur copie fond d'écran:", e);
+            }
+        }
 
         store.globalSettings.theme = {
             accent: document.getElementById("global-accent").value,
-            bg: document.getElementById("global-bg-path").value,
+            bg: bgPath, 
             dim: parseFloat(document.getElementById("global-bg-dim").value),
             blur: parseInt(document.getElementById("global-bg-blur").value),
             panelOpacity: parseFloat(document.getElementById("global-panel-opacity").value),
@@ -251,7 +267,7 @@ export function setupSettings() {
                     btn.style.borderColor = "#17B139";
                 }
                 
-                window.showToast(`Java ${version} installé avec succès !`, "success");
+                window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
                 return javaExePath;
             }
             throw new Error("javaw.exe introuvable.");
@@ -261,6 +277,20 @@ export function setupSettings() {
             return null;
         } finally {
             window.hideLoading();
+        }
+    };
+
+    window.checkLauncherUpdates = async () => {
+        const statusDiv = document.getElementById("update-status");
+        if (statusDiv) statusDiv.innerText = t("msg_check_updates", "Vérification en cours...");
+        try {
+            const res = await window.api.invoke("check-for-updates");
+            if (!res.success && statusDiv) {
+                statusDiv.innerText = "Erreur de vérification.";
+                window.showToast("Erreur de mise à jour : " + res.error, "error");
+            }
+        } catch (e) {
+            if (statusDiv) statusDiv.innerText = "Impossible de joindre le serveur.";
         }
     };
 }

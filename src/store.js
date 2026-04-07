@@ -23,7 +23,8 @@ export const store = {
         launcherVisibility: "keep",
         newsCollapsed: false,
         disableRPC: false,       
-        multiInstance: false     
+        multiInstance: false,
+        autoDownloadUpdates: false
     },
     currentLangObj: {},
 

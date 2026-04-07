@@ -51,6 +51,13 @@ export function setupArchives() {
                     const relPath = entry.entryName.substring(6);
                     const targetPath = path.join(instDir, relPath);
 
+                    const resolvedTarget = path.resolve(targetPath);
+                    const resolvedInstDir = path.resolve(instDir);
+                    if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
+                        console.error("Tentative de Zip Slip ignorée dans l'import ZIP :", entry.entryName);
+                        return; 
+                    }
+
                     if (entry.isDirectory) {
                         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
                     } else {
@@ -125,20 +132,25 @@ export function setupArchives() {
         if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
         zip.getEntries().forEach((entry) => {
+          let isOverride = false;
+          let targetPath = "";
+
           if (entry.entryName.startsWith("overrides/") && entry.entryName !== "overrides/") {
-            const relPath = entry.entryName.substring(10);
-            const targetPath = path.join(instDir, relPath);
-            if (entry.isDirectory) {
-              if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-            } else {
-              const dir = path.dirname(targetPath);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(targetPath, zip.readFile(entry.entryName));
-            }
+            targetPath = path.join(instDir, entry.entryName.substring(10));
+            isOverride = true;
+          } else if (entry.entryName.startsWith("client-overrides/") && entry.entryName !== "client-overrides/") {
+            targetPath = path.join(instDir, entry.entryName.substring(17));
+            isOverride = true;
           }
-          if (entry.entryName.startsWith("client-overrides/") && entry.entryName !== "client-overrides/") {
-            const relPath = entry.entryName.substring(17);
-            const targetPath = path.join(instDir, relPath);
+
+          if (isOverride) {
+            const resolvedTarget = path.resolve(targetPath);
+            const resolvedInstDir = path.resolve(instDir);
+            if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
+                console.error("Tentative de Zip Slip ignorée dans le MrPack :", entry.entryName);
+                return; 
+            }
+
             if (entry.isDirectory) {
               if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
             } else {
@@ -163,18 +175,23 @@ export function setupArchives() {
             while (queue.length > 0) {
                 const modFile = queue.shift();
                 const modPath = path.join(instDir, modFile.path);
-                const dir = path.dirname(modPath);
-                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                
+                const resolvedModPath = path.resolve(modPath);
+                if (resolvedModPath.startsWith(path.resolve(instDir) + path.sep)) {
+                    const dir = path.dirname(modPath);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-                try {
-                    const res = await fetch(modFile.downloads[0]);
-                    if (res.ok) {
-                        const buffer = await res.arrayBuffer();
-                        fs.writeFileSync(modPath, new Uint8Array(buffer));
+                    try {
+                        const res = await fetch(modFile.downloads[0]);
+                        if (res.ok) {
+                            const buffer = await res.arrayBuffer();
+                            fs.writeFileSync(modPath, new Uint8Array(buffer));
+                        }
+                    } catch (e) {
+                        sysLog(`Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`, true);
                     }
-                } catch (e) {
-                    sysLog(`Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`, true);
                 }
+                
                 downloadedCount++;
                 let pct = Math.round((downloadedCount / totalToDownload) * 100);
                 window.updateLoadingPercent(pct, `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);

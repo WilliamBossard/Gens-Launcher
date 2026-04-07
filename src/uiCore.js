@@ -8,12 +8,10 @@ const clipboard = window.api.clipboard;
 export function setupUICore() {
 
     window.loadStorage = () => {
-        // Création des dossiers nécessaires
         if (!fs.existsSync(store.dataDir))        fs.mkdirSync(store.dataDir,        { recursive: true });
         if (!fs.existsSync(store.instancesRoot))  fs.mkdirSync(store.instancesRoot,  { recursive: true });
         if (!fs.existsSync(store.langDir))         fs.mkdirSync(store.langDir,        { recursive: true });
 
-        // Paramètres globaux
         if (fs.existsSync(store.settingsFile)) {
             try {
                 const raw = fs.readFileSync(store.settingsFile, "utf8");
@@ -41,7 +39,6 @@ export function setupUICore() {
             } catch (e) { console.error("Erreur lecture instances:", e); }
         }
 
-        // Comptes
         if (store.accountFile && fs.existsSync(store.accountFile)) {
             try {
                 const content = fs.readFileSync(store.accountFile, "utf8");
@@ -79,12 +76,13 @@ export function setupUICore() {
 
         const groups = {};
         filtered.forEach(inst => {
-            const g = inst.group || defaultGroup;
+            let g = inst.group;
+            if (!g || g === "Général" || g === "General") g = defaultGroup;
+            
             if (!groups[g]) groups[g] = [];
             groups[g].push(inst);
         });
 
-        // Mise à jour du datalist pour les groupes dans les modales
         const groupList = document.getElementById("group-paths-list");
         if (groupList) {
             groupList.innerHTML = "";
@@ -106,7 +104,7 @@ export function setupUICore() {
             >${g} (${groups[g].length})</div>`;
 
             html += `<div class="instances-grid">`;
-            groups[g].forEach(inst => {
+groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
 
@@ -121,6 +119,10 @@ export function setupUICore() {
                     }
                 }
 
+                const safeName = window.escapeHTML(inst.name);
+                const safeVersion = window.escapeHTML(inst.version);
+                const safeLoader = window.escapeHTML(inst.loader);
+
                 html += `
                 <div class="instance-card ${isActive}"
                     onclick="selectInstance(${inst.originalIndex})"
@@ -128,8 +130,8 @@ export function setupUICore() {
                     ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
                     <img src="${iconSrc}" class="instance-icon">
-                    <div class="instance-name">${inst.name}</div>
-                    <div class="instance-version">${inst.version} (${inst.loader})</div>
+                    <div class="instance-name">${safeName}</div>
+                    <div class="instance-version">${safeVersion} (${safeLoader})</div>
                 </div>`;
             });
             html += `</div>`;
@@ -188,6 +190,7 @@ export function setupUICore() {
                 activeSkin.style.display = "block";
             }
         }
+        if (window.updateLaunchButton) window.updateLaunchButton();
     };
 
     window.changeAccount = () => {
@@ -204,30 +207,128 @@ export function setupUICore() {
         if (window.renderAccountManager) window.renderAccountManager();
     };
 
-    window.updateLaunchButton = () => {
-        const btn    = document.getElementById("launch-btn");
-        const btnOff = document.getElementById("btn-offline");
-        if (!btn || !btnOff) return;
+    let tooltipEl = document.getElementById("global-tooltip");
+    if (!tooltipEl) {
+        tooltipEl = document.createElement("div");
+        tooltipEl.id = "global-tooltip";
+        document.body.appendChild(tooltipEl);
+    }
 
-        if (!store.allAccounts || store.allAccounts.length === 0) {
-            btn.disabled        = true;
-            btn.innerText       = (store.currentLangObj && store.currentLangObj.msg_no_acc) || "Aucun profil";
-            btn.style.cursor    = "not-allowed";
-            btnOff.style.display = "none";
-        } else {
-            btn.disabled        = false;
-            btn.innerText       = (store.currentLangObj && store.currentLangObj.btn_launch) || "Lancer";
-            btn.style.cursor    = "pointer";
-            btnOff.style.display = "block";
+    document.addEventListener("mouseover", (e) => {
+        const trigger = e.target.closest(".custom-tooltip-trigger");
+        if (trigger) {
+            const key = trigger.getAttribute("data-i18n-tooltip");
+            let text = trigger.getAttribute("data-tooltip");
+            
+            if (key && store.currentLangObj && store.currentLangObj[key]) {
+                text = store.currentLangObj[key];
+            }
+            
+            if (text) {
+                tooltipEl.innerText = text;
+                const rect = trigger.getBoundingClientRect();
+                tooltipEl.style.left = (rect.left + rect.width / 2) + "px";
+                tooltipEl.style.top = (rect.top - 8) + "px";
+                tooltipEl.style.opacity = "1";
+            }
+        }
+    });
+    
+    document.addEventListener("mouseout", (e) => {
+        const trigger = e.target.closest(".custom-tooltip-trigger");
+        if (trigger && tooltipEl) tooltipEl.style.opacity = "0";
+    });
+
+    const dropOverlay = document.getElementById("drop-overlay");
+    let dragCounter = 0;
+
+    document.addEventListener("dragend", () => {
+        window._isInternalDrag = false;
+    });
+
+    document.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        if (window._isInternalDrag) return; 
+        
+        if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
+            dragCounter++;
+            if (dropOverlay) dropOverlay.style.display = "flex";
+        }
+    });
+
+    document.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        if (window._isInternalDrag) return; 
+        
+        if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                if (dropOverlay) dropOverlay.style.display = "none";
+            }
+        }
+    });
+
+    document.addEventListener("dragover", (e) => e.preventDefault());
+
+    document.addEventListener("drop", (e) => {
+        e.preventDefault();
+        
+        if (window._isInternalDrag) {
+            window._isInternalDrag = false;
+            return;
         }
 
-        if (store.isGameRunning && !store.globalSettings.multiInstance) {
-            btn.disabled             = false;
-            btn.innerText            = (store.currentLangObj && store.currentLangObj.btn_stop) || "Forcer l'arrêt";
-            btn.style.backgroundColor = "#f87171";
-            btnOff.style.display      = "none";
-        } else {
-            btn.style.backgroundColor = "var(--accent)";
+        dragCounter = 0;
+        if (dropOverlay) dropOverlay.style.display = "none";
+
+        if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+
+        if (store.selectedInstanceIdx === null) {
+            if (window.showToast) window.showToast((store.currentLangObj && store.currentLangObj["msg_select_inst"]) || "Sélectionnez d'abord une instance !", "error");
+            return;
         }
-    };
+
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        let added = 0;
+
+        for (const file of e.dataTransfer.files) {
+            const ext = path.extname(file.path).toLowerCase();
+            try {
+                if (ext === ".jar") {
+                    const modsDir = path.join(instFolder, "mods");
+                    if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
+                    fs.copyFileSync(file.path, path.join(modsDir, file.name));
+                    added++;
+                } else if (ext === ".zip") {
+                    const nameLower = file.name.toLowerCase();
+                    if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
+                        const shadersDir = path.join(instFolder, "shaderpacks");
+                        if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
+                        fs.copyFileSync(file.path, path.join(shadersDir, file.name));
+                    } else {
+                        const rpDir = path.join(instFolder, "resourcepacks");
+                        if (!fs.existsSync(rpDir)) fs.mkdirSync(rpDir, { recursive: true });
+                        fs.copyFileSync(file.path, path.join(rpDir, file.name));
+                    }
+                    added++;
+                }
+            } catch(err) {
+                console.error("Erreur d'import : ", err);
+            }
+        }
+
+        if (added > 0) {
+            if (window.showToast) window.showToast(`${added} ${(store.currentLangObj && store.currentLangObj["msg_files_added"]) || "fichier(s) ajouté(s) !"}`, "success");
+            
+            if (document.getElementById("modal-edit").style.display === "flex") {
+                if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
+                if (document.getElementById("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();
+                if (document.getElementById("tab-resourcepacks").classList.contains("active") && window.renderResourcePacksManager) window.renderResourcePacksManager();
+            }
+        } else {
+            if (window.showToast) window.showToast((store.currentLangObj && store.currentLangObj["msg_err_format_drag"]) || "Format non supporté (.jar ou .zip uniquement).", "error");
+        }
+    });
 }

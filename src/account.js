@@ -38,18 +38,19 @@ export function setupAccountUI() {
         if (btnDel) btnDel.disabled = (store.uiSelectedAccRow === null);
         if (btnSkin) btnSkin.disabled = (store.uiSelectedAccRow === null);
 
-        store.allAccounts.forEach((acc, i) => {
+store.allAccounts.forEach((acc, i) => {
             const isSelected = store.uiSelectedAccRow === i;
             const isActive = store.selectedAccountIdx === i;
 
-            const typeText = acc.type === "microsoft" ? "Compte Microsoft" : "Hors-Ligne (Crack)";
+            const typeText = acc.type === "microsoft" ? t("lbl_ms_account", "Compte Microsoft") : t("lbl_offline_account", "Hors-Ligne (Crack)");
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
+            const safeName = window.escapeHTML(acc.name); 
 
             list.innerHTML += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
-                <img src="https://mc-heads.net/avatar/${acc.name}/32?t=${Date.now()}" alt="${acc.name}">
+                <img src="https://mc-heads.net/avatar/${safeName}/32?t=${Date.now()}" alt="${safeName}">
                 <div class="mmc-info">
-                    <div class="mmc-name">${acc.name}</div>
+                    <div class="mmc-name">${safeName}</div>
                     <div class="mmc-type">${typeText}</div>
                 </div>
                 <div class="mmc-active-label">${activeText}</div>
@@ -229,7 +230,7 @@ window.deleteSelectedRow = async () => {
         reader.onload = (e) => {
             if (fullscreenSkinViewer) {
                 fullscreenSkinViewer.loadSkin(e.target.result);
-                window.showToast("Aperçu du skin chargé en 3D !", "info");
+                window.showToast(t("msg_skin_preview", "Aperçu du skin chargé en 3D !"), "info");
             }
         };
         reader.readAsDataURL(file);

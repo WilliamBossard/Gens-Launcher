@@ -136,9 +136,10 @@ export function setupInstances() {
         if (!store.isGameRunning) {
             updateRPC(); 
         }
+        if (window.updateLaunchButton) window.updateLaunchButton();
     };
 
-window.openInstanceModal = () => {
+    window.openInstanceModal = () => {
         document.getElementById("new-name").value = "";
         document.getElementById("new-name").style.borderColor = "var(--border)";
         document.getElementById("new-loader").value = "vanilla";
@@ -189,37 +190,49 @@ window.openInstanceModal = () => {
         store.pendingIconPath = null;
     };
 
-    window.saveInstance = () => {
+   window.saveInstance = () => {
         const nameInput = document.getElementById("new-name");
         const name = nameInput.value.trim();
+        
         if (!name) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
             return;
         }
+
+        const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
+        if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeFolderName)) {
+            nameInput.style.borderColor = "#f87171";
+            window.showToast("Ce nom est invalide car réservé par le système.", "error");
+            return;
+        }
+
+        if (store.allInstances.some(i => i.name.toLowerCase() === name.toLowerCase())) {
+            nameInput.style.borderColor = "#f87171";
+            window.showToast("Ce nom d'instance existe déjà !", "error");
+            return;
+        }
+
+        const destFolder = path.join(store.instancesRoot, safeFolderName);
+        try {
+            fs.mkdirSync(destFolder, { recursive: true });
+        } catch(e) {
+            sysLog("Erreur création dossier instance: " + e.message, true);
+            window.showToast("Erreur système : Impossible de créer le dossier.", "error");
+            return;
+        }
+
         store.allInstances.push({
             name,
             version: document.getElementById("new-version").value,
             loader: document.getElementById("new-loader").value,
             loaderVersion: document.getElementById("new-loader-version").value, 
             ram: document.getElementById("new-ram-input").value.toString(),
-            javaPath: "",
-            jvmArgs: "",
-            notes: "",
-            icon: "",
-            resW: "",
-            resH: "",
-            playTime: 0,
-            lastPlayed: 0,
-            group: "",
-            servers: [],
-            backupMode: "none",
-            backupLimit: 5,
+            javaPath: "", jvmArgs: "", notes: "", icon: "", resW: "", resH: "",
+            playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
 
-        const destFolder = path.join(store.instancesRoot, name.replace(/[^a-z0-9]/gi, "_"));
-        fs.mkdirSync(destFolder, { recursive: true });
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         if (fs.existsSync(defaultOpt)) {
             try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
@@ -231,7 +244,44 @@ window.openInstanceModal = () => {
 
     window.saveEdit = () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        inst.name = document.getElementById("edit-name").value;
+        const newName = document.getElementById("edit-name").value.trim();
+
+        if (!newName) {
+            window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
+            return;
+        }
+
+        if (newName !== inst.name) {
+            const safeOldName = inst.name.replace(/[^a-z0-9]/gi, "_");
+            const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
+
+            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeNewName)) {
+                window.showToast("Ce nom est invalide car réservé par le système.", "error");
+                return;
+            }
+
+            if (store.allInstances.some(i => i.name.toLowerCase() === newName.toLowerCase())) {
+                window.showToast("Ce nom d'instance existe déjà !", "error");
+                return;
+            }
+
+            const oldFolder = path.join(store.instancesRoot, safeOldName);
+            const newFolder = path.join(store.instancesRoot, safeNewName);
+
+            if (oldFolder !== newFolder) {
+                try {
+                    if (fs.existsSync(oldFolder)) {
+                        fs.renameSync(oldFolder, newFolder);
+                    }
+                } catch (err) {
+                    console.error("Erreur de renommage:", err);
+                    window.showToast("Erreur système : Impossible de renommer le dossier.", "error");
+                    return; 
+                }
+            }
+        }
+
+        inst.name = newName;
         inst.ram = document.getElementById("edit-ram-input").value;
         inst.group = document.getElementById("edit-group").value.trim();
         inst.javaPath = document.getElementById("edit-javapath").value;
@@ -252,9 +302,7 @@ window.openInstanceModal = () => {
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
                 inst.icon = "file:///" + encodeURI(newIconPath.replace(/\\/g, "/"));
-            } catch(e) {
-                console.error("Erreur lors de la copie de l'image", e);
-            }
+            } catch(e) {}
             store.pendingIconPath = null;
         } else {
             const iconSrc = document.getElementById("edit-icon-preview").src;
@@ -283,7 +331,9 @@ window.openInstanceModal = () => {
         const oldInst = store.allInstances[store.selectedInstanceIdx];
         let inst = JSON.parse(JSON.stringify(oldInst));
         let newName = inst.name + " - Copie";
-        while (store.allInstances.some((i) => i.name === newName)) newName += " (2)";
+        let copyCounter = 2;
+        while (store.allInstances.some((i) => i.name === newName))
+            newName = inst.name + ` - Copie (${copyCounter++})`;
         inst.name = newName;
         inst.playTime = 0;
         inst.lastPlayed = 0;
@@ -307,7 +357,7 @@ window.openInstanceModal = () => {
         window.renderUI();
     };
 
-    window.deleteInstance = async () => {
+window.deleteInstance = async () => {
         if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
@@ -316,8 +366,10 @@ window.openInstanceModal = () => {
                     await fs.promises.rm(instFolder, { recursive: true, force: true });
                 }
             } catch(e) {
-                sysLog("Erreur lors de la suppression du dossier: " + e, true);
+                window.showToast("Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?", "error");
+                return; 
             }
+            
             store.allInstances.splice(store.selectedInstanceIdx, 1);
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
             store.selectedInstanceIdx = null;
@@ -343,7 +395,12 @@ window.openInstanceModal = () => {
 
     window.dragInstanceStart = (e, idx) => {
         e.dataTransfer.setData("instIdx", idx);
+        window._isInternalDrag = true; 
     };
+
+    document.addEventListener("dragend", () => {
+        window._isInternalDrag = false;
+    });
 
     window.dropInstanceOnGroup = (e, targetGroup) => {
         e.preventDefault();
@@ -378,14 +435,5 @@ window.openInstanceModal = () => {
         store.pendingIconPath = null; 
         document.getElementById("edit-icon-preview").src = icon;
         document.getElementById("modal-icon-gallery").style.display = "none";
-    };
-
-    window.filterLocalMods = () => {
-        const filter = document.getElementById("local-mod-search").value.toLowerCase();
-        const items = document.querySelectorAll("#mods-list .mod-item");
-        items.forEach(item => {
-            const text = item.innerText.toLowerCase();
-            item.style.display = text.includes(filter) ? "flex" : "none";
-        });
     };
 }

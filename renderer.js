@@ -17,22 +17,41 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
 
-initRPC();
-setupAuth();
-setupMods();
-setupLauncher();
-setupArchives();
-setupLang();
-setupAccountUI();
-setupWorldsAndGallery();
-setupSettings();
-setupStats();
-setupLocalManagers();
-setupInstances();
-setupUICore();
+initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang();
+setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupStats();
+setupLocalManagers(); setupInstances(); setupUICore();
 
 ipcRenderer.on("update-msg", (event, data) => {
     window.showToast(data.text, data.type);
+    const statusDiv = document.getElementById("update-status");
+    if (statusDiv) statusDiv.innerText = data.text;
+});
+
+ipcRenderer.on("update-available-prompt", async () => {
+    if (store.globalSettings.autoDownloadUpdates) {
+        window.showToast("Mise à jour trouvée ! Téléchargement en arrière-plan...", "info");
+    } else {
+        const msg = store.currentLangObj?.msg_update_dl_prompt || "Une nouvelle version est disponible. Voulez-vous la télécharger ?";
+        if (await window.showCustomConfirm(msg)) {
+            ipcRenderer.send("download-update");
+            window.showToast("Téléchargement démarré...", "info");
+        }
+    }
+});
+
+ipcRenderer.on("update-progress", (event, pct) => {
+    const statusDiv = document.getElementById("update-status");
+    if (statusDiv) statusDiv.innerText = `Téléchargement de la mise à jour : ${pct}%`;
+});
+
+ipcRenderer.on("update-downloaded", async () => {
+    const msg = store.currentLangObj?.msg_update_restart || "Mise à jour prête ! Voulez-vous redémarrer maintenant ?";
+    if (await window.showCustomConfirm(msg)) {
+        ipcRenderer.send("restart_app");
+    } else {
+        const statusDiv = document.getElementById("update-status");
+        if (statusDiv) statusDiv.innerText = "Mise à jour prête. Redémarrez plus tard.";
+    }
 });
 
 document.getElementById("console-filter").addEventListener("input", (e) => {
@@ -88,12 +107,14 @@ async function loadNews() {
         data.entries.slice(0, 6).forEach(news => {
             const imgUrl = `https://launchercontent.mojang.com${news.playPageImage.url}`;
             const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
+            const safeTitle = window.escapeHTML(news.title);
+            const safeCategory = window.escapeHTML(news.category);
             html += `
             <div class="news-card" onclick="openSystemPath('${link}')">
                 <img src="${imgUrl}" class="news-img">
                 <div class="news-content">
-                    <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${news.title}</div>
-                    <div style="font-size: 0.7rem; color: var(--accent);">${news.category}</div>
+                    <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
+                    <div style="font-size: 0.7rem; color: var(--accent);">${safeCategory}</div>
                 </div>
             </div>`;
         });
@@ -137,12 +158,12 @@ window.checkServerStatus = async () => {
         const res = await fetch(`https://api.mcstatus.io/v2/status/java/${ip}`);
         const data = await res.json();
         
-        console.log("📡 Réponse du serveur :", data);
-        
         if (data.online) {
             let iconHtml = data.icon ? `<img src="${data.icon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
-            let motdHtml = data.motd && data.motd.html ? data.motd.html : "Serveur Minecraft";
+            let motdHtml = data.motd && data.motd.html
+                ? data.motd.html.replace(/<(?!\/?(?:span|br)\b)[^>]+>/gi, "")
+                : "Serveur Minecraft";
             
             banner.innerHTML = `
             ${iconHtml}
@@ -163,7 +184,6 @@ window.checkServerStatus = async () => {
             </div>`;
         }
     } catch (e) {
-        console.error("Erreur de Ping :", e);
         banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">Erreur de connexion à ${ip}</div>`;
     }
 };

@@ -115,7 +115,7 @@ export function setupLocalManagers() {
     };
 
     window.deleteMod = async (filename) => {
-        if (await window.showCustomConfirm(`Voulez-vous vraiment supprimer le mod ${filename} ?`, true)) {
+      if (await window.showCustomConfirm(t("msg_delete_mod_confirm", "Voulez-vous vraiment supprimer ce fichier ?") + "\n(" + filename + ")", true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
             try {
@@ -232,20 +232,23 @@ export function setupLocalManagers() {
             return;
         }
 
-        inst.servers.forEach((ip, i) => {
+inst.servers.forEach((ip, i) => {
             const isAuto = inst.autoConnect === ip;
+            const safeIp = window.escapeHTML(ip); 
+            
             list.innerHTML += `
             <div style="background: rgba(0,0,0,0.2); border: 1px solid ${isAuto ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <span style="font-weight: bold; color: var(--text-light);">${ip}</span>
+                    <span style="font-weight: bold; color: var(--text-light);">${safeIp}</span>
                     <div id="srv-ping-${i}" style="font-size: 0.75rem; color: #aaa;">- ${t("msg_ping", "Ping...")}</div>
                 </div>
                 <div style="display: flex; gap: 5px;">
-                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>
+                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip.replace(/'/g, "\\'")}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>
                     <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
         });
+
         window.pingServers();
     };
 

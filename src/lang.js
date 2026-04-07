@@ -20,7 +20,6 @@ const defaultFr = {
   panel_last: "Dernier :",
   btn_launch: "Lancer",
   btn_stop: "Forcer l'arrêt",
-  btn_offline: "Lancer en hors ligne",
   btn_settings: "Paramètres de l'instance",
   btn_mods: "Gestionnaire de Mods",
   btn_saves: "Voir les mondes",
@@ -179,9 +178,6 @@ const defaultFr = {
   btn_save_options: "Définir comme défaut",
   msg_options_saved: "Profil d'options sauvegardé !",
   msg_no_options_found: "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !",
-  msg_drop_mod: "Relâcher pour installer le mod",
-  msg_drop_shader: "Relâcher pour installer le shader",
-  msg_drop_rp: "Relâcher pour installer le pack",
   msg_files_added: "fichier(s) ajouté(s) !",
   modal_import_mc: "Importer un monde officiel",
   btn_import_official_world: "Importer depuis .minecraft",
@@ -270,6 +266,9 @@ const defaultFr = {
   msg_screen_deleted: "Capture d'écran supprimée.",
   msg_del_screen_err: "Erreur lors de la suppression : ",
   modal_restore_title: "Restaurer une sauvegarde",
+  lbl_auto_update: "Télécharger les MAJ automatiquement",
+  msg_update_dl_prompt: "Une nouvelle version du launcher est disponible. Voulez-vous la télécharger ?",
+  msg_update_restart: "Mise à jour prête ! Voulez-vous redémarrer le launcher maintenant ?"
 };
 
 const defaultEn = {
@@ -289,7 +288,6 @@ const defaultEn = {
   panel_last: "Last:",
   btn_launch: "Play",
   btn_stop: "Force Stop",
-  btn_offline: "Play Offline",
   btn_settings: "Instance Settings",
   btn_mods: "Mods Manager",
   btn_saves: "View Worlds",
@@ -448,9 +446,6 @@ const defaultEn = {
   btn_save_options: "Set as default",
   msg_options_saved: "Options profile saved!",
   msg_no_options_found: "No options.txt found. Launch the game at least once on this instance!",
-  msg_drop_mod: "Drop to install mod",
-  msg_drop_shader: "Drop to install shader",
-  msg_drop_rp: "Drop to install pack",
   msg_files_added: "file(s) added!",
   modal_import_mc: "Import Official World",
   btn_import_official_world: "Import from .minecraft",
@@ -539,6 +534,9 @@ const defaultEn = {
   msg_screen_deleted: "Screenshot deleted.",
   msg_del_screen_err: "Error deleting: ",
   modal_restore_title: "Restore a backup",
+  lbl_auto_update: "Download updates automatically",
+  msg_update_dl_prompt: "A new launcher version is available. Do you want to download it?",
+  msg_update_restart: "Update ready! Do you want to restart the launcher now?"
 };
 
 export function setupLang() {

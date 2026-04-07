@@ -12,13 +12,21 @@ const _ipcListeners = {};
 
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 
-function safeWrite(p) {
+function enforceSandbox(p) {
     const resolved = path.resolve(p);
-    if (!resolved.startsWith(safeDataDir)) {
-        console.error(`🚨 SÉCURITÉ : Tentative de modification bloquée vers ${resolved}`);
+    if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
+        console.error(`🚨 SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
         throw new Error("Accès refusé par le système de sécurité du Launcher.");
     }
-    return p;
+    return resolved; 
+}
+
+function safeExternalUrl(url) {
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        console.error(`🚨 SÉCURITÉ : Protocole interdit bloqué : ${url}`);
+        throw new Error("Seuls les liens HTTP/HTTPS sont autorisés.");
+    }
+    return url;
 }
 
 contextBridge.exposeInMainWorld("api", {
@@ -44,7 +52,23 @@ contextBridge.exposeInMainWorld("api", {
 
         extractAllTo: (zipPath, destDir) => {
             const z = new AdmZip(zipPath);
-            z.extractAllTo(safeWrite(destDir), true); // 🔒 SÉCURISÉ
+            const targetDir = enforceSandbox(destDir);
+            
+            z.getEntries().forEach(entry => {
+                const entryPath = path.resolve(targetDir, entry.entryName);
+                
+                if (!entryPath.startsWith(targetDir + path.sep) && entryPath !== targetDir) {
+                    console.error("🚨 TENTATIVE DE ZIP SLIP BLOQUÉE : L'archive contient un fichier malveillant :", entry.entryName);
+                    return; 
+                }
+                
+                if (entry.isDirectory) {
+                    fs.mkdirSync(entryPath, { recursive: true });
+                } else {
+                    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+                    fs.writeFileSync(entryPath, z.readFile(entry.entryName));
+                }
+            });
         },
 
         AdmZip: function(zipPath) {
@@ -59,13 +83,14 @@ contextBridge.exposeInMainWorld("api", {
                 addLocalFolder: (src, dest) => z.addLocalFolder(src, dest),
                 addTextFile: (name, text) => z.addFile(name, Buffer.from(text, "utf8")),
                 addBinaryFile: (name, arr) => z.addFile(name, Buffer.from(arr)),
-                writeZip: (dest) => new Promise((res, rej) => z.writeZip(safeWrite(dest), err => err ? rej(err) : res())) // 🔒 SÉCURISÉ
+                writeZip: (dest) => new Promise((res, rej) => z.writeZip(enforceSandbox(dest), err => err ? rej(err) : res()))
             };
         }
     },
 
     path: {
         join: (...args) => path.join(...args),
+        resolve: (...args) => path.resolve(...args),
         extname: (p) => path.extname(p),
         dirname: (p) => path.dirname(p),
         basename: (p, ext) => path.basename(p, ext),
@@ -80,13 +105,14 @@ contextBridge.exposeInMainWorld("api", {
             return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
         },
 
-        writeFileSync: (p, data, enc) => fs.writeFileSync(safeWrite(p), data, enc),
-        appendFileSync: (p, data) => fs.appendFileSync(safeWrite(p), data),
-        mkdirSync: (p, opts) => fs.mkdirSync(safeWrite(p), opts),
-        unlinkSync: (p) => fs.unlinkSync(safeWrite(p)),
-        renameSync: (p, n) => fs.renameSync(safeWrite(p), safeWrite(n)),
-        rmSync: (p, opts) => fs.rmSync(safeWrite(p), opts),
-        copyFileSync: (src, dest) => fs.copyFileSync(src, safeWrite(dest)),
+        writeFileSync: (p, data, enc) => fs.writeFileSync(enforceSandbox(p), data, enc),
+        appendFileSync: (p, data) => fs.appendFileSync(enforceSandbox(p), data),
+        mkdirSync: (p, opts) => fs.mkdirSync(enforceSandbox(p), opts),
+        unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
+        renameSync: (p, n) => fs.renameSync(enforceSandbox(p), enforceSandbox(n)),
+        rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
+        
+        copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
 
         promises: {
             readdir: (p) => fs.promises.readdir(p),
@@ -94,9 +120,9 @@ contextBridge.exposeInMainWorld("api", {
                 const s = await fs.promises.stat(p);
                 return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
             },
-            rm: (p, opts) => fs.promises.rm(safeWrite(p), opts), 
-            cp: (s, d, o) => fs.promises.cp(s, safeWrite(d), o), 
-            unlink: (p) => fs.promises.unlink(safeWrite(p)), 
+            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
+            cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
+            unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 
         }
     },
     
@@ -105,11 +131,13 @@ contextBridge.exposeInMainWorld("api", {
         freemem: () => os.freemem(),
         cpus: () => os.cpus()
     },
+    
     shell: {
-        openExternal: (url) => shell.openExternal(url),
-        openPath: (p) => shell.openPath(p),
-        showItemInFolder: (p) => shell.showItemInFolder(p)
+        openExternal: (url) => shell.openExternal(safeExternalUrl(url)),
+        openPath: (p) => shell.openPath(enforceSandbox(p)),
+        showItemInFolder: (p) => shell.showItemInFolder(enforceSandbox(p))
     },
+    
     clipboard: {
         writeText: (text) => clipboard.writeText(text)
     },

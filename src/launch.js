@@ -11,6 +11,44 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
+async function performAutoBackup(inst, mode) {
+    if (!inst || inst.backupMode !== mode) return;
+    const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+    const savesDir = path.join(instDir, "saves");
+    const backupDir = path.join(instDir, "backups");
+    
+    if (!fs.existsSync(savesDir)) return;
+    const saves = fs.readdirSync(savesDir);
+    if (saves.length === 0) return;
+
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    window.showLoading(`Auto-Backup en cours...`);
+    await yieldUI();
+
+    try {
+        const zip = window.api.tools.AdmZip();
+        zip.addLocalFolder(savesDir, "saves");
+        const timestamp = new Date().toISOString().replace(/[:\.]/g, "-");
+        const zipPath = path.join(backupDir, `auto_saves_${timestamp}.zip`);
+        await zip.writeZip(zipPath);
+
+        const limit = inst.backupLimit || 5;
+        const backups = fs.readdirSync(backupDir)
+            .filter(f => f.startsWith("auto_saves_") && f.endsWith(".zip"))
+            .map(f => ({ name: f, time: fs.statSync(path.join(backupDir, f)).mtime.getTime() }))
+            .sort((a, b) => b.time - a.time);
+        
+        if (backups.length > limit) {
+            for (let i = limit; i < backups.length; i++) {
+                fs.unlinkSync(path.join(backupDir, backups[i].name));
+            }
+        }
+        sysLog(`Auto-backup créé : ${zipPath}`);
+    } catch(e) { sysLog(`Auto-backup erreur: ${e.message}`, true); }
+    window.hideLoading();
+}
+
 export function setupLauncher() {
     window.updateLaunchButton = () => {
         const btn = document.getElementById("launch-btn");
@@ -32,7 +70,7 @@ export function setupLauncher() {
         document.getElementById("instances-container").style.pointerEvents = lockUI ? "none" : "auto";
         document.getElementById("instances-container").style.opacity = lockUI ? "0.5" : "1";
         
-        ["btn-offline", "btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
+        ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
             (id) => { if(document.getElementById(id)) document.getElementById(id).disabled = lockUI; }
         );
         window.updateLaunchButton();
@@ -125,10 +163,12 @@ export function setupLauncher() {
         const progBar = document.getElementById("progress-bar");
         const logOutput = document.getElementById("log-output");
 
+        await performAutoBackup(inst, "on_launch");
+
         document.getElementById("console-container").style.display = "block";
         logOutput.innerHTML = "";
         sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
-        logOutput.innerHTML += `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${inst.name}...</div>`;
+        logOutput.innerHTML += `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`;
 
         const destOpt = path.join(instancePath, "options.txt");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
@@ -159,7 +199,7 @@ export function setupLauncher() {
         const javaExists = !(res.err && (errorStr.includes("not recognized") || errorStr.includes("non reconnu") || errorStr.includes("introuvable") || res.err.code === "ENOENT"));
 
         if (!javaExists) {
-            if (await window.showCustomConfirm(`Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ${requiredJava} ?`)) {
+            if (await window.showCustomConfirm(t("msg_java_not_found_prompt", "Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ") + requiredJava + " ?")) {
                 const newJava = await window.downloadJavaAuto(requiredJava);
                 if (newJava) jPath = newJava;
                 else {
@@ -199,7 +239,20 @@ export function setupLauncher() {
         }
 
         let authObj = { access_token: "null", client_token: "null", uuid: "null", name: acc.name, user_properties: "{}" };
-        if (acc.type === "microsoft" && acc.mclcAuth) authObj = acc.mclcAuth;
+        
+        if (acc.type === "microsoft" && acc.mclcAuth) {
+            document.getElementById("status-text").innerText = t("msg_check_ms_session", "Vérification de la session Microsoft...");
+            try {
+                const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
+                if (refreshRes.success && refreshRes.access_token) {
+                    acc.mclcAuth.access_token = refreshRes.access_token;
+                    fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                }
+            } catch(e) {
+                sysLog("Erreur silencieuse lors du refresh token: " + e.message);
+            }
+            authObj = acc.mclcAuth;
+        }
 
         let opts = {
             authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
@@ -323,7 +376,7 @@ export function setupLauncher() {
 
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
         window.setUIState(true);
-        store.sessionStartTime = Date.now();
+        inst._tempSessionStart = Date.now();
         updateRPC(inst); 
         
         document.getElementById("live-stats").style.display = "block";
@@ -378,12 +431,12 @@ export function setupLauncher() {
                     dStr.includes("Stopping singleplayer server") || dStr.includes("Stopping server") ||
                     dStr.includes("Disconnecting from server") || dStr.includes("Clearing local world") || dStr.includes("Quitting")
                 ) {
-                    currentServerIP = ""; updateRPC(inst, "Dans le menu du jeu");
+                    currentServerIP = ""; updateRPC(inst, t("discord_in_menu", "Dans le menu du jeu"));
                 } else if (dStr.includes("Stopping worker threads")) {
                     menuTimer = setTimeout(() => { currentServerIP = ""; updateRPC(inst, "Dans le menu du jeu"); }, 1500); 
                 } else if (dStr.includes("logged in with entity id") || dStr.includes("Starting integrated minecraft server")) {
                     if (currentServerIP) updateRPC(inst, `Sur un serveur (${currentServerIP})`);
-                    else updateRPC(inst, "En survie Solo"); 
+                    else updateRPC(inst, t("discord_playing_solo", "En survie Solo"));
                 }
             } catch (e) { console.error("Erreur détection RPC:", e); }
 
@@ -391,7 +444,12 @@ export function setupLauncher() {
             if (dStr.includes("WARN")) color = "#ffaa00"; 
             if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171"; 
 
-            logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${dStr}</div>`);
+            logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
+            
+            while (logOutput.childElementCount > 500) {
+                logOutput.removeChild(logOutput.firstChild);
+            }
+            
             const filter = document.getElementById("console-filter").value.toLowerCase();
             if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
             if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
@@ -405,15 +463,16 @@ export function setupLauncher() {
                 document.getElementById("console-container").style.display = "block";
                 const culprit = await window.analyzeCrash(store.allInstances[store.selectedInstanceIdx].name);
                 if (culprit) {
-                    const action = await window.showCustomConfirm(`Le jeu a planté ! \n\nL'analyseur intelligent a détecté que le mod [ ${culprit} ] est probablement responsable de ce crash.\n\nVoulez-vous ouvrir le gestionnaire de mods pour le désactiver ?`);
+                   const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
                     if (action) { window.openEditModal('tab-mods'); }
                 }
             }
 
-            if (store.selectedInstanceIdx !== null) {
+            if (store.selectedInstanceIdx !== null && store.allInstances[store.selectedInstanceIdx]) {
                 const currentInst = store.allInstances[store.selectedInstanceIdx];
 
-                const sessionDuration = Date.now() - store.sessionStartTime;
+                const sessionDuration = Date.now() - (currentInst._tempSessionStart || Date.now());
+                currentInst._tempSessionStart = null; 
                 currentInst.playTime = (currentInst.playTime || 0) + sessionDuration;
                 currentInst.lastPlayed = Date.now();
 
@@ -425,6 +484,8 @@ export function setupLauncher() {
                 currentInst.sessionHistory = currentInst.sessionHistory.slice(-30);
 
                 fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+                
+                await performAutoBackup(currentInst, "on_close");
                 window.selectInstance(store.selectedInstanceIdx);
             }
             

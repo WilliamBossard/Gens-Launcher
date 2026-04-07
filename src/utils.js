@@ -8,6 +8,16 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
+window.escapeHTML = (str) => {
+    if (!str) return "";
+    return str.toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+};
+
 window.openSystemPath = (p) => {
     if (typeof p === "string" && p.startsWith("http")) {
         shell.openExternal(p);
@@ -99,7 +109,6 @@ window.updateLoadingPercent = (percent, text = null) => {
 window.hideLoading = () => {
     document.getElementById("loading-overlay").style.display = "none";
 };
-
 
 const yieldUI = () => new Promise((resolve) => setTimeout(resolve, 50));
 
