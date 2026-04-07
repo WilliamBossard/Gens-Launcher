@@ -25,14 +25,17 @@ export function setupArchives() {
         window.showLoading(t("msg_extract", "Extraction..."));
         await yieldUI();
         try {
-            const zip = window.api.tools.AdmZip(zipPath);
-            const instanceJsonText = zip.getEntryText("instance.json");
-
-            if (!instanceJsonText) {
+            const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
+            
+            window.api.tools.extractAllTo(zipPath, tempExtractDir);
+            
+            const instanceJsonPath = path.join(tempExtractDir, "instance.json");
+            if (!fs.existsSync(instanceJsonPath)) {
+                fs.rmSync(tempExtractDir, { recursive: true, force: true });
                 throw new Error("Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher.");
             }
 
-            const instData = JSON.parse(instanceJsonText);
+            const instData = JSON.parse(fs.readFileSync(instanceJsonPath, "utf8"));
             const originalName = instData.name || "Instance Importée";
 
             let finalName = originalName;
@@ -46,27 +49,22 @@ export function setupArchives() {
             const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
-            zip.getEntries().forEach(entry => {
-                if (entry.entryName.startsWith("files/") && entry.entryName !== "files/") {
-                    const relPath = entry.entryName.substring(6);
-                    const targetPath = path.join(instDir, relPath);
-
-                    const resolvedTarget = path.resolve(targetPath);
-                    const resolvedInstDir = path.resolve(instDir);
-                    if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
-                        console.error("Tentative de Zip Slip ignorée dans l'import ZIP :", entry.entryName);
-                        return; 
-                    }
-
-                    if (entry.isDirectory) {
-                        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-                    } else {
-                        const dir = path.dirname(targetPath);
-                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                        fs.writeFileSync(targetPath, zip.readFile(entry.entryName));
+            const filesDir = path.join(tempExtractDir, "files");
+            if (fs.existsSync(filesDir)) {
+                const items = fs.readdirSync(filesDir);
+                for (let item of items) {
+                    fs.renameSync(path.join(filesDir, item), path.join(instDir, item));
+                }
+            } else {
+                const items = fs.readdirSync(tempExtractDir);
+                for (let item of items) {
+                    if (item !== "instance.json") {
+                        fs.renameSync(path.join(tempExtractDir, item), path.join(instDir, item));
                     }
                 }
-            });
+            }
+
+            fs.rmSync(tempExtractDir, { recursive: true, force: true });
 
             store.allInstances.push(instData);
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));

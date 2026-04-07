@@ -9,16 +9,16 @@ function t(key, fallback) {
 }
 
 export function setupStats() {
-
     async function getDirSizeSafeAsync(dirPath) {
         let size = 0;
         try {
+            if (!fs.existsSync(dirPath)) return 0;
             const files = await fs.promises.readdir(dirPath);
             const statsPromises = files.map(async (file) => {
                 const filePath = path.join(dirPath, file);
                 try {
                     const stats = await fs.promises.stat(filePath);
-                    if (stats.isDirectory()) {
+                    if (stats.isDirectory) { 
                         return await getDirSizeSafeAsync(filePath);
                     } else {
                         return stats.size;
@@ -39,14 +39,13 @@ export function setupStats() {
 
         const checkDir = async (dir, condition) => {
             try {
-                const exists = await fs.promises.access(dir).then(() => true).catch(() => false);
-                if (!exists) return;
+                if (!fs.existsSync(dir)) return;
 
                 const files = await fs.promises.readdir(dir);
                 for (const file of files) {
                     const filePath = path.join(dir, file);
                     const stats = await fs.promises.stat(filePath);
-                    if (!stats.isDirectory() && condition(file)) {
+                    if (!stats.isDirectory && condition(file)) {
                         filesToDelete.push(filePath);
                         totalSize += stats.size;
                     }
@@ -56,7 +55,7 @@ export function setupStats() {
 
         await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
         await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip"));
-        await checkDir(path.join(store.dataDir, "exports"), f => true);
+        await checkDir(path.join(store.dataDir, "exports"), f => true); 
 
         return { files: filesToDelete, size: totalSize };
     }
@@ -86,8 +85,7 @@ export function setupStats() {
             );
 
             try {
-                const exists = await fs.promises.access(modsPath).then(() => true).catch(() => false);
-                if (exists) {
+                if (fs.existsSync(modsPath)) {
                     const files = await fs.promises.readdir(modsPath);
                     totalMods += files.filter((f) => f.endsWith(".jar") || f.endsWith(".jar.disabled")).length;
                 }
@@ -126,7 +124,7 @@ export function setupStats() {
             graphDiv.innerHTML = days.map(d => {
                 const ms = totals[d];
                 const perc = Math.round((ms / maxMs) * 100);
-                const label = d.slice(5).replace('-', '/'); // "MM/DD"
+                const label = d.slice(5).replace('-', '/');
                 const hh = Math.floor(ms / 3600000);
                 const mm = Math.floor((ms % 3600000) / 60000);
                 const title = ms > 0 ? `${hh}h ${mm}m` : "0m";

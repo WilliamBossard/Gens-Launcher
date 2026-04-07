@@ -2,16 +2,16 @@ const { app, BrowserWindow, ipcMain, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { exec, execFile } = require("child_process");
+const { execFile } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
+const DiscordRPC = require("discord-rpc");
 
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
-const DiscordRPC = require("discord-rpc");
 
 let mainWindow;
 const logPath = path.join(app.getPath("userData"), "main-process.log");
@@ -78,18 +78,40 @@ ipcMain.handle("check-java", async (_, javaPath) => {
     });
 });
 
-let currentMinecraftProcess = null;
+const activeMinecraftClients = new Map();
 
-ipcMain.handle("force-stop-game", async () => {
+ipcMain.handle("force-stop-game", async (_, instanceId) => {
     return new Promise((resolve) => {
-        if (currentMinecraftProcess) {
-            currentMinecraftProcess.kill("SIGKILL");
-            currentMinecraftProcess = null;
-            mainLog("Jeu arrêté de force via PID.");
+        const clientData = activeMinecraftClients.get(instanceId);
+        if (clientData && clientData.process) {
+            clientData.process.kill("SIGKILL");
+            activeMinecraftClients.delete(instanceId);
+            mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
             resolve({ success: true });
         } else {
             resolve({ success: false });
         }
+    });
+});
+
+ipcMain.on("launch-game", (event, opts) => {
+    if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { 
+        mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); 
+        return; 
+    }
+    
+    const instanceId = opts.instanceId;
+    const launcher = new Client(); 
+
+    launcher.launch(opts).then((process) => {
+        activeMinecraftClients.set(instanceId, { process, launcher });
+    }).catch(e => mainLog("Erreur Lancement: " + e));
+
+    launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
+    launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
+    launcher.on("close", (e) => {
+        activeMinecraftClients.delete(instanceId);
+        mainWindow?.webContents.send("mc-close", { instanceId, code: e });
     });
 });
 
@@ -100,10 +122,7 @@ ipcMain.handle("check-for-updates", async () => {
     } catch(e) { return { success: false, error: e.message }; }
 });
 
-ipcMain.on("set-auto-download", (_, val) => {
-    autoUpdater.autoDownload = val;
-});
-
+ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
 ipcMain.on("restart_app", () => { autoUpdater.quitAndInstall(); });
 ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
@@ -131,9 +150,7 @@ ipcMain.handle("login-microsoft", async () => {
 
     try {
         const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" },
-            (deviceInfo) => {
-                if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("microsoft-device-code", deviceInfo);
-            });
+            (deviceInfo) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("microsoft-device-code", deviceInfo); });
         activeMicrosoftAuthFlow = flow;
 
         const origGetMsaToken = flow.getMsaToken.bind(flow);
@@ -181,16 +198,5 @@ ipcMain.on("update-discord", (event, data) => {
     if (data === "clear") { rpc.clearActivity().catch(()=>{}); return; }
     rpc.setActivity(data).catch(()=>{});
 });
-
-const launcher = new Client();
-ipcMain.on("launch-game", (event, opts) => {
-    if (!opts || !opts.authorization || !opts.version || !opts.root) { mainWindow?.webContents.send("mc-close", 1); return; }
-    launcher.launch(opts).then((process) => {
-        currentMinecraftProcess = process;
-    }).catch(e => mainLog("Erreur Lancement: " + e));
-});
-launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", e));
-launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", e.toString()));
-launcher.on("close", (e) => mainWindow?.webContents.send("mc-close", e));
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

@@ -268,7 +268,17 @@ const defaultFr = {
   modal_restore_title: "Restaurer une sauvegarde",
   lbl_auto_update: "Télécharger les MAJ automatiquement",
   msg_update_dl_prompt: "Une nouvelle version du launcher est disponible. Voulez-vous la télécharger ?",
-  msg_update_restart: "Mise à jour prête ! Voulez-vous redémarrer le launcher maintenant ?"
+  msg_update_restart: "Mise à jour prête ! Voulez-vous redémarrer le launcher maintenant ?",
+  lbl_running: "En cours",
+  msg_req_mc_120: "Nécessite Minecraft 1.20+",
+  msg_shader_deleted: "Shader supprimé !",
+  msg_rp_deleted: "Pack supprimé !",
+  msg_err_delete: "Erreur lors de la suppression",
+  msg_game_running: "Jeu en cours d'exécution...",
+  msg_install_quilt: "Installation de Quilt...",
+  discord_in_menu: "Dans le menu du jeu",
+  discord_playing_on: "Sur un serveur",
+  discord_playing_solo: "En survie Solo"
 };
 
 const defaultEn = {
@@ -536,7 +546,17 @@ const defaultEn = {
   modal_restore_title: "Restore a backup",
   lbl_auto_update: "Download updates automatically",
   msg_update_dl_prompt: "A new launcher version is available. Do you want to download it?",
-  msg_update_restart: "Update ready! Do you want to restart the launcher now?"
+  msg_update_restart: "Update ready! Do you want to restart the launcher now?",
+  lbl_running: "Running",
+  msg_req_mc_120: "Requires Minecraft 1.20+",
+  msg_shader_deleted: "Shader deleted!",
+  msg_rp_deleted: "Pack deleted!",
+  msg_err_delete: "Error while deleting",
+  msg_game_running: "Game is running...",
+  msg_install_quilt: "Installing Quilt...",
+  discord_in_menu: "In game menu",
+  discord_playing_on: "Playing on",
+  discord_playing_solo: "Playing Singleplayer"
 };
 
 export function setupLang() {

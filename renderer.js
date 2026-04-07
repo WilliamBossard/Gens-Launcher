@@ -151,7 +151,7 @@ window.checkServerStatus = async () => {
     banner.style.display = "flex";
     
     if (banner.innerHTML === "") {
-        banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">Recherche du serveur ${ip}...</div>`;
+        banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">Recherche du serveur ${window.escapeHTML(ip)}...</div>`;
     }
 
     try {
@@ -161,15 +161,25 @@ window.checkServerStatus = async () => {
         if (data.online) {
             let iconHtml = data.icon ? `<img src="${data.icon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
-            let motdHtml = data.motd && data.motd.html
-                ? data.motd.html.replace(/<(?!\/?(?:span|br)\b)[^>]+>/gi, "")
-                : "Serveur Minecraft";
+            let motdHtml = "Serveur Minecraft";
+            if (data.motd && data.motd.html) {
+                motdHtml = data.motd.html
+                    .replace(/<(?!\/?(span|br)\b)[^>]+>/gi, "") 
+                    .replace(/<span([^>]*)>/gi, (match, attrs) => {
+                        const styleMatch = attrs.match(/style="([^"]*)"/i);
+                        if (styleMatch) {
+                            const safeStyle = styleMatch[1].replace(/[^a-zA-Z0-9:#\-\s;]/g, ""); 
+                            return `<span style="${safeStyle}">`;
+                        }
+                        return "<span>";
+                    });
+            }
             
             banner.innerHTML = `
             ${iconHtml}
             <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${ip}</div>
-                <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;">${motdHtml}</div>
+                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
+                <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; line-height: 1.2;">${motdHtml}</div>
             </div>
             <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
                 <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] En ligne</div>
@@ -179,12 +189,12 @@ window.checkServerStatus = async () => {
             banner.innerHTML = `
             <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
             <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${ip}</div>
+                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
                 <div style="font-size: 0.85rem; color: #f87171;">Le serveur est actuellement hors-ligne.</div>
             </div>`;
         }
     } catch (e) {
-        banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">Erreur de connexion à ${ip}</div>`;
+        banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">Erreur de connexion à ${window.escapeHTML(ip)}</div>`;
     }
 };
 

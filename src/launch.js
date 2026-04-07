@@ -11,6 +11,10 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
+let monitorInterval = null;
+let lastCpuTimes = os.cpus().map(c => c.times);
+let windowHidden = false;
+
 async function performAutoBackup(inst, mode) {
     if (!inst || inst.backupMode !== mode) return;
     const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
@@ -49,59 +53,74 @@ async function performAutoBackup(inst, mode) {
     window.hideLoading();
 }
 
+window.updateLiveStats = () => {
+    const total = os.totalmem();
+    const free = os.freemem();
+    const used = total - free;
+    const ramPerc = Math.round((used / total) * 100);
+
+    document.getElementById("live-ram").innerText = `${ramPerc}%`;
+    document.getElementById("live-ram-bar").style.width = `${ramPerc}%`;
+    document.getElementById("live-ram-bar").style.background = ramPerc > 85 ? "#f87171" : "var(--accent)";
+
+    let current = os.cpus().map(c => c.times);
+    let idle = 0, cpuTotal = 0;
+    for(let i = 0; i < current.length; i++) {
+        let t1 = lastCpuTimes[i], t2 = current[i];
+        idle += (t2.idle - t1.idle);
+        cpuTotal += ((t2.user + t2.nice + t2.sys + t2.idle + t2.irq) - (t1.user + t1.nice + t1.sys + t1.idle + t1.irq));
+    }
+    lastCpuTimes = current;
+    
+    let cpuPerc = cpuTotal === 0 ? 0 : Math.round((1 - (idle / cpuTotal)) * 100);
+    document.getElementById("live-cpu").innerText = `${cpuPerc}%`;
+    document.getElementById("live-cpu-bar").style.width = `${cpuPerc}%`;
+    document.getElementById("live-cpu-bar").style.background = cpuPerc > 85 ? "#f87171" : "#17B139";
+};
+
 export function setupLauncher() {
+
     window.updateLaunchButton = () => {
         const btn = document.getElementById("launch-btn");
-        if (store.isGameRunning && !store.globalSettings.multiInstance) {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
+
+        const isThisRunning = store.activeInstances.has(inst.name);
+        const isAnyRunning = store.activeInstances.size > 0;
+
+        if (isThisRunning || (!store.globalSettings.multiInstance && isAnyRunning)) {
             btn.innerText = t("btn_stop", "Forcer l'arrêt");
             btn.style.background = "#f87171";
             btn.disabled = false;
-            return;
+        } else {
+            btn.innerText = t("btn_launch", "Lancer");
+            btn.style.background = "var(--accent)";
+            btn.disabled = store.selectedAccountIdx === null;
         }
-        btn.innerText = t("btn_launch", "Lancer");
-        btn.style.background = "var(--accent)";
-        btn.disabled = store.selectedInstanceIdx === null || store.selectedAccountIdx === null;
     };
 
-    window.setUIState = (running) => {
-        store.isGameRunning = running;
-        const lockUI = running && !store.globalSettings.multiInstance;
-        
+    window.setUIState = () => {
+        const isAnyRunning = store.activeInstances.size > 0;
+        store.isGameRunning = isAnyRunning;
+        const lockUI = isAnyRunning && !store.globalSettings.multiInstance;
+
         document.getElementById("instances-container").style.pointerEvents = lockUI ? "none" : "auto";
         document.getElementById("instances-container").style.opacity = lockUI ? "0.5" : "1";
-        
+
         ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
             (id) => { if(document.getElementById(id)) document.getElementById(id).disabled = lockUI; }
         );
         window.updateLaunchButton();
-    };
 
-    let monitorInterval;
-    let lastCpuTimes = os.cpus().map(c => c.times);
-
-    window.updateLiveStats = () => {
-        const total = os.totalmem();
-        const free = os.freemem();
-        const used = total - free;
-        const ramPerc = Math.round((used / total) * 100);
-
-        document.getElementById("live-ram").innerText = `${ramPerc}%`;
-        document.getElementById("live-ram-bar").style.width = `${ramPerc}%`;
-        document.getElementById("live-ram-bar").style.background = ramPerc > 85 ? "#f87171" : "var(--accent)";
-
-        let current = os.cpus().map(c => c.times);
-        let idle = 0, cpuTotal = 0;
-        for(let i = 0; i < current.length; i++) {
-            let t1 = lastCpuTimes[i], t2 = current[i];
-            idle += (t2.idle - t1.idle);
-            cpuTotal += ((t2.user + t2.nice + t2.sys + t2.idle + t2.irq) - (t1.user + t1.nice + t1.sys + t1.idle + t1.irq));
+        if (isAnyRunning && !monitorInterval) {
+            document.getElementById("live-stats").style.display = "block";
+            lastCpuTimes = os.cpus().map(c => c.times); 
+            monitorInterval = setInterval(window.updateLiveStats, 1500);
+        } else if (!isAnyRunning && monitorInterval) {
+            clearInterval(monitorInterval);
+            monitorInterval = null;
+            document.getElementById("live-stats").style.display = "none";
         }
-        lastCpuTimes = current;
-        
-        let cpuPerc = cpuTotal === 0 ? 0 : Math.round((1 - (idle / cpuTotal)) * 100);
-        document.getElementById("live-cpu").innerText = `${cpuPerc}%`;
-        document.getElementById("live-cpu-bar").style.width = `${cpuPerc}%`;
-        document.getElementById("live-cpu-bar").style.background = cpuPerc > 85 ? "#f87171" : "#17B139";
     };
 
     window.getRequiredJavaVersion = (mcVersion) => {
@@ -119,7 +138,6 @@ export function setupLauncher() {
         const instDir = path.join(store.instancesRoot, instanceName.replace(/[^a-z0-9]/gi, "_"));
         const crashDir = path.join(instDir, "crash-reports");
         let suspectedMod = null;
-
         try {
             if (fs.existsSync(crashDir)) {
                 const reports = fs.readdirSync(crashDir).filter(f => f.endsWith(".txt")).sort((a, b) => {
@@ -144,23 +162,173 @@ export function setupLauncher() {
                     if (errMatch) suspectedMod = errMatch[1].trim();
                 }
             }
-        } catch(e) { console.error("Erreur de l'analyseur de crash : ", e); }
+        } catch(e) { console.error("Crash analyzer error: ", e); }
         return suspectedMod;
     };
 
+
+    let lastLogPerc = -1;
+    let menuTimers = {};
+    let currentServerIPs = {};
+
+    window.api.on("mc-progress", (payload) => {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        if (inst && payload.instanceId === inst.name) {
+            let perc = 0;
+            if (payload.total > 0) perc = Math.round((payload.task / payload.total) * 100);
+            document.getElementById("progress-bar").style.width = perc + "%";
+            document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+            
+            if (perc % 10 === 0 && perc !== lastLogPerc) {
+                lastLogPerc = perc;
+                const logOutput = document.getElementById("log-output");
+                if (logOutput) {
+                    logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#aaa;">[SYSTEM] ${t("msg_dl", "Téléchargement :")} ${perc}%</div>`);
+                    if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
+                }
+            }
+        }
+    });
+
+    window.api.on("mc-data", (payload) => {
+        const instanceId = payload.instanceId;
+        const dStr = payload.data.toString().trim();
+        if (!dStr) return;
+
+        sysLog(`GAME [${instanceId}]: ` + dStr);
+
+        if (store.globalSettings.launcherVisibility === "hide" && !windowHidden) {
+            ipcRenderer.send("hide-window");
+            windowHidden = true;
+        }
+
+        const selectedInst = store.allInstances[store.selectedInstanceIdx];
+        if (selectedInst && selectedInst.name === instanceId) {
+            const pBar = document.getElementById("progress-bar");
+            if (pBar && pBar.style.width !== "0%") {
+                pBar.style.width = "0%";
+                document.getElementById("status-text").innerText = t("msg_game_running", "Jeu en cours d'exécution...");
+            }
+
+            const logOutput = document.getElementById("log-output");
+            let color = "#d4d4d4"; 
+            if (dStr.includes("WARN")) color = "#ffaa00"; 
+            if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171"; 
+
+            logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
+            while (logOutput.childElementCount > 500) logOutput.removeChild(logOutput.firstChild);
+            
+            const filter = document.getElementById("console-filter").value.toLowerCase();
+            if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
+            if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        try {
+            const targetInstData = store.allInstances.find(i => i.name === instanceId);
+            if (!targetInstData) return;
+
+            if (dStr.includes("Started") && dStr.includes("worker threads")) { if (menuTimers[instanceId]) { clearTimeout(menuTimers[instanceId]); menuTimers[instanceId] = null; } }
+            if (dStr.includes("Connecting to")) {
+                const parts = dStr.split("Connecting to ");
+                if (parts[1]) {
+                    currentServerIPs[instanceId] = parts[1].split(",")[0].trim();
+                    updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                }
+            } else if (
+                dStr.includes("Saving and pausing game...") || dStr.includes("lost connection") || 
+                dStr.includes("Stopping singleplayer server") || dStr.includes("Stopping server") ||
+                dStr.includes("Disconnecting from server") || dStr.includes("Clearing local world") || dStr.includes("Quitting")
+            ) {
+                currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans le menu du jeu"));
+            } else if (dStr.includes("Stopping worker threads")) {
+                menuTimers[instanceId] = setTimeout(() => { currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans le menu du jeu")); }, 1500); 
+            } else if (dStr.includes("logged in with entity id") || dStr.includes("Starting integrated minecraft server")) {
+                if (currentServerIPs[instanceId]) updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                else updateRPC(targetInstData, t("discord_playing_solo", "En survie Solo"));
+            }
+        } catch (e) { console.error("Erreur détection RPC:", e); }
+    });
+
+    window.api.on("mc-close", async (payload) => {
+        const instanceId = payload.instanceId;
+        const code = payload.code;
+
+        store.activeInstances.delete(instanceId); 
+        sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
+
+        const closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
+        if (closedInstIndex !== -1) {
+            const closedInst = store.allInstances[closedInstIndex];
+            
+            const sessionDuration = Date.now() - (closedInst._tempSessionStart || Date.now());
+            closedInst._tempSessionStart = null; 
+            closedInst.playTime = (closedInst.playTime || 0) + sessionDuration;
+            closedInst.lastPlayed = Date.now();
+
+            if (!closedInst.sessionHistory) closedInst.sessionHistory = [];
+            const today = new Date().toISOString().slice(0, 10);
+            const existing = closedInst.sessionHistory.find(s => s.date === today);
+            if (existing) existing.ms += sessionDuration;
+            else closedInst.sessionHistory.push({ date: today, ms: sessionDuration });
+            closedInst.sessionHistory = closedInst.sessionHistory.slice(-30);
+
+            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            await performAutoBackup(closedInst, "on_close");
+
+            if (store.selectedInstanceIdx === closedInstIndex) {
+                const logOutput = document.getElementById("log-output");
+                logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
+                
+                if (code !== 0) {
+                    document.getElementById("console-container").style.display = "block";
+                    const culprit = await window.analyzeCrash(instanceId);
+                    if (culprit) {
+                       const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
+                        if (action) { window.openEditModal('tab-mods'); }
+                    }
+                }
+                
+                document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                document.getElementById("progress-bar").style.width = "0%";
+                window.selectInstance(store.selectedInstanceIdx); 
+            }
+        }
+
+        if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility === "hide") {
+            ipcRenderer.send("show-window");
+            windowHidden = false;
+        }
+
+        try {
+            const notif = new Notification("Gens Launcher", {
+                body: code === 0 ? `${instanceId} s'est fermé normalement.` : `Le jeu s'est arrêté avec une erreur (code ${code}).`,
+                silent: true
+            });
+            notif.onclick = () => { ipcRenderer.send("show-window"); };
+        } catch(e) {}
+
+        window.setUIState();
+        if (window.renderUI) window.renderUI(); 
+        
+        if (store.activeInstances.size === 0) {
+            updateRPC(); 
+        }
+    }); 
+
     document.getElementById("launch-btn").addEventListener("click", async () => {
-        if (store.isGameRunning && !store.globalSettings.multiInstance) {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+
+        if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
             try {
-                await ipcRenderer.invoke("force-stop-game");
+                const targetToStop = store.activeInstances.has(inst.name) ? inst.name : Array.from(store.activeInstances)[0];
+                await ipcRenderer.invoke("force-stop-game", targetToStop);
                 window.showToast(t("msg_force_stop_sent", "Tentative d'arrêt forcé envoyée."), "info");
             } catch(e) { console.error(e); }
             return;
         }
 
-        const inst = store.allInstances[store.selectedInstanceIdx];
         const acc = store.allAccounts[store.selectedAccountIdx];
         const instancePath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-        const progBar = document.getElementById("progress-bar");
         const logOutput = document.getElementById("log-output");
 
         await performAutoBackup(inst, "on_launch");
@@ -204,12 +372,10 @@ export function setupLauncher() {
                 if (newJava) jPath = newJava;
                 else {
                     document.getElementById("status-text").innerText = t("msg_err_java", "Erreur Java");
-                    window.setUIState(false);
                     return;
                 }
             } else {
                 document.getElementById("status-text").innerText = t("msg_err_java", "Erreur Java");
-                window.setUIState(false);
                 return;
             }
         }
@@ -255,6 +421,7 @@ export function setupLauncher() {
         }
 
         let opts = {
+            instanceId: inst.name, 
             authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
             memory: { max: ramMB + "M", min: "1024M" }, javaPath: jPath, customArgs: customArgs,
             window: { width: resW, height: resH }, spawnOptions: { detached: false, shell: false, windowsHide: true },
@@ -265,7 +432,10 @@ export function setupLauncher() {
             const srvHost = parts[0];
             const srvPort = parts[1] ? parts[1] : "25565";
             opts.server = { host: srvHost, port: srvPort };
-            opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+            const minorVer = parseInt(inst.version.split('.')[1]) || 0;
+            if (minorVer >= 20) {
+                opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+            }
         }
 
         if (inst.loader === "fabric") {
@@ -292,7 +462,7 @@ export function setupLauncher() {
         }
         else if (inst.loader === "quilt") {
             try {
-                document.getElementById("status-text").innerText = "Installation de Quilt...";
+                document.getElementById("status-text").innerText = t("msg_install_quilt", "Installation de Quilt...");
                 let loaderVer = inst.loaderVersion;
                 if (!loaderVer) {
                     const qRes = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
@@ -317,7 +487,7 @@ export function setupLauncher() {
             sysLog(`Configuration de l'environnement ${inst.loader} ${inst.loaderVersion || 'latest'}...`);
             if (!inst.loaderVersion) {
                 window.showToast(`Impossible de lancer : Version exacte de ${inst.loader} manquante.`, "error");
-                window.setUIState(false); return;
+                return;
             }
             
             const installersDir = path.join(store.dataDir, "installers");
@@ -360,7 +530,7 @@ export function setupLauncher() {
                     sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
                     window.showToast(t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
                     document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-                    window.setUIState(false); return;
+                    return;
                 }
             }
 
@@ -375,137 +545,15 @@ export function setupLauncher() {
         }
 
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
-        window.setUIState(true);
+        
+        store.activeInstances.add(inst.name);
+        window.setUIState();
+        if (window.renderUI) window.renderUI();
+
         inst._tempSessionStart = Date.now();
         updateRPC(inst); 
-        
-        document.getElementById("live-stats").style.display = "block";
-        lastCpuTimes = os.cpus().map(c => c.times); 
-        monitorInterval = setInterval(window.updateLiveStats, 1500);
 
         sysLog("Démarrage du processus MCLC...");
         window.api.send("launch-game", opts);
-
-        let lastLogPerc = -1;
-        window.api.on("mc-progress", (e) => {
-            let perc = 0;
-            if (e.total > 0) perc = Math.round((e.task / e.total) * 100);
-            progBar.style.width = perc + "%";
-            document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
-            if (perc % 10 === 0 && perc !== lastLogPerc) {
-                lastLogPerc = perc;
-                logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#aaa;">[SYSTEM] ${t("msg_dl", "Téléchargement :")} ${perc}%</div>`);
-                if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
-            }
-        });
-
-        let windowHidden = false;
-        let menuTimer = null;
-        let currentServerIP = ""; 
-
-        window.api.on("mc-data", (data) => {
-            if (store.globalSettings.launcherVisibility === "hide" && !windowHidden) {
-                ipcRenderer.send("hide-window");
-                windowHidden = true;
-            }
-            const dStr = data.toString().trim();
-            if (!dStr) return;
-            sysLog("GAME: " + dStr);
-
-            const pBar = document.getElementById("progress-bar");
-            if (pBar && pBar.style.width !== "0%") {
-                pBar.style.width = "0%";
-                document.getElementById("status-text").innerText = "Jeu en cours d'exécution...";
-            }
-
-            try {
-                if (dStr.includes("Started") && dStr.includes("worker threads")) { if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; } }
-                if (dStr.includes("Connecting to")) {
-                    const parts = dStr.split("Connecting to ");
-                    if (parts[1]) {
-                        currentServerIP = parts[1].split(",")[0].trim();
-                        updateRPC(inst, `Sur un serveur (${currentServerIP})`);
-                    }
-                } else if (
-                    dStr.includes("Saving and pausing game...") || dStr.includes("lost connection") || 
-                    dStr.includes("Stopping singleplayer server") || dStr.includes("Stopping server") ||
-                    dStr.includes("Disconnecting from server") || dStr.includes("Clearing local world") || dStr.includes("Quitting")
-                ) {
-                    currentServerIP = ""; updateRPC(inst, t("discord_in_menu", "Dans le menu du jeu"));
-                } else if (dStr.includes("Stopping worker threads")) {
-                    menuTimer = setTimeout(() => { currentServerIP = ""; updateRPC(inst, "Dans le menu du jeu"); }, 1500); 
-                } else if (dStr.includes("logged in with entity id") || dStr.includes("Starting integrated minecraft server")) {
-                    if (currentServerIP) updateRPC(inst, `Sur un serveur (${currentServerIP})`);
-                    else updateRPC(inst, t("discord_playing_solo", "En survie Solo"));
-                }
-            } catch (e) { console.error("Erreur détection RPC:", e); }
-
-            let color = "#d4d4d4"; 
-            if (dStr.includes("WARN")) color = "#ffaa00"; 
-            if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171"; 
-
-            logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
-            
-            while (logOutput.childElementCount > 500) {
-                logOutput.removeChild(logOutput.firstChild);
-            }
-            
-            const filter = document.getElementById("console-filter").value.toLowerCase();
-            if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
-            if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
-        });
-
-        window.api.on("mc-close", async (code) => {
-            sysLog(`Le jeu s'est arrêté avec le code ${code}`, code !== 0);
-            logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
-
-            if (code !== 0) {
-                document.getElementById("console-container").style.display = "block";
-                const culprit = await window.analyzeCrash(store.allInstances[store.selectedInstanceIdx].name);
-                if (culprit) {
-                   const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
-                    if (action) { window.openEditModal('tab-mods'); }
-                }
-            }
-
-            if (store.selectedInstanceIdx !== null && store.allInstances[store.selectedInstanceIdx]) {
-                const currentInst = store.allInstances[store.selectedInstanceIdx];
-
-                const sessionDuration = Date.now() - (currentInst._tempSessionStart || Date.now());
-                currentInst._tempSessionStart = null; 
-                currentInst.playTime = (currentInst.playTime || 0) + sessionDuration;
-                currentInst.lastPlayed = Date.now();
-
-                if (!currentInst.sessionHistory) currentInst.sessionHistory = [];
-                const today = new Date().toISOString().slice(0, 10);
-                const existing = currentInst.sessionHistory.find(s => s.date === today);
-                if (existing) existing.ms += sessionDuration;
-                else currentInst.sessionHistory.push({ date: today, ms: sessionDuration });
-                currentInst.sessionHistory = currentInst.sessionHistory.slice(-30);
-
-                fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
-                
-                await performAutoBackup(currentInst, "on_close");
-                window.selectInstance(store.selectedInstanceIdx);
-            }
-            
-            if (store.globalSettings.launcherVisibility === "hide") ipcRenderer.send("show-window");
-            
-            clearInterval(monitorInterval);
-            document.getElementById("live-stats").style.display = "none";
-
-            try {
-                const notif = new Notification("Gens Launcher", {
-                    body: code === 0 ? `${store.allInstances[store.selectedInstanceIdx]?.name || "Minecraft"} s'est fermé normalement.` : `Le jeu s'est arrêté avec une erreur (code ${code}).`,
-                    silent: true
-                });
-                notif.onclick = () => { ipcRenderer.send("show-window"); };
-            } catch(e) {}
-
-            document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-            progBar.style.width = "0%";
-            window.setUIState(false);
-            updateRPC(); 
-        }); 
     }); 
 }

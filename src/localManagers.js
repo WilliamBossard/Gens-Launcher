@@ -115,18 +115,18 @@ export function setupLocalManagers() {
     };
 
     window.deleteMod = async (filename) => {
-      if (await window.showCustomConfirm(t("msg_delete_mod_confirm", "Voulez-vous vraiment supprimer ce fichier ?") + "\n(" + filename + ")", true)) {
+      if (await window.showCustomConfirm(t("msg_delete_confirm", "Voulez-vous vraiment supprimer ce fichier ?") + "\n(" + filename + ")", true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
             try {
                 const filePath = path.join(modsPath, filename);
                 if (fs.existsSync(filePath)) {
                     fs.unlinkSync(filePath);
-                    window.showToast("Mod supprimé !", "success");
+                    window.showToast(t("msg_mod_deleted", "Mod supprimé !"), "success");
                     window.renderModsManager(); 
                 }
             } catch(e) {
-                window.showToast("Erreur lors de la suppression.", "error");
+                window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error");
             }
         }
     };
@@ -146,7 +146,14 @@ export function setupLocalManagers() {
                 const displayName = file.replace(".zip.disabled", ".zip");
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                listDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration};">${displayName}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader('${file}', this.checked)"></div>`;
+                listDiv.innerHTML += `
+                <div class="mod-item">
+                    <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
+                    <div style="display:flex; gap:8px; align-items: center;">
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader('${file}', this.checked)" title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteShader('${file}')" title="Supprimer définitivement">X</button>
+                    </div>
+                </div>`;
             }
         });
         if (!hasItems) listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
@@ -160,6 +167,20 @@ export function setupLocalManagers() {
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
         );
         window.renderShadersManager();
+    };
+
+    window.deleteShader = async (filename) => {
+        if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce shader ?"), true)) {
+            const inst = store.allInstances[store.selectedInstanceIdx];
+            const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "shaderpacks", filename);
+            try {
+                if (fs.existsSync(targetPath)) {
+                    fs.unlinkSync(targetPath);
+                    window.showToast(t("msg_shader_deleted", "Shader supprimé !"), "success");
+                    window.renderShadersManager();
+                }
+            } catch(e) { window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error"); }
+        }
     };
 
     window.renderResourcePacksManager = function() {
@@ -177,7 +198,14 @@ export function setupLocalManagers() {
                 const displayName = file.replace(".zip.disabled", ".zip");
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                listDiv.innerHTML += `<div class="mod-item"><span style="color: ${color}; text-decoration: ${decoration};">${displayName}</span><input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack('${file}', this.checked)"></div>`;
+                listDiv.innerHTML += `
+                <div class="mod-item">
+                    <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
+                    <div style="display:flex; gap:8px; align-items: center;">
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack('${file}', this.checked)" title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteResourcePack('${file}')" title="Supprimer définitivement">X</button>
+                    </div>
+                </div>`;
             }
         });
         if (!hasItems) listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
@@ -191,6 +219,20 @@ export function setupLocalManagers() {
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
         );
         window.renderResourcePacksManager();
+    };
+
+    window.deleteResourcePack = async (filename) => {
+        if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce pack ?"), true)) {
+            const inst = store.allInstances[store.selectedInstanceIdx];
+            const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "resourcepacks", filename);
+            try {
+                if (fs.existsSync(targetPath)) {
+                    fs.unlinkSync(targetPath);
+                    window.showToast(t("msg_rp_deleted", "Pack supprimé !"), "success");
+                    window.renderResourcePacksManager();
+                }
+            } catch(e) { window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error"); }
+        }
     };
 
     window.addServer = () => {
@@ -232,10 +274,20 @@ export function setupLocalManagers() {
             return;
         }
 
-inst.servers.forEach((ip, i) => {
+        const minorVer = parseInt(inst.version.split('.')[1]) || 0;
+        const canAutoConnect = minorVer >= 20;
+
+        inst.servers.forEach((ip, i) => {
             const isAuto = inst.autoConnect === ip;
             const safeIp = window.escapeHTML(ip); 
             
+            let autoBtnHtml = "";
+            if (canAutoConnect) {
+                autoBtnHtml = `<button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip.replace(/'/g, "\\'")}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>`;
+            } else {
+                autoBtnHtml = `<span style="font-size: 0.65rem; color: #666; margin-right: 5px; align-self: center;" title="${t("msg_req_mc_120", "Nécessite Minecraft 1.20+")}">Auto 1.20+</span>`;
+            }
+
             list.innerHTML += `
             <div style="background: rgba(0,0,0,0.2); border: 1px solid ${isAuto ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -243,7 +295,7 @@ inst.servers.forEach((ip, i) => {
                     <div id="srv-ping-${i}" style="font-size: 0.75rem; color: #aaa;">- ${t("msg_ping", "Ping...")}</div>
                 </div>
                 <div style="display: flex; gap: 5px;">
-                    <button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip.replace(/'/g, "\\'")}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>
+                    ${autoBtnHtml}
                     <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;

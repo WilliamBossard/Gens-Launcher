@@ -32,6 +32,7 @@ export const store = {
     selectedAccountIdx: null,
     uiSelectedAccRow: null,
     isGameRunning: false,
+    activeInstances: new Set(), 
     sessionStartTime: 0,
     maxSafeRam: 4096,
     collapsedGroups: {},

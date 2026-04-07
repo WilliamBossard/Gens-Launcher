@@ -108,7 +108,7 @@ function setupAuth() {
           if(window.renderAccountManager) window.renderAccountManager();
           if(window.changeAccountFromCode) window.changeAccountFromCode();
           if(window.closeAccountModal) window.closeAccountModal();
-          if(window.updateAccountDropdown) window.updateAccountDropdown(); // <-- Sécurité pour mettre à jour le menu principal
+          if(window.updateAccountDropdown) window.updateAccountDropdown(); 
           
           window.showToast("Connexion réussie !", "success");
         } else if (result.cancelled) {

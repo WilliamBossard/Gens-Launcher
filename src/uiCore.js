@@ -5,6 +5,10 @@ const path = window.api.path;
 const shell = window.api.shell;
 const clipboard = window.api.clipboard;
 
+function t(key, fallback) {
+    return store.currentLangObj[key] || fallback;
+}
+
 export function setupUICore() {
 
     window.loadStorage = () => {
@@ -72,7 +76,7 @@ export function setupUICore() {
         else if (sort === "lastPlayed") filtered.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
         else if (sort === "playTime")   filtered.sort((a, b) => (b.playTime    || 0) - (a.playTime    || 0));
 
-        const defaultGroup = (store.currentLangObj && store.currentLangObj["lbl_group_general"]) || "Général";
+        const defaultGroup = t("lbl_group_general", "Général");
 
         const groups = {};
         filtered.forEach(inst => {
@@ -104,7 +108,7 @@ export function setupUICore() {
             >${g} (${groups[g].length})</div>`;
 
             html += `<div class="instances-grid">`;
-groups[g].forEach(inst => {
+            groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
 
@@ -123,12 +127,20 @@ groups[g].forEach(inst => {
                 const safeVersion = window.escapeHTML(inst.version);
                 const safeLoader = window.escapeHTML(inst.loader);
 
+                const isRunning = store.activeInstances.has(inst.name);
+                const runningBadge = isRunning 
+                    ? `<div style="position: absolute; top: -6px; right: -6px; background: #17B139; color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 10;">${t("lbl_running", "En cours")}</div>` 
+                    : "";
+
                 html += `
                 <div class="instance-card ${isActive}"
+                    style="position: relative;"
                     onclick="selectInstance(${inst.originalIndex})"
+                    ondblclick="document.getElementById('launch-btn').click()" 
                     draggable="true"
                     ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
+                    ${runningBadge}
                     <img src="${iconSrc}" class="instance-icon">
                     <div class="instance-name">${safeName}</div>
                     <div class="instance-version">${safeVersion} (${safeLoader})</div>
@@ -170,7 +182,7 @@ groups[g].forEach(inst => {
         select.innerHTML = "";
 
         if (!store.allAccounts || store.allAccounts.length === 0) {
-            select.innerHTML = `<option value="">Aucun compte</option>`;
+            select.innerHTML = `<option value="">${t("msg_no_acc", "Aucun profil")}</option>`;
             if (activeSkin) activeSkin.style.display = "none";
             return;
         }
@@ -285,7 +297,7 @@ groups[g].forEach(inst => {
         if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
 
         if (store.selectedInstanceIdx === null) {
-            if (window.showToast) window.showToast((store.currentLangObj && store.currentLangObj["msg_select_inst"]) || "Sélectionnez d'abord une instance !", "error");
+            if (window.showToast) window.showToast(t("msg_select_inst", "Sélectionnez d'abord une instance !"), "error");
             return;
         }
 
@@ -320,7 +332,7 @@ groups[g].forEach(inst => {
         }
 
         if (added > 0) {
-            if (window.showToast) window.showToast(`${added} ${(store.currentLangObj && store.currentLangObj["msg_files_added"]) || "fichier(s) ajouté(s) !"}`, "success");
+            if (window.showToast) window.showToast(`${added} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
             
             if (document.getElementById("modal-edit").style.display === "flex") {
                 if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
@@ -328,7 +340,7 @@ groups[g].forEach(inst => {
                 if (document.getElementById("tab-resourcepacks").classList.contains("active") && window.renderResourcePacksManager) window.renderResourcePacksManager();
             }
         } else {
-            if (window.showToast) window.showToast((store.currentLangObj && store.currentLangObj["msg_err_format_drag"]) || "Format non supporté (.jar ou .zip uniquement).", "error");
+            if (window.showToast) window.showToast(t("msg_err_format_drag", "Format non supporté (.jar ou .zip uniquement)."), "error");
         }
     });
 }
