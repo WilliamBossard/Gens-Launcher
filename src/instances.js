@@ -133,9 +133,7 @@ export function setupInstances() {
         }
 
         window.renderUI();
-        if (!store.isGameRunning) {
-            updateRPC(); 
-        }
+        if (!store.isGameRunning) updateRPC(); 
         if (window.updateLaunchButton) window.updateLaunchButton();
     };
 
@@ -143,10 +141,8 @@ export function setupInstances() {
         document.getElementById("new-name").value = "";
         document.getElementById("new-name").style.borderColor = "var(--border)";
         document.getElementById("new-loader").value = "vanilla";
-        
         document.getElementById("new-ram-input").value = store.globalSettings.defaultRam;
         document.getElementById("new-ram-slider").value = store.globalSettings.defaultRam;
-        
         document.getElementById("modal-instance").style.display = "flex";
         window.updateLoaderVersions();
     };
@@ -170,6 +166,12 @@ export function setupInstances() {
         document.getElementById("edit-res-w").value = inst.resW || "";
         document.getElementById("edit-res-h").value = inst.resH || "";
         document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
+        
+        document.getElementById("edit-jvm-gc").value = inst.jvmGc || "default";
+        document.getElementById("edit-jvm-aikar").checked = !!inst.jvmAikar;
+        document.getElementById("edit-jvm-pretouch").checked = !!inst.jvmPreTouch;
+        document.getElementById("edit-jvm-nogui").checked = !!inst.jvmNoGui;
+
         document.getElementById("edit-notes").value = inst.notes || "";
         document.getElementById("edit-icon-preview").src = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
         document.getElementById("edit-backup-mode").value = inst.backupMode || "none";
@@ -200,16 +202,16 @@ export function setupInstances() {
             return;
         }
 
-const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
-if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
-    nameInput.style.borderColor = "#f87171";
-    window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
-    return;
-}
-
-        if (store.allInstances.some(i => i.name.toLowerCase() === name.toLowerCase())) {
+        const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
+        if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
-            window.showToast("Ce nom d'instance existe déjà !", "error");
+            window.showToast("Ce nom est invalide car réservé par le système.", "error");
+            return;
+        }
+
+        if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
+            nameInput.style.borderColor = "#f87171";
+            window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
             return;
         }
 
@@ -228,7 +230,9 @@ if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFold
             loader: document.getElementById("new-loader").value,
             loaderVersion: document.getElementById("new-loader-version").value, 
             ram: document.getElementById("new-ram-input").value.toString(),
-            javaPath: "", jvmArgs: "", notes: "", icon: "", resW: "", resH: "",
+            javaPath: "", jvmArgs: "", 
+            jvmGc: "default", jvmAikar: false, jvmPreTouch: false, jvmNoGui: false,
+            notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
@@ -236,6 +240,11 @@ if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFold
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         if (fs.existsSync(defaultOpt)) {
             try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
+        }
+
+        const defaultSrv = path.join(store.dataDir, "default_servers.dat");
+        if (fs.existsSync(defaultSrv)) {
+            try { fs.copyFileSync(defaultSrv, path.join(destFolder, "servers.dat")); } catch(e) {}
         }
 
         window.renderUI();
@@ -253,21 +262,22 @@ if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFold
 
         if (newName !== inst.name) {
             const safeOldName = inst.name.replace(/[^a-z0-9]/gi, "_");
-const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
-if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && i.name.replace(/[^a-z0-9]/gi, "_") === safeNewName)) {
-    window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
-    return;
-}
+            const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
 
-            if (store.allInstances.some(i => i.name.toLowerCase() === newName.toLowerCase())) {
-                window.showToast("Ce nom d'instance existe déjà !", "error");
+            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeNewName)) {
+                window.showToast("Ce nom est invalide car réservé par le système.", "error");
+                return;
+            }
+
+            if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && i.name.replace(/[^a-z0-9]/gi, "_") === safeNewName)) {
+                window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
                 return;
             }
 
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
-if (oldFolder !== newFolder) {
+            if (oldFolder !== newFolder) {
                 try {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);
@@ -290,6 +300,12 @@ if (oldFolder !== newFolder) {
         inst.resW = document.getElementById("edit-res-w").value;
         inst.resH = document.getElementById("edit-res-h").value;
         inst.jvmArgs = document.getElementById("edit-jvmargs").value;
+        
+        inst.jvmGc = document.getElementById("edit-jvm-gc").value;
+        inst.jvmAikar = document.getElementById("edit-jvm-aikar").checked;
+        inst.jvmPreTouch = document.getElementById("edit-jvm-pretouch").checked;
+        inst.jvmNoGui = document.getElementById("edit-jvm-nogui").checked;
+
         inst.notes = document.getElementById("edit-notes").value;
         inst.backupMode = document.getElementById("edit-backup-mode").value;
         inst.backupLimit = parseInt(document.getElementById("edit-backup-limit").value) || 5;
@@ -359,7 +375,7 @@ if (oldFolder !== newFolder) {
         window.renderUI();
     };
 
-window.deleteInstance = async () => {
+    window.deleteInstance = async () => {
         if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));

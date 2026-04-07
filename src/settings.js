@@ -32,12 +32,19 @@ export function setupSettings() {
             optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
         });
 
+        // NOUVEAU : Serveurs par défaut
+        const srvSelect = document.getElementById("global-servers-source");
+        srvSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
+        store.allInstances.forEach((inst, i) => {
+            const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
+            srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
+        });
+
         [25, 21, 17, 8].forEach(v => {
             const btn = document.getElementById("btn-dl-java-" + v);
             if (!btn) return;
 
             let isInstalled = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
-            
             if (!isInstalled) {
                 const basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
                 for (let bp of basePaths) {
@@ -71,9 +78,7 @@ export function setupSettings() {
         document.getElementById("modal-settings").style.display = "flex";
     };
 
-    window.closeGlobalSettings = () => {
-        document.getElementById("modal-settings").style.display = "none";
-    };
+    window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
 
     window.saveGlobalSettings = () => {
         store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value);
@@ -93,9 +98,7 @@ export function setupSettings() {
             try {
                 fs.copyFileSync(bgPath, newBgPath);
                 bgPath = newBgPath;
-            } catch(e) {
-                console.error("Erreur copie fond d'écran:", e);
-            }
+            } catch(e) {}
         }
 
         store.globalSettings.theme = {
@@ -117,7 +120,6 @@ export function setupSettings() {
 
     window.saveDefaultOptions = () => {
         const idx = document.getElementById("global-options-source").value;
-        
         if (idx === "none") {
             const defaultOpt = path.join(store.dataDir, "default_options.txt");
             if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
@@ -126,7 +128,6 @@ export function setupSettings() {
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
-        
         if (idx === "") return;
         const inst = store.allInstances[idx];
         const sourceOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
@@ -140,23 +141,43 @@ export function setupSettings() {
         }
     };
 
+    window.saveDefaultServers = () => {
+        const idx = document.getElementById("global-servers-source").value;
+        const defaultSrv = path.join(store.dataDir, "default_servers.dat");
+        
+        if (idx === "none") {
+            if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
+            store.globalSettings.defaultServersInstance = null;
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+            window.showToast("Profil de serveurs désactivé.", "info");
+            return;
+        }
+        if (idx === "") return;
+        const inst = store.allInstances[idx];
+        const sourceSrv = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "servers.dat");
+        if (fs.existsSync(sourceSrv)) {
+            fs.copyFileSync(sourceSrv, defaultSrv);
+            store.globalSettings.defaultServersInstance = inst.name;
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+            window.showToast("Profil de serveurs sauvegardé !", "success");
+        } else {
+            window.showToast("Aucun serveur trouvé sur cette instance.", "error");
+        }
+    };
+
     window.forceInjectOptions = () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const destOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        
         if (!fs.existsSync(defaultOpt)) {
             window.showToast(t("msg_force_sync_error", "Aucun profil par défaut défini dans les Paramètres Globaux."), "error");
             return;
         }
-        
         try {
             fs.copyFileSync(defaultOpt, destOpt);
             window.showToast(t("msg_force_sync_success", "Touches synchronisées avec succès !"), "success");
-        } catch(e) {
-            window.showToast("Erreur de synchronisation.", "error");
-        }
+        } catch(e) { window.showToast("Erreur de synchronisation.", "error"); }
     };
 
     window.scanJavaVersions = () => {
@@ -169,15 +190,11 @@ export function setupSettings() {
         else document.getElementById("edit-javapath").value = "";
 
         const basePaths = [
-            path.join(store.dataDir, "java"),
-            "C:\\Program Files\\Java",
-            "C:\\Program Files (x86)\\Java",
-            "C:\\Program Files\\Eclipse Adoptium",
-            "C:\\Program Files\\Amazon Corretto",
+            path.join(store.dataDir, "java"), "C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java",
+            "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Amazon Corretto",
         ];
         
         let found = 0;
-
         function findJavaW(dir, depth = 0) {
             if (depth > 3) return null; 
             try {
@@ -187,9 +204,7 @@ export function setupSettings() {
                     if (fs.statSync(fullPath).isDirectory) { 
                         const res = findJavaW(fullPath, depth + 1);
                         if (res) return res;
-                    } else if (f.toLowerCase() === "javaw.exe") {
-                        return fullPath;
-                    }
+                    } else if (f.toLowerCase() === "javaw.exe") return fullPath;
                 }
             } catch (e) {}
             return null;
@@ -277,20 +292,6 @@ export function setupSettings() {
             return null;
         } finally {
             window.hideLoading();
-        }
-    };
-
-    window.checkLauncherUpdates = async () => {
-        const statusDiv = document.getElementById("update-status");
-        if (statusDiv) statusDiv.innerText = t("msg_check_updates", "Vérification en cours...");
-        try {
-            const res = await window.api.invoke("check-for-updates");
-            if (!res.success && statusDiv) {
-                statusDiv.innerText = "Erreur de vérification.";
-                window.showToast("Erreur de mise à jour : " + res.error, "error");
-            }
-        } catch (e) {
-            if (statusDiv) statusDiv.innerText = "Impossible de joindre le serveur.";
         }
     };
 }

@@ -1211,6 +1211,21 @@
                     </div>
                 </div>
 
+                <div style="display: flex; gap: 15px; margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+                    <div class="stat-box" style="flex: 1;">
+                        <div class="stat-value" id="stat-mobs" style="font-size: 1.4rem;">0</div>
+                        <div class="stat-label">Mobs Tués</div>
+                    </div>
+                    <div class="stat-box" style="flex: 1;">
+                        <div class="stat-value" id="stat-walk" style="font-size: 1.4rem;">0 km</div>
+                        <div class="stat-label">Distance (Marche)</div>
+                    </div>
+                    <div class="stat-box" style="flex: 1;">
+                        <div class="stat-value" id="stat-jumps" style="font-size: 1.4rem;">0</div>
+                        <div class="stat-label">Sauts</div>
+                    </div>
+                </div>
+
                 <div style="margin-top: 15px; background: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <div style="color: #f87171; font-weight: bold; font-size: 0.9rem;">Fichiers temporaires (Cache)</div>
@@ -1427,6 +1442,13 @@
                         <button class="btn-secondary" onclick="saveDefaultOptions()" data-i18n="btn_save_options">Définir comme défaut</button>
                     </div>
 
+                    <label style="margin-top: 15px;">Profil de Serveurs (servers.dat)</label>
+                    <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">Copie automatiquement les serveurs de cette instance vers toutes les nouvelles instances.</div>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="global-servers-source" style="flex-grow: 1;"></select>
+                        <button class="btn-secondary" onclick="saveDefaultServers()">Définir comme défaut</button>
+                    </div>
+
                     <label style="margin-top: 15px;" data-i18n="lbl_fav_server">Serveur favori (Afficher le statut)</label>
                     <input type="text" id="global-server-ip" placeholder="Ex: play.hypixel.net">
                 </div>
@@ -1637,11 +1659,37 @@
                         <div style="flex: 1;"><label data-i18n="lbl_width">Largeur</label><input type="number" id="edit-res-w" placeholder="854"></div>
                         <div style="flex: 1;"><label data-i18n="lbl_height">Hauteur</label><input type="number" id="edit-res-h" placeholder="480"></div>
                     </div>
+                    
+                    <label style="margin-top: 15px; font-weight: bold; color: var(--accent);">Optimisations Java (1 par 1)</label>
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label style="margin: 0; color: var(--text-light);">Type de Garbage Collector (GC)</label>
+                            <select id="edit-jvm-gc" style="width: 170px; padding: 4px;">
+                                <option value="default">Par défaut</option>
+                                <option value="g1gc">G1GC (Recommandé)</option>
+                                <option value="zgc">ZGC (Basse latence)</option>
+                                <option value="shenandoah">Shenandoah</option>
+                            </select>
+                        </div>
+                        <div class="checkbox-container">
+                            <input type="checkbox" id="edit-jvm-aikar">
+                            <label for="edit-jvm-aikar">Aikar's Flags (Ultra-optimisation pour G1GC)</label>
+                        </div>
+                        <div class="checkbox-container">
+                            <input type="checkbox" id="edit-jvm-pretouch">
+                            <label for="edit-jvm-pretouch">AlwaysPreTouch (Évite les freezes de RAM en jeu)</label>
+                        </div>
+                        <div class="checkbox-container">
+                            <input type="checkbox" id="edit-jvm-nogui">
+                            <label for="edit-jvm-nogui">Headless (Désactive l'interface Java pour gagner du CPU)</label>
+                        </div>
+                    </div>
+
                     <div style="display: flex; align-items: center; margin-top: 10px;">
-                        <label data-i18n="lbl_jvm" style="margin-top: 0;">Arguments JVM personnalisés</label>
+                        <label data-i18n="lbl_jvm" style="margin-top: 0;">Arguments JVM manuels (Avancé)</label>
                         <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_jvm_args">?</div>
                     </div>
-                    <input type="text" id="edit-jvmargs" placeholder="-XX:+UseG1GC ...">
+                    <input type="text" id="edit-jvmargs" placeholder="-XX:HeapDumpPath=... ">
                 </div>
 
                 <div id="tab-notes" class="settings-content">

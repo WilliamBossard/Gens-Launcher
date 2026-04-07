@@ -168,8 +168,11 @@ export function setupUICore() {
     window.switchTabGlob = (tabId) => {
         document.querySelectorAll("#modal-settings .settings-tab").forEach(t => t.classList.remove("active"));
         document.querySelectorAll("#modal-settings .settings-content").forEach(c => c.classList.remove("active"));
-        const btn = document.getElementById("tab-btn-" + tabId);
+        
+        // CORRECTION DE LA BARRE BLEUE ICI
+        const btn = document.getElementById("tab-btn-" + tabId.replace("tab-", ""));
         if (btn) btn.classList.add("active");
+        
         const tab = document.getElementById(tabId);
         if (tab) tab.classList.add("active");
     };

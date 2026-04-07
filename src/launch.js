@@ -88,7 +88,6 @@ export function setupLauncher() {
         const isThisRunning = store.activeInstances.has(inst.name);
         const isAnyRunning = store.activeInstances.size > 0;
 
-        // CORRECTION SÉCURITÉ: Verrouille les boutons de l'instance SI elle tourne (évite les corruptions)
         const lockUI = isThisRunning || (!store.globalSettings.multiInstance && isAnyRunning);
         
         ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach((id) => { 
@@ -167,7 +166,6 @@ export function setupLauncher() {
         return suspectedMod;
     };
 
-
     let lastLogPerc = -1;
     let menuTimers = {};
     let currentServerIPs = {};
@@ -225,7 +223,6 @@ export function setupLauncher() {
         }
 
         try {
-            // CORRECTION RPC : Anti-Spam (On ne met à jour que l'instance "Principale")
             if (instanceId !== store.primaryRpcInstance) return;
             
             const targetInstData = store.allInstances.find(i => i.name === instanceId);
@@ -260,7 +257,6 @@ export function setupLauncher() {
         store.activeInstances.delete(instanceId); 
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
 
-        // CORRECTION RPC : Remplacement de l'instance principale Discord
         if (instanceId === store.primaryRpcInstance) {
             store.primaryRpcInstance = null;
             if (store.activeInstances.size > 0) {
@@ -362,8 +358,29 @@ export function setupLauncher() {
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
         if (ramMB < 128) ramMB = ramMB * 1024;
         ramMB = Math.max(1024, ramMB);
+
         let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || "javaw";
+        
         let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) : [];
+        
+        // CORRECTION : INJECTION DES OPTIMISATIONS JAVA 1 PAR 1
+        if (inst.jvmGc === "g1gc") customArgs.push("-XX:+UseG1GC");
+        else if (inst.jvmGc === "zgc") customArgs.push("-XX:+UseZGC", "-XX:+ZGenerational");
+        else if (inst.jvmGc === "shenandoah") customArgs.push("-XX:+UseShenandoahGC");
+
+        if (inst.jvmAikar && (inst.jvmGc === "g1gc" || inst.jvmGc === "default")) {
+            if (inst.jvmGc === "default") customArgs.push("-XX:+UseG1GC"); 
+            customArgs.push("-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
+        }
+
+        if (inst.jvmPreTouch && !inst.jvmAikar) {
+            customArgs.push("-XX:+AlwaysPreTouch");
+        }
+        
+        if (inst.jvmNoGui) {
+            customArgs.push("-Djava.awt.headless=true");
+        }
+
         let resW = inst.resW ? parseInt(inst.resW) : 854;
         let resH = inst.resH ? parseInt(inst.resH) : 480;
 
@@ -560,7 +577,7 @@ export function setupLauncher() {
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
         
         store.activeInstances.add(inst.name);
-        store.primaryRpcInstance = inst.name; // Indique à Discord de regarder cette instance
+        store.primaryRpcInstance = inst.name; 
         window.setUIState();
         if (window.renderUI) window.renderUI(); 
 

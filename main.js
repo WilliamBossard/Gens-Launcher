@@ -78,7 +78,6 @@ ipcMain.handle("check-java", async (_, javaPath) => {
     });
 });
 
-// NOUVEAU : Contournement CORS pour l'API CurseForge
 ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
     try {
         const response = await fetch(url, {

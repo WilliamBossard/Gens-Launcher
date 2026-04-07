@@ -60,6 +60,38 @@ export function setupStats() {
         return { files: filesToDelete, size: totalSize };
     }
 
+    // NOUVEAU : Calcul des statistiques in-game !
+    async function getInGameStats() {
+        let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
+
+        for (const inst of store.allInstances) {
+            const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+            if (!fs.existsSync(savesDir)) continue;
+
+            try {
+                const worlds = await fs.promises.readdir(savesDir);
+                for (const world of worlds) {
+                    const statsDir = path.join(savesDir, world, "stats");
+                    if (!fs.existsSync(statsDir)) continue;
+
+                    const statFiles = await fs.promises.readdir(statsDir);
+                    for (const file of statFiles) {
+                        if (!file.endsWith(".json")) continue;
+                        try {
+                            const data = JSON.parse(await fs.promises.readFile(path.join(statsDir, file), "utf8"));
+                            const custom = data.stats?.["minecraft:custom"] || {};
+                            
+                            totalKills += custom["minecraft:mob_kills"] || 0;
+                            totalWalkCm += custom["minecraft:walk_one_cm"] || 0;
+                            totalJumps += custom["minecraft:jump"] || 0;
+                        } catch(e) {}
+                    }
+                }
+            } catch(e) {}
+        }
+        return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
+    }
+
     window.openStatsModal = async () => {
         let totalTimeMs = 0;
         let totalMods = 0;
@@ -134,6 +166,14 @@ export function setupStats() {
                     <div style="font-size:0.6rem; color:#aaa; white-space:nowrap;">${label}</div>
                 </div>`;
             }).join("");
+        }
+
+        // --- Stats In-Game ---
+        const igStats = await getInGameStats();
+        if (document.getElementById("stat-mobs")) {
+            document.getElementById("stat-mobs").innerText = igStats.kills.toLocaleString();
+            document.getElementById("stat-walk").innerText = (igStats.walkCm / 100000).toFixed(1) + " km";
+            document.getElementById("stat-jumps").innerText = igStats.jumps.toLocaleString();
         }
 
         const [sizeBytes, cacheInfo] = await Promise.all([
