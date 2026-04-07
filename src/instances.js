@@ -200,12 +200,12 @@ export function setupInstances() {
             return;
         }
 
-        const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
-        if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeFolderName)) {
-            nameInput.style.borderColor = "#f87171";
-            window.showToast("Ce nom est invalide car réservé par le système.", "error");
-            return;
-        }
+const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
+if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
+    nameInput.style.borderColor = "#f87171";
+    window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
+    return;
+}
 
         if (store.allInstances.some(i => i.name.toLowerCase() === name.toLowerCase())) {
             nameInput.style.borderColor = "#f87171";
@@ -253,12 +253,11 @@ export function setupInstances() {
 
         if (newName !== inst.name) {
             const safeOldName = inst.name.replace(/[^a-z0-9]/gi, "_");
-            const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
-
-            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeNewName)) {
-                window.showToast("Ce nom est invalide car réservé par le système.", "error");
-                return;
-            }
+const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
+if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && i.name.replace(/[^a-z0-9]/gi, "_") === safeNewName)) {
+    window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
+    return;
+}
 
             if (store.allInstances.some(i => i.name.toLowerCase() === newName.toLowerCase())) {
                 window.showToast("Ce nom d'instance existe déjà !", "error");
@@ -268,10 +267,13 @@ export function setupInstances() {
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
-            if (oldFolder !== newFolder) {
+if (oldFolder !== newFolder) {
                 try {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);
+                        if (inst.icon && inst.icon.includes(safeOldName)) {
+                            inst.icon = inst.icon.replace(safeOldName, safeNewName);
+                        }
                     }
                 } catch (err) {
                     console.error("Erreur de renommage:", err);

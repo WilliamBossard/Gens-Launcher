@@ -78,6 +78,20 @@ ipcMain.handle("check-java", async (_, javaPath) => {
     });
 });
 
+// NOUVEAU : Contournement CORS pour l'API CurseForge
+ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
+    try {
+        const response = await fetch(url, {
+            headers: { "x-api-key": apiKey, "Accept": "application/json" }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return { success: true, data };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 const activeMinecraftClients = new Map();
 
 ipcMain.handle("force-stop-game", async (_, instanceId) => {
@@ -101,7 +115,7 @@ ipcMain.on("launch-game", (event, opts) => {
     }
     
     const instanceId = opts.instanceId;
-    const launcher = new Client(); 
+    const launcher = new Client();
 
     launcher.launch(opts).then((process) => {
         activeMinecraftClients.set(instanceId, { process, launcher });

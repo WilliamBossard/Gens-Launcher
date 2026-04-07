@@ -88,9 +88,10 @@ function setupMods() {
 
             const url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&modLoaderType=${modLoaderType}&sortField=2&sortOrder=desc&pageSize=20`;
             
-            const res = await fetch(url, { headers: { "x-api-key": apiKey } });
-            if (!res.ok) throw new Error(t("msg_cf_api_invalid"));
-            const data = await res.json();
+            // CORRECTION: Passage par le Main Process (Contournement CORS)
+            const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+            if (!res.success) throw new Error(t("msg_cf_api_invalid") + " " + (res.error || ""));
+            const data = res.data;
 
             resDiv.innerHTML = "";
             if (data.data.length === 0) {
@@ -210,8 +211,11 @@ function setupMods() {
             if (loader === "neoforge") modLoaderType = 6;
 
             const url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${version}&modLoaderType=${modLoaderType}`;
-            const res = await fetch(url, { headers: { "x-api-key": apiKey } });
-            const data = await res.json();
+            
+            // CORRECTION: Passage par le Main Process
+            const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+            if (!res.success) throw new Error(t("msg_cf_api_invalid"));
+            const data = res.data;
 
             if (!data.data || data.data.length === 0) {
                 if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");

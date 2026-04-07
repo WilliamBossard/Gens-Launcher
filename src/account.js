@@ -109,11 +109,11 @@ window.deleteSelectedRow = async () => {
         const name = nameInput.value.trim();
         if (!name) return;
         
-        store.allAccounts.push({
-            type: "offline",
-            name: name,
-            uuid: "offline-" + Date.now()
-        });
+store.allAccounts.push({
+    type: "offline",
+    name: name,
+    uuid: window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID().replace(/-/g, "") : "00000000000030008000" + Date.now().toString().slice(-12)
+});
         store.selectedAccountIdx = store.allAccounts.length - 1;
         
         fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");

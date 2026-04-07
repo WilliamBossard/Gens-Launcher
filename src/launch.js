@@ -88,6 +88,14 @@ export function setupLauncher() {
         const isThisRunning = store.activeInstances.has(inst.name);
         const isAnyRunning = store.activeInstances.size > 0;
 
+        // CORRECTION SÉCURITÉ: Verrouille les boutons de l'instance SI elle tourne (évite les corruptions)
+        const lockUI = isThisRunning || (!store.globalSettings.multiInstance && isAnyRunning);
+        
+        ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach((id) => { 
+            const el = document.getElementById(id);
+            if (el) el.disabled = lockUI; 
+        });
+
         if (isThisRunning || (!store.globalSettings.multiInstance && isAnyRunning)) {
             btn.innerText = t("btn_stop", "Forcer l'arrêt");
             btn.style.background = "#f87171";
@@ -102,14 +110,7 @@ export function setupLauncher() {
     window.setUIState = () => {
         const isAnyRunning = store.activeInstances.size > 0;
         store.isGameRunning = isAnyRunning;
-        const lockUI = isAnyRunning && !store.globalSettings.multiInstance;
-
-        document.getElementById("instances-container").style.pointerEvents = lockUI ? "none" : "auto";
-        document.getElementById("instances-container").style.opacity = lockUI ? "0.5" : "1";
-
-        ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach(
-            (id) => { if(document.getElementById(id)) document.getElementById(id).disabled = lockUI; }
-        );
+        
         window.updateLaunchButton();
 
         if (isAnyRunning && !monitorInterval) {
@@ -224,6 +225,9 @@ export function setupLauncher() {
         }
 
         try {
+            // CORRECTION RPC : Anti-Spam (On ne met à jour que l'instance "Principale")
+            if (instanceId !== store.primaryRpcInstance) return;
+            
             const targetInstData = store.allInstances.find(i => i.name === instanceId);
             if (!targetInstData) return;
 
@@ -255,6 +259,18 @@ export function setupLauncher() {
 
         store.activeInstances.delete(instanceId); 
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
+
+        // CORRECTION RPC : Remplacement de l'instance principale Discord
+        if (instanceId === store.primaryRpcInstance) {
+            store.primaryRpcInstance = null;
+            if (store.activeInstances.size > 0) {
+                store.primaryRpcInstance = Array.from(store.activeInstances)[0];
+                const nextInst = store.allInstances.find(i => i.name === store.primaryRpcInstance);
+                if (nextInst) updateRPC(nextInst, t("discord_in_menu", "Dans le jeu"));
+            } else {
+                updateRPC(); 
+            }
+        }
 
         const closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
         if (closedInstIndex !== -1) {
@@ -309,10 +325,6 @@ export function setupLauncher() {
 
         window.setUIState();
         if (window.renderUI) window.renderUI(); 
-        
-        if (store.activeInstances.size === 0) {
-            updateRPC(); 
-        }
     }); 
 
     document.getElementById("launch-btn").addEventListener("click", async () => {
@@ -349,8 +361,9 @@ export function setupLauncher() {
 
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
         if (ramMB < 128) ramMB = ramMB * 1024;
+        ramMB = Math.max(1024, ramMB);
         let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || "javaw";
-        let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? inst.jvmArgs.split(" ") : [];
+        let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) : [];
         let resW = inst.resW ? parseInt(inst.resW) : 854;
         let resH = inst.resH ? parseInt(inst.resH) : 480;
 
@@ -547,8 +560,9 @@ export function setupLauncher() {
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
         
         store.activeInstances.add(inst.name);
+        store.primaryRpcInstance = inst.name; // Indique à Discord de regarder cette instance
         window.setUIState();
-        if (window.renderUI) window.renderUI();
+        if (window.renderUI) window.renderUI(); 
 
         inst._tempSessionStart = Date.now();
         updateRPC(inst); 

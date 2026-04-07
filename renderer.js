@@ -16,6 +16,7 @@ import { setupUICore } from "./src/uiCore.js";
 const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
+const path = window.api.path;
 
 initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang();
 setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupStats();
@@ -168,7 +169,7 @@ window.checkServerStatus = async () => {
                     .replace(/<span([^>]*)>/gi, (match, attrs) => {
                         const styleMatch = attrs.match(/style="([^"]*)"/i);
                         if (styleMatch) {
-                            const safeStyle = styleMatch[1].replace(/[^a-zA-Z0-9:#\-\s;]/g, ""); 
+                            const safeStyle = styleMatch[1].replace(/[^a-zA-Z0-9:#\-\s;]/g, "");
                             return `<span style="${safeStyle}">`;
                         }
                         return "<span>";
@@ -230,8 +231,17 @@ async function init() {
         const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
         const data = await res.json();
         store.rawVersions = data.versions;
+        fs.writeFileSync(path.join(store.dataDir, "versions_cache.json"), JSON.stringify(data.versions));
         if (window.updateVersionList) window.updateVersionList(false);
-    } catch (e) {}
+    } catch (e) {
+        const cachePath = path.join(store.dataDir, "versions_cache.json");
+        if (fs.existsSync(cachePath)) {
+            try {
+                store.rawVersions = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+                if (window.updateVersionList) window.updateVersionList(false);
+            } catch(err) {}
+        }
+    }
 }
 
 init();
