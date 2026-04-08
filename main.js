@@ -11,6 +11,8 @@ const DiscordRPC = require("discord-rpc");
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
+// Fix Linux : le sandbox Chromium nécessite des droits spéciaux (setuid)
+// absents dans la plupart des distributions => le renderer crash silencieusement.
 if (process.platform === "linux") {
     app.commandLine.appendSwitch("no-sandbox");
     app.commandLine.appendSwitch("disable-setuid-sandbox");
@@ -65,9 +67,14 @@ app.whenReady().then(() => {
     } catch(e) {}
     autoUpdater.autoDownload = autoDl;
 
+    // Sur Linux, latest-linux.yml doit être publié sur GitHub Releases.
+    // Si absent => UnhandledPromiseRejection qui crashe l'app.
+    // On attrape l'erreur proprement dans tous les cas.
     setTimeout(() => {
         mainLog("Vérification silencieuse des mises à jour...");
-        autoUpdater.checkForUpdates();
+        autoUpdater.checkForUpdates().catch((e) => {
+            mainLog("ERR auto-update: " + (e.message || e));
+        });
     }, 3000);
 });
 
@@ -87,6 +94,7 @@ ipcMain.handle("check-java", async (_, javaPath) => {
     });
 });
 
+// Extraction tar.gz pour Linux (Java téléchargé en .tar.gz)
 ipcMain.handle("extract-tar", async (_, { src, dest }) => {
     return new Promise((resolve, reject) => {
         if (process.platform !== "linux") return reject(new Error("extract-tar: Linux uniquement"));
