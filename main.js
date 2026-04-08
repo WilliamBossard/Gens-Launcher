@@ -11,6 +11,11 @@ const DiscordRPC = require("discord-rpc");
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
+if (process.platform === "linux") {
+    app.commandLine.appendSwitch("no-sandbox");
+    app.commandLine.appendSwitch("disable-setuid-sandbox");
+}
+
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
 
 let mainWindow;
@@ -79,6 +84,19 @@ ipcMain.handle("check-java", async (_, javaPath) => {
         execFile(javaPath, ["-version"], (err, stdout, stderr) => {
             resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" });
         });
+    });
+});
+
+ipcMain.handle("extract-tar", async (_, { src, dest }) => {
+    return new Promise((resolve, reject) => {
+        if (process.platform !== "linux") return reject(new Error("extract-tar: Linux uniquement"));
+        const { spawn } = require("child_process");
+        const proc = spawn("tar", ["-xzf", src, "-C", dest, "--strip-components=1"]);
+        proc.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`tar exited with code ${code}`));
+        });
+        proc.on("error", reject);
     });
 });
 

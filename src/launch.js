@@ -359,7 +359,10 @@ export function setupLauncher() {
         if (ramMB < 128) ramMB = ramMB * 1024;
         ramMB = Math.max(1024, ramMB);
 
-        let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || "javaw";
+        const isLinux = window.api.platform === "linux";
+        const defaultJavaBin = isLinux ? "java" : "javaw";
+
+        let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaBin;
         
         let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
         
@@ -376,9 +379,14 @@ export function setupLauncher() {
         sysLog(`Version de Minecraft: ${inst.version} -> Java requis: Java ${requiredJava}`);
 
         document.getElementById("status-text").innerText = t("msg_check_java", "Vérification de Java...");
-        let javaToTest = jPath === "javaw" ? "java" : jPath;
-        if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.substring(0, javaToTest.length - 9) + "java.exe";
-        else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.substring(0, javaToTest.length - 5) + "java";
+        let javaToTest = jPath;
+        if (javaToTest === "javaw" || javaToTest === "javaw.exe") {
+            javaToTest = window.api.platform === "linux" ? "java" : "java.exe";
+        } else if (javaToTest.toLowerCase().endsWith("javaw.exe")) {
+            javaToTest = javaToTest.substring(0, javaToTest.length - 9) + "java.exe";
+        } else if (javaToTest.toLowerCase().endsWith("javaw")) {
+            javaToTest = javaToTest.substring(0, javaToTest.length - 5) + "java";
+        }
 
         const res = await ipcRenderer.invoke("check-java", javaToTest);
         const errorStr = (res.err ? res.err.message + res.stdout + res.stderr : "").toLowerCase();
@@ -442,7 +450,12 @@ export function setupLauncher() {
             instanceId: inst.name, 
             authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
             memory: { max: ramMB + "M", min: "1024M" }, javaPath: jPath, customArgs: customArgs,
-            window: { width: resW, height: resH }, spawnOptions: { detached: false, shell: false, windowsHide: true },
+            window: { width: resW, height: resH },
+            spawnOptions: {
+                detached: false,
+                shell: false,
+                ...(process.platform === "win32" ? { windowsHide: true } : {})
+            },
         };
 
         if (inst.autoConnect) {

@@ -50,7 +50,8 @@
       "target": ["AppImage"],
       "icon": "assets/icon.png",
       "category": "Game",
-      "artifactName": "GensLauncher-${version}-Linux.${ext}"
+      "artifactName": "GensLauncher-${version}-Linux.${ext}",
+      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"]
     }
   }
 }
