@@ -22,25 +22,30 @@ initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang
 setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupStats();
 setupLocalManagers(); setupInstances(); setupUICore();
 
-ipcRenderer.on("update-msg", (event, data) => {
+ipcRenderer.on("update-msg", (data) => {
     window.showToast(data.text, data.type);
     const statusDiv = document.getElementById("update-status");
     if (statusDiv) statusDiv.innerText = data.text;
 });
 
-ipcRenderer.on("update-available-prompt", async () => {
+ipcRenderer.on("update-available-prompt", async (info) => {
+    store.pendingLauncherUpdate = info;
+    
+    const badge = document.getElementById("settings-update-badge");
+    if (badge) badge.style.display = "block";
+
+    if (window.renderUpdateTab) window.renderUpdateTab();
+
     if (store.globalSettings.autoDownloadUpdates) {
-        window.showToast("Mise à jour trouvée ! Téléchargement en arrière-plan...", "info");
+        window.showToast(store.currentLangObj?.msg_update_found_bg || "Mise à jour trouvée ! Téléchargement en arrière-plan...", "info");
+        ipcRenderer.send("download-update"); 
     } else {
-        const msg = store.currentLangObj?.msg_update_dl_prompt || "Une nouvelle version est disponible. Voulez-vous la télécharger ?";
-        if (await window.showCustomConfirm(msg)) {
-            ipcRenderer.send("download-update");
-            window.showToast("Téléchargement démarré...", "info");
-        }
+        const title = store.currentLangObj?.lbl_new_version || "Nouvelle version disponible :";
+        window.showToast(`${title} v${info.version}`, "success");
     }
 });
 
-ipcRenderer.on("update-progress", (event, pct) => {
+ipcRenderer.on("update-progress", (pct) => {
     const statusDiv = document.getElementById("update-status");
     if (statusDiv) statusDiv.innerText = `Téléchargement de la mise à jour : ${pct}%`;
 });
@@ -208,6 +213,8 @@ async function init() {
         const el = document.getElementById(id);
         if (el) el.max = store.maxSafeRam;
     });
+
+    document.getElementById("app-version").innerText = "v" + window.api.version;
 
     window.loadStorage();
     window.applyTheme();

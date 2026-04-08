@@ -67,7 +67,11 @@ app.whenReady().then(() => {
 });
 
 ipcMain.on("get-paths-sync", (event) => {
-    event.returnValue = { appData: app.getPath("appData"), platform: process.platform };
+    event.returnValue = { 
+        appData: app.getPath("appData"), 
+        platform: process.platform,
+        version: app.getVersion() 
+    };
 });
 
 ipcMain.handle("check-java", async (_, javaPath) => {

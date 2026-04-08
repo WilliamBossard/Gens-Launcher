@@ -10,6 +10,8 @@ function t(key, fallback) {
 
 export function setupSettings() {
     window.openGlobalSettings = () => {
+        document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
+        window.renderUpdateTab();
         document.getElementById("global-ram-input").value = store.globalSettings.defaultRam;
         document.getElementById("global-ram-slider").value = store.globalSettings.defaultRam;
         document.getElementById("global-java").value = store.globalSettings.defaultJavaPath;
@@ -32,9 +34,8 @@ export function setupSettings() {
             optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
         });
 
-        // NOUVEAU : Serveurs par défaut
-        const srvSelect = document.getElementById("global-servers-source");
-        srvSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
+const srvSelect = document.getElementById("global-servers-source");
+        srvSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
             srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
@@ -141,7 +142,7 @@ export function setupSettings() {
         }
     };
 
-    window.saveDefaultServers = () => {
+window.saveDefaultServers = () => {
         const idx = document.getElementById("global-servers-source").value;
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
         
@@ -149,7 +150,7 @@ export function setupSettings() {
             if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
             store.globalSettings.defaultServersInstance = null;
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-            window.showToast("Profil de serveurs désactivé.", "info");
+            window.showToast(t("msg_profile_disabled", "Profil désactivé."), "info");
             return;
         }
         if (idx === "") return;
@@ -159,9 +160,9 @@ export function setupSettings() {
             fs.copyFileSync(sourceSrv, defaultSrv);
             store.globalSettings.defaultServersInstance = inst.name;
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-            window.showToast("Profil de serveurs sauvegardé !", "success");
+            window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
         } else {
-            window.showToast("Aucun serveur trouvé sur cette instance.", "error");
+            window.showToast(t("msg_err_format", "Erreur."), "error");
         }
     };
 
@@ -293,5 +294,46 @@ export function setupSettings() {
         } finally {
             window.hideLoading();
         }
+    };
+
+    window.checkLauncherUpdates = async () => {
+        const statusDiv = document.getElementById("update-status");
+        if (statusDiv) statusDiv.innerText = t("msg_check_updates", "Vérification en cours...");
+        try {
+            const res = await window.api.invoke("check-for-updates");
+            if (!res.success && statusDiv) {
+                statusDiv.innerText = "Erreur de vérification.";
+                window.showToast("Erreur de mise à jour : " + res.error, "error");
+            }
+        } catch (e) {
+            if (statusDiv) statusDiv.innerText = "Impossible de joindre le serveur.";
+        }
+    };
+
+    window.renderUpdateTab = () => {
+        if (store.pendingLauncherUpdate) {
+            document.getElementById("update-available-container").style.display = "block";
+            document.getElementById("btn-check-launcher").style.display = "none"; // Cache le bouton manuel
+            document.getElementById("new-version-badge").innerText = "v" + store.pendingLauncherUpdate.version;
+            
+            let notes = store.pendingLauncherUpdate.releaseNotes || "Aucun patch note fourni pour cette version.";
+            if (Array.isArray(notes)) {
+                notes = notes.map(n => n.note || "").join("\n");
+            }
+            
+            const cleanNotes = notes.replace(/<\/?[^>]+(>|$)/g, ""); 
+            document.getElementById("update-changelog").innerText = cleanNotes;
+            
+        } else {
+            document.getElementById("update-available-container").style.display = "none";
+            document.getElementById("btn-check-launcher").style.display = "inline-block";
+        }
+    };
+
+    window.startLauncherUpdate = () => {
+        window.api.send("download-update");
+        document.getElementById("btn-start-update").disabled = true;
+        const statusDiv = document.getElementById("update-status");
+        if (statusDiv) statusDiv.innerText = "Téléchargement en cours... (Patientez)";
     };
 }

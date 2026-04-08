@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.5.0",
+  "version": "1.4.0",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
-  "build": {
+"build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
     "directories": {
@@ -35,9 +35,7 @@
       }
     ],
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker",
       "artifactName": "GensLauncher-Setup-${version}.${ext}"
@@ -47,6 +45,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "assets/icon.png",
+      "category": "Game",
+      "artifactName": "GensLauncher-${version}-Linux.${ext}"
     }
   }
 }

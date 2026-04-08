@@ -149,6 +149,15 @@ export function setupInstances() {
 
     window.closeInstanceModal = () => (document.getElementById("modal-instance").style.display = "none");
 
+    // NOUVEAU : Fonction pour mettre à jour la description du profil Java
+    window.updateJvmDesc = () => {
+        document.querySelectorAll(".jvm-desc").forEach(el => el.style.display = "none");
+        const val = document.getElementById("edit-jvm-profile").value;
+        if (document.getElementById("jvm-desc-" + val)) {
+            document.getElementById("jvm-desc-" + val).style.display = "block";
+        }
+    };
+
     window.openEditModal = (targetTab = "tab-general") => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
@@ -167,10 +176,9 @@ export function setupInstances() {
         document.getElementById("edit-res-h").value = inst.resH || "";
         document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
         
-        document.getElementById("edit-jvm-gc").value = inst.jvmGc || "default";
-        document.getElementById("edit-jvm-aikar").checked = !!inst.jvmAikar;
-        document.getElementById("edit-jvm-pretouch").checked = !!inst.jvmPreTouch;
-        document.getElementById("edit-jvm-nogui").checked = !!inst.jvmNoGui;
+        // RESTAURATION : Menu déroulant du profil Java
+        document.getElementById("edit-jvm-profile").value = inst.jvmProfile || "none";
+        window.updateJvmDesc(); // Met à jour le texte explicatif
 
         document.getElementById("edit-notes").value = inst.notes || "";
         document.getElementById("edit-icon-preview").src = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
@@ -231,7 +239,7 @@ export function setupInstances() {
             loaderVersion: document.getElementById("new-loader-version").value, 
             ram: document.getElementById("new-ram-input").value.toString(),
             javaPath: "", jvmArgs: "", 
-            jvmGc: "default", jvmAikar: false, jvmPreTouch: false, jvmNoGui: false,
+            jvmProfile: "none", // RESTAURATION : jvmProfile
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
@@ -301,10 +309,8 @@ export function setupInstances() {
         inst.resH = document.getElementById("edit-res-h").value;
         inst.jvmArgs = document.getElementById("edit-jvmargs").value;
         
-        inst.jvmGc = document.getElementById("edit-jvm-gc").value;
-        inst.jvmAikar = document.getElementById("edit-jvm-aikar").checked;
-        inst.jvmPreTouch = document.getElementById("edit-jvm-pretouch").checked;
-        inst.jvmNoGui = document.getElementById("edit-jvm-nogui").checked;
+        // RESTAURATION : jvmProfile
+        inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
 
         inst.notes = document.getElementById("edit-notes").value;
         inst.backupMode = document.getElementById("edit-backup-mode").value;

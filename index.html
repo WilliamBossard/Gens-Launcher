@@ -1102,7 +1102,12 @@
             <button class="tool-btn" onclick="openInstanceModal()" data-i18n="toolbar_add">Ajouter une instance</button>
             <button class="tool-btn" onclick="document.getElementById('import-upload').click()" data-i18n="toolbar_import">Importer</button>
             <button class="tool-btn" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
-            <button class="tool-btn" onclick="openGlobalSettings()" data-i18n="toolbar_settings">Paramètres Globaux</button>
+            
+            <button class="tool-btn" onclick="openGlobalSettings()" style="position: relative;">
+                <span data-i18n="toolbar_settings">Paramètres Globaux</span>
+                <span id="settings-update-badge" style="display:none; position: absolute; top: 2px; right: 2px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f87171;"></span>
+            </button>
+            
             <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'" data-i18n="toolbar_logs">Afficher les logs</button>
             <button class="tool-btn" onclick="openStatsModal()" data-i18n="toolbar_stats" style="color: var(--accent);">Statistiques</button>
         </div>
@@ -1189,7 +1194,7 @@
     <div id="modal-stats" class="modal">
         <div class="modal-card" style="width: 600px;">
             <div class="modal-header" data-i18n="modal_stats_title">Tableau de Bord</div>
-            <div class="modal-body" style="padding: 20px;">
+            <div class="modal-body" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
                 <div style="display: flex; gap: 15px; margin-bottom: 15px;">
                     <div class="stat-box">
                         <div class="stat-value" id="dashboard-time">0h</div>
@@ -1214,31 +1219,36 @@
                 <div style="display: flex; gap: 15px; margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                     <div class="stat-box" style="flex: 1;">
                         <div class="stat-value" id="stat-mobs" style="font-size: 1.4rem;">0</div>
-                        <div class="stat-label">Mobs Tués</div>
+                        <div class="stat-label" data-i18n="stat_mobs">Mobs Tués</div>
                     </div>
                     <div class="stat-box" style="flex: 1;">
-                        <div class="stat-value" id="stat-walk" style="font-size: 1.4rem;">0 km</div>
-                        <div class="stat-label">Distance (Marche)</div>
+                        <div class="stat-value" id="stat-walk" style="font-size: 1.4rem;">0</div>
+                        <div class="stat-label" data-i18n="stat_distance">Distance (Marche)</div>
                     </div>
                     <div class="stat-box" style="flex: 1;">
                         <div class="stat-value" id="stat-jumps" style="font-size: 1.4rem;">0</div>
-                        <div class="stat-label">Sauts</div>
+                        <div class="stat-label" data-i18n="stat_jumps">Sauts</div>
                     </div>
                 </div>
 
                 <div style="margin-top: 15px; background: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div style="color: #f87171; font-weight: bold; font-size: 0.9rem;">Fichiers temporaires (Cache)</div>
-                        <div style="font-size: 0.75rem; color: #aaa;">Installeurs Forge, archives Java et anciens exports.<br>Espace libérable : <span id="dashboard-cache-size" style="color:var(--text-light); font-weight:bold;">Calcul...</span></div>
+                        <div style="color: #f87171; font-weight: bold; font-size: 0.9rem;" data-i18n="lbl_cache_title">Fichiers temporaires (Cache)</div>
+                        <div style="font-size: 0.75rem; color: #aaa;">
+                            <span data-i18n="txt_cache_desc">Installeurs Forge, archives Java et anciens exports.</span><br>
+                            <span data-i18n="lbl_freed_space">Espace libérable :</span> <span id="dashboard-cache-size" style="color:var(--text-light); font-weight:bold;">Calcul...</span>
+                        </div>
                     </div>
-                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 10px; font-size: 0.8rem;" onclick="cleanCache()">Nettoyer</button>
+                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 10px; font-size: 0.8rem;" onclick="cleanCache()" data-i18n="btn_clean">Nettoyer</button>
                 </div>
+
                 <div style="margin-top: 20px; text-align: center; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; border: 1px dashed var(--border);">
                     <span style="color: #aaa; font-size: 0.85rem;" data-i18n="stat_fav_instance">Instance favorite : </span>
                     <strong style="color: var(--text-light); font-size: 1rem;" id="dashboard-fav">-</strong>
                 </div>
+
                 <div style="margin-top: 20px;">
-                    <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">⏱ Temps de jeu — 7 derniers jours</div>
+                    <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;" data-i18n="lbl_graph_title">⏱ Temps de jeu — 7 derniers jours</div>
                     <div id="dashboard-graph" style="display: flex; align-items: flex-end; gap: 6px; height: 80px; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 8px;">
                     </div>
                 </div>
@@ -1442,11 +1452,11 @@
                         <button class="btn-secondary" onclick="saveDefaultOptions()" data-i18n="btn_save_options">Définir comme défaut</button>
                     </div>
 
-                    <label style="margin-top: 15px;">Profil de Serveurs (servers.dat)</label>
-                    <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">Copie automatiquement les serveurs de cette instance vers toutes les nouvelles instances.</div>
+                    <label style="margin-top: 15px;" data-i18n="lbl_servers_profile">Profil de Serveurs (servers.dat)</label>
+                    <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;" data-i18n="txt_servers_desc">Copie automatiquement les serveurs de cette instance vers toutes les nouvelles instances.</div>
                     <div style="display: flex; gap: 8px;">
                         <select id="global-servers-source" style="flex-grow: 1;"></select>
-                        <button class="btn-secondary" onclick="saveDefaultServers()">Définir comme défaut</button>
+                        <button class="btn-secondary" onclick="saveDefaultServers()" data-i18n="btn_save_default">Définir comme défaut</button>
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_fav_server">Serveur favori (Afficher le statut)</label>
@@ -1480,7 +1490,13 @@
                 <div id="tab-glob-updates" class="settings-content">
                     <div style="font-weight: bold; margin-bottom: 10px; color: var(--text-light);"><span data-i18n="lbl_current_version">Version actuelle :</span> <span id="current-app-version" style="color: var(--accent);"></span></div>
                     
-                    <div style="display: flex; align-items: center; margin-top: 10px;">
+                    <div id="update-available-container" style="display: none; margin-top: 10px; background: rgba(0, 122, 204, 0.1); border: 1px solid var(--accent); padding: 15px; border-radius: 4px;">
+                        <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 10px;"><span data-i18n="lbl_new_version">Nouvelle version disponible :</span> <span id="new-version-badge" style="color: var(--accent);"></span></div>
+                        <div id="update-changelog" style="font-size: 0.8rem; color: #ccc; max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; margin-bottom: 15px; white-space: pre-wrap;"></div>
+                        <button class="btn-primary" id="btn-start-update" onclick="startLauncherUpdate()" data-i18n="btn_start_update">Télécharger et Installer</button>
+                    </div>
+
+                    <div style="display: flex; align-items: center; margin-top: 15px;">
                         <label data-i18n="lbl_auto_update" style="margin-top: 0;">Télécharger les MAJ automatiquement</label>
                     </div>
                     <select id="global-auto-update">
@@ -1660,32 +1676,24 @@
                         <div style="flex: 1;"><label data-i18n="lbl_height">Hauteur</label><input type="number" id="edit-res-h" placeholder="480"></div>
                     </div>
                     
-                    <label style="margin-top: 15px; font-weight: bold; color: var(--accent);">Optimisations Java (1 par 1)</label>
-                    <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <label style="margin: 0; color: var(--text-light);">Type de Garbage Collector (GC)</label>
-                            <select id="edit-jvm-gc" style="width: 170px; padding: 4px;">
-                                <option value="default">Par défaut</option>
-                                <option value="g1gc">G1GC (Recommandé)</option>
-                                <option value="zgc">ZGC (Basse latence)</option>
-                                <option value="shenandoah">Shenandoah</option>
-                            </select>
-                        </div>
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="edit-jvm-aikar">
-                            <label for="edit-jvm-aikar">Aikar's Flags (Ultra-optimisation pour G1GC)</label>
-                        </div>
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="edit-jvm-pretouch">
-                            <label for="edit-jvm-pretouch">AlwaysPreTouch (Évite les freezes de RAM en jeu)</label>
-                        </div>
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="edit-jvm-nogui">
-                            <label for="edit-jvm-nogui">Headless (Désactive l'interface Java pour gagner du CPU)</label>
-                        </div>
+                    <label style="margin-top: 15px; font-weight: bold; color: var(--accent);" data-i18n="lbl_java_opti">Profil d'Optimisation Java (Anti-Lag)</label>
+                    <select id="edit-jvm-profile" style="margin-bottom: 5px;" onchange="updateJvmDesc()">
+                        <option value="none" data-i18n="opt_java_none">Aucun (Standard)</option>
+                        <option value="aikar" data-i18n="opt_java_aikar">Aikar's Flags (Recommandé pour la majorité)</option>
+                        <option value="zgc" data-i18n="opt_java_zgc">ZGC (Basse latence - Java 21+ requis)</option>
+                    </select>
+                    
+                    <div id="jvm-desc-none" class="jvm-desc" style="font-size: 0.75rem; color: #aaa; background: rgba(0,0,0,0.2); padding: 8px; border: 1px solid var(--border); border-radius: 4px; display: none;" data-i18n="desc_java_none">
+                        Standard : Laisse le jeu gérer la mémoire avec les paramètres par défaut de votre version de Java.
+                    </div>
+                    <div id="jvm-desc-aikar" class="jvm-desc" style="font-size: 0.75rem; color: #aaa; background: rgba(0,0,0,0.2); padding: 8px; border: 1px solid var(--border); border-radius: 4px; display: none;" data-i18n="desc_java_aikar">
+                        Aikar's Flags : Les arguments les plus célèbres de la communauté Minecraft. Ils forcent le jeu à nettoyer la mémoire RAM en permanence et de façon intelligente. Avantage : Supprime presque totalement les "pics de lag" (freezes d'une seconde). Parfait pour les gros modpacks.
+                    </div>
+                    <div id="jvm-desc-zgc" class="jvm-desc" style="font-size: 0.75rem; color: #aaa; background: rgba(0,0,0,0.2); padding: 8px; border: 1px solid var(--border); border-radius: 4px; display: none;" data-i18n="desc_java_zgc">
+                        Z Generational (ZGC) : Une technologie ultra-moderne de Java. Elle divise le temps de traitement de la RAM par 10. Avantage : Temps de pause quasiment invisibles. Idéal pour le PvP compétitif et la fluidité absolue. (Attention : Ne fonctionne que si l'instance utilise Java 21 ou supérieur).
                     </div>
 
-                    <div style="display: flex; align-items: center; margin-top: 10px;">
+                    <div style="display: flex; align-items: center; margin-top: 15px;">
                         <label data-i18n="lbl_jvm" style="margin-top: 0;">Arguments JVM manuels (Avancé)</label>
                         <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_jvm_args">?</div>
                     </div>

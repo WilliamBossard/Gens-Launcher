@@ -19,7 +19,7 @@ export function setupUICore() {
         if (fs.existsSync(store.settingsFile)) {
             try {
                 const raw = fs.readFileSync(store.settingsFile, "utf8");
-                if (raw) store.globalSettings = JSON.parse(raw);
+                if (raw) store.globalSettings = Object.assign({}, store.globalSettings, JSON.parse(raw));
             } catch(e) { console.error("Erreur lecture settings:", e); }
         }
         if (!store.globalSettings.theme) {

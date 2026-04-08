@@ -72,21 +72,23 @@ export function setupLocalManagers() {
             if (file.endsWith(".jar") || file.endsWith(".jar.disabled")) {
                 hasMods = true;
                 const isEnabled = !file.endsWith(".disabled");
-                const displayName = file.replace(".jar.disabled", ".jar");
+                const displayName = window.escapeHTML(file.replace(".jar.disabled", ".jar"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                
+                const fileJson = JSON.stringify(file);
+
                 let warningHtml = "";
                 if (warnings[file]) {
-                    warningHtml = `<span class="custom-tooltip-trigger" data-tooltip="${t("msg_warn_deps", "Dépendance manquante potentielle : ")}${warnings[file].join(', ')}" style="margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
+                    const safeTooltip = window.escapeHTML(t("msg_warn_deps", "Dépendance manquante potentielle : ") + warnings[file].join(', '));
+                    warningHtml = `<span class="custom-tooltip-trigger" data-tooltip="${safeTooltip}" style="margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
                 }
                 
                 modsListDiv.innerHTML += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center; flex-grow: 1; word-break: break-all; padding-right: 10px;">${displayName}${warningHtml}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod('${file}', this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick="deleteMod('${file}')" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod(${fileJson}, this.checked)" title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick="deleteMod(${fileJson})" title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }
@@ -143,15 +145,16 @@ export function setupLocalManagers() {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
                 hasItems = true;
                 const isEnabled = !file.endsWith(".disabled");
-                const displayName = file.replace(".zip.disabled", ".zip");
+                const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
+                const fileJson = JSON.stringify(file);
                 listDiv.innerHTML += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader('${file}', this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteShader('${file}')" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader(${fileJson}, this.checked)" title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteShader(${fileJson})" title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }
@@ -195,15 +198,16 @@ export function setupLocalManagers() {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
                 hasItems = true;
                 const isEnabled = !file.endsWith(".disabled");
-                const displayName = file.replace(".zip.disabled", ".zip");
+                const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
+                const fileJson = JSON.stringify(file);
                 listDiv.innerHTML += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack('${file}', this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteResourcePack('${file}')" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack(${fileJson}, this.checked)" title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteResourcePack(${fileJson})" title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }

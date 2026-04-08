@@ -361,24 +361,12 @@ export function setupLauncher() {
 
         let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || "javaw";
         
-        let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) : [];
+        let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
         
-        // CORRECTION : INJECTION DES OPTIMISATIONS JAVA 1 PAR 1
-        if (inst.jvmGc === "g1gc") customArgs.push("-XX:+UseG1GC");
-        else if (inst.jvmGc === "zgc") customArgs.push("-XX:+UseZGC", "-XX:+ZGenerational");
-        else if (inst.jvmGc === "shenandoah") customArgs.push("-XX:+UseShenandoahGC");
-
-        if (inst.jvmAikar && (inst.jvmGc === "g1gc" || inst.jvmGc === "default")) {
-            if (inst.jvmGc === "default") customArgs.push("-XX:+UseG1GC"); 
-            customArgs.push("-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
-        }
-
-        if (inst.jvmPreTouch && !inst.jvmAikar) {
-            customArgs.push("-XX:+AlwaysPreTouch");
-        }
-        
-        if (inst.jvmNoGui) {
-            customArgs.push("-Djava.awt.headless=true");
+        if (inst.jvmProfile === "aikar") {
+            customArgs.push("-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
+        } else if (inst.jvmProfile === "zgc") {
+            customArgs.push("-XX:+UseZGC", "-XX:+ZGenerational");
         }
 
         let resW = inst.resW ? parseInt(inst.resW) : 854;

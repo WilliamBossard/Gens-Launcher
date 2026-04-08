@@ -60,8 +60,7 @@ export function setupStats() {
         return { files: filesToDelete, size: totalSize };
     }
 
-    // NOUVEAU : Calcul des statistiques in-game !
-    async function getInGameStats() {
+   async function getInGameStats() {
         let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
 
         for (const inst of store.allInstances) {
@@ -78,7 +77,8 @@ export function setupStats() {
                     for (const file of statFiles) {
                         if (!file.endsWith(".json")) continue;
                         try {
-                            const data = JSON.parse(await fs.promises.readFile(path.join(statsDir, file), "utf8"));
+                            const rawData = fs.readFileSync(path.join(statsDir, file), "utf8");
+                            const data = JSON.parse(rawData);
                             const custom = data.stats?.["minecraft:custom"] || {};
                             
                             totalKills += custom["minecraft:mob_kills"] || 0;
@@ -132,14 +132,18 @@ export function setupStats() {
         document.getElementById("dashboard-mods").innerText = totalMods;
         document.getElementById("dashboard-fav").innerText = maxTime > 0 ? favInstance : "-";
 
-        const graphDiv = document.getElementById("dashboard-graph");
+const graphDiv = document.getElementById("dashboard-graph");
         if (graphDiv) {
             const days = [];
+            const displayDays = [];
             for (let i = 6; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
-                const dateStr = d.toLocaleDateString('fr-CA'); 
+                const dateStr = d.toISOString().slice(0, 10); 
                 days.push(dateStr);
+                
+                const [, month, day] = dateStr.split('-');
+                displayDays.push(`${day}/${month}`);
             }
 
             const totals = {};
@@ -153,26 +157,25 @@ export function setupStats() {
 
             const maxMs = Math.max(...Object.values(totals), 1);
             
-            graphDiv.innerHTML = days.map(d => {
+            graphDiv.innerHTML = days.map((d, index) => {
                 const ms = totals[d];
                 const perc = Math.round((ms / maxMs) * 100);
-                const label = d.slice(5).replace('-', '/');
+                const label = displayDays[index];
                 const hh = Math.floor(ms / 3600000);
                 const mm = Math.floor((ms % 3600000) / 60000);
                 const title = ms > 0 ? `${hh}h ${mm}m` : "0m";
 
-                return `<div title="${d} : ${title}" style="flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:default;">
+                return `<div title="${label} : ${title}" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; cursor:default; height:100%;">
                     <div style="width:100%; background:var(--accent); border-radius:3px 3px 0 0; opacity:${ms > 0 ? 0.85 : 0.15}; height:${Math.max(perc, ms > 0 ? 4 : 2)}%; transition:height 0.3s;"></div>
                     <div style="font-size:0.6rem; color:#aaa; white-space:nowrap;">${label}</div>
                 </div>`;
             }).join("");
         }
 
-        // --- Stats In-Game ---
-        const igStats = await getInGameStats();
+const igStats = await getInGameStats();
         if (document.getElementById("stat-mobs")) {
             document.getElementById("stat-mobs").innerText = igStats.kills.toLocaleString();
-            document.getElementById("stat-walk").innerText = (igStats.walkCm / 100000).toFixed(1) + " km";
+            document.getElementById("stat-walk").innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km"); 
             document.getElementById("stat-jumps").innerText = igStats.jumps.toLocaleString();
         }
 
