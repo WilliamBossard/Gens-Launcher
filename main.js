@@ -8,12 +8,6 @@ const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
 
-if (process.platform === 'linux') {
-    app.commandLine.appendSwitch('no-sandbox');
-    app.commandLine.appendSwitch('disable-setuid-sandbox');
-    app.commandLine.appendSwitch('disable-gpu-sandbox');
-}
-
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
@@ -24,29 +18,19 @@ const logPath = path.join(app.getPath("userData"), "main-process.log");
 
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-    try {
-        fs.appendFileSync(logPath, line);
-    } catch(e) {}
+    fs.appendFileSync(logPath, line);
     console.log(msg);
 }
 
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200, height: 800, minWidth: 1000, minHeight: 600,
-        icon: process.platform === "win32" ? path.join(__dirname, "assets/icon.ico") : path.join(__dirname, "assets/icon.png"),
-        webPreferences: { 
-            nodeIntegration: false, 
-            contextIsolation: true, 
-            sandbox: false, 
-            preload: path.join(__dirname, "preload.js") 
-        },
+        icon: path.join(__dirname, "assets/icon.ico"),
+        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.js") },
     });
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile("index.html");
-    
-    try {
-        fs.writeFileSync(logPath, "--- Gens Launcher Main Log ---\n");
-    } catch(e) {}
+    fs.writeFileSync(logPath, "--- Gens Launcher Main Log ---\n");
 }
 
 app.whenReady().then(() => {
@@ -55,9 +39,7 @@ app.whenReady().then(() => {
             const url = new URL(details.url);
             if (MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h))) {
                 details.requestHeaders['User-Agent'] = CHROME_UA;
-                delete details.requestHeaders['sec-ch-ua']; 
-                delete details.requestHeaders['sec-ch-ua-mobile']; 
-                delete details.requestHeaders['sec-ch-ua-platform'];
+                delete details.requestHeaders['sec-ch-ua']; delete details.requestHeaders['sec-ch-ua-mobile']; delete details.requestHeaders['sec-ch-ua-platform'];
             }
         } catch(e) {}
         callback({ cancel: false, requestHeaders: details.requestHeaders });
@@ -80,8 +62,8 @@ app.whenReady().then(() => {
 
     setTimeout(() => {
         mainLog("Vérification silencieuse des mises à jour...");
-        autoUpdater.checkForUpdatesAndNotify().catch(e => mainLog("Erreur auto-update: " + e));
-    }, 5000);
+        autoUpdater.checkForUpdates();
+    }, 3000);
 });
 
 ipcMain.on("get-paths-sync", (event) => {
@@ -153,7 +135,7 @@ ipcMain.on("launch-game", (event, opts) => {
 ipcMain.handle("check-for-updates", async () => {
     try {
         const result = await autoUpdater.checkForUpdates();
-        return { success: true, updateInfo: result.updateInfo };
+        return { success: true, version: result?.updateInfo?.version || null };
     } catch(e) { return { success: false, error: e.message }; }
 });
 
