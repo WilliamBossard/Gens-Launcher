@@ -313,7 +313,6 @@ const defaultFr = {
   msg_err_similar_name: "Une instance avec un nom similaire (même dossier) existe déjà !",
   msg_err_create_folder: "Erreur système : Impossible de créer le dossier.",
   msg_err_rename_folder: "Erreur système : Impossible de renommer le dossier.",
-  // --- BUILDER DE MODPACK ---
   modal_builder_title: "Créateur de Modpack Personnalisé",
   lbl_modpack_name: "Nom du Modpack",
   ph_modpack_name: "Mon Super Modpack",
@@ -651,7 +650,6 @@ const defaultEn = {
   msg_err_similar_name: "An instance with a similar name (same folder) already exists!",
   msg_err_create_folder: "System error: Cannot create the folder.",
   msg_err_rename_folder: "System error: Cannot rename the folder.",
-  // --- MODPACK BUILDER ---
   modal_builder_title: "Custom Modpack Creator",
   lbl_modpack_name: "Modpack Name",
   ph_modpack_name: "My Custom Modpack",

@@ -25,18 +25,18 @@ function applyMsDeviceModalI18n() {
 }
 
 function openMicrosoftDeviceModal(data) {
-  _msDeviceVerificationUri = data.verification_uri || "";
-  _msDeviceUserCode = data.user_code || "";
+  _msDeviceVerificationUri = data.verification_uri || data.verificationUri || "https://microsoft.com/link";
+  _msDeviceUserCode = data.user_code || data.userCode || "";
   
   applyMsDeviceModalI18n();
   const helpEl = document.getElementById("ms-device-help");
-  if (helpEl) helpEl.textContent = t("ms_device_help", "Copie le code…");
+  if (helpEl) helpEl.textContent = t("ms_device_help", "Copie le code ci-dessous, ouvre la page Microsoft, puis saisis le code quand le site le demande.");
   
   const codeEl = document.getElementById("ms-device-code-display");
   if (codeEl) codeEl.textContent = _msDeviceUserCode;
   
   const statusEl = document.getElementById("ms-device-status");
-  if (statusEl) statusEl.textContent = t("ms_device_status_1", "En attente…");
+  if (statusEl) statusEl.textContent = t("ms_device_status_1", "En attente...");
   
   const footerEl = document.getElementById("ms-device-footer-note");
   if (footerEl) footerEl.textContent = t("ms_device_footer", "");
@@ -49,7 +49,7 @@ function openMicrosoftDeviceModal(data) {
     const modalCheck = document.getElementById("modal-ms-device");
     const statusCheck = document.getElementById("ms-device-status");
     if (modalCheck && modalCheck.style.display === "flex" && statusCheck) {
-      statusCheck.textContent = t("ms_device_status_2", "Finalisation…");
+      statusCheck.textContent = t("ms_device_status_2", "Finalisation...");
     }
   }, 7000);
 }
@@ -68,9 +68,11 @@ function closeMicrosoftDeviceModal() {
 
 export function setupAuth() {
     
-    ipcRenderer.on("microsoft-device-code", (data) => {
+    ipcRenderer.on("microsoft-device-code", (eventOrData, possibleData) => {
+      const data = (eventOrData && eventOrData.user_code) ? eventOrData : possibleData;
+      
       if (!window._msLoginSessionActive) return;
-      openMicrosoftDeviceModal(data);
+      openMicrosoftDeviceModal(data || eventOrData);
     });
 
     window.copyMsDeviceCode = () => {
@@ -78,7 +80,7 @@ export function setupAuth() {
       if (!code) return;
       try {
         clipboard.writeText(code);
-        if (window.showToast) window.showToast(t("ms_device_copied", "Code copié."), "success");
+        if (window.showToast) window.showToast(t("ms_device_copied", "Code copié dans le presse-papiers."), "success");
       } catch {
         if (window.showToast) window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
       }
@@ -105,8 +107,6 @@ export function setupAuth() {
       btn.disabled = true;
       window._msLoginSessionActive = true;
 
-      // AUCUNE BARRE DE CHARGEMENT APPELÉE ICI. EXACTEMENT COMME LA VERSION FONCTIONNELLE.
-
       try {
         const result = await ipcRenderer.invoke("login-microsoft");
 
@@ -124,8 +124,8 @@ export function setupAuth() {
           
           if(window.renderAccountManager) window.renderAccountManager();
           if(window.changeAccountFromCode) window.changeAccountFromCode();
-          if(window.closeAccountModal) window.closeAccountModal();
           if(window.updateAccountDropdown) window.updateAccountDropdown(); 
+          if(window.closeAccountModal) window.closeAccountModal();
           
           if(window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
         } else if (result.cancelled) {

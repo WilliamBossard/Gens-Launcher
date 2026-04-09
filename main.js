@@ -11,8 +11,6 @@ const DiscordRPC = require("discord-rpc");
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
 
 let mainWindow;
@@ -140,8 +138,6 @@ autoUpdater.on("update-available", (info) => { if (mainWindow) mainWindow.webCon
 autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { text: "Gens Launcher est à jour !", type: "success" }); });
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
 autoUpdater.on("update-downloaded", () => { if (mainWindow) mainWindow.webContents.send("update-downloaded"); });
-
-// --- SYSTEME DE CONNEXION MICROSOFT FONCTIONNEL (Copié à 100%) ---
 
 let isAuthRunning = false;
 let activeMicrosoftAuthFlow = null;

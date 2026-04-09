@@ -646,6 +646,7 @@
             cursor: not-allowed;
         }
 
+        /* --- MODALE MICROSOFT --- */
         #modal-ms-device .ms-device-help {
             font-size: 0.85rem;
             line-height: 1.45;
@@ -1011,7 +1012,7 @@
             border-radius: 4px;
             border: 1px solid var(--border);
         }
-
+        
         /* --- MODE ECO --- */
         body.eco-mode * {
             backdrop-filter: none !important;
@@ -1085,7 +1086,7 @@
             
             <div class="mmc-layout">
                 <div class="mmc-list-container" id="account-list">
-                </div>
+                    </div>
 
                 <div class="mmc-actions">
                     <button class="btn-microsoft" id="btn-ms-login" onclick="loginMicrosoft()" data-i18n="lbl_add_microsoft">Ajouter Microsoft</button>
@@ -1750,6 +1751,108 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeEditModal()" data-i18n="modal_close">Fermer</button>
                 <button class="btn-primary" onclick="saveEdit()" data-i18n="modal_apply">Appliquer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-ms-device" class="modal" style="z-index: 4500;">
+        <div class="modal-card" style="width: 440px;">
+            <div class="modal-header" data-i18n="ms_device_title">Connexion Microsoft</div>
+            <div class="modal-body">
+                <p class="ms-device-help" id="ms-device-help"></p>
+                <div class="ms-device-code-row">
+                    <span id="ms-device-code-display"></span>
+                    <button type="button" class="btn-secondary" id="ms-device-btn-copy" onclick="copyMsDeviceCode()"
+                        data-i18n="ms_device_copy">Copier le code</button>
+                </div>
+                <button type="button" class="btn-microsoft" style="width: 100%; margin-top: 4px;"
+                    id="ms-device-btn-open" onclick="openMsDevicePage()" data-i18n="ms_device_open">Ouvrir la page
+                    Microsoft</button>
+                <div class="ms-device-waiting">
+                    <div class="ms-device-spinner" aria-hidden="true"></div>
+                    <p id="ms-device-status"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span id="ms-device-footer-note"
+                    style="font-size: 0.75rem; color: #aaa; line-height: 1.35; text-align: left; flex: 1; min-width: 0;"></span>
+                <button type="button" class="btn-secondary" id="ms-device-btn-cancel" onclick="cancelMsDeviceLogin()"
+                    data-i18n="ms_device_cancel" style="flex-shrink: 0;">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-confirm" class="modal" style="z-index: 100000;">
+        <div class="modal-card" style="width: 400px;">
+            <div class="modal-header" id="confirm-title" data-i18n="modal_confirm">Confirmation</div>
+            <div class="modal-body" id="confirm-message"
+                style="padding: 20px 15px; text-align: center; line-height: 1.5;">...</div>
+            <div class="modal-footer" style="justify-content: center; gap: 15px;">
+                <button class="btn-secondary" id="confirm-no" data-i18n="btn_no" style="width: 100px;">Non</button>
+                <button class="btn-primary" id="confirm-yes" data-i18n="btn_yes" style="width: 100px;">Oui</button>
+            </div>
+        </div>
+    </div>
+<div id="modal-skin" class="modal" style="z-index: 3000;">
+        <div class="modal-card" style="width: 500px;">
+            <div class="modal-header" data-i18n="modal_skin_title">Visionneuse 3D de Skin</div>
+            <div class="modal-body" style="display: flex; gap: 20px; align-items: center; padding: 20px;">
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 6px; padding: 10px; width: 220px; height: 320px; display: flex; justify-content: center; align-items: center;">
+                    <canvas id="fullscreen-skin-canvas" style="cursor: grab;"></canvas>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
+                    <div style="font-weight: bold; color: var(--text-light); text-align: center; font-size: 1.2rem; margin-bottom: 5px;" id="skin-modal-name">Pseudo</div>
+                    
+                    <button class="btn-secondary" id="btn-upload-skin" onclick="document.getElementById('skin-upload').click()" data-i18n="btn_test_skin">Tester un Skin (Aperçu)</button>
+                    <input type="file" id="skin-upload" accept=".png" style="display: none;" onchange="previewLocalSkin(this)">
+                    
+                    <button class="btn-secondary" onclick="exportSkin()" data-i18n="btn_export_skin">Exporter le Skin actuel</button>
+                    
+                    <div id="skin-divider" class="acc-divider" style="height: 1px; background: var(--border); margin: 5px 0;"></div>
+                    
+                    <button class="btn-microsoft" id="btn-link-ms-skin" onclick="openSystemPath('https://www.minecraft.net/fr-fr/msaprofile/mygames/editionsminecraftjava/skin')" data-i18n="btn_change_mojang">Changer sur Minecraft.net</button>
+                    
+                    <div style="font-size: 0.75rem; color: #aaa; text-align: center; margin-top: 10px;" data-i18n="tip_skin_3d">
+                        💡 Astuce : Cliquez et glissez pour faire pivoter le personnage. Utilisez la molette pour zoomer.
+                    </div>
+                </div>
+            </div>
+             <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeSkinModal()" data-i18n="modal_close">Retour</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-export" class="modal" style="z-index: 3000;">
+        <div class="modal-card" style="width: 450px;">
+            <div class="modal-header" data-i18n="modal_export">Options d'exportation</div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; padding: 20px;">
+                
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('mrpack')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <div style="font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_mrpack">Export Léger (.mrpack)</div>
+                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_mrpack_desc">Génère un fichier de quelques Ko idéal pour partager avec vos amis. (Recommandé)</div>
+                </div>
+
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_zip">Export Complet (.zip)</div>
+                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_zip_desc">Contient absolument tous vos mods, configs et mondes (Fichier très lourd).</div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+<div id="modal-icon-gallery" class="modal" style="z-index: 3500;">
+        <div class="modal-card" style="width: 420px;">
+            <div class="modal-header">Galerie d'icônes</div>
+            <div class="modal-body" id="icon-gallery-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 20px;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modal-icon-gallery').style.display='none'">Fermer</button>
             </div>
         </div>
     </div>

@@ -10,7 +10,6 @@ function t(key, fallback) {
 
 function setupMods() {
 
-    // --- RECHERCHE CATALOGUE CLASSIQUE ---
     let globalSearchTimer = null;
     
     window.openCatalogModal = () => {
@@ -44,7 +43,6 @@ function setupMods() {
       const type = document.getElementById("catalog-type").value;
       const resDiv = document.getElementById("catalog-results");
       
-      // Fallback si la version n'a pas encore été chargée
       if (!version) version = "1.20.4";
 
       resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>Recherche en cours...</div>`;
@@ -300,20 +298,14 @@ function setupMods() {
       }
     };
 
-
-    // --- CRÉATEUR DE MODPACKS VISUEL ---
-
-    // Registre sécurisé : évite toute injection XSS via les onclick inline
     const builderModRegistry = new Map(); 
     let builderSelectedMods = [];
     let builderSearchTimer = null;
     let builderCurrentAbortController = null;
 
-    // Types autorisés pour la validation
     const ALLOWED_TYPES = ["mod", "shader", "resourcepack"];
     const ALLOWED_LOADERS = ["fabric", "forge", "neoforge", "quilt"];
 
-    // Sanitise un nom de fichier venant d'une API externe pour éviter le path traversal
     function sanitizeFilename(filename) {
         const base = filename.split(/[\\/]/).pop() || "file";
         return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
@@ -326,7 +318,6 @@ function setupMods() {
         builderSelectedMods = [];
         builderModRegistry.clear();
         
-        // RECUPERATION DES VERSIONS DANS LE MENU
         const verSelect = document.getElementById("builder-version");
         verSelect.innerHTML = "";
         if (store.rawVersions && store.rawVersions.length > 0) {
@@ -339,16 +330,14 @@ function setupMods() {
                 }
             });
         } else {
-            // Fallback si on ouvre trop vite
             const srcSelect = document.getElementById("new-version");
             if (srcSelect) verSelect.innerHTML = srcSelect.innerHTML;
         }
-        // Par défaut sur la plus récente
         if (verSelect.options.length > 0) verSelect.selectedIndex = 0;
         
         window.renderBuilderSelectedList();
         document.getElementById("modal-builder").style.display = "flex";
-        window.searchBuilderMods(); // Lancement direct
+        window.searchBuilderMods(); 
     };
 
     window.closeBuilderModal = () => {
@@ -364,7 +353,6 @@ function setupMods() {
         builderSearchTimer = setTimeout(() => { window.searchBuilderMods(); }, 400);
     };
 
-    // SYSTEME DE BOUTON SANS CLIGNOTEMENT
     window.refreshBuilderButtons = () => {
         const resDiv = document.getElementById("builder-results");
         if (!resDiv) return;
@@ -491,7 +479,7 @@ function setupMods() {
         if (!builderSelectedMods.some(m => m.id === id)) {
             builderSelectedMods.push({ id: modInfo.id, name: modInfo.name, type: modInfo.type });
             window.renderBuilderSelectedList();
-            window.refreshBuilderButtons(); // <-- PLUS DE RECHARGEMENT API !
+            window.refreshBuilderButtons(); 
         }
     };
 
@@ -499,7 +487,7 @@ function setupMods() {
         if (typeof id !== "string" || !id) return;
         builderSelectedMods = builderSelectedMods.filter(m => m.id !== id);
         window.renderBuilderSelectedList();
-        window.refreshBuilderButtons(); // <-- PLUS DE RECHARGEMENT API !
+        window.refreshBuilderButtons(); 
     };
 
     window.renderBuilderSelectedList = () => {

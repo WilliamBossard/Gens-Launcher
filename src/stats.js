@@ -103,9 +103,9 @@ export function setupStats() {
                                 const rawData = fs.readFileSync(path.join(statsDir, file), "utf8");
                                 const data = JSON.parse(rawData);
                                 const custom = data.stats?.["minecraft:custom"] || {};
-                                totalKills += custom["minecraft:mob_kills"] || 0;
-                                totalWalkCm += custom["minecraft:walk_one_cm"] || 0;
-                                totalJumps += custom["minecraft:jump"] || 0;
+                                totalKills += custom["minecraft:mob_kills"] || data["stat.killEntity"] || 0;
+                                totalWalkCm += custom["minecraft:walk_one_cm"] || data["stat.walkOneCm"] || 0;
+                                totalJumps += custom["minecraft:jump"] || data["stat.jump"] || 0;
                             } catch(e) {}
                         }
                     } catch(e) {}

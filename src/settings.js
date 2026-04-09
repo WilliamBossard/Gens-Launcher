@@ -27,7 +27,6 @@ export function setupSettings() {
         document.getElementById("global-multi-inst").value = store.globalSettings.multiInstance ? "true" : "false";
         document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
         
-        // Mode Éco
         document.getElementById("global-eco-mode").value = store.globalSettings.ecoMode ? "true" : "false";
 
         const optSelect = document.getElementById("global-options-source");
@@ -94,7 +93,6 @@ export function setupSettings() {
         store.globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
         store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
         
-        // Mode Éco
         store.globalSettings.ecoMode = document.getElementById("global-eco-mode").value === "true";
         
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
@@ -320,7 +318,7 @@ export function setupSettings() {
     window.renderUpdateTab = () => {
         if (store.pendingLauncherUpdate) {
             document.getElementById("update-available-container").style.display = "block";
-            document.getElementById("btn-check-launcher").style.display = "none"; // Cache le bouton manuel
+            document.getElementById("btn-check-launcher").style.display = "none"; 
             document.getElementById("new-version-badge").innerText = "v" + store.pendingLauncherUpdate.version;
             
             let notes = store.pendingLauncherUpdate.releaseNotes || "Aucun patch note fourni pour cette version.";

@@ -221,6 +221,12 @@ export function setupInstances() {
             return;
         }
 
+        const version = document.getElementById("new-version").value;
+        if (!version) {
+            window.showToast(t("msg_err_no_version", "Aucune version disponible. Vérifiez votre connexion internet et réessayez."), "error");
+            return;
+        }
+
         const destFolder = path.join(store.instancesRoot, safeFolderName);
         try {
             fs.mkdirSync(destFolder, { recursive: true });
@@ -234,7 +240,7 @@ export function setupInstances() {
             name,
             version: document.getElementById("new-version").value,
             loader: document.getElementById("new-loader").value,
-            loaderVersion: document.getElementById("new-loader-version").value, 
+            loaderVersion: document.getElementById("new-loader").value === "vanilla" ? "" : document.getElementById("new-loader-version").value,
             ram: document.getElementById("new-ram-input").value.toString(),
             javaPath: "", jvmArgs: "", 
             jvmProfile: "none",

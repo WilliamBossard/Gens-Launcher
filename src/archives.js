@@ -22,21 +22,17 @@ export function setupArchives() {
     };
 
     window.handleZipImport = async (zipPath) => {
-        // CORRECTION DU CRASH SILENCIEUX ICI :
-        // On utilise getEntryText qui est bien autorisé par le système de sécurité (preload.js)
         try {
             const zipCheck = window.api.tools.AdmZip(zipPath);
             const manifestText = zipCheck.getEntryText("manifest.json");
             
             if (manifestText) {
-                // C'est bien un modpack CurseForge, on redirige vers l'importateur dédié
                 return await window.handleCurseForgeImport(zipPath, manifestText);
             }
         } catch (e) {
             console.error("Vérification ZIP échouée:", e);
         }
 
-        // Si ce n'est pas un modpack CurseForge, on fait l'import classique
         window.showLoading(t("msg_extract", "Extraction..."));
         await yieldUI();
         try {
@@ -83,8 +79,7 @@ export function setupArchives() {
 
             store.allInstances.push(instData);
             
-            // MAJ COMPTEUR
-            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
 
@@ -142,7 +137,7 @@ export function setupArchives() {
           name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
           ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
           notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-          lastPlayed: 0, group: "Modpacks", servers: [], backupMode: "none", backupLimit: 5,
+          lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
 
         const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
@@ -224,8 +219,7 @@ export function setupArchives() {
 
         store.allInstances.push(newInst);
         
-        // MAJ COMPTEUR
-        store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+        store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
 
@@ -241,10 +235,9 @@ export function setupArchives() {
 
     window.handleCurseForgeImport = async (zipPath, manifestText) => {
         const apiKey = store.globalSettings.cfApiKey;
-        // Vérification stricte de la clé API
         if (!apiKey || apiKey.trim() === "") {
             window.showToast("❌ Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux.", "error");
-            return; // Bloque l'exécution ici si pas de clé
+            return; 
         }
 
         window.showLoading("Analyse du Modpack CurseForge...");
@@ -253,7 +246,6 @@ export function setupArchives() {
         try {
             const zip = window.api.tools.AdmZip(zipPath);
             
-            // Si on n'a pas récupéré le texte au préalable, on le lit
             if (!manifestText) {
                 manifestText = zip.getEntryText("manifest.json");
             }
@@ -291,7 +283,7 @@ export function setupArchives() {
                 name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
                 ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
                 notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-                lastPlayed: 0, group: "Modpacks", servers: [], backupMode: "none", backupLimit: 5,
+                lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
 
             const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
@@ -352,8 +344,7 @@ export function setupArchives() {
 
             store.allInstances.push(newInst);
             
-            // MAJ COMPTEUR
-            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
             
