@@ -27,25 +27,37 @@ function applyMsDeviceModalI18n() {
 function openMicrosoftDeviceModal(data) {
   _msDeviceVerificationUri = data.verification_uri || "";
   _msDeviceUserCode = data.user_code || "";
+  
   applyMsDeviceModalI18n();
-  document.getElementById("ms-device-help").textContent = t("ms_device_help", "Copie le code…");
-  document.getElementById("ms-device-code-display").textContent = _msDeviceUserCode;
-  document.getElementById("ms-device-status").textContent = t("ms_device_status_1", "En attente…");
-  document.getElementById("ms-device-footer-note").textContent = t("ms_device_footer", "");
-  document.getElementById("modal-ms-device").style.display = "flex";
+  const helpEl = document.getElementById("ms-device-help");
+  if (helpEl) helpEl.textContent = t("ms_device_help", "Copie le code…");
+  
+  const codeEl = document.getElementById("ms-device-code-display");
+  if (codeEl) codeEl.textContent = _msDeviceUserCode;
+  
+  const statusEl = document.getElementById("ms-device-status");
+  if (statusEl) statusEl.textContent = t("ms_device_status_1", "En attente…");
+  
+  const footerEl = document.getElementById("ms-device-footer-note");
+  if (footerEl) footerEl.textContent = t("ms_device_footer", "");
+  
+  const modal = document.getElementById("modal-ms-device");
+  if (modal) modal.style.display = "flex";
   
   if (_msDeviceFinalizeHintTimer) clearTimeout(_msDeviceFinalizeHintTimer);
   _msDeviceFinalizeHintTimer = setTimeout(() => {
-    const modal = document.getElementById("modal-ms-device");
-    const statusEl = document.getElementById("ms-device-status");
-    if (modal && modal.style.display === "flex" && statusEl) {
-      statusEl.textContent = t("ms_device_status_2", "Finalisation…");
+    const modalCheck = document.getElementById("modal-ms-device");
+    const statusCheck = document.getElementById("ms-device-status");
+    if (modalCheck && modalCheck.style.display === "flex" && statusCheck) {
+      statusCheck.textContent = t("ms_device_status_2", "Finalisation…");
     }
   }, 7000);
 }
 
 function closeMicrosoftDeviceModal() {
-  document.getElementById("modal-ms-device").style.display = "none";
+  const modal = document.getElementById("modal-ms-device");
+  if (modal) modal.style.display = "none";
+  
   if (_msDeviceFinalizeHintTimer) {
     clearTimeout(_msDeviceFinalizeHintTimer);
     _msDeviceFinalizeHintTimer = null;
@@ -54,7 +66,8 @@ function closeMicrosoftDeviceModal() {
   _msDeviceUserCode = "";
 }
 
-function setupAuth() {
+export function setupAuth() {
+    
     ipcRenderer.on("microsoft-device-code", (data) => {
       if (!window._msLoginSessionActive) return;
       openMicrosoftDeviceModal(data);
@@ -65,9 +78,9 @@ function setupAuth() {
       if (!code) return;
       try {
         clipboard.writeText(code);
-        window.showToast(t("ms_device_copied", "Code copié."), "success");
+        if (window.showToast) window.showToast(t("ms_device_copied", "Code copié."), "success");
       } catch {
-        window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
+        if (window.showToast) window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
       }
     };
 
@@ -85,10 +98,14 @@ function setupAuth() {
 
     window.loginMicrosoft = async () => {
       const btn = document.getElementById("btn-ms-login");
+      if (!btn) return;
+      
       const originalText = btn.innerText;
       btn.innerText = t("msg_conn_ms", "Connexion...");
       btn.disabled = true;
       window._msLoginSessionActive = true;
+
+      // AUCUNE BARRE DE CHARGEMENT APPELÉE ICI. EXACTEMENT COMME LA VERSION FONCTIONNELLE.
 
       try {
         const result = await ipcRenderer.invoke("login-microsoft");
@@ -110,14 +127,14 @@ function setupAuth() {
           if(window.closeAccountModal) window.closeAccountModal();
           if(window.updateAccountDropdown) window.updateAccountDropdown(); 
           
-          window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
+          if(window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
         } else if (result.cancelled) {
-          window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
+          if(window.showToast) window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
         } else {
-          window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + result.error, "error");
+          if(window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + result.error, "error");
         }
       } catch (e) {
-        window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
+        if (window.showToast) window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
       } finally {
         window._msLoginSessionActive = false;
         closeMicrosoftDeviceModal();
@@ -141,5 +158,3 @@ function setupAuth() {
       }
     };
 }
-
-export { setupAuth };

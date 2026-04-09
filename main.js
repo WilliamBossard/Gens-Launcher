@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Tray, Menu } = require("electron"); // <-- AJOUT DE TRAY ET MENU
+const { app, BrowserWindow, ipcMain, session, Tray, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -11,10 +11,12 @@ const DiscordRPC = require("discord-rpc");
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
 
 let mainWindow;
-let tray = null; // <-- NOTRE VARIABLE TRAY
+let tray = null; 
 const logPath = path.join(app.getPath("userData"), "main-process.log");
 
 function mainLog(msg) {
@@ -48,7 +50,6 @@ app.whenReady().then(() => {
 
     createWindow();
 
-    // --- CRÉATION DU SYSTEM TRAY ---
     try {
         tray = new Tray(path.join(__dirname, "assets/icon.ico"));
         const contextMenu = Menu.buildFromTemplate([
@@ -60,7 +61,6 @@ app.whenReady().then(() => {
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow) mainWindow.show(); });
     } catch (e) { console.error("Erreur Tray:", e); }
-    // -------------------------------
 
     autoUpdater.logger = { info: (m) => mainLog(m), warn: (m) => mainLog("WARN: " + m), error: (m) => mainLog("ERR: " + m) };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
@@ -141,49 +141,143 @@ autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webCon
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
 autoUpdater.on("update-downloaded", () => { if (mainWindow) mainWindow.webContents.send("update-downloaded"); });
 
+// --- SYSTEME DE CONNEXION MICROSOFT FONCTIONNEL (Copié à 100%) ---
+
 let isAuthRunning = false;
 let activeMicrosoftAuthFlow = null;
 let loginMicrosoftUserCancelled = false;
 
-ipcMain.on("cancel-login-microsoft", () => { loginMicrosoftUserCancelled = true; if (activeMicrosoftAuthFlow?.msa) activeMicrosoftAuthFlow.msa.polling = false; });
+ipcMain.on("cancel-login-microsoft", () => {
+    loginMicrosoftUserCancelled = true;
+    if (activeMicrosoftAuthFlow?.msa) {
+        activeMicrosoftAuthFlow.msa.polling = false;
+    }
+    mainLog("Annulation demandée (connexion Microsoft).");
+});
 
 ipcMain.handle("login-microsoft", async () => {
     if (isAuthRunning) return { success: false, error: "Une connexion est déjà en cours." };
-    isAuthRunning = true; loginMicrosoftUserCancelled = false;
+    isAuthRunning = true;
+    loginMicrosoftUserCancelled = false;
+
     const sessionLabel = `gens-${crypto.randomUUID()}`;
     const cacheDir = path.join(app.getPath("userData"), "msa-cache");
 
     try {
-        const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" }, (deviceInfo) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("microsoft-device-code", deviceInfo); });
+        const flow = new Authflow(
+            sessionLabel,
+            cacheDir,
+            {
+                flow: "live",
+                authTitle: Titles.MinecraftNintendoSwitch,
+                deviceType: "Nintendo",
+                deviceVersion: "0.0.0",
+            },
+            (deviceInfo) => {
+                const payload = {
+                    message: deviceInfo.message,
+                    user_code: deviceInfo.user_code,
+                    verification_uri: deviceInfo.verification_uri,
+                    expires_in: deviceInfo.expires_in,
+                };
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send("microsoft-device-code", payload);
+                }
+                mainLog("[MSA device] " + deviceInfo.message);
+            }
+        );
         activeMicrosoftAuthFlow = flow;
 
         const origGetMsaToken = flow.getMsaToken.bind(flow);
-        flow.getMsaToken = async function () { if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled"); try { return await origGetMsaToken(); } catch (err) { if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled"); throw err; } };
+        flow.getMsaToken = async function () {
+            if (loginMicrosoftUserCancelled) {
+                throw new URIError("Microsoft login cancelled");
+            }
+            try {
+                return await origGetMsaToken();
+            } catch (err) {
+                if (loginMicrosoftUserCancelled) {
+                    throw new URIError("Microsoft login cancelled");
+                }
+                throw err;
+            }
+        };
 
         const response = await flow.getMinecraftJavaToken({ fetchProfile: true });
-        if (loginMicrosoftUserCancelled) return { success: false, cancelled: true };
+        
+        if (loginMicrosoftUserCancelled) {
+            return { success: false, cancelled: true };
+        }
 
         const profile = response.profile;
-        if (!response.token) return { success: false, error: "Jeton introuvable." };
-        if (!profile || !profile.name || !profile.id) return { success: false, error: profile?.errorMessage || "Pas de profil Minecraft." };
 
-        return { success: true, auth: { access_token: response.token, client_token: crypto.randomUUID(), uuid: profile.id, name: profile.name, user_properties: {}, meta: { type: "msa", demo: false, msaCacheKey: sessionLabel } } };
+        if (!response.token) {
+            return { success: false, error: "Jeton Minecraft introuvable après connexion Microsoft." };
+        }
+        if (!profile || !profile.name || !profile.id) {
+            const hint = profile?.errorMessage || profile?.error || "Pas de profil Minecraft sur ce compte. Lance le launcher officiel une fois ou vérifie l’achat Java.";
+            return { success: false, error: String(hint) };
+        }
+
+        mainLog(`Authentification réussie : ${profile.name}`);
+
+        return {
+            success: true,
+            auth: {
+                access_token: response.token,
+                client_token: crypto.randomUUID(),
+                uuid: profile.id,
+                name: profile.name,
+                user_properties: {},
+                meta: { type: "msa", demo: false, msaCacheKey: sessionLabel },
+            },
+        };
     } catch (err) {
-        if (loginMicrosoftUserCancelled || (err instanceof URIError && /cancel/i.test(String(err.message || "")))) return { success: false, cancelled: true };
-        return { success: false, error: err.message || String(err) };
-    } finally { activeMicrosoftAuthFlow = null; isAuthRunning = false; }
+        if (
+            loginMicrosoftUserCancelled ||
+            (err instanceof URIError && /cancel/i.test(String(err.message || "")))
+        ) {
+            mainLog("Connexion Microsoft annulée.");
+            return { success: false, cancelled: true };
+        }
+        const msg = err && err.message ? err.message : String(err);
+        mainLog("Erreur Auth : " + msg);
+        return { success: false, error: msg };
+    } finally {
+        activeMicrosoftAuthFlow = null;
+        isAuthRunning = false;
+    }
 });
 
 ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     try {
         const cacheDir = path.join(app.getPath("userData"), "msa-cache");
-        const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" });
+        const flow = new Authflow(sessionLabel, cacheDir, {
+            flow: "live",
+            authTitle: Titles.MinecraftNintendoSwitch,
+            deviceType: "Nintendo",
+            deviceVersion: "0.0.0",
+        });
         const response = await flow.getMinecraftJavaToken({ fetchProfile: false });
+        mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
         return { success: true, access_token: response.token };
-    } catch(err) { return { success: false, error: err.message }; }
+    } catch(err) {
+        mainLog("Erreur refresh token : " + err.message);
+        return { success: false, error: err.message };
+    }
 });
 
-ipcMain.on("delete-msa-cache", (_, sessionLabel) => { try { const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel); if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true }); } catch(e) {} });
+ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
+    try {
+        const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
+        if (fs.existsSync(cacheDir)) {
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+            mainLog(`Cache MSA supprimé pour : ${sessionLabel}`);
+        }
+    } catch(e) {
+        mainLog("Erreur suppression cache MSA : " + e.message);
+    }
+});
 
 const discordClientId = "1490353507218227301";
 let rpc = new DiscordRPC.Client({ transport: "ipc" });
@@ -191,4 +285,6 @@ let rpcReady = false;
 rpc.login({ clientId: discordClientId }).then(() => { rpcReady = true; }).catch(() => {});
 ipcMain.on("update-discord", (event, data) => { if (!rpcReady) return; if (data === "clear") { rpc.clearActivity().catch(()=>{}); return; } rpc.setActivity(data).catch(()=>{}); });
 
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+});

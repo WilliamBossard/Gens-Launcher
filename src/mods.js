@@ -304,7 +304,7 @@ function setupMods() {
     // --- CRÉATEUR DE MODPACKS VISUEL ---
 
     // Registre sécurisé : évite toute injection XSS via les onclick inline
-    const builderModRegistry = new Map(); // project_id -> { id, name, type }
+    const builderModRegistry = new Map(); 
     let builderSelectedMods = [];
     let builderSearchTimer = null;
     let builderCurrentAbortController = null;
@@ -315,7 +315,6 @@ function setupMods() {
 
     // Sanitise un nom de fichier venant d'une API externe pour éviter le path traversal
     function sanitizeFilename(filename) {
-        // Extrait uniquement la dernière composante et supprime les caractères dangereux
         const base = filename.split(/[\\/]/).pop() || "file";
         return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
     }
@@ -327,20 +326,32 @@ function setupMods() {
         builderSelectedMods = [];
         builderModRegistry.clear();
         
+        // RECUPERATION DES VERSIONS DANS LE MENU
         const verSelect = document.getElementById("builder-version");
-        const srcSelect = document.getElementById("new-version");
-        if (srcSelect) {
-            verSelect.innerHTML = srcSelect.innerHTML;
-            verSelect.value = srcSelect.value;
+        verSelect.innerHTML = "";
+        if (store.rawVersions && store.rawVersions.length > 0) {
+            store.rawVersions.forEach((v) => {
+                if (v.type === "release") {
+                    let opt = document.createElement("option");
+                    opt.value = v.id;
+                    opt.innerHTML = v.id;
+                    verSelect.appendChild(opt);
+                }
+            });
+        } else {
+            // Fallback si on ouvre trop vite
+            const srcSelect = document.getElementById("new-version");
+            if (srcSelect) verSelect.innerHTML = srcSelect.innerHTML;
         }
+        // Par défaut sur la plus récente
+        if (verSelect.options.length > 0) verSelect.selectedIndex = 0;
         
         window.renderBuilderSelectedList();
         document.getElementById("modal-builder").style.display = "flex";
-        window.searchBuilderMods();
+        window.searchBuilderMods(); // Lancement direct
     };
 
     window.closeBuilderModal = () => {
-        // Annule toute recherche en cours avant de fermer
         if (builderCurrentAbortController) {
             builderCurrentAbortController.abort();
             builderCurrentAbortController = null;
@@ -353,6 +364,28 @@ function setupMods() {
         builderSearchTimer = setTimeout(() => { window.searchBuilderMods(); }, 400);
     };
 
+    // SYSTEME DE BOUTON SANS CLIGNOTEMENT
+    window.refreshBuilderButtons = () => {
+        const resDiv = document.getElementById("builder-results");
+        if (!resDiv) return;
+        const containers = resDiv.querySelectorAll(".btn-container");
+        
+        containers.forEach(container => {
+            const modId = container.getAttribute("data-mod-id");
+            const isAdded = builderSelectedMods.some(m => m.id === modId);
+            
+            if (isAdded) {
+                container.innerHTML = `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`;
+            } else {
+                container.innerHTML = `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
+                const btn = container.querySelector(".builder-add-btn");
+                btn.addEventListener("click", () => {
+                    window.addModToBuilder(modId);
+                });
+            }
+        });
+    };
+
     window.searchBuilderMods = async () => {
         const query = document.getElementById("builder-search").value.trim();
         let version = document.getElementById("builder-version").value;
@@ -360,12 +393,10 @@ function setupMods() {
         const typeRaw = document.getElementById("builder-type").value;
         const resDiv = document.getElementById("builder-results");
 
-        // Validation des valeurs des sélecteurs
         const loader = ALLOWED_LOADERS.includes(loaderRaw) ? loaderRaw : "fabric";
         const type = ALLOWED_TYPES.includes(typeRaw) ? typeRaw : "mod";
         if (!version || !/^[0-9a-zA-Z.\-_]+$/.test(version)) version = "1.20.4";
 
-        // Annule la requête précédente si elle est encore en cours
         if (builderCurrentAbortController) builderCurrentAbortController.abort();
         builderCurrentAbortController = new AbortController();
         const signal = builderCurrentAbortController.signal;
@@ -389,7 +420,6 @@ function setupMods() {
 
             if (!Array.isArray(data.hits)) throw new Error("Invalid API response");
 
-            // Met à jour le registre avec les nouveaux résultats
             data.hits.forEach(mod => {
                 if (mod.project_id && typeof mod.project_id === "string") {
                     builderModRegistry.set(mod.project_id, { id: mod.project_id, name: mod.title || mod.project_id, type });
@@ -414,10 +444,9 @@ function setupMods() {
 
                 const isAdded = builderSelectedMods.some(m => m.id === mod.project_id);
 
-                // Le bouton utilise data-mod-id et un handler global — aucune injection possible
                 const btnHtml = isAdded
                     ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
-                    : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;" data-mod-id="${safeId}">${t("btn_add_to_pack", "Ajouter")}</button>`;
+                    : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
 
                 const iconHtml = mod.icon_url
                     ? `<img src="${mod.icon_url}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
@@ -432,21 +461,22 @@ function setupMods() {
                         <div style="font-weight: bold; color: var(--text-light); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
                         <div style="font-size: 0.7rem; color: #aaa; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeAuthor} — ${downloads}</div>
                         <div style="font-size: 0.75rem; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${safeDesc}</div>
-                        <div style="margin-top: 8px;">${btnHtml}</div>
+                        <div class="btn-container" data-mod-id="${safeId}" style="margin-top: 8px;">${btnHtml}</div>
                     </div>`;
                 resDiv.appendChild(card);
             });
 
-            // Délégation d'événement sur le conteneur — propre et sans XSS
             resDiv.querySelectorAll(".builder-add-btn").forEach(btn => {
-                btn.addEventListener("click", () => {
-                    const id = btn.getAttribute("data-mod-id");
-                    if (id) window.addModToBuilder(id);
+                btn.addEventListener("click", (e) => {
+                    const container = e.target.closest(".btn-container");
+                    if (container) {
+                        window.addModToBuilder(container.getAttribute("data-mod-id"));
+                    }
                 });
             });
 
         } catch (e) {
-            if (e.name === "AbortError") return; // Requête annulée volontairement
+            if (e.name === "AbortError") return; 
             sysLog("Erreur recherche builder: " + e, true);
             resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche.")}</div>`;
         }
@@ -455,13 +485,13 @@ function setupMods() {
     window.addModToBuilder = (id) => {
         if (typeof id !== "string" || !id) return;
         const modInfo = builderModRegistry.get(id);
-        if (!modInfo) return; // ID inconnu — refusé
-        if (!ALLOWED_TYPES.includes(modInfo.type)) return; // Type invalide — refusé
+        if (!modInfo) return; 
+        if (!ALLOWED_TYPES.includes(modInfo.type)) return; 
 
         if (!builderSelectedMods.some(m => m.id === id)) {
             builderSelectedMods.push({ id: modInfo.id, name: modInfo.name, type: modInfo.type });
             window.renderBuilderSelectedList();
-            window.searchBuilderMods(); // Rafraîchit pour marquer le mod comme "Ajouté"
+            window.refreshBuilderButtons(); // <-- PLUS DE RECHARGEMENT API !
         }
     };
 
@@ -469,7 +499,7 @@ function setupMods() {
         if (typeof id !== "string" || !id) return;
         builderSelectedMods = builderSelectedMods.filter(m => m.id !== id);
         window.renderBuilderSelectedList();
-        window.searchBuilderMods();
+        window.refreshBuilderButtons(); // <-- PLUS DE RECHARGEMENT API !
     };
 
     window.renderBuilderSelectedList = () => {
@@ -512,7 +542,6 @@ function setupMods() {
         let version = document.getElementById("builder-version").value;
         const loaderRaw = document.getElementById("builder-loader").value;
 
-        // Validation / sanitisation des entrées
         nameInput.style.borderColor = "";
         const loader = ALLOWED_LOADERS.includes(loaderRaw) ? loaderRaw : "fabric";
         if (!version || !/^[0-9a-zA-Z.\-_]+$/.test(version)) version = "1.20.4";
@@ -523,7 +552,6 @@ function setupMods() {
             return;
         }
 
-        // Longueur max du nom
         if (packName.length > 64) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
@@ -548,7 +576,6 @@ function setupMods() {
             return;
         }
 
-        // Snapshot de la sélection au moment du clic (évite mutation pendant le téléchargement)
         const modsToDownload = [...builderSelectedMods];
 
         window.closeBuilderModal();
@@ -602,7 +629,6 @@ function setupMods() {
             const pct = Math.round((done / total) * 100);
             window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
 
-            // Valide le type du mod avant de faire quoi que ce soit
             if (!ALLOWED_TYPES.includes(mod.type)) { done++; continue; }
 
             try {
@@ -626,13 +652,11 @@ function setupMods() {
                     done++; continue;
                 }
 
-                // Validation de l'URL du fichier (HTTPS uniquement)
                 if (!/^https:\/\//i.test(fileObj.url)) {
                     sysLog(`URL non-HTTPS bloquée pour ${mod.name}: ${fileObj.url}`, true);
                     done++; continue;
                 }
 
-                // Sanitisation du nom de fichier contre le path traversal
                 const safeFilename = sanitizeFilename(fileObj.filename);
                 const targetDir = dirs[mod.type] || dirs["mod"];
                 const destPath = path.join(targetDir, safeFilename);

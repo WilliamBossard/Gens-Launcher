@@ -6,6 +6,7 @@ const path = window.api.path;
 const defaultFr = {
   toolbar_add: "Ajouter une instance",
   toolbar_import: "Importer",
+  toolbar_builder: "Créer un Modpack",
   toolbar_catalog: "Catalogue de Contenu",
   toolbar_settings: "Paramètres Globaux",
   toolbar_logs: "Afficher les logs",
@@ -343,6 +344,7 @@ const defaultFr = {
 const defaultEn = {
   toolbar_add: "Add Instance",
   toolbar_import: "Import",
+  toolbar_builder: "Create a Modpack",
   toolbar_catalog: "Content Catalog",
   toolbar_settings: "Global Settings",
   toolbar_logs: "Show Logs",
