@@ -264,11 +264,16 @@ export function setupArchives() {
                       hashes[hash] = { file: f, sha1: hash, sha512: hash512, size: buf.length };
                   });
 
-                  const res = await fetch("https://api.modrinth.com/v2/version_files", {
-                      method: "POST", headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ hashes: Object.keys(hashes), algorithm: "sha1" })
-                  });
-                  const apiData = await res.json();
+                  let apiData = {};
+                  if (Object.keys(hashes).length > 0) {
+                      const res = await fetch("https://api.modrinth.com/v2/version_files", {
+                          method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ hashes: Object.keys(hashes), algorithm: "sha1" })
+                      });
+                      if (res.ok) {
+                          apiData = await res.json();
+                      }
+                  }
 
                   for (let hash in hashes) {
                       if (apiData[hash]) {

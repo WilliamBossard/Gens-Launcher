@@ -169,7 +169,6 @@ export function setupUICore() {
         document.querySelectorAll("#modal-settings .settings-tab").forEach(t => t.classList.remove("active"));
         document.querySelectorAll("#modal-settings .settings-content").forEach(c => c.classList.remove("active"));
         
-        // CORRECTION DE LA BARRE BLEUE ICI
         const btn = document.getElementById("tab-btn-" + tabId.replace("tab-", ""));
         if (btn) btn.classList.add("active");
         

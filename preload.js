@@ -36,7 +36,6 @@ contextBridge.exposeInMainWorld("api", {
         if (_ipcListeners[channel]) {
             ipcRenderer.removeListener(channel, _ipcListeners[channel]);
         }
-        // Wrapper standard Electron : cache toujours l'IPC event, ne passe que les données
         const wrapper = (_event, ...args) => func(...args);
         
         _ipcListeners[channel] = wrapper;

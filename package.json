@@ -21,7 +21,7 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
-"build": {
+  "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
     "directories": {
@@ -45,13 +45,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    },
-    "linux": {
-      "target": ["AppImage"],
-      "icon": "assets/icon.png",
-      "category": "Game",
-      "artifactName": "GensLauncher-${version}-Linux.${ext}",
-      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"]
     }
   }
 }

@@ -149,7 +149,6 @@ export function setupInstances() {
 
     window.closeInstanceModal = () => (document.getElementById("modal-instance").style.display = "none");
 
-    // NOUVEAU : Fonction pour mettre à jour la description du profil Java
     window.updateJvmDesc = () => {
         document.querySelectorAll(".jvm-desc").forEach(el => el.style.display = "none");
         const val = document.getElementById("edit-jvm-profile").value;
@@ -176,9 +175,8 @@ export function setupInstances() {
         document.getElementById("edit-res-h").value = inst.resH || "";
         document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
         
-        // RESTAURATION : Menu déroulant du profil Java
         document.getElementById("edit-jvm-profile").value = inst.jvmProfile || "none";
-        window.updateJvmDesc(); // Met à jour le texte explicatif
+        window.updateJvmDesc(); 
 
         document.getElementById("edit-notes").value = inst.notes || "";
         document.getElementById("edit-icon-preview").src = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
@@ -239,7 +237,7 @@ export function setupInstances() {
             loaderVersion: document.getElementById("new-loader-version").value, 
             ram: document.getElementById("new-ram-input").value.toString(),
             javaPath: "", jvmArgs: "", 
-            jvmProfile: "none", // RESTAURATION : jvmProfile
+            jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
@@ -302,14 +300,13 @@ export function setupInstances() {
         }
 
         inst.name = newName;
-        inst.ram = document.getElementById("edit-ram-input").value;
+        inst.ram = parseInt(document.getElementById("edit-ram-input").value) || 4096; // <-- BUG CORRIGÉ ICI
         inst.group = document.getElementById("edit-group").value.trim();
         inst.javaPath = document.getElementById("edit-javapath").value;
         inst.resW = document.getElementById("edit-res-w").value;
         inst.resH = document.getElementById("edit-res-h").value;
         inst.jvmArgs = document.getElementById("edit-jvmargs").value;
         
-        // RESTAURATION : jvmProfile
         inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
 
         inst.notes = document.getElementById("edit-notes").value;

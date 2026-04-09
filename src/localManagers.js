@@ -87,8 +87,8 @@ export function setupLocalManagers() {
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center; flex-grow: 1; word-break: break-all; padding-right: 10px;">${displayName}${warningHtml}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleMod(${fileJson}, this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick="deleteMod(${fileJson})" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleMod(${fileJson}, this.checked)' title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick='deleteMod(${fileJson})' title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }
@@ -149,12 +149,13 @@ export function setupLocalManagers() {
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = JSON.stringify(file);
+                
                 listDiv.innerHTML += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleShader(${fileJson}, this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteShader(${fileJson})" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleShader(${fileJson}, this.checked)' title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteShader(${fileJson})' title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }
@@ -202,12 +203,13 @@ export function setupLocalManagers() {
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = JSON.stringify(file);
+                
                 listDiv.innerHTML += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleResourcePack(${fileJson}, this.checked)" title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick="deleteResourcePack(${fileJson})" title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleResourcePack(${fileJson}, this.checked)' title="Activer/Désactiver">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteResourcePack(${fileJson})' title="Supprimer définitivement">X</button>
                     </div>
                 </div>`;
             }

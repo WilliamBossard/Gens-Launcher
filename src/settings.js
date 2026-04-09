@@ -34,7 +34,7 @@ export function setupSettings() {
             optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
         });
 
-const srvSelect = document.getElementById("global-servers-source");
+        const srvSelect = document.getElementById("global-servers-source");
         srvSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
@@ -45,19 +45,14 @@ const srvSelect = document.getElementById("global-servers-source");
             const btn = document.getElementById("btn-dl-java-" + v);
             if (!btn) return;
 
-            const isLinux = window.api.platform === "linux";
-            const javaExe = isLinux ? "java" : "javaw.exe";
-
             let isInstalled = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
             if (!isInstalled) {
-                const winPaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
-                const linuxPaths = ["/usr/lib/jvm", "/usr/local/lib/jvm", "/opt/java", "/opt/jdk"];
-                const basePaths = isLinux ? linuxPaths : winPaths;
+                const basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
                 for (let bp of basePaths) {
                     if (fs.existsSync(bp)) {
                         try {
                             const dirs = fs.readdirSync(bp);
-                            if (dirs.some(d => d.includes(v.toString()) && fs.existsSync(path.join(bp, d, "bin", javaExe)))) {
+                            if (dirs.some(d => d.includes(v.toString()) && fs.existsSync(path.join(bp, d, "bin", "javaw.exe")))) {
                                 isInstalled = true;
                             }
                         } catch(e) {}
@@ -87,7 +82,7 @@ const srvSelect = document.getElementById("global-servers-source");
     window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
 
     window.saveGlobalSettings = () => {
-        store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value);
+        store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value) || 4096; // <-- BUG CORRIGÉ ICI
         store.globalSettings.defaultJavaPath = document.getElementById("global-java").value;
         store.globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
         store.globalSettings.serverIp = document.getElementById("global-server-ip").value.trim();
@@ -147,7 +142,7 @@ const srvSelect = document.getElementById("global-servers-source");
         }
     };
 
-window.saveDefaultServers = () => {
+    window.saveDefaultServers = () => {
         const idx = document.getElementById("global-servers-source").value;
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
         
@@ -195,36 +190,22 @@ window.saveDefaultServers = () => {
         if (isGlobal) document.getElementById("global-java").value = "";
         else document.getElementById("edit-javapath").value = "";
 
-        const isLinux = window.api.platform === "linux";
-        const javaExe = isLinux ? "java" : "javaw.exe";
-
-        const basePaths = isLinux
-            ? [
-                path.join(store.dataDir, "java"),
-                "/usr/lib/jvm",
-                "/usr/local/lib/jvm",
-                "/opt/java",
-                "/opt/jdk",
-              ]
-            : [
-                path.join(store.dataDir, "java"),
-                "C:\\Program Files\\Java",
-                "C:\\Program Files (x86)\\Java",
-                "C:\\Program Files\\Eclipse Adoptium",
-                "C:\\Program Files\\Amazon Corretto",
-              ];
+        const basePaths = [
+            path.join(store.dataDir, "java"), "C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java",
+            "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Amazon Corretto",
+        ];
         
         let found = 0;
-        function findJavaBin(dir, depth = 0) {
+        function findJavaW(dir, depth = 0) {
             if (depth > 3) return null; 
             try {
                 const files = fs.readdirSync(dir);
                 for (let f of files) {
                     const fullPath = path.join(dir, f);
                     if (fs.statSync(fullPath).isDirectory) { 
-                        const res = findJavaBin(fullPath, depth + 1);
+                        const res = findJavaW(fullPath, depth + 1);
                         if (res) return res;
-                    } else if (f.toLowerCase() === javaExe) return fullPath;
+                    } else if (f.toLowerCase() === "javaw.exe") return fullPath;
                 }
             } catch (e) {}
             return null;
@@ -236,7 +217,7 @@ window.saveDefaultServers = () => {
                     fs.readdirSync(bp).forEach((d) => {
                         const subDir = path.join(bp, d);
                         if (fs.statSync(subDir).isDirectory) {
-                            const jPath = findJavaBin(subDir);
+                            const jPath = findJavaW(subDir);
                             if (jPath) {
                                 let opt = document.createElement("option");
                                 opt.value = jPath;
@@ -259,41 +240,25 @@ window.saveDefaultServers = () => {
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
         if (!fs.existsSync(javaDir)) fs.mkdirSync(javaDir, { recursive: true });
-
-        const isLinux = window.api.platform === "linux";
-        const osName = isLinux ? "linux" : "windows";
-        const archiveExt = isLinux ? "tar.gz" : "zip";
-        const archivePath = path.join(javaDir, `jre${version}.${archiveExt}`);
-        const javaExe = isLinux ? "java" : "javaw.exe";
+        const zipPath = path.join(javaDir, `jre${version}.zip`);
 
         try {
             const releaseType = version >= 25 ? "ea" : "ga";
             const imageType = version >= 21 ? "jdk" : "jre";
-            const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/${osName}/x64/${imageType}/hotspot/normal/eclipse`;
+            const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/windows/x64/${imageType}/hotspot/normal/eclipse`;
 
             const res = await fetch(url);
             if (!res.ok) throw new Error("Version de Java introuvable sur le serveur.");
             
-            fs.writeFileSync(archivePath, Buffer.from(await res.arrayBuffer()));
+            fs.writeFileSync(zipPath, Buffer.from(await res.arrayBuffer()));
             window.showLoading(t("msg_extract_java", "Extraction de Java..."));
             await yieldUI();
             
             const extractDir = path.join(javaDir, `jre${version}`);
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
-            fs.mkdirSync(extractDir, { recursive: true });
-
-            if (isLinux) {
-                await new Promise((resolve, reject) => {
-                    const { spawn } = require !== undefined
-                        ? { spawn: null }  
-                        : { spawn: null };
-                    window.api.invoke("extract-tar", { src: archivePath, dest: extractDir })
-                        .then(resolve).catch(reject);
-                });
-            } else {
-                window.api.tools.extractAllTo(archivePath, extractDir);
-            }
-            fs.unlinkSync(archivePath);
+            
+            window.api.tools.extractAllTo(zipPath, extractDir);
+            fs.unlinkSync(zipPath);
 
             function findJavaExe(dir) {
                 for (let file of fs.readdirSync(dir)) {
@@ -301,7 +266,7 @@ window.saveDefaultServers = () => {
                     if (fs.statSync(fullPath).isDirectory) {
                         const found = findJavaExe(fullPath);
                         if (found) return found;
-                    } else if (file.toLowerCase() === javaExe) return fullPath;
+                    } else if (file.toLowerCase() === "javaw.exe") return fullPath;
                 }
                 return null;
             }
@@ -321,7 +286,7 @@ window.saveDefaultServers = () => {
                 window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
                 return javaExePath;
             }
-            throw new Error(isLinux ? "java introuvable après extraction." : "javaw.exe introuvable.");
+            throw new Error("javaw.exe introuvable.");
         } catch (e) {
             sysLog("Erreur Auto-Java : " + e, true);
             window.showToast(t("msg_err_java", "Erreur Java") + " : " + e, "error");
@@ -348,7 +313,7 @@ window.saveDefaultServers = () => {
     window.renderUpdateTab = () => {
         if (store.pendingLauncherUpdate) {
             document.getElementById("update-available-container").style.display = "block";
-            document.getElementById("btn-check-launcher").style.display = "none"; 
+            document.getElementById("btn-check-launcher").style.display = "none"; // Cache le bouton manuel
             document.getElementById("new-version-badge").innerText = "v" + store.pendingLauncherUpdate.version;
             
             let notes = store.pendingLauncherUpdate.releaseNotes || "Aucun patch note fourni pour cette version.";
