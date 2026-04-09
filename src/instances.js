@@ -211,13 +211,13 @@ export function setupInstances() {
         const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
         if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
-            window.showToast("Ce nom est invalide car réservé par le système.", "error");
+            window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
             return;
         }
 
         if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
-            window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
+            window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
             return;
         }
 
@@ -226,7 +226,7 @@ export function setupInstances() {
             fs.mkdirSync(destFolder, { recursive: true });
         } catch(e) {
             sysLog("Erreur création dossier instance: " + e.message, true);
-            window.showToast("Erreur système : Impossible de créer le dossier.", "error");
+            window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
             return;
         }
 
@@ -241,6 +241,9 @@ export function setupInstances() {
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
+
+        store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
+        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
 
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
@@ -271,12 +274,12 @@ export function setupInstances() {
             const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
 
             if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeNewName)) {
-                window.showToast("Ce nom est invalide car réservé par le système.", "error");
+                window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
                 return;
             }
 
             if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && i.name.replace(/[^a-z0-9]/gi, "_") === safeNewName)) {
-                window.showToast("Une instance avec un nom similaire (même dossier) existe déjà !", "error");
+                window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
                 return;
             }
 
@@ -293,14 +296,14 @@ export function setupInstances() {
                     }
                 } catch (err) {
                     console.error("Erreur de renommage:", err);
-                    window.showToast("Erreur système : Impossible de renommer le dossier.", "error");
+                    window.showToast(t("msg_err_rename_folder", "Erreur système : Impossible de renommer le dossier."), "error");
                     return; 
                 }
             }
         }
 
         inst.name = newName;
-        inst.ram = parseInt(document.getElementById("edit-ram-input").value) || 4096; // <-- BUG CORRIGÉ ICI
+        inst.ram = parseInt(document.getElementById("edit-ram-input").value) || 4096;
         inst.group = document.getElementById("edit-group").value.trim();
         inst.javaPath = document.getElementById("edit-javapath").value;
         inst.resW = document.getElementById("edit-res-w").value;
@@ -370,6 +373,9 @@ export function setupInstances() {
                     { recursive: true }
                 );
             store.allInstances.push(inst);
+
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
         } catch (e) {
             sysLog("Erreur Copie: " + e, true);

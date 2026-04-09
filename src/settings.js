@@ -26,6 +26,9 @@ export function setupSettings() {
         document.getElementById("global-discord-rpc").value = store.globalSettings.disableRPC ? "false" : "true";
         document.getElementById("global-multi-inst").value = store.globalSettings.multiInstance ? "true" : "false";
         document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
+        
+        // Mode Éco
+        document.getElementById("global-eco-mode").value = store.globalSettings.ecoMode ? "true" : "false";
 
         const optSelect = document.getElementById("global-options-source");
         optSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
@@ -82,7 +85,7 @@ export function setupSettings() {
     window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
 
     window.saveGlobalSettings = () => {
-        store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value) || 4096; // <-- BUG CORRIGÉ ICI
+        store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value);
         store.globalSettings.defaultJavaPath = document.getElementById("global-java").value;
         store.globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
         store.globalSettings.serverIp = document.getElementById("global-server-ip").value.trim();
@@ -90,6 +93,10 @@ export function setupSettings() {
         store.globalSettings.disableRPC = document.getElementById("global-discord-rpc").value === "false";
         store.globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
         store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
+        
+        // Mode Éco
+        store.globalSettings.ecoMode = document.getElementById("global-eco-mode").value === "true";
+        
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
 
         let bgPath = document.getElementById("global-bg-path").value.trim();

@@ -22,6 +22,21 @@ export function setupArchives() {
     };
 
     window.handleZipImport = async (zipPath) => {
+        // CORRECTION DU CRASH SILENCIEUX ICI :
+        // On utilise getEntryText qui est bien autorisé par le système de sécurité (preload.js)
+        try {
+            const zipCheck = window.api.tools.AdmZip(zipPath);
+            const manifestText = zipCheck.getEntryText("manifest.json");
+            
+            if (manifestText) {
+                // C'est bien un modpack CurseForge, on redirige vers l'importateur dédié
+                return await window.handleCurseForgeImport(zipPath, manifestText);
+            }
+        } catch (e) {
+            console.error("Vérification ZIP échouée:", e);
+        }
+
+        // Si ce n'est pas un modpack CurseForge, on fait l'import classique
         window.showLoading(t("msg_extract", "Extraction..."));
         await yieldUI();
         try {
@@ -67,6 +82,10 @@ export function setupArchives() {
             fs.rmSync(tempExtractDir, { recursive: true, force: true });
 
             store.allInstances.push(instData);
+            
+            // MAJ COMPTEUR
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
 
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
@@ -204,7 +223,12 @@ export function setupArchives() {
         }
 
         store.allInstances.push(newInst);
+        
+        // MAJ COMPTEUR
+        store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+
         sysLog(`Modpack ${finalName} importé avec succès.`);
         window.showToast(t("msg_install_success", "Installation réussie !"), "success");
       } catch (err) {
@@ -213,7 +237,134 @@ export function setupArchives() {
       }
       window.hideLoading();
       window.renderUI();
-    }
+    };
+
+    window.handleCurseForgeImport = async (zipPath, manifestText) => {
+        const apiKey = store.globalSettings.cfApiKey;
+        // Vérification stricte de la clé API
+        if (!apiKey || apiKey.trim() === "") {
+            window.showToast("❌ Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux.", "error");
+            return; // Bloque l'exécution ici si pas de clé
+        }
+
+        window.showLoading("Analyse du Modpack CurseForge...");
+        await yieldUI();
+
+        try {
+            const zip = window.api.tools.AdmZip(zipPath);
+            
+            // Si on n'a pas récupéré le texte au préalable, on le lit
+            if (!manifestText) {
+                manifestText = zip.getEntryText("manifest.json");
+            }
+            
+            const manifest = JSON.parse(manifestText);
+
+            const packName = manifest.name || "CurseForge Modpack";
+            const mcVer = manifest.minecraft.version;
+            
+            let loaderType = "vanilla";
+            let loaderVer = "";
+            
+            if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
+                const loaderString = manifest.minecraft.modLoaders[0].id;
+                if (loaderString.startsWith("forge-")) {
+                    loaderType = "forge";
+                    loaderVer = loaderString.replace("forge-", "");
+                } else if (loaderString.startsWith("fabric-")) {
+                    loaderType = "fabric";
+                    loaderVer = loaderString.replace("fabric-", "");
+                } else if (loaderString.startsWith("neoforge-")) {
+                    loaderType = "neoforge";
+                    loaderVer = loaderString.replace("neoforge-", "");
+                }
+            }
+
+            let finalName = packName;
+            let counter = 1;
+            while (store.allInstances.some((i) => i.name === finalName)) {
+                finalName = `${packName} (${counter})`;
+                counter++;
+            }
+
+            const newInst = {
+                name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
+                ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+                notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
+                lastPlayed: 0, group: "Modpacks", servers: [], backupMode: "none", backupLimit: 5,
+            };
+
+            const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
+            if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
+
+            const overridesDir = manifest.overrides || "overrides";
+            zip.getEntries().forEach((entry) => {
+                if (entry.entryName.startsWith(`${overridesDir}/`) && entry.entryName !== `${overridesDir}/`) {
+                    const targetPath = path.join(instDir, entry.entryName.substring(overridesDir.length + 1));
+                    if (entry.isDirectory) {
+                        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+                    } else {
+                        const dir = path.dirname(targetPath);
+                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                        fs.writeFileSync(targetPath, zip.readFile(entry.entryName));
+                    }
+                }
+            });
+
+            const filesToDownload = manifest.files;
+            let downloadedCount = 0;
+            const total = filesToDownload.length;
+            
+            const modsDir = path.join(instDir, "mods");
+            if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
+
+            window.showLoading(`Téléchargement des mods (0/${total})...`, 0);
+
+            const queue = [...filesToDownload];
+            const workers = Array(5).fill(null).map(async () => {
+                while (queue.length > 0) {
+                    const fileInfo = queue.shift();
+                    try {
+                        const url = `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}/download-url`;
+                        const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+                        
+                        if (res.success && res.data && res.data.data) {
+                            const downloadUrl = res.data.data;
+                            const fileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
+                            
+                            const modRes = await fetch(downloadUrl);
+                            if (modRes.ok) {
+                                const buffer = await modRes.arrayBuffer();
+                                fs.writeFileSync(path.join(modsDir, fileName), new Uint8Array(buffer));
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Erreur téléchargement mod CF:", e);
+                    }
+                    
+                    downloadedCount++;
+                    let pct = Math.round((downloadedCount / total) * 100);
+                    window.updateLoadingPercent(pct, `Téléchargement des mods (${downloadedCount}/${total})...`);
+                }
+            });
+
+            await Promise.all(workers);
+
+            store.allInstances.push(newInst);
+            
+            // MAJ COMPTEUR
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || store.allInstances.length) + 1;
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            
+            window.showToast("Modpack CurseForge installé avec succès !", "success");
+        } catch (err) {
+            window.showToast("Erreur Modpack CurseForge : " + err.message, "error");
+        }
+        
+        window.hideLoading();
+        window.renderUI();
+    };
 
     window.exportInstance = () => {
       if (store.selectedInstanceIdx === null) return;

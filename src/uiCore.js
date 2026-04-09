@@ -101,11 +101,13 @@ export function setupUICore() {
 
         for (const g in groups) {
             const safeGroup = (g === defaultGroup) ? "" : g;
+            const escapedGroupAttr = window.escapeHTML(safeGroup);
             let html = `<div class="category-header"
                 onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'grid' : 'none'"
                 ondragover="event.preventDefault()"
-                ondrop="dropInstanceOnGroup(event, '${safeGroup}')"
-            >${g} (${groups[g].length})</div>`;
+                ondrop="dropInstanceOnGroup(event, this.getAttribute('data-group'))"
+                data-group="${escapedGroupAttr}"
+            >${window.escapeHTML(g)} (${groups[g].length})</div>`;
 
             html += `<div class="instances-grid">`;
             groups[g].forEach(inst => {

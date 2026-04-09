@@ -305,6 +305,39 @@ const defaultFr = {
   lbl_new_version: "Nouvelle version disponible :",
   btn_start_update: "Télécharger et Installer",
   msg_update_found_bg: "Mise à jour trouvée ! Téléchargement en arrière-plan...",
+  msg_login_success: "Connexion réussie !",
+  msg_skin_exported: "Skin exporté avec succès !",
+  msg_err_skin_export: "Erreur lors de l'exportation du skin.",
+  msg_err_reserved_name: "Ce nom est invalide car réservé par le système.",
+  msg_err_similar_name: "Une instance avec un nom similaire (même dossier) existe déjà !",
+  msg_err_create_folder: "Erreur système : Impossible de créer le dossier.",
+  msg_err_rename_folder: "Erreur système : Impossible de renommer le dossier.",
+  // --- BUILDER DE MODPACK ---
+  modal_builder_title: "Créateur de Modpack Personnalisé",
+  lbl_modpack_name: "Nom du Modpack",
+  ph_modpack_name: "Mon Super Modpack",
+  lbl_version: "Version",
+  lbl_your_selection: "Votre sélection",
+  btn_create_install: "Créer & Installer",
+  opt_mods_type: "Mods",
+  opt_shaders_type: "Shaders",
+  opt_rp_type: "Ressources",
+  ph_search_modrinth: "Rechercher sur Modrinth...",
+  msg_builder_no_name: "Donnez un nom à votre Modpack !",
+  msg_builder_no_mods: "Ajoutez au moins un élément !",
+  msg_builder_name_taken: "Une instance avec ce nom existe déjà.",
+  msg_builder_creating: "Création de l'instance...",
+  msg_builder_downloading: "Téléchargement :",
+  msg_builder_success: "Modpack créé avec succès !",
+  msg_builder_searching: "Recherche en cours...",
+  msg_builder_no_results: "Aucun résultat pour cette version / ce loader.",
+  msg_builder_empty_pack: "Le pack est vide.",
+  msg_builder_search_err: "Erreur de recherche.",
+  btn_added: "Ajouté",
+  btn_add_to_pack: "Ajouter",
+  lbl_type_mod: "Mod",
+  lbl_type_shader: "Shader",
+  lbl_type_pack: "Pack de Textures",
 };
 
 const defaultEn = {
@@ -609,6 +642,39 @@ const defaultEn = {
   lbl_new_version: "New version available:",
   btn_start_update: "Download and Install",
   msg_update_found_bg: "Update found! Downloading in background...",
+  msg_login_success: "Login successful!",
+  msg_skin_exported: "Skin exported successfully!",
+  msg_err_skin_export: "Error exporting skin.",
+  msg_err_reserved_name: "This name is invalid as it is reserved by the system.",
+  msg_err_similar_name: "An instance with a similar name (same folder) already exists!",
+  msg_err_create_folder: "System error: Cannot create the folder.",
+  msg_err_rename_folder: "System error: Cannot rename the folder.",
+  // --- MODPACK BUILDER ---
+  modal_builder_title: "Custom Modpack Creator",
+  lbl_modpack_name: "Modpack Name",
+  ph_modpack_name: "My Custom Modpack",
+  lbl_version: "Version",
+  lbl_your_selection: "Your selection",
+  btn_create_install: "Create & Install",
+  opt_mods_type: "Mods",
+  opt_shaders_type: "Shaders",
+  opt_rp_type: "Resource Packs",
+  ph_search_modrinth: "Search on Modrinth...",
+  msg_builder_no_name: "Give your Modpack a name!",
+  msg_builder_no_mods: "Add at least one item!",
+  msg_builder_name_taken: "An instance with this name already exists.",
+  msg_builder_creating: "Creating instance...",
+  msg_builder_downloading: "Downloading:",
+  msg_builder_success: "Modpack created successfully!",
+  msg_builder_searching: "Searching...",
+  msg_builder_no_results: "No results for this version / loader.",
+  msg_builder_empty_pack: "The pack is empty.",
+  msg_builder_search_err: "Search error.",
+  btn_added: "Added",
+  btn_add_to_pack: "Add",
+  lbl_type_mod: "Mod",
+  lbl_type_shader: "Shader",
+  lbl_type_pack: "Resource Pack",
 };
 
 export function setupLang() {
@@ -652,12 +718,7 @@ export function setupLang() {
         });
 
         const cv = document.getElementById("current-app-version");
-        if(cv) {
-            try {
-                const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-                cv.innerText = "v" + pkg.version;
-            } catch(e) {}
-        }
+        if (cv) cv.innerText = "v" + window.api.version;
         
         if (window.updateLaunchButton) window.updateLaunchButton();
     };

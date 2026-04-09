@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session } = require("electron");
+const { app, BrowserWindow, ipcMain, session, Tray, Menu } = require("electron"); // <-- AJOUT DE TRAY ET MENU
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -14,6 +14,7 @@ app.userAgentFallback = CHROME_UA;
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
 
 let mainWindow;
+let tray = null; // <-- NOTRE VARIABLE TRAY
 const logPath = path.join(app.getPath("userData"), "main-process.log");
 
 function mainLog(msg) {
@@ -47,6 +48,20 @@ app.whenReady().then(() => {
 
     createWindow();
 
+    // --- CRÉATION DU SYSTEM TRAY ---
+    try {
+        tray = new Tray(path.join(__dirname, "assets/icon.ico"));
+        const contextMenu = Menu.buildFromTemplate([
+            { label: 'Afficher Gens Launcher', click: () => { if (mainWindow) mainWindow.show(); } },
+            { type: 'separator' },
+            { label: 'Quitter', click: () => { app.quit(); } }
+        ]);
+        tray.setToolTip('Gens Launcher');
+        tray.setContextMenu(contextMenu);
+        tray.on('double-click', () => { if (mainWindow) mainWindow.show(); });
+    } catch (e) { console.error("Erreur Tray:", e); }
+    // -------------------------------
+
     autoUpdater.logger = { info: (m) => mainLog(m), warn: (m) => mainLog("WARN: " + m), error: (m) => mainLog("ERR: " + m) };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
     
@@ -67,32 +82,22 @@ app.whenReady().then(() => {
 });
 
 ipcMain.on("get-paths-sync", (event) => {
-    event.returnValue = { 
-        appData: app.getPath("appData"), 
-        platform: process.platform,
-        version: app.getVersion() 
-    };
+    event.returnValue = { appData: app.getPath("appData"), platform: process.platform, version: app.getVersion() };
 });
 
 ipcMain.handle("check-java", async (_, javaPath) => {
     return new Promise((resolve) => {
-        execFile(javaPath, ["-version"], (err, stdout, stderr) => {
-            resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" });
-        });
+        execFile(javaPath, ["-version"], (err, stdout, stderr) => { resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" }); });
     });
 });
 
 ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
     try {
-        const response = await fetch(url, {
-            headers: { "x-api-key": apiKey, "Accept": "application/json" }
-        });
+        const response = await fetch(url, { headers: { "x-api-key": apiKey, "Accept": "application/json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         return { success: true, data };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+    } catch (e) { return { success: false, error: e.message }; }
 });
 
 const activeMinecraftClients = new Map();
@@ -105,38 +110,24 @@ ipcMain.handle("force-stop-game", async (_, instanceId) => {
             activeMinecraftClients.delete(instanceId);
             mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
             resolve({ success: true });
-        } else {
-            resolve({ success: false });
-        }
+        } else { resolve({ success: false }); }
     });
 });
 
 ipcMain.on("launch-game", (event, opts) => {
-    if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { 
-        mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); 
-        return; 
-    }
+    if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); return; }
     
     const instanceId = opts.instanceId;
     const launcher = new Client();
 
-    launcher.launch(opts).then((process) => {
-        activeMinecraftClients.set(instanceId, { process, launcher });
-    }).catch(e => mainLog("Erreur Lancement: " + e));
-
+    launcher.launch(opts).then((process) => { activeMinecraftClients.set(instanceId, { process, launcher }); }).catch(e => mainLog("Erreur Lancement: " + e));
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
-    launcher.on("close", (e) => {
-        activeMinecraftClients.delete(instanceId);
-        mainWindow?.webContents.send("mc-close", { instanceId, code: e });
-    });
+    launcher.on("close", (e) => { activeMinecraftClients.delete(instanceId); mainWindow?.webContents.send("mc-close", { instanceId, code: e }); });
 });
 
 ipcMain.handle("check-for-updates", async () => {
-    try {
-        const result = await autoUpdater.checkForUpdates();
-        return { success: true, version: result?.updateInfo?.version || null };
-    } catch(e) { return { success: false, error: e.message }; }
+    try { const result = await autoUpdater.checkForUpdates(); return { success: true, version: result?.updateInfo?.version || null }; } catch(e) { return { success: false, error: e.message }; }
 });
 
 ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
@@ -154,10 +145,7 @@ let isAuthRunning = false;
 let activeMicrosoftAuthFlow = null;
 let loginMicrosoftUserCancelled = false;
 
-ipcMain.on("cancel-login-microsoft", () => {
-    loginMicrosoftUserCancelled = true;
-    if (activeMicrosoftAuthFlow?.msa) activeMicrosoftAuthFlow.msa.polling = false;
-});
+ipcMain.on("cancel-login-microsoft", () => { loginMicrosoftUserCancelled = true; if (activeMicrosoftAuthFlow?.msa) activeMicrosoftAuthFlow.msa.polling = false; });
 
 ipcMain.handle("login-microsoft", async () => {
     if (isAuthRunning) return { success: false, error: "Une connexion est déjà en cours." };
@@ -166,15 +154,11 @@ ipcMain.handle("login-microsoft", async () => {
     const cacheDir = path.join(app.getPath("userData"), "msa-cache");
 
     try {
-        const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" },
-            (deviceInfo) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("microsoft-device-code", deviceInfo); });
+        const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" }, (deviceInfo) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("microsoft-device-code", deviceInfo); });
         activeMicrosoftAuthFlow = flow;
 
         const origGetMsaToken = flow.getMsaToken.bind(flow);
-        flow.getMsaToken = async function () {
-            if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled");
-            try { return await origGetMsaToken(); } catch (err) { if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled"); throw err; }
-        };
+        flow.getMsaToken = async function () { if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled"); try { return await origGetMsaToken(); } catch (err) { if (loginMicrosoftUserCancelled) throw new URIError("Microsoft login cancelled"); throw err; } };
 
         const response = await flow.getMinecraftJavaToken({ fetchProfile: true });
         if (loginMicrosoftUserCancelled) return { success: false, cancelled: true };
@@ -199,21 +183,12 @@ ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     } catch(err) { return { success: false, error: err.message }; }
 });
 
-ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
-    try {
-        const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
-        if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true });
-    } catch(e) {}
-});
+ipcMain.on("delete-msa-cache", (_, sessionLabel) => { try { const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel); if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true }); } catch(e) {} });
 
 const discordClientId = "1490353507218227301";
 let rpc = new DiscordRPC.Client({ transport: "ipc" });
 let rpcReady = false;
 rpc.login({ clientId: discordClientId }).then(() => { rpcReady = true; }).catch(() => {});
-ipcMain.on("update-discord", (event, data) => {
-    if (!rpcReady) return;
-    if (data === "clear") { rpc.clearActivity().catch(()=>{}); return; }
-    rpc.setActivity(data).catch(()=>{});
-});
+ipcMain.on("update-discord", (event, data) => { if (!rpcReady) return; if (data === "clear") { rpc.clearActivity().catch(()=>{}); return; } rpc.setActivity(data).catch(()=>{}); });
 
-app.on("window-all-closed", () => { app.quit(); });
+app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

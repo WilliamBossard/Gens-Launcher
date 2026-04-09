@@ -24,7 +24,8 @@ export const store = {
         newsCollapsed: false,
         disableRPC: false,       
         multiInstance: false,
-        autoDownloadUpdates: false
+        autoDownloadUpdates: false,
+        totalInstancesCreated: 0 
     },
     currentLangObj: {},
 

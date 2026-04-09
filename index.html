@@ -1011,6 +1011,22 @@
             border-radius: 4px;
             border: 1px solid var(--border);
         }
+
+        /* --- MODE ECO --- */
+        body.eco-mode * {
+            backdrop-filter: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            transition: none !important;
+        }
+        body.eco-mode #app-background {
+            filter: none !important;
+            background-image: none !important;
+            background-color: var(--bg-main) !important;
+        }
+        body.eco-mode .modal {
+            background: rgba(0, 0, 0, 0.95) !important;
+        }
     </style>
 </head>
 
@@ -1100,6 +1116,7 @@
     <div class="toolbar">
         <div class="toolbar-group">
             <button class="tool-btn" onclick="openInstanceModal()" data-i18n="toolbar_add">Ajouter une instance</button>
+            <button class="tool-btn" onclick="openBuilderModal()">Créer un Modpack</button>
             <button class="tool-btn" onclick="document.getElementById('import-upload').click()" data-i18n="toolbar_import">Importer</button>
             <button class="tool-btn" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
             
@@ -1330,7 +1347,7 @@
                         <option value="shader">Shaders</option>
                         <option value="resourcepack">Resource Packs</option>
                     </select>
-                    <input type="text" id="catalog-search" placeholder="Rechercher..." style="flex-grow: 1;" onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
+                    <input type="text" id="catalog-search" placeholder="Rechercher..." style="flex-grow: 1;" oninput="scheduleGlobalSearch()">
                     <select id="catalog-loader" style="width: 100px;" onchange="searchGlobalCatalog()">
                         <option value="fabric">Fabric</option>
                         <option value="quilt">Quilt</option>
@@ -1350,46 +1367,64 @@
         </div>
     </div>
 
-    <div id="modal-instance" class="modal">
-        <div class="modal-card" style="width: 350px;">
-            <div class="modal-header" data-i18n="toolbar_add">Nouvelle instance</div>
-            <div class="modal-body">
-                <label>Nom</label>
-                <input type="text" id="new-name" data-i18n="ph_inst_name" placeholder="Ma Survie" oninput="this.style.borderColor='var(--border)'">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="check-beta" style="width:auto; margin:0;" onchange="updateVersionList(this.checked)">
-                    <label for="check-beta" data-i18n="lbl_beta">Afficher les Bêtas</label>
-                </div>
-                <label>Version Minecraft</label>
-                <select id="new-version" onchange="updateLoaderVersions()"></select>
+    <div id="modal-builder" class="modal" style="z-index: 3600;">
+        <div class="modal-card" style="width: 950px; height: 650px;">
+            <div class="modal-header" data-i18n="modal_builder_title">Créateur de Modpack Personnalisé</div>
+            <div class="modal-body" style="flex-grow: 1; padding: 0; display: flex; flex-direction: row;">
                 
-                <label data-i18n="lbl_loader">Type de chargeur (Loader)</label>
-                <select id="new-loader" onchange="updateLoaderVersions()">
-                    <option value="vanilla">Vanilla</option>
-                    <option value="fabric">Fabric</option>
-                    <option value="quilt">Quilt</option>
-                    <option value="forge">Forge</option>
-                    <option value="neoforge">NeoForge</option>
-                </select>
-
-                <div id="loader-version-container" style="display:none; margin-top: 5px;">
-                    <label data-i18n="lbl_loader_version">Version du chargeur</label>
-                    <select id="new-loader-version"></select>
+                <!-- Panneau gauche : configuration + panier -->
+                <div style="width: 320px; background: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
+                    <div style="padding: 15px; border-bottom: 1px solid var(--border);">
+                        <label data-i18n="lbl_modpack_name">Nom du Modpack</label>
+                        <input type="text" id="builder-name" data-i18n="ph_modpack_name" placeholder="Mon Super Modpack" maxlength="64">
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <div style="flex: 1;">
+                                <label data-i18n="lbl_version">Version</label>
+                                <select id="builder-version" onchange="searchBuilderMods()"></select>
+                            </div>
+                            <div style="flex: 1;">
+                                <label data-i18n="lbl_loader">Loader</label>
+                                <select id="builder-loader" onchange="searchBuilderMods()">
+                                    <option value="fabric">Fabric</option>
+                                    <option value="forge">Forge</option>
+                                    <option value="neoforge">NeoForge</option>
+                                    <option value="quilt">Quilt</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding: 15px 15px 5px 15px; font-weight: bold; color: var(--accent); display:flex; justify-content:space-between; align-items: center;">
+                        <span data-i18n="lbl_your_selection">Votre sélection</span>
+                        <span id="builder-count" style="background:var(--accent); color:white; padding: 2px 8px; border-radius:10px; font-size:0.75rem;">0</span>
+                    </div>
+                    <div id="builder-selected-list" style="flex-grow: 1; overflow-y: auto; padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;">
+                    </div>
+                    <div style="padding: 15px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.1);">
+                        <button class="btn-primary" style="width: 100%; font-weight: bold; background: #17B139; border-color: #17B139; padding: 10px;" onclick="buildModpack()" data-i18n="btn_create_install">Créer &amp; Installer</button>
+                    </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 10px;">
-                    <label data-i18n="lbl_ram">Mémoire RAM (Mo) :</label>
-                    <input type="number" id="new-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('new-ram-slider').value = this.value">
+                <!-- Panneau droit : recherche Modrinth -->
+                <div style="flex-grow: 1; display: flex; flex-direction: column; background: var(--bg-main);">
+                    <div style="padding: 15px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; background: rgba(0,0,0,0.2); align-items: center;">
+                        <select id="builder-type" style="width: 140px;" onchange="searchBuilderMods()">
+                            <option value="mod" data-i18n="opt_mods_type">Mods</option>
+                            <option value="shader" data-i18n="opt_shaders_type">Shaders</option>
+                            <option value="resourcepack" data-i18n="opt_rp_type">Ressources</option>
+                        </select>
+                        <input type="text" id="builder-search" data-i18n="ph_search_modrinth" placeholder="Rechercher sur Modrinth..." style="flex-grow: 1;" oninput="scheduleBuilderSearch()">
+                    </div>
+                    <div id="builder-results" style="flex-grow: 1; overflow-y: auto; padding: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; align-content: start;">
+                    </div>
                 </div>
-                <input type="range" id="new-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('new-ram-input').value = this.value">
+
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeInstanceModal()" data-i18n="modal_cancel">Annuler</button>
-                <button class="btn-primary" onclick="saveInstance()" data-i18n="modal_create">Créer</button>
+                <button class="btn-secondary" onclick="closeBuilderModal()" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
-
+    
     <div id="modal-settings" class="modal">
         <div class="modal-card" style="width: 600px;">
             <div class="modal-header" data-i18n="toolbar_settings">Paramètres Globaux du Launcher</div>
@@ -1485,6 +1520,15 @@
 
                     <label style="margin-top: 15px;" data-i18n="lbl_panel_opacity">Opacité de l'interface (Panneaux)</label>
                     <input type="range" id="global-panel-opacity" min="0.1" max="1" step="0.05" value="0.6">
+
+                    <div style="display: flex; align-items: center; margin-top: 15px;">
+                        <label style="margin-top: 0;">Mode Éco (Performances)</label>
+                        <div class="ram-help-icon custom-tooltip-trigger" data-tooltip="Désactive les effets visuels (flou, transparence, animations) pour soulager la carte graphique.">?</div>
+                    </div>
+                    <select id="global-eco-mode">
+                        <option value="false">Désactivé (Recommandé)</option>
+                        <option value="true">Activé (Pour les petits PC)</option>
+                    </select>
                 </div>
 
                 <div id="tab-glob-updates" class="settings-content">
@@ -1708,94 +1752,6 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeEditModal()" data-i18n="modal_close">Fermer</button>
                 <button class="btn-primary" onclick="saveEdit()" data-i18n="modal_apply">Appliquer</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-ms-device" class="modal" style="z-index: 4500;">
-        <div class="modal-card" style="width: 440px;">
-            <div class="modal-header" data-i18n="ms_device_title">Connexion Microsoft</div>
-            <div class="modal-body">
-                <p class="ms-device-help" id="ms-device-help"></p>
-                <div class="ms-device-code-row">
-                    <span id="ms-device-code-display"></span>
-                    <button type="button" class="btn-secondary" id="ms-device-btn-copy" onclick="copyMsDeviceCode()" data-i18n="ms_device_copy">Copier le code</button>
-                </div>
-                <button type="button" class="btn-microsoft" style="width: 100%; margin-top: 4px;" id="ms-device-btn-open" onclick="openMsDevicePage()" data-i18n="ms_device_open">Ouvrir la page Microsoft</button>
-                <div class="ms-device-waiting">
-                    <div class="ms-device-spinner" aria-hidden="true"></div>
-                    <p id="ms-device-status"></p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <span id="ms-device-footer-note" style="font-size: 0.75rem; color: #aaa; line-height: 1.35; text-align: left; flex: 1; min-width: 0;"></span>
-                <button type="button" class="btn-secondary" id="ms-device-btn-cancel" onclick="cancelMsDeviceLogin()" data-i18n="ms_device_cancel" style="flex-shrink: 0;">Annuler</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-confirm" class="modal" style="z-index: 100000;">
-        <div class="modal-card" style="width: 400px;">
-            <div class="modal-header" id="confirm-title" data-i18n="modal_confirm">Confirmation</div>
-            <div class="modal-body" id="confirm-message" style="padding: 20px 15px; text-align: center; line-height: 1.5;">...</div>
-            <div class="modal-footer" style="justify-content: center; gap: 15px;">
-                <button class="btn-secondary" id="confirm-no" data-i18n="btn_no" style="width: 100px;">Non</button>
-                <button class="btn-primary" id="confirm-yes" data-i18n="btn_yes" style="width: 100px;">Oui</button>
-            </div>
-        </div>
-    </div>
-    
-    <div id="modal-skin" class="modal" style="z-index: 3000;">
-        <div class="modal-card" style="width: 500px;">
-            <div class="modal-header" data-i18n="modal_skin_title">Visionneuse 3D de Skin</div>
-            <div class="modal-body" style="display: flex; gap: 20px; align-items: center; padding: 20px;">
-                <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 6px; padding: 10px; width: 220px; height: 320px; display: flex; justify-content: center; align-items: center;">
-                    <canvas id="fullscreen-skin-canvas" style="cursor: grab;"></canvas>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
-                    <div style="font-weight: bold; color: var(--text-light); text-align: center; font-size: 1.2rem; margin-bottom: 5px;" id="skin-modal-name">Pseudo</div>
-                    <button class="btn-secondary" id="btn-upload-skin" onclick="document.getElementById('skin-upload').click()" data-i18n="btn_test_skin">Tester un Skin (Aperçu)</button>
-                    <input type="file" id="skin-upload" accept=".png" style="display: none;" onchange="previewLocalSkin(this)">
-                    <button class="btn-secondary" onclick="exportSkin()" data-i18n="btn_export_skin">Exporter le Skin actuel</button>
-                    <div id="skin-divider" class="acc-divider" style="height: 1px; background: var(--border); margin: 5px 0;"></div>
-                    <button class="btn-microsoft" id="btn-link-ms-skin" onclick="openSystemPath('https://www.minecraft.net/fr-fr/msaprofile/mygames/editionsminecraftjava/skin')" data-i18n="btn_change_mojang">Changer sur Minecraft.net</button>
-                    <div style="font-size: 0.75rem; color: #aaa; text-align: center; margin-top: 10px;" data-i18n="tip_skin_3d">
-                        💡 Astuce : Cliquez et glissez pour faire pivoter le personnage. Utilisez la molette pour zoomer.
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeSkinModal()" data-i18n="modal_close">Retour</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-export" class="modal" style="z-index: 3000;">
-        <div class="modal-card" style="width: 450px;">
-            <div class="modal-header" data-i18n="modal_export">Options d'exportation</div>
-            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; padding: 20px;">
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('mrpack')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-                    <div style="font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_mrpack">Export Léger (.mrpack)</div>
-                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_mrpack_desc">Génère un fichier de quelques Ko idéal pour partager avec vos amis. (Recommandé)</div>
-                </div>
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-                    <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_zip">Export Complet (.zip)</div>
-                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_zip_desc">Contient absolument tous vos mods, configs et mondes (Fichier très lourd).</div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-icon-gallery" class="modal" style="z-index: 3500;">
-        <div class="modal-card" style="width: 420px;">
-            <div class="modal-header" data-i18n="modal_icon_gallery_title">Galerie d'icônes</div>
-            <div class="modal-body" id="icon-gallery-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 20px;">
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-icon-gallery').style.display='none'" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>

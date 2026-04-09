@@ -26,7 +26,7 @@ export function setupAccountUI() {
         const btnSkin = document.getElementById("btn-skin-acc");
 
         if (store.allAccounts.length === 0) {
-            list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">Aucun profil enregistré.</div>`;
+            list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">${t("msg_no_acc", "Aucun profil enregistré.")}</div>`;
             if (btnUse) btnUse.disabled = true;
             if (btnDel) btnDel.disabled = true;
             if (btnSkin) btnSkin.disabled = true;
@@ -38,15 +38,16 @@ export function setupAccountUI() {
         if (btnDel) btnDel.disabled = (store.uiSelectedAccRow === null);
         if (btnSkin) btnSkin.disabled = (store.uiSelectedAccRow === null);
 
-store.allAccounts.forEach((acc, i) => {
+        let rowsHtml = "";
+        store.allAccounts.forEach((acc, i) => {
             const isSelected = store.uiSelectedAccRow === i;
             const isActive = store.selectedAccountIdx === i;
 
             const typeText = acc.type === "microsoft" ? t("lbl_ms_account", "Compte Microsoft") : t("lbl_offline_account", "Hors-Ligne (Crack)");
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
-            const safeName = window.escapeHTML(acc.name); 
+            const safeName = window.escapeHTML(acc.name);
 
-            list.innerHTML += `
+            rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
                 <img src="https://mc-heads.net/avatar/${safeName}/32?t=${Date.now()}" alt="${safeName}">
                 <div class="mmc-info">
@@ -56,6 +57,7 @@ store.allAccounts.forEach((acc, i) => {
                 <div class="mmc-active-label">${activeText}</div>
             </div>`;
         });
+        list.innerHTML = rowsHtml;
     };
 
     window.selectAccountRow = (index) => {
@@ -256,9 +258,9 @@ store.allAccounts.push({
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            window.showToast("Skin exporté avec succès !", "success");
+            window.showToast(t("msg_skin_exported", "Skin exporté avec succès !"), "success");
         } catch (e) {
-            window.showToast("Erreur lors de l'exportation du skin.", "error");
+            window.showToast(t("msg_err_skin_export", "Erreur lors de l'exportation du skin."), "error");
         }
     };
 }

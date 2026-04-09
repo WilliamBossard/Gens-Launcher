@@ -90,6 +90,12 @@ window.applyTheme = function() {
         root.style.setProperty("--bg-panel", "#2d2d30");
         root.style.setProperty("--bg-toolbar", "#333337");
     }
+    
+    if (store.globalSettings.ecoMode) {
+        document.body.classList.add("eco-mode");
+    } else {
+        document.body.classList.remove("eco-mode");
+    }
 };
 
 async function loadNews() {
@@ -115,8 +121,9 @@ async function loadNews() {
             const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
             const safeTitle = window.escapeHTML(news.title);
             const safeCategory = window.escapeHTML(news.category);
+            const safeLink = window.escapeHTML(link);
             html += `
-            <div class="news-card" onclick="openSystemPath('${link}')">
+            <div class="news-card" onclick="openSystemPath(this.getAttribute('data-link'))" data-link="${safeLink}">
                 <img src="${imgUrl}" class="news-img">
                 <div class="news-content">
                     <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
@@ -169,16 +176,31 @@ window.checkServerStatus = async () => {
             
             let motdHtml = "Serveur Minecraft";
             if (data.motd && data.motd.html) {
-                motdHtml = data.motd.html
-                    .replace(/<(?!\/?(span|br)\b)[^>]+>/gi, "") 
-                    .replace(/<span([^>]*)>/gi, (match, attrs) => {
-                        const styleMatch = attrs.match(/style="([^"]*)"/i);
-                        if (styleMatch) {
-                            const safeStyle = styleMatch[1].replace(/[^a-zA-Z0-9:#\-\s;]/g, "");
-                            return `<span style="${safeStyle}">`;
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = data.motd.html;
+                const clean = document.createElement('div');
+                function processNode(src, dest) {
+                    for (const child of src.childNodes) {
+                        if (child.nodeType === Node.TEXT_NODE) {
+                            dest.appendChild(document.createTextNode(child.textContent));
+                        } else if (child.nodeType === Node.ELEMENT_NODE) {
+                            if (child.tagName === 'BR') {
+                                dest.appendChild(document.createElement('br'));
+                            } else if (child.tagName === 'SPAN') {
+                                const span = document.createElement('span');
+                                const rawStyle = child.getAttribute('style') || '';
+                                const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
+                                if (safeStyle) span.setAttribute('style', safeStyle);
+                                processNode(child, span);
+                                dest.appendChild(span);
+                            } else {
+                                processNode(child, dest);
+                            }
                         }
-                        return "<span>";
-                    });
+                    }
+                }
+                processNode(tempDiv, clean);
+                motdHtml = clean.innerHTML;
             }
             
             banner.innerHTML = `

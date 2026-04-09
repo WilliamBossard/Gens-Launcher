@@ -110,7 +110,7 @@ function setupAuth() {
           if(window.closeAccountModal) window.closeAccountModal();
           if(window.updateAccountDropdown) window.updateAccountDropdown(); 
           
-          window.showToast("Connexion réussie !", "success");
+          window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
         } else if (result.cancelled) {
           window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
         } else {
