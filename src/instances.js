@@ -236,11 +236,9 @@ export function setupInstances() {
             return;
         }
 
-        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
         let rawRam = parseInt(document.getElementById("new-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024; 
         rawRam = Math.max(1024, rawRam);
-        // ---------------------------------------------
 
         store.allInstances.push({
             name,
@@ -314,11 +312,9 @@ export function setupInstances() {
             }
         }
 
-        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
         let rawRam = parseInt(document.getElementById("edit-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024; 
         inst.ram = Math.max(1024, rawRam);
-        // ---------------------------------------------
 
         inst.name = newName;
         inst.group = document.getElementById("edit-group").value.trim();

@@ -33,7 +33,6 @@ export function setupSettings() {
         optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultOptionsInstance) ? "selected" : "";
-            // PROTECTION XSS ICI :
             optSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
         });
 
@@ -41,7 +40,6 @@ export function setupSettings() {
         srvSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
-            // PROTECTION XSS ICI :
             srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
         });
 
@@ -86,11 +84,9 @@ export function setupSettings() {
     window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
 
     window.saveGlobalSettings = () => {
-        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
         let rawRam = parseInt(document.getElementById("global-ram-input").value) || 4096;
-        if (rawRam < 128) rawRam = rawRam * 1024; // Conversion Go en Mo
+        if (rawRam < 128) rawRam = rawRam * 1024; 
         store.globalSettings.defaultRam = Math.max(1024, rawRam);
-        // ---------------------------------------------
 
         store.globalSettings.defaultJavaPath = document.getElementById("global-java").value;
         store.globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
@@ -257,7 +253,12 @@ export function setupSettings() {
         try {
             const releaseType = version >= 25 ? "ea" : "ga";
             const imageType = version >= 21 ? "jdk" : "jre";
-            const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/windows/x64/${imageType}/hotspot/normal/eclipse`;
+            const rawPlatform = window.api.platform;
+            const platform = rawPlatform === "darwin" ? "mac"
+                           : rawPlatform === "linux"  ? "linux"
+                           : "windows";
+            const arch = "x64";
+            const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/${platform}/${arch}/${imageType}/hotspot/normal/eclipse`;
 
             const res = await fetch(url);
             if (!res.ok) throw new Error("Version de Java introuvable sur le serveur.");

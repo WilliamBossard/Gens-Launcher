@@ -27,7 +27,6 @@ export function setupWorldsAndGallery() {
 
         let html = "";
         folders.forEach(f => {
-            // --- SÉCURITÉ XSS ICI ---
             const safeF = window.escapeHTML(f);
             html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border);">
@@ -97,8 +96,6 @@ export function setupWorldsAndGallery() {
 
             const created = stats.birthtime.toLocaleDateString() + " " + stats.birthtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const modified = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-            // --- SÉCURITÉ XSS ICI ---
             const safeWorldName = window.escapeHTML(worldName);
             const safeF = window.escapeHTML(f);
 

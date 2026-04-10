@@ -107,7 +107,6 @@ export function setupStats() {
                                 totalKills += custom["minecraft:mob_kills"] || data["stat.killEntity"] || 0;
                                 totalJumps += custom["minecraft:jump"] || data["stat.jump"] || 0;
                                 
-                                // Correction de la distance : on compte TOUT
                                 const walk   = custom["minecraft:walk_one_cm"]     || data["stat.walkOneCm"]     || 0;
                                 const sprint = custom["minecraft:sprint_one_cm"]   || data["stat.sprintOneCm"]   || 0;
                                 const crouch = custom["minecraft:crouch_one_cm"]   || data["stat.crouchOneCm"]   || 0;

@@ -36,7 +36,7 @@ function updateRPC(inst, customState) {
             activity = {
                 details: inst.name,
                 state: stateText,
-                startTimestamp: store.sessionStartTime || new Date(),
+                startTimestamp: store.sessionStartTime ? store.sessionStartTime : new Date(),
                 largeImageKey: "logo",
                 largeImageText: " Joue avec Gens Launcher !", 
                 buttons: [

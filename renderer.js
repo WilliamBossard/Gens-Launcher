@@ -64,7 +64,7 @@ ipcRenderer.on("update-downloaded", async () => {
     }
 });
 
-document.getElementById("console-filter").addEventListener("input", (e) => {
+document.getElementById("console-filter")?.addEventListener("input", (e) => {
     const filter = e.target.value.toLowerCase();
     const lines = document.querySelectorAll(".log-line");
     lines.forEach(line => {
@@ -253,7 +253,8 @@ async function init() {
     }
 
     window.renderUI();
-    if (window.refreshAccountList) window.refreshAccountList();
+    
+    if (window.renderAccountManager) window.renderAccountManager();
     if (window.updateAccountDropdown) window.updateAccountDropdown();
     
     loadNews();

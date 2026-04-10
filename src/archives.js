@@ -294,14 +294,12 @@ export function setupArchives() {
                 if (entry.entryName.startsWith(`${overridesDir}/`) && entry.entryName !== `${overridesDir}/`) {
                     const targetPath = path.join(instDir, entry.entryName.substring(overridesDir.length + 1));
                     
-                    // --- SÉCURITÉ ANTI-ZIP SLIP CURSEFORGE ---
                     const resolvedTarget = path.resolve(targetPath);
                     const resolvedInstDir = path.resolve(instDir);
                     if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
                         console.error("Tentative de Zip Slip bloquée dans CurseForge :", entry.entryName);
-                        return; // Bloque l'extraction de ce fichier
+                        return; 
                     }
-                    // -----------------------------------------
 
                     if (entry.isDirectory) {
                         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });

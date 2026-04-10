@@ -178,51 +178,6 @@ export function setupUICore() {
         if (tab) tab.classList.add("active");
     };
 
-    window.updateAccountDropdown = () => {
-        const select    = document.getElementById("account-dropdown");
-        const activeSkin = document.getElementById("active-skin");
-        if (!select) return;
-
-        select.innerHTML = "";
-
-        if (!store.allAccounts || store.allAccounts.length === 0) {
-            select.innerHTML = `<option value="">${t("msg_no_acc", "Aucun profil")}</option>`;
-            if (activeSkin) activeSkin.style.display = "none";
-            return;
-        }
-
-        store.allAccounts.forEach((acc, i) => {
-            const opt = document.createElement("option");
-            opt.value    = i;
-            opt.innerText = acc.name;
-            if (i === store.selectedAccountIdx) opt.selected = true;
-            select.appendChild(opt);
-        });
-
-        if (activeSkin && store.selectedAccountIdx !== null) {
-            const currentAcc = store.allAccounts[store.selectedAccountIdx];
-            if (currentAcc) {
-                activeSkin.src          = `https://minotar.net/helm/${currentAcc.name}/32.png`;
-                activeSkin.style.display = "block";
-            }
-        }
-        if (window.updateLaunchButton) window.updateLaunchButton();
-    };
-
-    window.changeAccount = () => {
-        const select = document.getElementById("account-dropdown");
-        if (!select || select.value === "") return;
-
-        store.selectedAccountIdx = parseInt(select.value);
-        fs.writeFileSync(
-            store.accountFile,
-            JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2),
-            "utf8"
-        );
-        window.updateAccountDropdown();
-        if (window.renderAccountManager) window.renderAccountManager();
-    };
-
     let tooltipEl = document.getElementById("global-tooltip");
     if (!tooltipEl) {
         tooltipEl = document.createElement("div");
@@ -255,7 +210,6 @@ export function setupUICore() {
         if (trigger && tooltipEl) tooltipEl.style.opacity = "0";
     });
 
-    // --- CORRECTION DU GLISSER-DÉPOSER (Drag & Drop) ---
     const dropOverlay = document.getElementById("drop-overlay");
     let dragCounter = 0;
 
@@ -265,7 +219,6 @@ export function setupUICore() {
 
     document.addEventListener("dragenter", (e) => {
         e.preventDefault();
-        // On ignore si le drag vient de l'intérieur du launcher (ex: glisser une instance)
         if (!window._isInternalDrag) { 
             dragCounter++;
             if (dropOverlay) dropOverlay.style.display = "flex";
@@ -276,7 +229,6 @@ export function setupUICore() {
         e.preventDefault();
         if (!window._isInternalDrag) {
             dragCounter--;
-            // L'écran bleu ne disparaît QUE si la souris sort vraiment de la fenêtre globale
             if (dragCounter <= 0) {
                 dragCounter = 0;
                 if (dropOverlay) dropOverlay.style.display = "none";
@@ -294,27 +246,24 @@ export function setupUICore() {
             return;
         }
 
-        dragCounter = 0; // Réinitialise la sécurité
+        dragCounter = 0; 
         if (dropOverlay) dropOverlay.style.display = "none";
 
         if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
 
         const files = e.dataTransfer.files;
 
-        // Si c'est un modpack (ZIP ou MRPACK), on déclenche l'importateur global !
         if (files.length === 1 && (files[0].path.endsWith(".zip") || files[0].path.endsWith(".mrpack"))) {
             const nameLower = files[0].name.toLowerCase();
-            // On vérifie que ce n'est pas un shader ou un resourcepack avec un nom évident
             if (!nameLower.includes("shader") && !nameLower.includes("bsl") && !nameLower.includes("complementary") && !nameLower.includes("ptgi") && !nameLower.includes("iris") && !nameLower.includes("seus")) {
                 const tempInput = { files: [files[0]], value: "" };
                 if (window.handleImport) {
                     window.handleImport(tempInput);
-                    return; // On arrête ici pour ne pas le traiter comme un mod normal
+                    return; 
                 }
             }
         }
 
-        // Sinon, c'est un fichier destiné à l'instance (mods, shaders, ressources)
         if (store.selectedInstanceIdx === null) {
             if (window.showToast) window.showToast(t("msg_select_inst", "Sélectionnez d'abord une instance !"), "error");
             return;
@@ -334,7 +283,6 @@ export function setupUICore() {
                     added++;
                 } else if (ext === ".zip") {
                     const nameLower = file.name.toLowerCase();
-                    // Tri basique entre shaders et resourcepacks
                     if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
                         const shadersDir = path.join(instFolder, "shaderpacks");
                         if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
@@ -353,8 +301,7 @@ export function setupUICore() {
 
         if (added > 0) {
             if (window.showToast) window.showToast(`${added} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
-            
-            // Rafraîchit l'interface si l'utilisateur est déjà dans l'onglet d'édition
+        
             if (document.getElementById("modal-edit").style.display === "flex") {
                 if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
                 if (document.getElementById("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();

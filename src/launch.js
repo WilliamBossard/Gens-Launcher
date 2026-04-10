@@ -217,7 +217,7 @@ export function setupLauncher() {
             logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
             while (logOutput.childElementCount > 500) logOutput.removeChild(logOutput.firstChild);
             
-            const filter = document.getElementById("console-filter").value.toLowerCase();
+            const filter = document.getElementById("console-filter")?.value.toLowerCase() ?? "";
             if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
             if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
         }
@@ -264,6 +264,7 @@ export function setupLauncher() {
                 const nextInst = store.allInstances.find(i => i.name === store.primaryRpcInstance);
                 if (nextInst) updateRPC(nextInst, t("discord_in_menu", "Dans les menus"));
             } else {
+                store.sessionStartTime = 0;
                 updateRPC(); 
             }
         }
@@ -571,6 +572,7 @@ export function setupLauncher() {
         if (window.renderUI) window.renderUI(); 
 
         inst._tempSessionStart = Date.now();
+        store.sessionStartTime = Date.now();
         updateRPC(inst); 
 
         sysLog("Démarrage du processus MCLC...");

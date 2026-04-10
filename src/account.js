@@ -81,8 +81,12 @@ export function setupAccountUI() {
             
             if (await window.showCustomConfirm(confirmMsg, true)) {
                 const accToDel = store.allAccounts[store.uiSelectedAccRow];
+
                 if (accToDel.type === "microsoft") {
-                    window.api.send("delete-msa-cache", "GensLauncherSession");
+                    const msaCacheKey = accToDel.mclcAuth?.meta?.msaCacheKey;
+                    if (msaCacheKey) {
+                        window.api.send("delete-msa-cache", msaCacheKey);
+                    }
                 }
 
                 store.allAccounts.splice(store.uiSelectedAccRow, 1);
@@ -166,6 +170,7 @@ export function setupAccountUI() {
         } else if (skinImg) {
             skinImg.style.display = "none";
         }
+        if (window.updateLaunchButton) window.updateLaunchButton();
     };
 
     window.changeAccount = () => {
@@ -244,7 +249,6 @@ export function setupAccountUI() {
             
             setTimeout(() => { canvas.style.opacity = "1"; }, 150);
         } else {
-            // CORRECTION : On relance l'animation qui était en pause
             if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
 
             fullscreenSkinViewer.loadSkin(skinUrl).then(() => {
@@ -269,7 +273,6 @@ export function setupAccountUI() {
 
     window.closeSkinModal = () => {
         document.getElementById("modal-skin").style.display = "none";
-        // CORRECTION : On met en pause l'animation WebGL pour sauver le CPU/GPU !
         if (fullscreenSkinViewer && fullscreenSkinViewer.animation) {
             fullscreenSkinViewer.animation.paused = true;
         }
