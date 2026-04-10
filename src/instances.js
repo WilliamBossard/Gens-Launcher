@@ -38,7 +38,7 @@ export function setupInstances() {
         const container = document.getElementById("loader-version-container");
         const select = document.getElementById("new-loader-version");
         
-        select.innerHTML = "<option>Chargement...</option>";
+        select.innerHTML = "<option>" + t("msg_loading", "Chargement...") + "</option>";
         
         if (loader === "vanilla") {
             container.style.display = "none";
@@ -101,7 +101,7 @@ export function setupInstances() {
         document.getElementById("stat-time").innerText = `${h}h ${m}m`;
         document.getElementById("stat-last").innerText = inst.lastPlayed
             ? new Date(inst.lastPlayed).toLocaleDateString()
-            : "Jamais";
+            : t("lbl_never", "Jamais");
             
         const appBg = document.getElementById("app-background");
         const root = document.documentElement; 
@@ -236,12 +236,18 @@ export function setupInstances() {
             return;
         }
 
+        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
+        let rawRam = parseInt(document.getElementById("new-ram-input").value) || 4096;
+        if (rawRam < 128) rawRam = rawRam * 1024; 
+        rawRam = Math.max(1024, rawRam);
+        // ---------------------------------------------
+
         store.allInstances.push({
             name,
             version: document.getElementById("new-version").value,
             loader: document.getElementById("new-loader").value,
             loaderVersion: document.getElementById("new-loader").value === "vanilla" ? "" : document.getElementById("new-loader-version").value,
-            ram: document.getElementById("new-ram-input").value.toString(),
+            ram: String(rawRam),
             javaPath: "", jvmArgs: "", 
             jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
@@ -308,8 +314,13 @@ export function setupInstances() {
             }
         }
 
+        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
+        let rawRam = parseInt(document.getElementById("edit-ram-input").value) || 4096;
+        if (rawRam < 128) rawRam = rawRam * 1024; 
+        inst.ram = Math.max(1024, rawRam);
+        // ---------------------------------------------
+
         inst.name = newName;
-        inst.ram = parseInt(document.getElementById("edit-ram-input").value) || 4096;
         inst.group = document.getElementById("edit-group").value.trim();
         inst.javaPath = document.getElementById("edit-javapath").value;
         inst.resW = document.getElementById("edit-res-w").value;
@@ -360,10 +371,10 @@ export function setupInstances() {
         if (store.selectedInstanceIdx === null) return;
         const oldInst = store.allInstances[store.selectedInstanceIdx];
         let inst = JSON.parse(JSON.stringify(oldInst));
-        let newName = inst.name + " - Copie";
+        let newName = inst.name + t("lbl_copy_suffix", " - Copie");
         let copyCounter = 2;
         while (store.allInstances.some((i) => i.name === newName))
-            newName = inst.name + ` - Copie (${copyCounter++})`;
+            newName = inst.name + t("lbl_copy_suffix", " - Copie") + ` (${copyCounter++})`;
         inst.name = newName;
         inst.playTime = 0;
         inst.lastPlayed = 0;

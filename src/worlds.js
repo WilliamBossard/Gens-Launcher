@@ -27,9 +27,11 @@ export function setupWorldsAndGallery() {
 
         let html = "";
         folders.forEach(f => {
+            // --- SÉCURITÉ XSS ICI ---
+            const safeF = window.escapeHTML(f);
             html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border);">
-                <div style="font-weight: bold; color: var(--text-light);">${f}</div>
+                <div style="font-weight: bold; color: var(--text-light);">${safeF}</div>
                 <button class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="importOfficialWorld('${f.replace(/'/g, "\\'")}')">${t("toolbar_import", "Importer")}</button>
             </div>`;
         });
@@ -96,11 +98,15 @@ export function setupWorldsAndGallery() {
             const created = stats.birthtime.toLocaleDateString() + " " + stats.birthtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const modified = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+            // --- SÉCURITÉ XSS ICI ---
+            const safeWorldName = window.escapeHTML(worldName);
+            const safeF = window.escapeHTML(f);
+
             html += `
             <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <span style="font-weight: bold; color: var(--text-light); font-size: 1rem;">${worldName}</span>
-                    <span style="font-size: 0.75rem; color: #aaa;">${t("lbl_folder", "Dossier : ")}${f}</span>
+                    <span style="font-weight: bold; color: var(--text-light); font-size: 1rem;">${safeWorldName}</span>
+                    <span style="font-size: 0.75rem; color: #aaa;">${t("lbl_folder", "Dossier : ")}${safeF}</span>
                     <span style="font-size: 0.75rem; color: #888;">${t("lbl_created", "Créé le : ")}${created} | ${t("lbl_played", "Joué le : ")}${modified}</span>
                 </div>
                 <div style="display: flex; gap: 6px;">

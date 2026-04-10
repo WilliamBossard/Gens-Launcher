@@ -236,11 +236,11 @@ export function setupArchives() {
     window.handleCurseForgeImport = async (zipPath, manifestText) => {
         const apiKey = store.globalSettings.cfApiKey;
         if (!apiKey || apiKey.trim() === "") {
-            window.showToast("❌ Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux.", "error");
+            window.showToast(t("msg_cf_api_req", "❌ Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux."), "error");
             return; 
         }
 
-        window.showLoading("Analyse du Modpack CurseForge...");
+        window.showLoading(t("msg_analyze_cf", "Analyse du Modpack CurseForge..."));
         await yieldUI();
 
         try {
@@ -293,6 +293,16 @@ export function setupArchives() {
             zip.getEntries().forEach((entry) => {
                 if (entry.entryName.startsWith(`${overridesDir}/`) && entry.entryName !== `${overridesDir}/`) {
                     const targetPath = path.join(instDir, entry.entryName.substring(overridesDir.length + 1));
+                    
+                    // --- SÉCURITÉ ANTI-ZIP SLIP CURSEFORGE ---
+                    const resolvedTarget = path.resolve(targetPath);
+                    const resolvedInstDir = path.resolve(instDir);
+                    if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
+                        console.error("Tentative de Zip Slip bloquée dans CurseForge :", entry.entryName);
+                        return; // Bloque l'extraction de ce fichier
+                    }
+                    // -----------------------------------------
+
                     if (entry.isDirectory) {
                         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
                     } else {
@@ -310,7 +320,7 @@ export function setupArchives() {
             const modsDir = path.join(instDir, "mods");
             if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
 
-            window.showLoading(`Téléchargement des mods (0/${total})...`, 0);
+            window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
 
             const queue = [...filesToDownload];
             const workers = Array(5).fill(null).map(async () => {
@@ -322,6 +332,10 @@ export function setupArchives() {
                         
                         if (res.success && res.data && res.data.data) {
                             const downloadUrl = res.data.data;
+                            if (!downloadUrl) {
+                                console.warn(`Téléchargement bloqué par l'auteur pour le mod ID: ${fileInfo.projectID}`);
+                                continue;
+                            }
                             const fileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
                             
                             const modRes = await fetch(downloadUrl);
@@ -336,7 +350,7 @@ export function setupArchives() {
                     
                     downloadedCount++;
                     let pct = Math.round((downloadedCount / total) * 100);
-                    window.updateLoadingPercent(pct, `Téléchargement des mods (${downloadedCount}/${total})...`);
+                    window.updateLoadingPercent(pct, t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${downloadedCount}/${total})...`);
                 }
             });
 
@@ -348,9 +362,9 @@ export function setupArchives() {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
             
-            window.showToast("Modpack CurseForge installé avec succès !", "success");
+            window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
-            window.showToast("Erreur Modpack CurseForge : " + err.message, "error");
+            window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         }
         
         window.hideLoading();

@@ -103,9 +103,23 @@ export function setupStats() {
                                 const rawData = fs.readFileSync(path.join(statsDir, file), "utf8");
                                 const data = JSON.parse(rawData);
                                 const custom = data.stats?.["minecraft:custom"] || {};
+                                
                                 totalKills += custom["minecraft:mob_kills"] || data["stat.killEntity"] || 0;
-                                totalWalkCm += custom["minecraft:walk_one_cm"] || data["stat.walkOneCm"] || 0;
                                 totalJumps += custom["minecraft:jump"] || data["stat.jump"] || 0;
+                                
+                                // Correction de la distance : on compte TOUT
+                                const walk   = custom["minecraft:walk_one_cm"]     || data["stat.walkOneCm"]     || 0;
+                                const sprint = custom["minecraft:sprint_one_cm"]   || data["stat.sprintOneCm"]   || 0;
+                                const crouch = custom["minecraft:crouch_one_cm"]   || data["stat.crouchOneCm"]   || 0;
+                                const swim   = custom["minecraft:swim_one_cm"]     || data["stat.swimOneCm"]     || 0;
+                                const fly    = custom["minecraft:fly_one_cm"]      || data["stat.flyOneCm"]      || 0;
+                                const elytra = custom["minecraft:aviate_one_cm"]   || data["stat.aviateOneCm"]   || 0;
+                                const boat   = custom["minecraft:boat_one_cm"]     || data["stat.boatOneCm"]     || 0;
+                                const horse  = custom["minecraft:horse_one_cm"]    || data["stat.horseOneCm"]    || 0;
+                                const minec  = custom["minecraft:minecart_one_cm"] || data["stat.minecartOneCm"] || 0;
+                                
+                                totalWalkCm += (walk + sprint + crouch + swim + fly + elytra + boat + horse + minec);
+
                             } catch(e) {}
                         }
                     } catch(e) {}

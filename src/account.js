@@ -65,7 +65,7 @@ export function setupAccountUI() {
         window.renderAccountManager();
     };
 
-window.useSelectedRow = () => {
+    window.useSelectedRow = () => {
         if (store.uiSelectedAccRow !== null) {
             store.selectedAccountIdx = store.uiSelectedAccRow;
             fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
@@ -75,11 +75,16 @@ window.useSelectedRow = () => {
         }
     };
 
-window.deleteSelectedRow = async () => {
+    window.deleteSelectedRow = async () => {
         if (store.uiSelectedAccRow !== null) {
             const confirmMsg = (store.currentLangObj && store.currentLangObj.msg_remove_acc) || "Retirer ce compte ?";
             
             if (await window.showCustomConfirm(confirmMsg, true)) {
+                const accToDel = store.allAccounts[store.uiSelectedAccRow];
+                if (accToDel.type === "microsoft") {
+                    window.api.send("delete-msa-cache", "GensLauncherSession");
+                }
+
                 store.allAccounts.splice(store.uiSelectedAccRow, 1);
                 
                 if (store.selectedAccountIdx === store.uiSelectedAccRow) {
@@ -109,13 +114,16 @@ window.deleteSelectedRow = async () => {
     window.saveOfflineAccount = () => {
         const nameInput = document.getElementById("acc-name");
         const name = nameInput.value.trim();
-        if (!name) return;
+        if (!name) {
+            if (window.showToast) window.showToast(t("msg_err_pseudo_req", "Le pseudo est obligatoire !"), "error");
+            return;
+        }
         
-store.allAccounts.push({
-    type: "offline",
-    name: name,
-    uuid: window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID().replace(/-/g, "") : "00000000000030008000" + Date.now().toString().slice(-12)
-});
+        store.allAccounts.push({
+            type: "offline",
+            name: name,
+            uuid: window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID().replace(/-/g, "") : "00000000000030008000" + Date.now().toString().slice(-12)
+        });
         store.selectedAccountIdx = store.allAccounts.length - 1;
         
         fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
@@ -131,9 +139,45 @@ store.allAccounts.push({
         document.getElementById("modal-account").style.display = "none";
     };
 
-    window.changeAccountFromCode = () => {
-        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2));
-        if (window.renderUI) window.renderUI();
+    window.updateAccountDropdown = () => {
+        const dropdown = document.getElementById("account-dropdown");
+        const skinImg = document.getElementById("active-skin");
+        if (!dropdown) return;
+        
+        dropdown.innerHTML = "";
+        if (store.allAccounts.length === 0) {
+            dropdown.innerHTML = `<option value="">${t("msg_no_acc", "Aucun compte")}</option>`;
+            if (skinImg) skinImg.style.display = "none";
+            return;
+        }
+        
+        store.allAccounts.forEach((acc, i) => {
+            const opt = document.createElement("option");
+            opt.value = i;
+            opt.innerText = acc.name;
+            if (i === store.selectedAccountIdx) opt.selected = true;
+            dropdown.appendChild(opt);
+        });
+        
+        if (skinImg && store.selectedAccountIdx !== null) {
+            const activeAcc = store.allAccounts[store.selectedAccountIdx];
+            skinImg.src = `https://mc-heads.net/avatar/${activeAcc.name}/32?t=${Date.now()}`;
+            skinImg.style.display = "block";
+        } else if (skinImg) {
+            skinImg.style.display = "none";
+        }
+    };
+
+    window.changeAccount = () => {
+        const dropdown = document.getElementById("account-dropdown");
+        const newIdx = parseInt(dropdown.value);
+        if (!isNaN(newIdx)) {
+            store.selectedAccountIdx = newIdx;
+            fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2));
+            window.updateAccountDropdown(); 
+            if (window.renderUI) window.renderUI();
+            if (window.renderAccountManager) window.renderAccountManager();
+        }
     };
 
     let fullscreenSkinViewer = null;
@@ -200,6 +244,9 @@ store.allAccounts.push({
             
             setTimeout(() => { canvas.style.opacity = "1"; }, 150);
         } else {
+            // CORRECTION : On relance l'animation qui était en pause
+            if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
+
             fullscreenSkinViewer.loadSkin(skinUrl).then(() => {
                 canvas.style.opacity = "1";
             });
@@ -222,6 +269,10 @@ store.allAccounts.push({
 
     window.closeSkinModal = () => {
         document.getElementById("modal-skin").style.display = "none";
+        // CORRECTION : On met en pause l'animation WebGL pour sauver le CPU/GPU !
+        if (fullscreenSkinViewer && fullscreenSkinViewer.animation) {
+            fullscreenSkinViewer.animation.paused = true;
+        }
     };
 
     window.previewLocalSkin = (input) => {

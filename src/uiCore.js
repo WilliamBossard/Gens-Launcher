@@ -14,7 +14,7 @@ export function setupUICore() {
     window.loadStorage = () => {
         if (!fs.existsSync(store.dataDir))        fs.mkdirSync(store.dataDir,        { recursive: true });
         if (!fs.existsSync(store.instancesRoot))  fs.mkdirSync(store.instancesRoot,  { recursive: true });
-        if (!fs.existsSync(store.langDir))         fs.mkdirSync(store.langDir,        { recursive: true });
+        if (!fs.existsSync(store.langDir))        fs.mkdirSync(store.langDir,        { recursive: true });
 
         if (fs.existsSync(store.settingsFile)) {
             try {
@@ -255,6 +255,7 @@ export function setupUICore() {
         if (trigger && tooltipEl) tooltipEl.style.opacity = "0";
     });
 
+    // --- CORRECTION DU GLISSER-DÉPOSER (Drag & Drop) ---
     const dropOverlay = document.getElementById("drop-overlay");
     let dragCounter = 0;
 
@@ -264,9 +265,8 @@ export function setupUICore() {
 
     document.addEventListener("dragenter", (e) => {
         e.preventDefault();
-        if (window._isInternalDrag) return; 
-        
-        if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
+        // On ignore si le drag vient de l'intérieur du launcher (ex: glisser une instance)
+        if (!window._isInternalDrag) { 
             dragCounter++;
             if (dropOverlay) dropOverlay.style.display = "flex";
         }
@@ -274,10 +274,9 @@ export function setupUICore() {
 
     document.addEventListener("dragleave", (e) => {
         e.preventDefault();
-        if (window._isInternalDrag) return; 
-        
-        if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
+        if (!window._isInternalDrag) {
             dragCounter--;
+            // L'écran bleu ne disparaît QUE si la souris sort vraiment de la fenêtre globale
             if (dragCounter <= 0) {
                 dragCounter = 0;
                 if (dropOverlay) dropOverlay.style.display = "none";
@@ -295,11 +294,27 @@ export function setupUICore() {
             return;
         }
 
-        dragCounter = 0;
+        dragCounter = 0; // Réinitialise la sécurité
         if (dropOverlay) dropOverlay.style.display = "none";
 
         if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
 
+        const files = e.dataTransfer.files;
+
+        // Si c'est un modpack (ZIP ou MRPACK), on déclenche l'importateur global !
+        if (files.length === 1 && (files[0].path.endsWith(".zip") || files[0].path.endsWith(".mrpack"))) {
+            const nameLower = files[0].name.toLowerCase();
+            // On vérifie que ce n'est pas un shader ou un resourcepack avec un nom évident
+            if (!nameLower.includes("shader") && !nameLower.includes("bsl") && !nameLower.includes("complementary") && !nameLower.includes("ptgi") && !nameLower.includes("iris") && !nameLower.includes("seus")) {
+                const tempInput = { files: [files[0]], value: "" };
+                if (window.handleImport) {
+                    window.handleImport(tempInput);
+                    return; // On arrête ici pour ne pas le traiter comme un mod normal
+                }
+            }
+        }
+
+        // Sinon, c'est un fichier destiné à l'instance (mods, shaders, ressources)
         if (store.selectedInstanceIdx === null) {
             if (window.showToast) window.showToast(t("msg_select_inst", "Sélectionnez d'abord une instance !"), "error");
             return;
@@ -309,7 +324,7 @@ export function setupUICore() {
         const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
         let added = 0;
 
-        for (const file of e.dataTransfer.files) {
+        for (const file of files) {
             const ext = path.extname(file.path).toLowerCase();
             try {
                 if (ext === ".jar") {
@@ -319,6 +334,7 @@ export function setupUICore() {
                     added++;
                 } else if (ext === ".zip") {
                     const nameLower = file.name.toLowerCase();
+                    // Tri basique entre shaders et resourcepacks
                     if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
                         const shadersDir = path.join(instFolder, "shaderpacks");
                         if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
@@ -338,6 +354,7 @@ export function setupUICore() {
         if (added > 0) {
             if (window.showToast) window.showToast(`${added} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
             
+            // Rafraîchit l'interface si l'utilisateur est déjà dans l'onglet d'édition
             if (document.getElementById("modal-edit").style.display === "flex") {
                 if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
                 if (document.getElementById("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();

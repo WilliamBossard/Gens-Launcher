@@ -40,17 +40,17 @@ function updateRPC(inst, customState) {
                 largeImageKey: "logo",
                 largeImageText: " Joue avec Gens Launcher !", 
                 buttons: [
-                    { label: " Télécharger le Launcher", url: "https://github.com/WilliamBossard/Gens-Launcher" },
+                    { label: t("btn_discord_download", "Télécharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" },
                 ]
             };
         } else {
             activity = {
-                details: "Dans les menus",
-                state: "Prépare sa prochaine survie",
+                details: t("discord_in_menu", "Dans les menus"),
+                state: t("discord_idle", "Prépare sa prochaine survie"),
                 largeImageKey: "logo",
                 largeImageText: "Gens Launcher", 
                 buttons: [
-                    { label: "Télécharger", url: "https://github.com/WilliamBossard/Gens-Launcher" },
+                    { label: t("btn_discord_download", "Télécharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" },
                 ]
             };
         }

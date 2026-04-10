@@ -15,7 +15,12 @@ const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "l
 
 let mainWindow;
 let tray = null; 
-const logPath = path.join(app.getPath("userData"), "main-process.log");
+
+const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
+if (!fs.existsSync(safeDataDir)) {
+    fs.mkdirSync(safeDataDir, { recursive: true });
+}
+const logPath = path.join(safeDataDir, "main-process.log");
 
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;

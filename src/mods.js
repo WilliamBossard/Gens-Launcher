@@ -11,6 +11,7 @@ function t(key, fallback) {
 function setupMods() {
 
     let globalSearchTimer = null;
+    let catalogAbortController = null;
     
     window.openCatalogModal = () => {
       document.getElementById("catalog-status").innerText = "";
@@ -45,28 +46,29 @@ function setupMods() {
       
       if (!version) version = "1.20.4";
 
-      resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>Recherche en cours...</div>`;
+      if (catalogAbortController) catalogAbortController.abort();
+      catalogAbortController = new AbortController();
+      const signal = catalogAbortController.signal;
+
+      resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>${t("msg_builder_searching", "Recherche en cours...")}</div>`;
 
       try {
         if (source === "modrinth") {
             let facets = `[["project_type:${type}"]]`;
             if (version) facets = `[["project_type:${type}"],["versions:${version}"]]`;
-            
-            if (type === "mod") {
-                facets = `[["project_type:mod"],["categories:${loader}"],["versions:${version}"]]`;
-            }
+            if (type === "mod") facets = `[["project_type:mod"],["categories:${loader}"],["versions:${version}"]]`;
             
             const sortIndex = query ? "relevance" : "downloads";
             const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
             
-            const res = await fetch(url);
+            const res = await fetch(url, { signal });
             const data = await res.json();
 
             if (!data.hits) throw new Error("Réponse API Modrinth invalide");
 
             resDiv.innerHTML = "";
             if (data.hits.length === 0) {
-              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>Aucun résultat trouvé pour Minecraft ${version} (${loader}).</div>`;
+              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version} (${loader}).</div>`;
               return;
             }
 
@@ -74,7 +76,7 @@ function setupMods() {
               const downloads = (mod.downloads / 1000000).toFixed(1) + "M DLs";
               const safeTitle = window.escapeHTML(mod.title);
               const safeDesc = window.escapeHTML(mod.description);
-              const safeAuthor = window.escapeHTML(mod.author || "Auteur");
+              const safeAuthor = window.escapeHTML(mod.author || t("lbl_author", "Auteur"));
               
               resDiv.innerHTML += `
                         <div class="catalog-card">
@@ -91,7 +93,7 @@ function setupMods() {
         else if (source === "curseforge") {
             const apiKey = store.globalSettings.cfApiKey;
             if (!apiKey) {
-                resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_cf_api_req")}</div>`;
+                resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_cf_api_req", "Clé API manquante")}</div>`;
                 return;
             }
 
@@ -110,14 +112,14 @@ function setupMods() {
             const url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&modLoaderType=${modLoaderType}&sortField=2&sortOrder=desc&pageSize=20`;
             
             const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
-            if (!res.success) throw new Error(t("msg_cf_api_invalid") + " " + (res.error || ""));
+            if (!res.success) throw new Error(t("msg_cf_api_invalid", "Clé invalide") + " " + (res.error || ""));
             const data = res.data;
 
             if (!data || !data.data) throw new Error("Réponse API CurseForge invalide");
 
             resDiv.innerHTML = "";
             if (data.data.length === 0) {
-              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>Aucun résultat trouvé pour Minecraft ${version}.</div>`;
+              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version}.</div>`;
               return;
             }
 
@@ -127,7 +129,7 @@ function setupMods() {
               
               const safeTitle = window.escapeHTML(mod.name);
               const safeDesc = window.escapeHTML(mod.summary);
-              const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : "Auteur");
+              const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : t("lbl_author", "Auteur"));
               
               resDiv.innerHTML += `
                         <div class="catalog-card">
@@ -142,7 +144,8 @@ function setupMods() {
             });
         }
       } catch (e) {
-        resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>Erreur de recherche: ${e.message || "Impossible de joindre l'API"}</div>`;
+        if (e.name === "AbortError") return;
+        resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche")} : ${e.message || "Impossible de joindre l'API"}</div>`;
       }
     };
 
@@ -178,7 +181,7 @@ function setupMods() {
 
             const versions = await (await fetch(url)).json();
             if (versions.length === 0) {
-              if (!isDependency) statusText.innerText = "Aucun fichier compatible pour cette version.";
+              if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
               return;
             }
 
@@ -239,11 +242,11 @@ function setupMods() {
             const url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${version}&modLoaderType=${modLoaderType}`;
             
             const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
-            if (!res.success) throw new Error(t("msg_cf_api_invalid"));
+            if (!res.success) throw new Error(t("msg_cf_api_invalid", "Erreur API"));
             const data = res.data;
 
             if (!data.data || data.data.length === 0) {
-                if (!isDependency) statusText.innerText = "Aucun fichier compatible pour cette version.";
+                if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
                 return;
             }
 
@@ -596,14 +599,14 @@ function setupMods() {
             javaPath: "",
             jvmArgs: "",
             jvmProfile: "none",
-            notes: t("msg_builder_success", "Modpack créé avec Gens Launcher."),
+            notes: t("msg_builder_success", "Modpack créé avec succès !"),
             icon: "",
             resW: "",
             resH: "",
             playTime: 0,
             lastPlayed: 0,
             sessionHistory: [],
-            group: "Mes Modpacks",
+            group: t("opt_modpack", "Modpacks"), 
             servers: [],
             backupMode: "none",
             backupLimit: 5,
@@ -672,7 +675,7 @@ function setupMods() {
         window.renderUI();
 
         if (failed.length > 0) {
-            window.showToast(`${t("msg_builder_success", "Modpack créé !")} (${failed.length} erreur(s))`, "info");
+            window.showToast(`${t("msg_builder_success", "Modpack créé avec succès !")} (${failed.length} erreur(s))`, "info");
         } else {
             window.showToast(t("msg_builder_success", "Modpack créé avec succès !"), "success");
         }

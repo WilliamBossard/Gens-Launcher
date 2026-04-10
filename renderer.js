@@ -22,6 +22,10 @@ initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang
 setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupStats();
 setupLocalManagers(); setupInstances(); setupUICore();
 
+function t(key, fallback) {
+    return store.currentLangObj[key] || fallback;
+}
+
 ipcRenderer.on("update-msg", (data) => {
     window.showToast(data.text, data.type);
     const statusDiv = document.getElementById("update-status");
@@ -164,7 +168,7 @@ window.checkServerStatus = async () => {
     banner.style.display = "flex";
     
     if (banner.innerHTML === "") {
-        banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">Recherche du serveur ${window.escapeHTML(ip)}...</div>`;
+        banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
     }
 
     try {
@@ -210,19 +214,19 @@ window.checkServerStatus = async () => {
                 <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; line-height: 1.2;">${motdHtml}</div>
             </div>
             <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
-                <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] En ligne</div>
-                <div style="color: var(--text-light);">${data.players.online} / ${data.players.max} joueurs</div>
+                <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${t("msg_online", "En ligne")}</div>
+                <div style="color: var(--text-light);">${data.players.online} / ${data.players.max} ${t("lbl_players", "joueurs")}</div>
             </div>`;
         } else {
             banner.innerHTML = `
             <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
             <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
                 <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
-                <div style="font-size: 0.85rem; color: #f87171;">Le serveur est actuellement hors-ligne.</div>
+                <div style="font-size: 0.85rem; color: #f87171;">${t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
             </div>`;
         }
     } catch (e) {
-        banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">Erreur de connexion à ${window.escapeHTML(ip)}</div>`;
+        banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
     }
 };
 

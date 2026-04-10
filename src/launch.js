@@ -240,9 +240,9 @@ export function setupLauncher() {
                 dStr.includes("Stopping singleplayer server") || dStr.includes("Stopping server") ||
                 dStr.includes("Disconnecting from server") || dStr.includes("Clearing local world") || dStr.includes("Quitting")
             ) {
-                currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans le menu du jeu"));
+                currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus"));
             } else if (dStr.includes("Stopping worker threads")) {
-                menuTimers[instanceId] = setTimeout(() => { currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans le menu du jeu")); }, 1500); 
+                menuTimers[instanceId] = setTimeout(() => { currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus")); }, 1500); 
             } else if (dStr.includes("logged in with entity id") || dStr.includes("Starting integrated minecraft server")) {
                 if (currentServerIPs[instanceId]) updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
                 else updateRPC(targetInstData, t("discord_playing_solo", "En survie Solo"));
@@ -262,7 +262,7 @@ export function setupLauncher() {
             if (store.activeInstances.size > 0) {
                 store.primaryRpcInstance = Array.from(store.activeInstances)[0];
                 const nextInst = store.allInstances.find(i => i.name === store.primaryRpcInstance);
-                if (nextInst) updateRPC(nextInst, t("discord_in_menu", "Dans le jeu"));
+                if (nextInst) updateRPC(nextInst, t("discord_in_menu", "Dans les menus"));
             } else {
                 updateRPC(); 
             }
@@ -423,7 +423,7 @@ export function setupLauncher() {
             } catch (e) { sysLog("Erreur de sync serveur: " + e, true); }
         }
 
-        let authObj = { access_token: "null", client_token: "null", uuid: "null", name: acc.name, user_properties: "{}" };
+        let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}" };
         
         if (acc.type === "microsoft" && acc.mclcAuth) {
             document.getElementById("status-text").innerText = t("msg_check_ms_session", "Vérification de la session Microsoft...");
@@ -502,7 +502,7 @@ export function setupLauncher() {
             } catch (e) { sysLog("Erreur Quilt: " + e, true); return; }
         } 
         else if (inst.loader === "forge" || inst.loader === "neoforge") {
-            document.getElementById("status-text").innerText = `Préparation de ${inst.loader}...`;
+            document.getElementById("status-text").innerText = `${t("msg_prep_loader", "Préparation de ")}${inst.loader}...`;
             sysLog(`Configuration de l'environnement ${inst.loader} ${inst.loaderVersion || 'latest'}...`);
             if (!inst.loaderVersion) {
                 window.showToast(`Impossible de lancer : Version exacte de ${inst.loader} manquante.`, "error");
@@ -516,7 +516,7 @@ export function setupLauncher() {
             
             if (!fs.existsSync(installerPath)) {
                 try {
-                    document.getElementById("status-text").innerText = `Téléchargement de ${inst.loader} (Patientez)...`;
+                    document.getElementById("status-text").innerText = `${t("msg_dl_loader", "Téléchargement de ")}${inst.loader} (Patientez)...`;
                     await yieldUI();
                     let downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${inst.version}-${inst.loaderVersion}/forge-${inst.version}-${inst.loaderVersion}-installer.jar`;
                     if (inst.loader === "neoforge") downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${inst.loaderVersion}/neoforge-${inst.loaderVersion}-installer.jar`;
@@ -535,14 +535,14 @@ export function setupLauncher() {
                         if (fakePerc < 95) fakePerc += Math.floor(Math.random() * 5) + 2; 
                         if (fakePerc > 95) fakePerc = 95;
                         document.getElementById("progress-bar").style.width = fakePerc + "%";
-                        document.getElementById("status-text").innerText = `Téléchargement de ${inst.loader} : ${fakePerc}%`;
+                        document.getElementById("status-text").innerText = `${t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${fakePerc}%`;
                     }, 400);
 
                     try {
                         const buffer = await res.arrayBuffer();
                         fs.writeFileSync(installerPath, Buffer.from(buffer));
                         document.getElementById("progress-bar").style.width = "100%";
-                        document.getElementById("status-text").innerText = `Téléchargement terminé !`;
+                        document.getElementById("status-text").innerText = t("msg_dl_complete", "Téléchargement terminé !");
                     } finally { clearInterval(fakeProgress); }
                     sysLog(`Installeur ${inst.loader} téléchargé avec succès.`);
                 } catch (err) {

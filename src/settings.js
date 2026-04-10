@@ -30,17 +30,19 @@ export function setupSettings() {
         document.getElementById("global-eco-mode").value = store.globalSettings.ecoMode ? "true" : "false";
 
         const optSelect = document.getElementById("global-options-source");
-        optSelect.innerHTML = "<option value='none'>-- Aucun (Désactiver) --</option>";
+        optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultOptionsInstance) ? "selected" : "";
-            optSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
+            // PROTECTION XSS ICI :
+            optSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
         });
 
         const srvSelect = document.getElementById("global-servers-source");
         srvSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         store.allInstances.forEach((inst, i) => {
             const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
-            srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${inst.name}</option>`;
+            // PROTECTION XSS ICI :
+            srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
         });
 
         [25, 21, 17, 8].forEach(v => {
@@ -63,7 +65,7 @@ export function setupSettings() {
             }
 
             if (isInstalled) {
-                btn.innerText = t("btn_java_installed", "Déjà sur le PC");
+                btn.innerText = t("btn_java_installed", "Installé");
                 btn.style.color = "#17B139";
                 btn.style.borderColor = "#17B139";
                 btn.disabled = true;          
@@ -84,7 +86,12 @@ export function setupSettings() {
     window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
 
     window.saveGlobalSettings = () => {
-        store.globalSettings.defaultRam = parseInt(document.getElementById("global-ram-input").value);
+        // --- CORRECTION INTELLIGENCE RAM (Go / Mo) ---
+        let rawRam = parseInt(document.getElementById("global-ram-input").value) || 4096;
+        if (rawRam < 128) rawRam = rawRam * 1024; // Conversion Go en Mo
+        store.globalSettings.defaultRam = Math.max(1024, rawRam);
+        // ---------------------------------------------
+
         store.globalSettings.defaultJavaPath = document.getElementById("global-java").value;
         store.globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
         store.globalSettings.serverIp = document.getElementById("global-server-ip").value.trim();
@@ -283,7 +290,7 @@ export function setupSettings() {
                 
                 const btn = document.getElementById(`btn-dl-java-${version}`);
                 if (btn) {
-                    btn.innerText = "Installé";
+                    btn.innerText = t("btn_java_installed", "Installé");
                     btn.style.color = "#17B139";
                     btn.style.borderColor = "#17B139";
                 }
