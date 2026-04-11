@@ -8,6 +8,23 @@ function t(key, fallback) {
 }
 
 export function setupAccountUI() {
+    
+    // --- CONVERTISSEUR DE SKINS EN BASE64 (Pour le Hors-Ligne) ---
+    async function fetchSkinBase64(playerName) {
+        try {
+            const safeName = encodeURIComponent(playerName);
+            const res = await fetch(`https://mc-heads.net/avatar/${safeName}/32?t=${Date.now()}`);
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+        } catch(e) { return null; }
+    }
+    // -----------------------------------------------------------
+
     window.openAccountModal = () => {
         document.getElementById("acc-name").value = "";
         document.getElementById("offline-input-container").style.display = "none";
@@ -47,9 +64,22 @@ export function setupAccountUI() {
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
 
+            // Gestion du Cache Base64 pour que les visages s'affichent sans internet
+            if (!acc.skinBase64 && window.navigator.onLine) {
+                fetchSkinBase64(acc.name).then(b64 => {
+                    if (b64) {
+                        acc.skinBase64 = b64;
+                        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                        const imgEl = document.getElementById(`acc-img-${i}`);
+                        if (imgEl) imgEl.src = b64;
+                    }
+                });
+            }
+            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${Date.now()}`;
+
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
-                <img src="https://mc-heads.net/avatar/${safeName}/32?t=${Date.now()}" alt="${safeName}">
+                <img id="acc-img-${i}" src="${imgSrc}" alt="${safeName}">
                 <div class="mmc-info">
                     <div class="mmc-name">${safeName}</div>
                     <div class="mmc-type">${typeText}</div>
@@ -165,7 +195,19 @@ export function setupAccountUI() {
         
         if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
-            skinImg.src = `https://mc-heads.net/avatar/${activeAcc.name}/32?t=${Date.now()}`;
+            
+            // On lance la sauvegarde en arrière-plan si elle n'existe pas
+            if (!activeAcc.skinBase64 && window.navigator.onLine) {
+                fetchSkinBase64(activeAcc.name).then(b64 => {
+                    if (b64) {
+                        activeAcc.skinBase64 = b64;
+                        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                        skinImg.src = b64;
+                    }
+                });
+            }
+            
+            skinImg.src = activeAcc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(activeAcc.name)}/32?t=${Date.now()}`;
             skinImg.style.display = "block";
         } else if (skinImg) {
             skinImg.style.display = "none";
@@ -234,7 +276,7 @@ export function setupAccountUI() {
         canvas.style.transition = "opacity 0.2s ease";
         canvas.style.opacity = "0";
 
-        const skinUrl = `https://minotar.net/skin/${acc.name}?t=${Date.now()}`;
+        const skinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}?t=${Date.now()}`;
 
         if (!fullscreenSkinViewer) {
             fullscreenSkinViewer = new skinview3d.SkinViewer({
@@ -261,7 +303,7 @@ export function setupAccountUI() {
                 if (mojangCapeUrl) {
                     fullscreenSkinViewer.loadCape(mojangCapeUrl);
                 } else {
-                    fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${acc.name}.png?t=${Date.now()}`).catch(() => {
+                    fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${encodeURIComponent(acc.name)}.png?t=${Date.now()}`).catch(() => {
                         fullscreenSkinViewer.loadCape(null);
                     });
                 }
@@ -298,7 +340,7 @@ export function setupAccountUI() {
         const acc = store.allAccounts[store.uiSelectedAccRow];
         
         try {
-            const res = await fetch(`https://minotar.net/skin/${acc.name}`);
+            const res = await fetch(`https://minotar.net/skin/${encodeURIComponent(acc.name)}`);
             if (!res.ok) throw new Error("Impossible de récupérer le skin");
             
             const blob = await res.blob();

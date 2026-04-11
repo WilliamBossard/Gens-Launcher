@@ -9,9 +9,11 @@ function t(key, fallback) {
 }
 
 export function setupSettings() {
+    
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
         window.renderUpdateTab();
+        if (window.populateLangDropdown) window.populateLangDropdown();
         document.getElementById("global-ram-input").value = store.globalSettings.defaultRam;
         document.getElementById("global-ram-slider").value = store.globalSettings.defaultRam;
         document.getElementById("global-java").value = store.globalSettings.defaultJavaPath;
@@ -26,8 +28,8 @@ export function setupSettings() {
         document.getElementById("global-discord-rpc").value = store.globalSettings.disableRPC ? "false" : "true";
         document.getElementById("global-multi-inst").value = store.globalSettings.multiInstance ? "true" : "false";
         document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
-        
-        document.getElementById("global-eco-mode").value = store.globalSettings.ecoMode ? "true" : "false";
+        document.getElementById("global-disable-animations").value = store.globalSettings.disableAnimations ? "true" : "false";
+        document.getElementById("global-disable-transparency").value = store.globalSettings.disableTransparency ? "true" : "false";
 
         const optSelect = document.getElementById("global-options-source");
         optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
@@ -95,19 +97,25 @@ export function setupSettings() {
         store.globalSettings.disableRPC = document.getElementById("global-discord-rpc").value === "false";
         store.globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
         store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
-        
-        store.globalSettings.ecoMode = document.getElementById("global-eco-mode").value === "true";
+        store.globalSettings.disableAnimations = document.getElementById("global-disable-animations").value === "true";
+        store.globalSettings.disableTransparency = document.getElementById("global-disable-transparency").value === "true";
         
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
 
         let bgPath = document.getElementById("global-bg-path").value.trim();
-        if (bgPath && fs.existsSync(bgPath) && !bgPath.startsWith(store.dataDir)) {
-            const ext = path.extname(bgPath);
-            const newBgPath = path.join(store.dataDir, "background_copy" + ext);
-            try {
-                fs.copyFileSync(bgPath, newBgPath);
-                bgPath = newBgPath;
-            } catch(e) {}
+        const allowedBgExts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
+        if (bgPath && fs.existsSync(bgPath)) {
+            if (!allowedBgExts.includes(path.extname(bgPath).toLowerCase())) {
+                window.showToast(t("msg_err_bg_type", "Format d'image non supporté (.jpg, .png, .webp, .gif, .bmp)."), "error");
+                bgPath = store.globalSettings.theme?.bg || "";
+            } else if (!bgPath.startsWith(store.dataDir)) {
+                const ext = path.extname(bgPath);
+                const newBgPath = path.join(store.dataDir, "background_copy" + ext);
+                try {
+                    fs.copyFileSync(bgPath, newBgPath);
+                    bgPath = newBgPath;
+                } catch(e) {}
+            }
         }
 
         store.globalSettings.theme = {
@@ -189,7 +197,7 @@ export function setupSettings() {
         } catch(e) { window.showToast("Erreur de synchronisation.", "error"); }
     };
 
-    window.scanJavaVersions = () => {
+   window.scanJavaVersions = () => {
         document.getElementById("status-text").innerText = t("msg_search_java", "Recherche de Java...");
         const datalist = document.getElementById("java-paths-list");
         datalist.innerHTML = "";
@@ -198,9 +206,15 @@ export function setupSettings() {
         if (isGlobal) document.getElementById("global-java").value = "";
         else document.getElementById("edit-javapath").value = "";
 
+        const localAppData = path.resolve(window.api.appData, "../Local");
+        const userProfile = path.resolve(window.api.appData, "../../");
+
         const basePaths = [
             path.join(store.dataDir, "java"), "C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java",
             "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Amazon Corretto",
+            path.join(window.api.appData, ".minecraft", "runtime"), 
+            path.join(localAppData, "Packages", "Microsoft.4297127D64EC6_8wekyb3d8bbwe", "LocalCache", "Local", "runtime"), 
+            path.join(userProfile, "curseforge", "minecraft", "Install", "runtime") 
         ];
         
         let found = 0;

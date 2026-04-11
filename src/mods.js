@@ -8,6 +8,11 @@ function t(key, fallback) {
   return store.currentLangObj[key] || fallback;
 }
 
+function sanitizeFilename(filename) {
+    const base = filename.split(/[\\/]/).pop() || "file";
+    return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
+}
+
 function setupMods() {
 
     let globalSearchTimer = null;
@@ -52,6 +57,16 @@ function setupMods() {
 
       resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>${t("msg_builder_searching", "Recherche en cours...")}</div>`;
 
+      let installedItems = [];
+      if (store.selectedInstanceIdx !== null && type !== "modpack") {
+          const inst = store.allInstances[store.selectedInstanceIdx];
+          let targetFolder = type === "shader" ? "shaderpacks" : (type === "resourcepack" ? "resourcepacks" : "mods");
+          const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
+          if (fs.existsSync(destPath)) {
+              installedItems = fs.readdirSync(destPath).map(f => f.toLowerCase());
+          }
+      }
+
       try {
         if (source === "modrinth") {
             let facets = `[["project_type:${type}"]]`;
@@ -80,6 +95,14 @@ function setupMods() {
               const safeProjectId = window.escapeHTML(String(mod.project_id || ""));
               const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
               
+              const searchString = mod.slug ? mod.slug.toLowerCase() : "";
+              const searchTitle = mod.title ? mod.title.toLowerCase().replace(/\s+/g, "") : "";
+              const isInstalled = installedItems.some(f => (searchString && f.includes(searchString)) || (searchTitle && f.includes(searchTitle)));
+
+              const btnHtml = isInstalled 
+                ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
+                : `<button class="btn-primary" onclick="installGlobalMod('${safeProjectId}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>`;
+
               resDiv.innerHTML += `
                         <div class="catalog-card">
                             <img src="${safeIconUrl}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
@@ -88,7 +111,7 @@ function setupMods() {
                                 <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${safeAuthor} - ${downloads} (Modrinth)</div>
                                 <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
                             </div>
-                            <button class="btn-primary" onclick="installGlobalMod('${safeProjectId}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>
+                            ${btnHtml}
                         </div>`;
             });
         } 
@@ -135,6 +158,14 @@ function setupMods() {
               const safeCfId = window.escapeHTML(String(mod.id || ""));
               const safeCfIcon = (icon && /^https:\/\//i.test(icon)) ? icon : "";
               
+              const searchSlug = mod.slug ? mod.slug.toLowerCase() : "";
+              const searchName = mod.name ? mod.name.toLowerCase().replace(/\s+/g, "") : "";
+              const isInstalled = installedItems.some(f => (searchSlug && f.includes(searchSlug)) || (searchName && f.includes(searchName)));
+
+              const btnHtml = isInstalled 
+                ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
+                : `<button class="btn-primary" onclick="installGlobalMod('${safeCfId}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>`;
+
               resDiv.innerHTML += `
                         <div class="catalog-card">
                             <img src="${safeCfIcon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
@@ -143,7 +174,7 @@ function setupMods() {
                                 <div style="font-size: 0.75rem; color: #f48a21; margin-bottom: 5px;">${safeAuthor} - ${downloads} (CurseForge)</div>
                                 <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
                             </div>
-                            <button class="btn-primary" onclick="installGlobalMod('${safeCfId}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>
+                            ${btnHtml}
                         </div>`;
             });
         }
@@ -153,7 +184,10 @@ function setupMods() {
       }
     };
 
-    window.installGlobalMod = async (projectId, isDependency = false, projType = "mod", source = "modrinth") => {
+    window.installGlobalMod = async (projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set()) => {
+      if (visitedDeps.has(projectId)) return; 
+      visitedDeps.add(projectId);
+
       if (projType !== "modpack" && store.selectedInstanceIdx === null) {
         window.showToast(t("msg_select_inst", "Sélectionnez une instance d'abord !"), "error");
         return;
@@ -215,10 +249,25 @@ function setupMods() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
             if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
-            const filePath = path.join(destPath, file.filename);
+            const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
+            const filePath = path.join(destPath, safeName);
 
             if (!fs.existsSync(filePath)) {
+              if (!file.url || !/^https:\/\//i.test(file.url)) {
+                sysLog(`URL rejetée (protocole invalide) : ${file.url}`, true);
+                if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
+                return;
+              }
               const buffer = await (await fetch(file.url)).arrayBuffer();
+              if (file.hashes?.sha1) {
+                const downloadedHash = window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
+                if (downloadedHash !== file.hashes.sha1) {
+                  sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${file.filename} (attendu: ${file.hashes.sha1}, reçu: ${downloadedHash})`, true);
+                  if (!isDependency) statusText.innerText = t("msg_err_hash", "Fichier corrompu ou modifié !");
+                  if (window.showToast) window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !"), "error");
+                  return;
+                }
+              }
               fs.writeFileSync(filePath, new Uint8Array(buffer));
             }
 
@@ -228,7 +277,7 @@ function setupMods() {
                   let depId = dep.project_id || dep.version_id;
                   if (depId) {
                     statusText.innerText = t("msg_deps", "Dépendances...");
-                    await window.installGlobalMod(depId, true, "mod", "modrinth");
+                    await window.installGlobalMod(depId, true, "mod", "modrinth", visitedDeps);
                   }
                 }
               }
@@ -267,6 +316,11 @@ function setupMods() {
                 window.openSystemPath(`https://www.curseforge.com/minecraft/mc-mods/${projectId}`);
                 return;
             }
+            if (!/^https:\/\//i.test(downloadUrl)) {
+                sysLog(`URL CurseForge rejetée (protocole invalide) : ${downloadUrl}`, true);
+                if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
+                return;
+            }
 
             let targetFolder = "mods";
             if (projType === "shader") targetFolder = "shaderpacks";
@@ -275,7 +329,8 @@ function setupMods() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
             if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
-            const filePath = path.join(destPath, fileData.fileName);
+            const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
+            const filePath = path.join(destPath, safeName);
 
             if (!fs.existsSync(filePath)) {
               const buffer = await (await fetch(downloadUrl)).arrayBuffer();
@@ -286,7 +341,7 @@ function setupMods() {
               for (let dep of fileData.dependencies) {
                 if (dep.relationType === 3) { 
                   statusText.innerText = t("msg_deps", "Dépendances...");
-                  await window.installGlobalMod(dep.modId, true, "mod", "curseforge");
+                  await window.installGlobalMod(dep.modId, true, "mod", "curseforge", visitedDeps);
                 }
               }
             }
@@ -312,11 +367,6 @@ function setupMods() {
 
     const ALLOWED_TYPES = ["mod", "shader", "resourcepack"];
     const ALLOWED_LOADERS = ["fabric", "forge", "neoforge", "quilt"];
-
-    function sanitizeFilename(filename) {
-        const base = filename.split(/[\\/]/).pop() || "file";
-        return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
-    }
 
     window.openBuilderModal = () => {
         document.getElementById("builder-name").value = "";
@@ -603,7 +653,7 @@ function setupMods() {
             javaPath: "",
             jvmArgs: "",
             jvmProfile: "none",
-            notes: t("msg_builder_success", "Modpack créé avec succès !"),
+            notes: t("msg_builder_notes_default", "Créé via le Modpack Builder."),
             icon: "",
             resW: "",
             resH: "",
@@ -620,53 +670,70 @@ function setupMods() {
         let done = 0;
         const failed = [];
 
-        for (const mod of modsToDownload) {
-            const pct = Math.round((done / total) * 100);
-            window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
+        const queue = [...modsToDownload];
+        const concurrencyLimit = 10;
+        
+        const workers = Array(concurrencyLimit).fill(null).map(async () => {
+            while (queue.length > 0) {
+                const mod = queue.shift();
+                
+                if (!ALLOWED_TYPES.includes(mod.type)) { done++; continue; }
 
-            if (!ALLOWED_TYPES.includes(mod.type)) { done++; continue; }
+                try {
+                    let apiUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(mod.id)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}`;
+                    if (mod.type === "mod") apiUrl += `&loaders=${encodeURIComponent('["' + loader + '"]')}`;
 
-            try {
-                let apiUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(mod.id)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}`;
-                if (mod.type === "mod") {
-                    apiUrl += `&loaders=${encodeURIComponent('["' + loader + '"]')}`;
+                    const vRes = await fetch(apiUrl);
+                    if (!vRes.ok) throw new Error(`API ${vRes.status}`);
+                    const versionsData = await vRes.json();
+
+                    if (!Array.isArray(versionsData) || versionsData.length === 0) {
+                        sysLog(`Aucune version compatible pour ${mod.name} (${version}/${loader})`, false);
+                        done++; continue;
+                    }
+
+                    const fileObj = versionsData[0].files.find(f => f.primary) || versionsData[0].files[0];
+                    if (!fileObj || !fileObj.url || !fileObj.filename) {
+                        sysLog(`Pas de fichier pour ${mod.name}`, false);
+                        done++; continue;
+                    }
+
+                    if (!/^https:\/\//i.test(fileObj.url)) {
+                        sysLog(`URL rejetée pour ${mod.name} : ${fileObj.url}`, true);
+                        done++; continue;
+                    }
+
+                    const safeFilename = sanitizeFilename(fileObj.filename);
+                    const targetDir = dirs[mod.type] || dirs["mod"];
+                    const destPath = path.join(targetDir, safeFilename);
+
+                    const dlRes = await fetch(fileObj.url);
+                    if (!dlRes.ok) throw new Error(`DL HTTP ${dlRes.status}`);
+                    const buffer = await dlRes.arrayBuffer();
+
+                    if (fileObj.hashes?.sha1) {
+                        const dlHash = window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
+                        if (dlHash !== fileObj.hashes.sha1) {
+                            sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${mod.name} (${fileObj.filename})`, true);
+                            failed.push(mod.name);
+                            done++; continue;
+                        }
+                    }
+
+                    fs.writeFileSync(destPath, new Uint8Array(buffer));
+
+                } catch (e) {
+                    sysLog(`Erreur DL ${mod.name}: ` + e, true);
+                    failed.push(mod.name);
                 }
-
-                const vRes = await fetch(apiUrl);
-                if (!vRes.ok) throw new Error(`API ${vRes.status}`);
-                const versionsData = await vRes.json();
-
-                if (!Array.isArray(versionsData) || versionsData.length === 0) {
-                    sysLog(`Aucune version compatible pour ${mod.name} (${version}/${loader})`, false);
-                    done++; continue;
-                }
-
-                const fileObj = versionsData[0].files.find(f => f.primary) || versionsData[0].files[0];
-                if (!fileObj || !fileObj.url || !fileObj.filename) {
-                    sysLog(`Pas de fichier pour ${mod.name}`, false);
-                    done++; continue;
-                }
-
-                if (!/^https:\/\//i.test(fileObj.url)) {
-                    sysLog(`URL non-HTTPS bloquée pour ${mod.name}: ${fileObj.url}`, true);
-                    done++; continue;
-                }
-
-                const safeFilename = sanitizeFilename(fileObj.filename);
-                const targetDir = dirs[mod.type] || dirs["mod"];
-                const destPath = path.join(targetDir, safeFilename);
-
-                const dlRes = await fetch(fileObj.url);
-                if (!dlRes.ok) throw new Error(`DL HTTP ${dlRes.status}`);
-                const buffer = await dlRes.arrayBuffer();
-                fs.writeFileSync(destPath, new Uint8Array(buffer));
-
-            } catch (e) {
-                sysLog(`Erreur DL ${mod.name}: ` + e, true);
-                failed.push(mod.name);
+                
+                done++;
+                let pct = Math.round((done / total) * 100);
+                window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
             }
-            done++;
-        }
+        });
+
+        await Promise.all(workers);
 
         window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
 
@@ -679,7 +746,7 @@ function setupMods() {
         window.renderUI();
 
         if (failed.length > 0) {
-            window.showToast(`${t("msg_builder_success", "Modpack créé avec succès !")} (${failed.length} erreur(s))`, "info");
+            window.showToast(t("msg_builder_partial", `Modpack créé avec ${failed.length} erreur(s).`).replace("{n}", String(failed.length)), "info");
         } else {
             window.showToast(t("msg_builder_success", "Modpack créé avec succès !"), "success");
         }

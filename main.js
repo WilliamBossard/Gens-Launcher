@@ -40,6 +40,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    // --- CORRECTIF JUMP LIST : Définit l'ID de l'application pour Windows ---
+    app.setAppUserModelId("com.gens.launcher"); 
+
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         try {
             const url = new URL(details.url);
@@ -52,6 +55,15 @@ app.whenReady().then(() => {
     });
 
     createWindow();
+
+    // Lecture de l'argument auto-launch si on clique sur une Jump List
+    mainWindow.webContents.on('did-finish-load', () => {
+        const autoLaunchArg = process.argv.find(arg => arg.startsWith('--auto-launch='));
+        if (autoLaunchArg) {
+            const instName = autoLaunchArg.split('=')[1].replace(/"/g, '');
+            mainWindow.webContents.send("trigger-auto-launch", instName);
+        }
+    });
 
     try {
         tray = new Tray(path.join(__dirname, "assets/icon.ico"));
@@ -80,8 +92,25 @@ app.whenReady().then(() => {
 
     setTimeout(() => {
         mainLog("Vérification silencieuse des mises à jour...");
-        autoUpdater.checkForUpdates();
+        autoUpdater.checkForUpdates().catch(err => {
+            mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
+        });
     }, 3000);
+});
+
+// --- GESTION DE LA JUMP LIST WINDOWS ---
+ipcMain.on("update-jump-list", (event, instances) => {
+    if (process.platform === 'win32') {
+        const tasks = instances.map(inst => ({
+            program: process.execPath,
+            arguments: `--auto-launch="${inst.name}"`,
+            iconPath: process.execPath,
+            iconIndex: 0,
+            title: `Lancer ${inst.name}`,
+            description: `Démarrer l'instance ${inst.name}`
+        }));
+        app.setUserTasks(tasks);
+    }
 });
 
 ipcMain.on("get-paths-sync", (event) => {
@@ -94,6 +123,14 @@ ipcMain.handle("get-still-running", async () => {
 
 ipcMain.handle("check-java", async (_, javaPath) => {
     return new Promise((resolve) => {
+        const jpLower = javaPath.toLowerCase().trim();
+        const isValid = jpLower.endsWith("java") || jpLower.endsWith("java.exe") || 
+                        jpLower.endsWith("javaw") || jpLower.endsWith("javaw.exe");
+        
+        if (!isValid) {
+            resolve({ err: { message: "Faille de sécurité bloquée: Le chemin ne pointe pas vers Java.", code: "SEC_ERR" }, stdout: "", stderr: "" });
+            return;
+        }
         execFile(javaPath, ["-version"], (err, stdout, stderr) => { resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" }); });
     });
 });

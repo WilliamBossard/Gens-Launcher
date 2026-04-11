@@ -38,7 +38,7 @@ export function setupStats() {
         return totalSize;
     }
 
-    async function getCacheInfoAsync() {
+   async function getCacheInfoAsync() {
         let filesToDelete = [];
         let totalSize = 0;
 
@@ -62,6 +62,12 @@ export function setupStats() {
         await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
         await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip"));
         await checkDir(path.join(store.dataDir, "exports"), f => true);
+
+        for (const inst of store.allInstances) {
+            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            await checkDir(path.join(instDir, "crash-reports"), f => true);
+            await checkDir(path.join(instDir, "logs"), f => f.endsWith(".log.gz") || (f.endsWith(".log") && f !== "latest.log"));
+        }
 
         try {
             const mainDirs = await fs.promises.readdir(store.dataDir);

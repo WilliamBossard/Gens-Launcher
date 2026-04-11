@@ -38,7 +38,7 @@ function updateRPC(inst, customState) {
                 state: stateText,
                 startTimestamp: store.sessionStartTime || new Date(),
                 largeImageKey: "logo",
-                largeImageText: " Joue avec Gens Launcher !", 
+                largeImageText: t("discord_playing_with", "Joue avec Gens Launcher !"),
                 buttons: [
                     { label: t("btn_discord_download", "Télécharger Gens Launcher"), url: "https://github.com/WilliamBossard/Gens-Launcher" },
                 ]

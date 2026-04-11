@@ -27,7 +27,7 @@ async function performAutoBackup(inst, mode) {
 
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-    window.showLoading(`Auto-Backup en cours...`);
+    window.showLoading(t("msg_autobackup_running", "Auto-Backup en cours..."));
     await yieldUI();
 
     try {
@@ -214,12 +214,15 @@ export function setupLauncher() {
             if (dStr.includes("WARN")) color = "#ffaa00"; 
             if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171"; 
 
+            const isAtBottom = logOutput.scrollHeight - logOutput.clientHeight <= logOutput.scrollTop + 50;
+            
             logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
             while (logOutput.childElementCount > 500) logOutput.removeChild(logOutput.firstChild);
             
             const filter = document.getElementById("console-filter")?.value.toLowerCase() ?? "";
             if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
-            if (logOutput.selectionStart === undefined) logOutput.scrollTop = logOutput.scrollHeight;
+            
+            if (isAtBottom) logOutput.scrollTop = logOutput.scrollHeight;
         }
 
         try {
@@ -308,12 +311,14 @@ export function setupLauncher() {
                 const logOutput = document.getElementById("log-output");
                 logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
                 
-                if (code !== 0) {
+                 if (code !== 0) {
                     document.getElementById("console-container").style.display = "block";
                     const culprit = await window.analyzeCrash(instanceId);
                     if (culprit) {
                        const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
                         if (action) { window.openEditModal('tab-mods'); }
+                    } else {
+                       window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
                     }
                 }
                 
@@ -330,7 +335,9 @@ export function setupLauncher() {
 
         try {
             const notif = new Notification("Gens Launcher", {
-                body: code === 0 ? `${instanceId} s'est fermé normalement.` : `Le jeu s'est arrêté avec une erreur (code ${code}).`,
+                body: code === 0
+                    ? t("msg_game_closed_normal", `${instanceId} s'est fermé normalement.`).replace("{name}", instanceId)
+                    : t("msg_game_closed_error", `Le jeu s'est arrêté avec une erreur (code ${code}).`).replace("{code}", String(code)),
                 silent: true
             });
             notif.onclick = () => { ipcRenderer.send("show-window"); };
@@ -443,14 +450,22 @@ export function setupLauncher() {
         
         if (acc.type === "microsoft" && acc.mclcAuth) {
             document.getElementById("status-text").innerText = t("msg_check_ms_session", "Vérification de la session Microsoft...");
-            try {
+              try {
                 const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
                 if (refreshRes.success && refreshRes.access_token) {
                     acc.mclcAuth.access_token = refreshRes.access_token;
                     fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                } else {
+                    window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte Microsoft dans l'onglet Gérer."), "error");
+                    document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                    window.setUIState();
+                    return; 
                 }
             } catch(e) {
-                sysLog("Erreur silencieuse lors du refresh token: " + e.message);
+                window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte Microsoft dans l'onglet Gérer."), "error");
+                document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                window.setUIState();
+                return;
             }
             authObj = acc.mclcAuth;
         }
@@ -521,7 +536,7 @@ export function setupLauncher() {
             document.getElementById("status-text").innerText = `${t("msg_prep_loader", "Préparation de ")}${inst.loader}...`;
             sysLog(`Configuration de l'environnement ${inst.loader} ${inst.loaderVersion || 'latest'}...`);
             if (!inst.loaderVersion) {
-                window.showToast(`Impossible de lancer : Version exacte de ${inst.loader} manquante.`, "error");
+                window.showToast(t("msg_err_no_loader_version", `Impossible de lancer : Version exacte de ${inst.loader} manquante.`).replace("{loader}", inst.loader), "error");
                 return;
             }
             

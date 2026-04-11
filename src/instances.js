@@ -72,7 +72,7 @@ export function setupInstances() {
             
             select.innerHTML = "";
             if (versions.length === 0) {
-                select.innerHTML = `<option value="">Incompatible avec la ${mcVer}</option>`;
+                select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `Incompatible avec la ${mcVer}`)}</option>`;
             } else {
                 versions.forEach(v => {
                     const opt = document.createElement("option");
@@ -82,7 +82,7 @@ export function setupInstances() {
                 });
             }
         } catch(e) {
-            select.innerHTML = `<option value="">Incompatible</option>`;
+            select.innerHTML = `<option value="">${t("msg_loader_incompat", "Incompatible")}</option>`;
         }
     };
 
@@ -307,7 +307,8 @@ export function setupInstances() {
         }
 
         const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
-        if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeFolderName)) {
+        // CORRECTION REGEX : Bloque les extensions aussi !
+        if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
             return;
@@ -381,7 +382,7 @@ export function setupInstances() {
             const safeOldName = inst.name.replace(/[^a-z0-9]/gi, "_");
             const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
 
-            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safeNewName)) {
+            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeNewName)) {
                 window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
                 return;
             }
@@ -412,7 +413,7 @@ export function setupInstances() {
 
         let rawRam = parseInt(document.getElementById("edit-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024; 
-        inst.ram = Math.max(1024, rawRam);
+        inst.ram = String(Math.max(1024, rawRam));
 
         inst.name = newName;
         inst.group = document.getElementById("edit-group").value.trim();
@@ -539,7 +540,8 @@ export function setupInstances() {
                     await fs.promises.rm(instFolder, { recursive: true, force: true });
                 }
             } catch(e) {
-                window.showToast("Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?", "error");
+                // MESSAGE CORRIGÉ ICI
+                window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?"), "error");
                 return; 
             }
             
@@ -599,7 +601,13 @@ export function setupInstances() {
         const grid = document.getElementById("icon-gallery-grid");
         grid.innerHTML = "";
         defaultGalleryIcons.forEach(icon => {
-            grid.innerHTML += `<img src="${icon}" style="width: 64px; height: 64px; cursor: pointer; border: 2px solid transparent; border-radius: 4px;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='transparent'" onclick="selectGalleryIcon('${icon}')">`;
+            const img = document.createElement("img");
+            img.src = icon;
+            img.style.cssText = "width:64px;height:64px;cursor:pointer;border:2px solid transparent;border-radius:4px;";
+            img.addEventListener("mouseover", () => img.style.borderColor = "var(--accent)");
+            img.addEventListener("mouseout",  () => img.style.borderColor = "transparent");
+            img.addEventListener("click",     () => window.selectGalleryIcon(icon));
+            grid.appendChild(img);
         });
         document.getElementById("modal-icon-gallery").style.display = "flex";
     };

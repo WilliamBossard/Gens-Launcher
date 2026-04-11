@@ -81,24 +81,16 @@ window.applyTheme = function() {
     const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
     const appBg = document.getElementById("app-background");
     
-    if (th.bg && fs.existsSync(th.bg)) {
-        appBg.style.backgroundImage = `url("file:///${encodeURI(th.bg.replace(/\\/g, "/"))}")`;
-        appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;
-        
-        root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
-        root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
-        root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
+    if (store.globalSettings.disableAnimations) {
+        document.body.classList.add("no-animations");
     } else {
-        appBg.style.backgroundImage = "none";
-        root.style.setProperty("--bg-main", "#1e1e1e");
-        root.style.setProperty("--bg-panel", "#2d2d30");
-        root.style.setProperty("--bg-toolbar", "#333337");
+        document.body.classList.remove("no-animations");
     }
-    
-    if (store.globalSettings.ecoMode) {
-        document.body.classList.add("eco-mode");
+
+    if (store.globalSettings.disableTransparency) {
+        document.body.classList.add("no-transparency");
     } else {
-        document.body.classList.remove("eco-mode");
+        document.body.classList.remove("no-transparency");
     }
 };
 
@@ -121,7 +113,10 @@ async function loadNews() {
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
         
         data.entries.slice(0, 6).forEach(news => {
-            const imgUrl = `https://launchercontent.mojang.com${news.playPageImage.url}`;
+            const rawImgUrl = news.playPageImage?.url || "";
+            const imgUrl = rawImgUrl.startsWith("/")
+                ? `https://launchercontent.mojang.com${rawImgUrl}`
+                : rawImgUrl;
             const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
             const safeTitle = window.escapeHTML(news.title);
             const safeCategory = window.escapeHTML(news.category);

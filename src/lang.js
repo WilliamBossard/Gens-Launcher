@@ -167,9 +167,6 @@ const defaultFr = {
   stat_fav_instance: "Instance favorite : ",
   stat_disk_usage: "Espace disque utilisé",
   txt_players: "Joueurs",
-  btn_auto_ram: "Optimiser",
-  tt_auto_ram: "Analyse votre PC et vos mods pour allouer la RAM parfaite (Min 4Go).",
-  msg_ram_optimized: "RAM optimisée à ",
   modal_updates_title: "Mises à jour disponibles",
   msg_updates_available: "Les mods suivants vont être mis à jour :",
   btn_update_all: "Tout installer",
@@ -384,6 +381,38 @@ const defaultFr = {
   msg_loader_no_compat: "Ce loader n'est pas encore disponible pour cette version. Passé en Vanilla.",
   msg_no_loader_compat: "Incompatible avec cette version",
   msg_err_loader_versions: "Erreur de chargement des versions",
+  msg_err_timeout: "Délai dépassé. Vérifiez votre connexion.",
+  msg_err_format_drag: "Format non supporté (.jar ou .zip uniquement).",
+  msg_cache_empty: "Le cache est déjà vide !",
+  msg_cache_clean_confirm: "Voulez-vous supprimer définitivement les fichiers temporaires ?",
+  msg_cache_cleaning: "Nettoyage en cours...",
+  msg_cache_clean_success: "Nettoyage terminé !",
+  btn_icon_gallery: "Galerie",
+  lbl_java_auto: "Téléchargeur automatique de Java",
+  txt_java_auto_desc: "Installez rapidement la version dont vous avez besoin si une instance refuse de se lancer. Le chemin sera automatiquement configuré.",
+  modal_export: "Options d'exportation",
+  msg_err_del_running: "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?",
+  msg_crash_generic: "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.",
+  btn_already_installed: "Installé",
+  msg_session_expired: "Session expirée. Veuillez vous reconnecter à votre compte Microsoft dans l'onglet Gérer.",
+  msg_welcome_title: "Bienvenue sur Gens Launcher !",
+  msg_welcome_desc: "Vous n'avez pas encore d'instance. Créez-en une nouvelle ou téléchargez un Modpack pour commencer à jouer.",
+  lbl_disable_animations: "Désactiver les animations",
+  tt_animations: "Coupe les fondus et effets d'apparition pour naviguer plus vite.",
+  lbl_disable_transparency: "Désactiver la transparence / flou",
+  tt_transparency: "Affiche des fonds noirs unis derrière les fenêtres (Bon pour les vieux PC).",
+  // --- Nouvelles clés (correctifs v1.3.8) ---
+  discord_playing_with: "Joue avec Gens Launcher !",
+  msg_loader_incompat_ver: "Incompatible avec la {ver}",
+  msg_loader_incompat: "Incompatible",
+  msg_autobackup_running: "Auto-Backup en cours...",
+  msg_game_closed_normal: "{name} s'est fermé normalement.",
+  msg_game_closed_error: "Le jeu s'est arrêté avec une erreur (code {code}).",
+  msg_err_no_loader_version: "Impossible de lancer : version exacte de {loader} manquante.",
+  msg_builder_partial: "Modpack créé avec {n} erreur(s).",
+  msg_builder_notes_default: "Créé via le Modpack Builder.",
+  msg_err_hash: "Fichier corrompu ou modifié !",
+  msg_err_bg_type: "Format d'image non supporté (.jpg, .png, .webp, .gif, .bmp).",
 };
 
 const defaultEn = {
@@ -550,9 +579,6 @@ const defaultEn = {
   stat_fav_instance: "Favorite instance: ",
   stat_disk_usage: "Disk space used",
   txt_players: "Players",
-  btn_auto_ram: "Optimize",
-  tt_auto_ram: "Analyzes your PC and mods to allocate perfect RAM (Min 4GB).",
-  msg_ram_optimized: "RAM optimized to ",
   modal_updates_title: "Updates Available",
   msg_updates_available: "The following mods will be updated:",
   btn_update_all: "Install All",
@@ -767,6 +793,38 @@ const defaultEn = {
   msg_loader_no_compat: "This loader is not yet available for this version. Switched to Vanilla.",
   msg_no_loader_compat: "Incompatible with this version",
   msg_err_loader_versions: "Failed to load versions",
+  msg_err_timeout: "Timeout exceeded. Check your connection.",
+  msg_err_format_drag: "Unsupported format (only .jar or .zip).",
+  msg_cache_empty: "Cache is already empty!",
+  msg_cache_clean_confirm: "Are you sure you want to permanently delete temporary files?",
+  msg_cache_cleaning: "Cleaning in progress...",
+  msg_cache_clean_success: "Cleanup complete!",
+  btn_icon_gallery: "Gallery",
+  lbl_java_auto: "Automatic Java Downloader",
+  txt_java_auto_desc: "Quickly install the version you need if an instance refuses to launch. The path will be configured automatically.",
+  modal_export: "Export Options",
+  msg_err_del_running: "Cannot delete the folder. Is the game still running?",
+  msg_crash_generic: "The game crashed with error code {code}.\nCheck the console for more details.",
+  btn_already_installed: "Installed",
+  msg_session_expired: "Session expired. Please re-login to your Microsoft account in the Manage tab.",
+  msg_welcome_title: "Welcome to Gens Launcher!",
+  msg_welcome_desc: "You don't have any instance yet. Create a new one or download a Modpack to start playing.",
+  lbl_disable_animations: "Disable animations",
+  tt_animations: "Removes fade-ins and popup effects for faster navigation.",
+  lbl_disable_transparency: "Disable transparency / blur",
+  tt_transparency: "Displays solid black backgrounds behind windows (Good for low-end PCs).",
+  // --- New keys (fixes v1.3.8) ---
+  discord_playing_with: "Playing with Gens Launcher!",
+  msg_loader_incompat_ver: "Incompatible with {ver}",
+  msg_loader_incompat: "Incompatible",
+  msg_autobackup_running: "Auto-Backup in progress...",
+  msg_game_closed_normal: "{name} closed normally.",
+  msg_game_closed_error: "Game stopped with an error (code {code}).",
+  msg_err_no_loader_version: "Cannot launch: exact version of {loader} is missing.",
+  msg_builder_partial: "Modpack created with {n} error(s).",
+  msg_builder_notes_default: "Created via the Modpack Builder.",
+  msg_err_hash: "Corrupted or tampered file!",
+  msg_err_bg_type: "Unsupported image format (.jpg, .png, .webp, .gif, .bmp).",
 };
 
 export function setupLang() {
@@ -830,11 +888,13 @@ export function setupLang() {
         window.loadLanguage(code);
     };
 
-    window.saveFirstLaunch = () => {
+window.saveFirstLaunch = () => {
         const code = document.getElementById("first-launch-lang").value;
         store.globalSettings.language = code;
         fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         window.loadLanguage(code);
+        if (window.populateLangDropdown) window.populateLangDropdown();
+        
         document.getElementById("modal-first-launch").style.display = "none";
     };
 

@@ -11,6 +11,19 @@ function t(key, fallback) {
 
 export function setupUICore() {
 
+    // --- 🛡️ BOUCLIER ANTI-CORRUPTION (SAFE WRITE) ---
+    window.safeWriteJSON = (filePath, dataObject) => {
+        try {
+            const tempPath = filePath + ".tmp";
+            fs.writeFileSync(tempPath, JSON.stringify(dataObject, null, 2), "utf8");
+            fs.renameSync(tempPath, filePath);
+        } catch (e) {
+            console.error("Erreur de sauvegarde sécurisée :", e);
+            // Fallback en cas d'échec du renommage
+            fs.writeFileSync(filePath, JSON.stringify(dataObject, null, 2), "utf8");
+        }
+    };
+
     window.loadStorage = () => {
         if (!fs.existsSync(store.dataDir))        fs.mkdirSync(store.dataDir,        { recursive: true });
         if (!fs.existsSync(store.instancesRoot))  fs.mkdirSync(store.instancesRoot,  { recursive: true });
@@ -19,12 +32,24 @@ export function setupUICore() {
         if (fs.existsSync(store.settingsFile)) {
             try {
                 const raw = fs.readFileSync(store.settingsFile, "utf8");
-                if (raw) store.globalSettings = Object.assign({}, store.globalSettings, JSON.parse(raw));
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    store.globalSettings = { ...store.globalSettings, ...parsed };
+                    if (parsed.theme) {
+                        store.globalSettings.theme = { ...store.globalSettings.theme, ...parsed.theme };
+                    }
+                }
             } catch(e) { console.error("Erreur lecture settings:", e); }
         }
         if (!store.globalSettings.theme) {
             store.globalSettings.theme = { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
         }
+        
+        if (store.globalSettings.disableAnimations === undefined) store.globalSettings.disableAnimations = false;
+        if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
+
+        // Si aucune langue n'est définie (1er lancement), on force le Français en arrière-plan
+        if (!store.globalSettings.language) store.globalSettings.language = "fr";
 
         if (!store.defaultIcons) {
             store.defaultIcons = {
@@ -57,6 +82,11 @@ export function setupUICore() {
         } else {
             store.allAccounts = [];
             store.selectedAccountIdx = null;
+        }
+
+        if (store.globalSettings.defaultRam > store.maxSafeRam) {
+            store.globalSettings.defaultRam = store.maxSafeRam;
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
         }
     };
 
@@ -112,9 +142,7 @@ export function setupUICore() {
                     }
 
                     if (changed) {
-                        try {
-                            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
-                        } catch(e) {}
+                        window.safeWriteJSON(store.instanceFile, store.allInstances);
 
                         if (window.setUIState) window.setUIState();
                         if (window.renderUI)   window.renderUI();
@@ -123,7 +151,7 @@ export function setupUICore() {
 
                     if (store.activeInstances.size === 0) clearInterval(pollInterval);
 
-                } catch(e) { /* sondage silencieux */ }
+                } catch(e) { }
             }, 5000);
 
         } catch(e) {
@@ -131,10 +159,56 @@ export function setupUICore() {
         }
     };
 
+    window.handleInstanceDoubleClick = (idx) => {
+        window.selectInstance(idx);
+        const inst = store.allInstances[idx];
+        if (!store.activeInstances.has(inst.name)) {
+            document.getElementById('launch-btn').click();
+        }
+    };
+
+    // --- SAUVEGARDER L'ÉTAT DES CATÉGORIES ---
+    window.toggleCategory = (element, groupName) => {
+        const grid = element.nextElementSibling; 
+        const arrow = element.querySelector('.cat-arrow'); 
+        
+        if (!store.globalSettings.collapsedGroups) store.globalSettings.collapsedGroups = {};
+
+        if (grid.style.display === 'none') { 
+            grid.style.display = 'grid'; 
+            arrow.style.transform = 'rotate(0deg)';
+            store.globalSettings.collapsedGroups[groupName] = false;
+        } else { 
+            grid.style.display = 'none'; 
+            arrow.style.transform = 'rotate(-90deg)'; 
+            store.globalSettings.collapsedGroups[groupName] = true;
+        }
+        
+        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+    };
+
     window.renderUI = () => {
         const container = document.getElementById("instances-container");
         if (!container) return;
         container.innerHTML = "";
+
+        // --- ÉCRAN DE BIENVENUE ---
+        if (store.allInstances.length === 0) {
+            container.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa; gap:15px;">
+                <div style="font-size: 4rem; opacity: 0.5;">📦</div>
+                <div style="font-size: 1.3rem; font-weight:bold; color:var(--text-light); text-align:center;">
+                    ${t("msg_welcome_title", "Bienvenue sur Gens Launcher !")}
+                </div>
+                <div style="font-size: 0.9rem; text-align:center; max-width: 400px;">
+                    ${t("msg_welcome_desc", "Vous n'avez pas encore d'instance. Créez-en une nouvelle ou téléchargez un Modpack pour commencer à jouer.")}
+                </div>
+                <button class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);" onclick="openInstanceModal()">
+                    ${t("toolbar_add", "Ajouter une instance")}
+                </button>
+            </div>`;
+            return;
+        }
 
         const search = document.getElementById("search-bar").value.toLowerCase();
         const sort   = document.getElementById("sort-dropdown").value;
@@ -173,14 +247,23 @@ export function setupUICore() {
         for (const g in groups) {
             const safeGroup = (g === defaultGroup) ? "" : g;
             const escapedGroupAttr = window.escapeHTML(safeGroup);
+            
+            const isCollapsed = store.globalSettings.collapsedGroups && store.globalSettings.collapsedGroups[g];
+            const displayStyle = isCollapsed ? 'none' : 'grid';
+            const arrowRot = isCollapsed ? '-90deg' : '0deg';
+            
             let html = `<div class="category-header"
-                onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'grid' : 'none'"
+                onclick="toggleCategory(this, '${window.escapeHTML(g).replace(/'/g, "\\'")}')"
                 ondragover="event.preventDefault()"
                 ondrop="dropInstanceOnGroup(event, this.getAttribute('data-group'))"
                 data-group="${escapedGroupAttr}"
-            >${window.escapeHTML(g)} (${groups[g].length})</div>`;
+                style="display: flex; align-items: center; gap: 8px;"
+            >
+                <span>${window.escapeHTML(g)} (${groups[g].length})</span>
+                <span class="cat-arrow" style="transition: transform 0.2s ease; font-size: 0.8rem; transform: rotate(${arrowRot});">▼</span>
+            </div>`;
 
-            html += `<div class="instances-grid">`;
+            html += `<div class="instances-grid" style="display: ${displayStyle};">`;
             groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
@@ -209,7 +292,8 @@ export function setupUICore() {
                 <div class="instance-card ${isActive}"
                     style="position: relative;"
                     onclick="selectInstance(${inst.originalIndex})"
-                    ondblclick="document.getElementById('launch-btn').click()" 
+                    ondblclick="handleInstanceDoubleClick(${inst.originalIndex})" 
+                    oncontextmenu="openContextMenu(event, ${inst.originalIndex})"
                     draggable="true"
                     ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
@@ -221,6 +305,15 @@ export function setupUICore() {
             });
             html += `</div>`;
             container.innerHTML += html;
+        }
+
+        // --- MISE À JOUR DE LA JUMP LIST ---
+        if (store.allInstances.length > 0 && window.api) {
+            const recent = [...store.allInstances]
+                .sort((a,b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
+                .slice(0, 3);
+            
+            window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
         }
     };
 
@@ -382,4 +475,47 @@ export function setupUICore() {
             if (window.showToast) window.showToast(t("msg_err_format_drag", "Format non supporté (.jar ou .zip uniquement)."), "error");
         }
     });
+
+    // --- ÉCOUTE DE L'AUTO-LAUNCH (JUMP LIST) ---
+    if (window.api) {
+        window.api.on("trigger-auto-launch", (instName) => {
+            const idx = store.allInstances.findIndex(i => i.name === instName);
+            if (idx !== -1) {
+                window.selectInstance(idx);
+                setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
+            }
+        });
+    }
+
+    // --- MENU CONTEXTUEL (CLIC DROIT) ---
+    let ctxTargetIdx = null;
+
+    window.openContextMenu = (e, idx) => {
+        e.preventDefault();
+        window.selectInstance(idx);
+        ctxTargetIdx = idx;
+        
+        const menu = document.getElementById("custom-context-menu");
+        if (!menu) return;
+
+        menu.style.display = "flex";
+        
+        let x = e.clientX;
+        let y = e.clientY;
+        if (x + menu.offsetWidth > window.innerWidth) x = window.innerWidth - menu.offsetWidth - 5;
+        if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
+        
+        menu.style.left = x + "px";
+        menu.style.top = y + "px";
+    };
+
+    document.addEventListener("click", () => {
+        const menu = document.getElementById("custom-context-menu");
+        if (menu) menu.style.display = "none";
+    });
+
+    window.ctxLaunch = () => { document.getElementById("launch-btn").click(); };
+    window.ctxFolder = () => { if(window.openDir) window.openDir(''); };
+    window.ctxEdit = () => { if(window.openEditModal) window.openEditModal(); };
+    window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
 }

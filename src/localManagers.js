@@ -9,7 +9,7 @@ function t(key, fallback) {
 }
 
 export function setupLocalManagers() {
-    function getModWarnings(inst) {
+function getModWarnings(inst) {
         const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
         let reqs = {};
@@ -48,7 +48,15 @@ export function setupLocalManagers() {
         let warnings = {};
         for (let f in reqs) {
             reqs[f].forEach(reqId => {
-                if (!provided.has(reqId) && !reqId.includes("forge")) {
+                const cleanId = reqId.toLowerCase();
+                if (!provided.has(cleanId) && 
+                    !cleanId.startsWith("fabric-") && 
+                    !cleanId.startsWith("quilt_") && 
+                    !cleanId.startsWith("forge:") && 
+                    cleanId !== "commonnetworking" &&
+                    cleanId !== "architectury" &&
+                    cleanId !== "midnightlib" 
+                ) {
                     if (!warnings[f]) warnings[f] = [];
                     warnings[f].push(reqId);
                 }
@@ -319,11 +327,11 @@ export function setupLocalManagers() {
 
         inst.servers.forEach((ip, i) => {
             const isAuto = inst.autoConnect === ip;
-            const safeIp = window.escapeHTML(ip); 
+            const safeIp = window.escapeHTML(ip);
             
             let autoBtnHtml = "";
             if (canAutoConnect) {
-                autoBtnHtml = `<button class="btn-secondary" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" onclick="setAutoConnect('${ip.replace(/'/g, "\\'")}')" title="Quick-Connect">>> ${t("btn_auto_connect", "Auto")}</button>`;
+                autoBtnHtml = `<button class="btn-secondary btn-auto-connect" data-ip="${safeIp}" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" title="Quick-Connect">&gt;&gt; ${t("btn_auto_connect", "Auto")}</button>`;
             } else {
                 autoBtnHtml = `<span style="font-size: 0.65rem; color: #666; margin-right: 5px; align-self: center;" title="${t("msg_req_mc_120", "Nécessite Minecraft 1.20+")}">Auto 1.20+</span>`;
             }
@@ -336,9 +344,16 @@ export function setupLocalManagers() {
                 </div>
                 <div style="display: flex; gap: 5px;">
                     ${autoBtnHtml}
-                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="removeServer(${i})">${t("btn_delete", "Supprimer")}</button>
+                    <button class="btn-secondary btn-remove-server" data-index="${i}" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
+        });
+
+        list.querySelectorAll(".btn-auto-connect").forEach(btn => {
+            btn.addEventListener("click", () => window.setAutoConnect(btn.dataset.ip));
+        });
+        list.querySelectorAll(".btn-remove-server").forEach(btn => {
+            btn.addEventListener("click", () => window.removeServer(parseInt(btn.dataset.index)));
         });
 
         window.pingServers();
@@ -406,21 +421,40 @@ export function setupLocalManagers() {
                 body: JSON.stringify(reqBody),
                 signal: checkController.signal,
             });
-            clearTimeout(checkTimeout);            const data = await res.json();
+            clearTimeout(checkTimeout);            
+            
+            // --- SÉCURITÉ : Gestion propre de la réponse 404 (Aucune MAJ) ---
+            if (!res.ok) {
+                window.hideLoading();
+                if (res.status === 404) {
+                    window.showToast(t("msg_no_updates", "Tous vos mods sont à jour !"), "success");
+                } else {
+                    window.showToast(t("msg_err_dl", "Erreur lors de la vérification."), "error");
+                }
+                return;
+            }
+            // ---------------------------------------------------------------
+
+            const data = await res.json();
             
             pendingUpdates = [];
             let listHTML = "";
 
-            for (let oldHash in data) {
-                const newFileObj = data[oldHash].files.find((f) => f.primary) || data[oldHash].files[0];
-                if (newFileObj.filename !== hashes[oldHash]) {
-                    pendingUpdates.push({
-                        oldFile: hashes[oldHash],
-                        newFileObj: newFileObj
-                    });
-                    listHTML += `<div style="margin-bottom: 5px;">- <span style="color:#f87171; text-decoration:line-through;">${hashes[oldHash]}</span> -> <span style="color:#17B139;">${newFileObj.filename}</span></div>`;
+            if (typeof data === "object" && !Array.isArray(data)) {
+                for (let oldHash in data) {
+                    if (data[oldHash] && Array.isArray(data[oldHash].files)) {
+                        const newFileObj = data[oldHash].files.find((f) => f.primary) || data[oldHash].files[0];
+                        if (newFileObj && newFileObj.filename !== hashes[oldHash]) {
+                            pendingUpdates.push({
+                                oldFile: hashes[oldHash],
+                                newFileObj: newFileObj
+                            });
+                            listHTML += `<div style="margin-bottom: 5px;">- <span style="color:#f87171; text-decoration:line-through;">${window.escapeHTML(hashes[oldHash])}</span> -> <span style="color:#17B139;">${window.escapeHTML(newFileObj.filename)}</span></div>`;
+                        }
+                    }
                 }
             }
+
             window.hideLoading();
             
             if (pendingUpdates.length > 0) {
@@ -432,14 +466,16 @@ export function setupLocalManagers() {
                     await executeModUpdates();
                 };
             } else {
-                window.showToast(t("msg_no_updates", "Aucune mise à jour trouvée."), 'info');
+                window.showToast(t("msg_no_updates", "Tous vos mods sont à jour !"), "success");
             }
         } catch (e) {
             clearTimeout(checkTimeout);
             window.hideLoading();
-            window.showToast(e.name === "AbortError"
-                ? t("msg_err_timeout", "Délai dépassé. Vérifie ta connexion.")
-                : t("msg_err_dl", "Erreur."), "error");
+            if (e.name === "AbortError") {
+                window.showToast(t("msg_err_timeout", "Délai dépassé. Vérifiez votre connexion."), "error");
+            } else {
+                window.showToast(t("msg_no_updates", "Tous vos mods sont à jour !"), "success");
+            }
         }
     };
 

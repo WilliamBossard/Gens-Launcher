@@ -437,6 +437,21 @@
             display: flex;
             flex-direction: column;
         }
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes backdropFade {
+            from { background: rgba(0, 0, 0, 0); }
+            to { background: rgba(0, 0, 0, 0.5); }
+        }
+        
+        .modal {
+            animation: backdropFade 0.2s ease-out forwards;
+        }
+        .modal-card {
+            animation: modalFadeIn 0.2s ease-out forwards;
+        }
 
         .modal-header {
             padding: 10px 15px;
@@ -1013,12 +1028,18 @@
             border: 1px solid var(--border);
         }
         
-        /* --- MODE ECO --- */
-        body.eco-mode * {
+        body.no-animations *:not(#loading-overlay):not(#loading-overlay *):not(svg):not(circle):not(path):not(.spinner):not(.spinner *):not(.loader):not(.fa-spin) {
+            transition: none !important;
+            animation: none !important;
+        }
+        
+        body.no-transparency * {
             backdrop-filter: none !important;
             box-shadow: none !important;
             text-shadow: none !important;
-            transition: none !important;
+        }
+        body.no-transparency .modal {
+            background: rgba(0, 0, 0, 0.95) !important;
         }
         body.eco-mode #app-background {
             filter: none !important;
@@ -1028,6 +1049,39 @@
         body.eco-mode .modal {
             background: rgba(0, 0, 0, 0.95) !important;
         }
+        .context-menu {
+            position: absolute;
+            background: rgba(45, 45, 48, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            padding: 5px;
+            display: none;
+            flex-direction: column;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+            min-width: 150px;
+        }
+        .context-menu-item {
+            padding: 8px 12px;
+            color: var(--text-light);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.1s;
+        }
+        .context-menu-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .context-menu-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+        
     </style>
 </head>
 
@@ -1485,7 +1539,7 @@
                     <input type="text" id="global-server-ip" placeholder="Ex: play.hypixel.net">
                 </div>
 
-                <div id="tab-glob-app" class="settings-content">
+                 <div id="tab-glob-app" class="settings-content">
                     <div style="display: flex; justify-content: space-between; align-items:center;">
                         <label data-i18n="lbl_accent">Couleur Principale</label>
                         <input type="color" id="global-accent" style="width: 50px; height: 35px; padding: 2px; cursor: pointer; background: transparent; border: 1px solid var(--border);">
@@ -1509,12 +1563,21 @@
                     <input type="range" id="global-panel-opacity" min="0.1" max="1" step="0.05" value="0.6">
 
                     <div style="display: flex; align-items: center; margin-top: 15px;">
-                        <label style="margin-top: 0;" data-i18n="lbl_eco_mode">Mode Éco (Performances)</label>
-                        <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_eco_mode" data-tooltip="Désactive les effets visuels (flou, transparence, animations) pour soulager la carte graphique.">?</div>
+                        <label style="margin-top: 0;" data-i18n="lbl_disable_animations">Désactiver les animations</label>
+                        <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_animations" data-tooltip="Coupe les fondus et effets d'apparition pour naviguer plus vite.">?</div>
                     </div>
-                    <select id="global-eco-mode">
-                        <option value="false" data-i18n="opt_eco_disabled">Désactivé (Recommandé)</option>
-                        <option value="true" data-i18n="opt_eco_enabled">Activé (Pour les petits PC)</option>
+                    <select id="global-disable-animations">
+                        <option value="false" data-i18n="btn_no">Non</option>
+                        <option value="true" data-i18n="btn_yes">Oui</option>
+                    </select>
+
+                    <div style="display: flex; align-items: center; margin-top: 15px;">
+                        <label style="margin-top: 0;" data-i18n="lbl_disable_transparency">Désactiver la transparence / flou</label>
+                        <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_transparency" data-tooltip="Affiche des fonds noirs unis derrière les fenêtres (Bon pour les vieux PC).">?</div>
+                    </div>
+                    <select id="global-disable-transparency">
+                        <option value="false" data-i18n="btn_no">Non</option>
+                        <option value="true" data-i18n="btn_yes">Oui</option>
                     </select>
                 </div>
 
@@ -1786,7 +1849,7 @@
                     id="ms-device-btn-open" onclick="openMsDevicePage()" data-i18n="ms_device_open">Ouvrir la page
                     Microsoft</button>
                 <div class="ms-device-waiting">
-                    <div class="ms-device-spinner" aria-hidden="true"></div>
+                    <div class="ms-device-spinner spinner" aria-hidden="true"></div>
                     <p id="ms-device-status"></p>
                 </div>
             </div>
@@ -1930,7 +1993,14 @@
             </div>
         </div>
     </div>
-    
+<div id="custom-context-menu" class="context-menu">
+        <div class="context-menu-item" onclick="ctxLaunch()">Lancer</div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="ctxFolder()">Ouvrir le dossier</div>
+        <div class="context-menu-item" onclick="ctxEdit()">Modifier</div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="ctxDelete()" style="color:#f87171;">Supprimer</div>
+    </div>
     <script type="module" src="renderer.js"></script>
     
 </body>
