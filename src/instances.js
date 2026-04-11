@@ -183,6 +183,27 @@ export function setupInstances() {
         document.getElementById("edit-backup-mode").value = inst.backupMode || "none";
         document.getElementById("edit-backup-limit").value = inst.backupLimit || 5;
 
+        const versionSelect = document.getElementById("edit-mc-version");
+        if (versionSelect) {
+            versionSelect.innerHTML = "";
+            const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
+            (store.rawVersions || []).forEach(v => {
+                if (showBeta || v.type === "release") {
+                    const opt = document.createElement("option");
+                    opt.value = v.id;
+                    opt.innerText = v.id;
+                    if (v.id === inst.version) opt.selected = true;
+                    versionSelect.appendChild(opt);
+                }
+            });
+        }
+
+        const loaderSelect = document.getElementById("edit-loader-type");
+        if (loaderSelect) {
+            loaderSelect.value = inst.loader || "vanilla";
+            window.updateEditLoaderVersions();
+        }
+
         const btnModsTab = document.getElementById("tab-btn-mods");
         if (inst.loader === "vanilla") {
             btnModsTab.style.display = "none";
@@ -191,6 +212,83 @@ export function setupInstances() {
 
         if(window.switchTab) window.switchTab(targetTab);
         document.getElementById("modal-edit").style.display = "flex";
+    };
+
+    window.updateEditLoaderVersions = async () => {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        const loaderSelect = document.getElementById("edit-loader-type");
+        const versionSelect = document.getElementById("edit-mc-version");
+        const loaderVerContainer = document.getElementById("edit-loader-version-container");
+        const loaderVerSelect = document.getElementById("edit-loader-version");
+        if (!loaderSelect || !loaderVerSelect) return;
+
+        const loader = loaderSelect.value;
+        const mcVer = versionSelect ? versionSelect.value : (inst ? inst.version : "");
+
+        if (loader === "vanilla") {
+            if (loaderVerContainer) loaderVerContainer.style.display = "none";
+            return;
+        }
+        if (loaderVerContainer) loaderVerContainer.style.display = "block";
+        loaderVerSelect.innerHTML = `<option>${t("msg_loading", "Chargement...")}</option>`;
+
+        try {
+            let versions = [];
+            if (loader === "fabric") {
+                const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
+                const data = await res.json();
+                versions = data.map(d => d.loader.version);
+            } else if (loader === "quilt") {
+                const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
+                const data = await res.json();
+                versions = data.map(d => d.loader.version);
+            } else if (loader === "forge") {
+                const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
+                const data = await res.json();
+                versions = Array.isArray(data) ? data.map(d => d.version) : [];
+            } else if (loader === "neoforge") {
+                const parts = mcVer.split(".");
+                const prefix = parts[1] + "." + (parts[2] || "0") + ".";
+                const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
+                const neoXml = await neoRes.text();
+                const neoDoc = new DOMParser().parseFromString(neoXml, "text/xml");
+                const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
+                versions = allVers.filter(v => v.startsWith(prefix));
+            }
+
+            loaderVerSelect.innerHTML = "";
+            if (versions.length === 0) {
+                loaderVerSelect.innerHTML = `<option value="">${t("msg_no_loader_compat", "Incompatible avec cette version")}</option>`;
+            } else {
+                versions.forEach(v => {
+                    const opt = document.createElement("option");
+                    opt.value = v;
+                    opt.innerText = v;
+                    if (inst && v === inst.loaderVersion) opt.selected = true;
+                    loaderVerSelect.appendChild(opt);
+                });
+            }
+        } catch(e) {
+            loaderVerSelect.innerHTML = `<option value="">${t("msg_err_loader_versions", "Erreur de chargement")}</option>`;
+        }
+    };
+
+    window.toggleEditSnapshots = () => {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        const versionSelect = document.getElementById("edit-mc-version");
+        const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
+        if (!versionSelect) return;
+        const currentVal = versionSelect.value;
+        versionSelect.innerHTML = "";
+        (store.rawVersions || []).forEach(v => {
+            if (showBeta || v.type === "release") {
+                const opt = document.createElement("option");
+                opt.value = v.id;
+                opt.innerText = v.id;
+                if (v.id === currentVal) opt.selected = true;
+                versionSelect.appendChild(opt);
+            }
+        });
     };
 
     window.closeEditModal = () => {
@@ -249,7 +347,7 @@ export function setupInstances() {
             javaPath: "", jvmArgs: "", 
             jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
-            playTime: 0, lastPlayed: 0, group: "", servers: [], backupMode: "none", backupLimit: 5,
+            playTime: 0, lastPlayed: 0, sessionHistory: [], group: "", servers: [], backupMode: "none", backupLimit: 5,
         });
 
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
@@ -322,12 +420,47 @@ export function setupInstances() {
         inst.resW = document.getElementById("edit-res-w").value;
         inst.resH = document.getElementById("edit-res-h").value;
         inst.jvmArgs = document.getElementById("edit-jvmargs").value;
-        
         inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
-
         inst.notes = document.getElementById("edit-notes").value;
         inst.backupMode = document.getElementById("edit-backup-mode").value;
         inst.backupLimit = parseInt(document.getElementById("edit-backup-limit").value) || 5;
+
+        const editVersionEl = document.getElementById("edit-mc-version");
+        const editLoaderEl = document.getElementById("edit-loader-type");
+        const editLoaderVerEl = document.getElementById("edit-loader-version");
+
+        if (editVersionEl && editLoaderEl) {
+            const newVersion = editVersionEl.value;
+            const newLoader = editLoaderEl.value;
+            const newLoaderVer = editLoaderVerEl ? editLoaderVerEl.value : "";
+
+            const loaderVerEmpty = !newLoaderVer && newLoader !== "vanilla";
+            if (loaderVerEmpty) {
+                window.showToast(
+                    t("msg_loader_no_compat", `Le loader ${newLoader} n'est pas encore disponible pour MC ${newVersion}. Passé en Vanilla.`),
+                    "error"
+                );
+                inst.loader = "vanilla";
+                inst.loaderVersion = "";
+            } else {
+                if (newVersion !== inst.version || newLoader !== inst.loader || newLoaderVer !== inst.loaderVersion) {
+                    const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                    ["versions", "libraries"].forEach(dir => {
+                        const dirPath = path.join(instFolder, dir);
+                        if (fs.existsSync(dirPath)) {
+                            try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) {}
+                        }
+                    });
+                    window.showToast(t("msg_version_changed", "Version changée ! Les fichiers seront retéléchargés au prochain lancement."), "info");
+                }
+                inst.version = newVersion;
+                inst.loader = newLoader;
+                inst.loaderVersion = newLoader === "vanilla" ? "" : newLoaderVer;
+            }
+
+            const btnModsTab = document.getElementById("tab-btn-mods");
+            if (btnModsTab) btnModsTab.style.display = inst.loader === "vanilla" ? "none" : "block";
+        }
 
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));

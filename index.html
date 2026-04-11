@@ -1510,7 +1510,7 @@
 
                     <div style="display: flex; align-items: center; margin-top: 15px;">
                         <label style="margin-top: 0;" data-i18n="lbl_eco_mode">Mode Éco (Performances)</label>
-                        <div class="ram-help-icon custom-tooltip-trigger" data-tooltip="Désactive les effets visuels (flou, transparence, animations) pour soulager la carte graphique.">?</div>
+                        <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_eco_mode" data-tooltip="Désactive les effets visuels (flou, transparence, animations) pour soulager la carte graphique.">?</div>
                     </div>
                     <select id="global-eco-mode">
                         <option value="false" data-i18n="opt_eco_disabled">Désactivé (Recommandé)</option>
@@ -1618,6 +1618,35 @@
                     <div style="margin-top: 15px;">
                         <label data-i18n="lbl_group">Dossier / Catégorie de l'instance</label>
                         <input type="text" id="edit-group" list="group-paths-list" placeholder="Ex: Modpacks">
+                    </div>
+
+                    <div style="margin-top: 15px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
+                        <div style="font-size: 0.85rem; font-weight: bold; color: var(--text-light); margin-bottom: 8px;" data-i18n="lbl_change_version">Version &amp; Loader</div>
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px;">
+                                <label style="font-size: 0.75rem; color: #aaa;" data-i18n="lbl_mc_version">Version MC</label>
+                                <select id="edit-mc-version" onchange="updateEditLoaderVersions()" style="font-size: 0.8rem; padding: 4px;"></select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px; padding-top: 16px;">
+                                <input type="checkbox" id="edit-show-snapshots" onchange="toggleEditSnapshots()">
+                                <label for="edit-show-snapshots" style="font-size: 0.75rem; color: #aaa; cursor: pointer;" data-i18n="lbl_beta">Bêtas</label>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px;">
+                                <label style="font-size: 0.75rem; color: #aaa;" data-i18n="lbl_loader">Loader</label>
+                                <select id="edit-loader-type" onchange="updateEditLoaderVersions()" style="font-size: 0.8rem; padding: 4px;">
+                                    <option value="vanilla">Vanilla</option>
+                                    <option value="fabric">Fabric</option>
+                                    <option value="forge">Forge</option>
+                                    <option value="neoforge">NeoForge</option>
+                                    <option value="quilt">Quilt</option>
+                                </select>
+                            </div>
+                            <div id="edit-loader-version-container" style="display: none; flex-direction: column; gap: 3px; flex: 1; min-width: 120px;">
+                                <label style="font-size: 0.75rem; color: #aaa;" data-i18n="lbl_loader_version">Version loader</label>
+                                <select id="edit-loader-version" style="font-size: 0.8rem; padding: 4px;"></select>
+                            </div>
+                        </div>
+                        <div style="font-size: 0.7rem; color: #f48a21; margin-top: 6px;" data-i18n="txt_version_warning">⚠ Changer la version supprimera les fichiers du jeu et forcera leur retéléchargement.</div>
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 15px;">

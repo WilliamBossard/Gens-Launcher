@@ -77,16 +77,18 @@ function setupMods() {
               const safeTitle = window.escapeHTML(mod.title);
               const safeDesc = window.escapeHTML(mod.description);
               const safeAuthor = window.escapeHTML(mod.author || t("lbl_author", "Auteur"));
+              const safeProjectId = window.escapeHTML(String(mod.project_id || ""));
+              const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
               
               resDiv.innerHTML += `
                         <div class="catalog-card">
-                            <img src="${mod.icon_url || ""}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
+                            <img src="${safeIconUrl}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                             <div style="flex-grow: 1; display: flex; flex-direction: column;">
                                 <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${safeTitle}</div>
                                 <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${safeAuthor} - ${downloads} (Modrinth)</div>
                                 <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
                             </div>
-                            <button class="btn-primary" onclick="installGlobalMod('${mod.project_id}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>
+                            <button class="btn-primary" onclick="installGlobalMod('${safeProjectId}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>
                         </div>`;
             });
         } 
@@ -130,16 +132,18 @@ function setupMods() {
               const safeTitle = window.escapeHTML(mod.name);
               const safeDesc = window.escapeHTML(mod.summary);
               const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : t("lbl_author", "Auteur"));
+              const safeCfId = window.escapeHTML(String(mod.id || ""));
+              const safeCfIcon = (icon && /^https:\/\//i.test(icon)) ? icon : "";
               
               resDiv.innerHTML += `
                         <div class="catalog-card">
-                            <img src="${icon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
+                            <img src="${safeCfIcon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                             <div style="flex-grow: 1; display: flex; flex-direction: column;">
                                 <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${safeTitle}</div>
                                 <div style="font-size: 0.75rem; color: #f48a21; margin-bottom: 5px;">${safeAuthor} - ${downloads} (CurseForge)</div>
                                 <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
                             </div>
-                            <button class="btn-primary" onclick="installGlobalMod('${mod.id}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>
+                            <button class="btn-primary" onclick="installGlobalMod('${safeCfId}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>
                         </div>`;
             });
         }

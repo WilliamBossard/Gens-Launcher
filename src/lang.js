@@ -373,6 +373,17 @@ const defaultFr = {
   ph_search_catalog: "Rechercher dans le catalogue...",
   msg_no_results_mc: "Aucun résultat trouvé pour Minecraft",
   lbl_author: "Auteur",
+  tt_visibility: "Comportement de la fenêtre du launcher quand le jeu se lance : la garder ouverte, la minimiser, ou la masquer complètement.",
+  tt_discord_rpc: "Affiche à quoi vous jouez sur votre profil Discord (Rich Presence). Désactivez si vous souhaitez rester discret.",
+  tt_jvm_args: "Arguments transmis directement à la JVM Java avant le lancement. Réservé aux utilisateurs avancés. Exemple : -XX:HeapDumpPath=... -Dfml.ignoreInvalidMinecraftCertificates=true",
+  tt_eco_mode: "Désactive les effets visuels (flou, transparence, animations) pour soulager la carte graphique.",
+  lbl_change_version: "Version & Loader",
+  lbl_mc_version: "Version MC",
+  txt_version_warning: "⚠ Changer la version supprimera les fichiers du jeu et forcera leur retéléchargement.",
+  msg_version_changed: "Version changée ! Les fichiers seront retéléchargés au prochain lancement.",
+  msg_loader_no_compat: "Ce loader n'est pas encore disponible pour cette version. Passé en Vanilla.",
+  msg_no_loader_compat: "Incompatible avec cette version",
+  msg_err_loader_versions: "Erreur de chargement des versions",
 };
 
 const defaultEn = {
@@ -745,6 +756,17 @@ const defaultEn = {
   ph_search_catalog: "Search in catalog...",
   msg_no_results_mc: "No results found for Minecraft",
   lbl_author: "Author",
+  tt_visibility: "Behavior of the launcher window when the game launches: keep it open, minimize it, or hide it completely.",
+  tt_discord_rpc: "Shows what you are playing on your Discord profile (Rich Presence). Disable if you want to stay discreet.",
+  tt_jvm_args: "Arguments passed directly to the Java JVM before launch. For advanced users only. Example: -XX:HeapDumpPath=... -Dfml.ignoreInvalidMinecraftCertificates=true",
+  tt_eco_mode: "Disables visual effects (blur, transparency, animations) to reduce GPU load.",
+  lbl_change_version: "Version & Loader",
+  lbl_mc_version: "MC Version",
+  txt_version_warning: "⚠ Changing the version will delete game files and force a re-download on next launch.",
+  msg_version_changed: "Version changed! Files will be re-downloaded on next launch.",
+  msg_loader_no_compat: "This loader is not yet available for this version. Switched to Vanilla.",
+  msg_no_loader_compat: "Incompatible with this version",
+  msg_err_loader_versions: "Failed to load versions",
 };
 
 export function setupLang() {
@@ -791,6 +813,7 @@ export function setupLang() {
         if (cv) cv.innerText = "v" + window.api.version;
         
         if (window.updateLaunchButton) window.updateLaunchButton();
+        if (window.updateRPC) window.updateRPC();
     };
 
     window.loadLanguage = (code) => {

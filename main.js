@@ -88,6 +88,10 @@ ipcMain.on("get-paths-sync", (event) => {
     event.returnValue = { appData: app.getPath("appData"), platform: process.platform, version: app.getVersion() };
 });
 
+ipcMain.handle("get-still-running", async () => {
+    return sendStillRunningInstances();
+});
+
 ipcMain.handle("check-java", async (_, javaPath) => {
     return new Promise((resolve) => {
         execFile(javaPath, ["-version"], (err, stdout, stderr) => { resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" }); });
@@ -104,6 +108,38 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
 });
 
 const activeMinecraftClients = new Map();
+const runningFilePath = path.join(safeDataDir, "running.json");
+
+function loadRunningInstances() {
+    try {
+        if (!fs.existsSync(runningFilePath)) return {};
+        return JSON.parse(fs.readFileSync(runningFilePath, "utf8"));
+    } catch(e) { return {}; }
+}
+
+function saveRunningInstances(map) {
+    try {
+        const obj = {};
+        map.forEach((val, key) => { if (val.process?.pid) obj[key] = val.process.pid; });
+        fs.writeFileSync(runningFilePath, JSON.stringify(obj, null, 2));
+    } catch(e) {}
+}
+
+function isProcessAlive(pid) {
+    try { process.kill(pid, 0); return true; } catch(e) { return false; }
+}
+
+function sendStillRunningInstances() {
+    const saved = loadRunningInstances();
+    const stillAlive = [];
+    for (const [instanceId, pid] of Object.entries(saved)) {
+        if (isProcessAlive(pid)) stillAlive.push(instanceId);
+    }
+    if (stillAlive.length === 0) {
+        try { fs.writeFileSync(runningFilePath, "{}"); } catch(e) {}
+    }
+    return stillAlive;
+}
 
 ipcMain.handle("force-stop-game", async (_, instanceId) => {
     return new Promise((resolve) => {
@@ -111,6 +147,7 @@ ipcMain.handle("force-stop-game", async (_, instanceId) => {
         if (clientData && clientData.process) {
             clientData.process.kill("SIGKILL");
             activeMinecraftClients.delete(instanceId);
+            saveRunningInstances(activeMinecraftClients);
             mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
             resolve({ success: true });
         } else { resolve({ success: false }); }
@@ -123,10 +160,17 @@ ipcMain.on("launch-game", (event, opts) => {
     const instanceId = opts.instanceId;
     const launcher = new Client();
 
-    launcher.launch(opts).then((process) => { activeMinecraftClients.set(instanceId, { process, launcher }); }).catch(e => mainLog("Erreur Lancement: " + e));
+    launcher.launch(opts).then((process) => {
+        activeMinecraftClients.set(instanceId, { process, launcher });
+        saveRunningInstances(activeMinecraftClients);
+    }).catch(e => mainLog("Erreur Lancement: " + e));
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
-    launcher.on("close", (e) => { activeMinecraftClients.delete(instanceId); mainWindow?.webContents.send("mc-close", { instanceId, code: e }); });
+    launcher.on("close", (e) => {
+        activeMinecraftClients.delete(instanceId);
+        saveRunningInstances(activeMinecraftClients);
+        mainWindow?.webContents.send("mc-close", { instanceId, code: e });
+    });
 });
 
 ipcMain.handle("check-for-updates", async () => {

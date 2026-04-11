@@ -100,7 +100,7 @@ export function setupStats() {
                         for (const file of statFiles) {
                             if (!file.endsWith(".json")) continue;
                             try {
-                                const rawData = fs.readFileSync(path.join(statsDir, file), "utf8");
+                                const rawData = await fs.promises.readFile(path.join(statsDir, file), "utf8");
                                 const data = JSON.parse(rawData);
                                 const custom = data.stats?.["minecraft:custom"] || {};
                                 

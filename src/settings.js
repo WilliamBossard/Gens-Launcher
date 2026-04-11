@@ -85,7 +85,7 @@ export function setupSettings() {
 
     window.saveGlobalSettings = () => {
         let rawRam = parseInt(document.getElementById("global-ram-input").value) || 4096;
-        if (rawRam < 128) rawRam = rawRam * 1024; 
+        if (rawRam < 128) rawRam = rawRam * 1024;
         store.globalSettings.defaultRam = Math.max(1024, rawRam);
 
         store.globalSettings.defaultJavaPath = document.getElementById("global-java").value;

@@ -60,6 +60,77 @@ export function setupUICore() {
         }
     };
 
+    window.restoreRunningInstances = async () => {
+        try {
+            const stillRunning = await window.api.invoke("get-still-running");
+            if (!stillRunning || stillRunning.length === 0) return;
+
+            stillRunning.forEach(instanceId => store.activeInstances.add(instanceId));
+            if (window.setUIState) window.setUIState();
+            if (window.renderUI)   window.renderUI();
+
+            stillRunning.forEach(instanceId => {
+                const inst = store.allInstances.find(i => i.name === instanceId);
+                if (inst && !inst._tempSessionStart) inst._tempSessionStart = Date.now();
+            });
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const alive = await window.api.invoke("get-still-running");
+                    const aliveSet = new Set(alive || []);
+
+                    let changed = false;
+                    for (const instanceId of [...store.activeInstances]) {
+                        if (aliveSet.has(instanceId)) continue; 
+
+                        store.activeInstances.delete(instanceId);
+                        changed = true;
+
+                        const inst = store.allInstances.find(i => i.name === instanceId);
+                        if (inst) {
+                            const now = Date.now();
+                            const sessionDuration = inst._tempSessionStart
+                                ? now - inst._tempSessionStart
+                                : 0;
+                            inst._tempSessionStart = null;
+
+                            if (sessionDuration > 0 && sessionDuration < 86400000) {
+                                inst.playTime   = (inst.playTime   || 0) + sessionDuration;
+                                inst.lastPlayed = now;
+
+                                if (!inst.sessionHistory) inst.sessionHistory = [];
+                                const d = new Date();
+                                const today = d.getFullYear() + "-" +
+                                    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+                                    String(d.getDate()).padStart(2, "0");
+                                const existing = inst.sessionHistory.find(s => s.date === today);
+                                if (existing) existing.ms += sessionDuration;
+                                else inst.sessionHistory.push({ date: today, ms: sessionDuration });
+                                inst.sessionHistory = inst.sessionHistory.slice(-30);
+                            }
+                        }
+                    }
+
+                    if (changed) {
+                        try {
+                            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+                        } catch(e) {}
+
+                        if (window.setUIState) window.setUIState();
+                        if (window.renderUI)   window.renderUI();
+                        if (window.updateRPC)  window.updateRPC();
+                    }
+
+                    if (store.activeInstances.size === 0) clearInterval(pollInterval);
+
+                } catch(e) { /* sondage silencieux */ }
+            }, 5000);
+
+        } catch(e) {
+            console.error("Erreur restauration instances actives:", e);
+        }
+    };
+
     window.renderUI = () => {
         const container = document.getElementById("instances-container");
         if (!container) return;
@@ -301,7 +372,7 @@ export function setupUICore() {
 
         if (added > 0) {
             if (window.showToast) window.showToast(`${added} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
-        
+            
             if (document.getElementById("modal-edit").style.display === "flex") {
                 if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
                 if (document.getElementById("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();

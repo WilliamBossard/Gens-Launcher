@@ -253,10 +253,11 @@ async function init() {
     }
 
     window.renderUI();
-    
+
     if (window.renderAccountManager) window.renderAccountManager();
     if (window.updateAccountDropdown) window.updateAccountDropdown();
-    
+    if (window.restoreRunningInstances) window.restoreRunningInstances();
+
     loadNews();
     window.checkServerStatus();
     setInterval(window.checkServerStatus, 60000);

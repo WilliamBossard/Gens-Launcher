@@ -241,7 +241,38 @@ export function setupLocalManagers() {
         }
     };
 
-    window.addServer = () => {
+    async function syncServersDat(inst) {
+        try {
+            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            if (!fs.existsSync(instDir)) return;
+            const datPath = path.join(instDir, "servers.dat");
+
+            const serverEntries = (inst.servers || []).map(ip => ({
+                name: { type: "string", value: ip },
+                ip:   { type: "string", value: ip }
+            }));
+
+            const nbtRoot = {
+                type: "compound",
+                name: "",
+                value: {
+                    servers: {
+                        type: "list",
+                        value: {
+                            type: serverEntries.length > 0 ? "compound" : "end",
+                            value: serverEntries
+                        }
+                    }
+                }
+            };
+
+            fs.writeFileSync(datPath, window.api.nbt.write(nbtRoot));
+        } catch(e) {
+            sysLog("Erreur sync servers.dat : " + (e.message || e), true);
+        }
+    }
+
+    window.addServer = async () => {
         const ip = document.getElementById("new-server-ip").value.trim();
         if (!ip) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
@@ -249,14 +280,17 @@ export function setupLocalManagers() {
         if (!inst.servers.includes(ip)) {
             inst.servers.push(ip);
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            await syncServersDat(inst);
         }
         document.getElementById("new-server-ip").value = "";
         window.renderServersManager();
     };
 
-    window.removeServer = (index) => {
-        store.allInstances[store.selectedInstanceIdx].servers.splice(index, 1);
+    window.removeServer = async (index) => {
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        inst.servers.splice(index, 1);
         fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        await syncServersDat(inst);
         window.renderServersManager();
     };
 
@@ -360,16 +394,19 @@ export function setupLocalManagers() {
         };
 
         window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
-        
-        if (typeof yieldUI !== "undefined") await yieldUI(); 
-        
+        await yieldUI();
+
+        const checkController = new AbortController();
+        const checkTimeout = setTimeout(() => checkController.abort(), 30000);
+
         try {
             const res = await fetch("https://api.modrinth.com/v2/version_files/update", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(reqBody),
+                signal: checkController.signal,
             });
-            const data = await res.json();
+            clearTimeout(checkTimeout);            const data = await res.json();
             
             pendingUpdates = [];
             let listHTML = "";
@@ -398,8 +435,11 @@ export function setupLocalManagers() {
                 window.showToast(t("msg_no_updates", "Aucune mise à jour trouvée."), 'info');
             }
         } catch (e) {
+            clearTimeout(checkTimeout);
             window.hideLoading();
-            window.showToast(t("msg_err_dl", "Erreur."), "error");
+            window.showToast(e.name === "AbortError"
+                ? t("msg_err_timeout", "Délai dépassé. Vérifie ta connexion.")
+                : t("msg_err_dl", "Erreur."), "error");
         }
     };
 
@@ -413,15 +453,43 @@ export function setupLocalManagers() {
         window.showLoading(`${t("msg_updating", "Mise à jour...")}`, 0);
 
         for (let update of pendingUpdates) {
-            window.updateLoadingPercent(Math.round((updatedCount / total) * 100), `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`);
-            if (typeof yieldUI !== "undefined") await yieldUI();
-            
+            window.updateLoadingPercent(
+                Math.round((updatedCount / total) * 100),
+                `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`
+            );
+            await yieldUI();
+
             try {
-                const buffer = await (await fetch(update.newFileObj.url)).arrayBuffer();
-                fs.writeFileSync(path.join(modsPath, update.newFileObj.filename), Buffer.from(buffer));
-                fs.unlinkSync(path.join(modsPath, update.oldFile));
+                const newPath = path.join(modsPath, update.newFileObj.filename);
+                const oldPath = path.join(modsPath, update.oldFile);
+
+                const dlController = new AbortController();
+                const dlTimeout = setTimeout(() => dlController.abort(), 60000);
+                let buffer;
+                try {
+                    const dlRes = await fetch(update.newFileObj.url, { signal: dlController.signal });
+                    buffer = await dlRes.arrayBuffer();
+                } finally {
+                    clearTimeout(dlTimeout);
+                }
+
+                const tmpPath = newPath + ".tmp";
+                fs.writeFileSync(tmpPath, new Uint8Array(buffer));
+
+                if (oldPath !== newPath && fs.existsSync(oldPath)) {
+                    fs.unlinkSync(oldPath);
+                }
+
+                fs.renameSync(tmpPath, newPath);
                 updatedCount++;
-            } catch(e) {}
+
+                window.updateLoadingPercent(
+                    Math.round((updatedCount / total) * 100),
+                    `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`
+                );
+            } catch(e) {
+                sysLog("Erreur mise à jour mod " + update.oldFile + " : " + e.message, true);
+            }
         }
         
         window.hideLoading();

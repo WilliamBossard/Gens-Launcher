@@ -286,6 +286,21 @@ export function setupLauncher() {
             else closedInst.sessionHistory.push({ date: today, ms: sessionDuration });
             closedInst.sessionHistory = closedInst.sessionHistory.slice(-30);
 
+            try {
+                const instDir = path.join(store.instancesRoot, closedInst.name.replace(/[^a-z0-9]/gi, "_"));
+                const datPath = path.join(instDir, "servers.dat");
+                if (fs.existsSync(datPath)) {
+                    const { parsed } = await window.api.nbt.parse(fs.readFileSync(datPath));
+                    const serverList = parsed?.value?.servers?.value?.value || [];
+                    const ips = serverList
+                        .map(s => s?.ip?.value)
+                        .filter(ip => typeof ip === "string" && ip.trim() !== "");
+                    closedInst.servers = [...new Set(ips)];
+                }
+            } catch(e) {
+                sysLog("Erreur relecture servers.dat après fermeture : " + e.message, true);
+            }
+
             fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
             await performAutoBackup(closedInst, "on_close");
 

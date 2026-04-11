@@ -116,6 +116,7 @@ contextBridge.exposeInMainWorld("api", {
         copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
 
         promises: {
+            readFile: (p, enc) => fs.promises.readFile(p, enc),
             readdir: (p) => fs.promises.readdir(p),
             stat: async (p) => {
                 const s = await fs.promises.stat(p);
