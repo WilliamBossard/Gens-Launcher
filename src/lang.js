@@ -401,7 +401,6 @@ const defaultFr = {
   tt_animations: "Coupe les fondus et effets d'apparition pour naviguer plus vite.",
   lbl_disable_transparency: "Désactiver la transparence / flou",
   tt_transparency: "Affiche des fonds noirs unis derrière les fenêtres (Bon pour les vieux PC).",
-  // --- Nouvelles clés (correctifs v1.3.8) ---
   discord_playing_with: "Joue avec Gens Launcher !",
   msg_loader_incompat_ver: "Incompatible avec la {ver}",
   msg_loader_incompat: "Incompatible",
@@ -813,7 +812,6 @@ const defaultEn = {
   tt_animations: "Removes fade-ins and popup effects for faster navigation.",
   lbl_disable_transparency: "Disable transparency / blur",
   tt_transparency: "Displays solid black backgrounds behind windows (Good for low-end PCs).",
-  // --- New keys (fixes v1.3.8) ---
   discord_playing_with: "Playing with Gens Launcher!",
   msg_loader_incompat_ver: "Incompatible with {ver}",
   msg_loader_incompat: "Incompatible",

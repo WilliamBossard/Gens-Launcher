@@ -9,7 +9,6 @@ function t(key, fallback) {
 
 export function setupAccountUI() {
     
-    // --- CONVERTISSEUR DE SKINS EN BASE64 (Pour le Hors-Ligne) ---
     async function fetchSkinBase64(playerName) {
         try {
             const safeName = encodeURIComponent(playerName);
@@ -23,7 +22,6 @@ export function setupAccountUI() {
             });
         } catch(e) { return null; }
     }
-    // -----------------------------------------------------------
 
     window.openAccountModal = () => {
         document.getElementById("acc-name").value = "";
@@ -64,7 +62,6 @@ export function setupAccountUI() {
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
 
-            // Gestion du Cache Base64 pour que les visages s'affichent sans internet
             if (!acc.skinBase64 && window.navigator.onLine) {
                 fetchSkinBase64(acc.name).then(b64 => {
                     if (b64) {
@@ -196,7 +193,6 @@ export function setupAccountUI() {
         if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
             
-            // On lance la sauvegarde en arrière-plan si elle n'existe pas
             if (!activeAcc.skinBase64 && window.navigator.onLine) {
                 fetchSkinBase64(activeAcc.name).then(b64 => {
                     if (b64) {

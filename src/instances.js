@@ -307,7 +307,6 @@ export function setupInstances() {
         }
 
         const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
-        // CORRECTION REGEX : Bloque les extensions aussi !
         if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
@@ -540,7 +539,6 @@ export function setupInstances() {
                     await fs.promises.rm(instFolder, { recursive: true, force: true });
                 }
             } catch(e) {
-                // MESSAGE CORRIGÉ ICI
                 window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?"), "error");
                 return; 
             }

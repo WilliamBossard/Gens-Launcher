@@ -423,7 +423,6 @@ function getModWarnings(inst) {
             });
             clearTimeout(checkTimeout);            
             
-            // --- SÉCURITÉ : Gestion propre de la réponse 404 (Aucune MAJ) ---
             if (!res.ok) {
                 window.hideLoading();
                 if (res.status === 404) {
@@ -433,7 +432,6 @@ function getModWarnings(inst) {
                 }
                 return;
             }
-            // ---------------------------------------------------------------
 
             const data = await res.json();
             

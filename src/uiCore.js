@@ -11,7 +11,6 @@ function t(key, fallback) {
 
 export function setupUICore() {
 
-    // --- 🛡️ BOUCLIER ANTI-CORRUPTION (SAFE WRITE) ---
     window.safeWriteJSON = (filePath, dataObject) => {
         try {
             const tempPath = filePath + ".tmp";
@@ -19,7 +18,6 @@ export function setupUICore() {
             fs.renameSync(tempPath, filePath);
         } catch (e) {
             console.error("Erreur de sauvegarde sécurisée :", e);
-            // Fallback en cas d'échec du renommage
             fs.writeFileSync(filePath, JSON.stringify(dataObject, null, 2), "utf8");
         }
     };
@@ -48,7 +46,6 @@ export function setupUICore() {
         if (store.globalSettings.disableAnimations === undefined) store.globalSettings.disableAnimations = false;
         if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
 
-        // Si aucune langue n'est définie (1er lancement), on force le Français en arrière-plan
         if (!store.globalSettings.language) store.globalSettings.language = "fr";
 
         if (!store.defaultIcons) {
@@ -167,7 +164,6 @@ export function setupUICore() {
         }
     };
 
-    // --- SAUVEGARDER L'ÉTAT DES CATÉGORIES ---
     window.toggleCategory = (element, groupName) => {
         const grid = element.nextElementSibling; 
         const arrow = element.querySelector('.cat-arrow'); 
@@ -192,7 +188,6 @@ export function setupUICore() {
         if (!container) return;
         container.innerHTML = "";
 
-        // --- ÉCRAN DE BIENVENUE ---
         if (store.allInstances.length === 0) {
             container.innerHTML = `
             <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa; gap:15px;">
@@ -307,7 +302,6 @@ export function setupUICore() {
             container.innerHTML += html;
         }
 
-        // --- MISE À JOUR DE LA JUMP LIST ---
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
                 .sort((a,b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
@@ -476,7 +470,6 @@ export function setupUICore() {
         }
     });
 
-    // --- ÉCOUTE DE L'AUTO-LAUNCH (JUMP LIST) ---
     if (window.api) {
         window.api.on("trigger-auto-launch", (instName) => {
             const idx = store.allInstances.findIndex(i => i.name === instName);
@@ -487,7 +480,6 @@ export function setupUICore() {
         });
     }
 
-    // --- MENU CONTEXTUEL (CLIC DROIT) ---
     let ctxTargetIdx = null;
 
     window.openContextMenu = (e, idx) => {

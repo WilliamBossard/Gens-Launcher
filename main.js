@@ -40,7 +40,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-    // --- CORRECTIF JUMP LIST : Définit l'ID de l'application pour Windows ---
     app.setAppUserModelId("com.gens.launcher"); 
 
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -56,7 +55,6 @@ app.whenReady().then(() => {
 
     createWindow();
 
-    // Lecture de l'argument auto-launch si on clique sur une Jump List
     mainWindow.webContents.on('did-finish-load', () => {
         const autoLaunchArg = process.argv.find(arg => arg.startsWith('--auto-launch='));
         if (autoLaunchArg) {
@@ -98,7 +96,6 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
-// --- GESTION DE LA JUMP LIST WINDOWS ---
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
         const tasks = instances.map(inst => ({
