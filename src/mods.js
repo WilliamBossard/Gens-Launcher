@@ -382,7 +382,7 @@ function setupMods() {
                 if (v.type === "release") {
                     let opt = document.createElement("option");
                     opt.value = v.id;
-                    opt.innerHTML = v.id;
+                    opt.textContent = v.id;
                     verSelect.appendChild(opt);
                 }
             });
@@ -739,8 +739,8 @@ function setupMods() {
 
         store.allInstances.push(newInst);
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
 
         window.hideLoading();
         window.renderUI();

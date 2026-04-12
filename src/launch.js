@@ -304,7 +304,7 @@ export function setupLauncher() {
                 sysLog("Erreur relecture servers.dat après fermeture : " + e.message, true);
             }
 
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
             await performAutoBackup(closedInst, "on_close");
 
             if (store.selectedInstanceIdx === closedInstIndex) {
@@ -360,6 +360,7 @@ export function setupLauncher() {
         }
 
         const acc = store.allAccounts[store.selectedAccountIdx];
+        if (!acc) return;
         const instancePath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
         const logOutput = document.getElementById("log-output");
 
@@ -454,7 +455,7 @@ export function setupLauncher() {
                 const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
                 if (refreshRes.success && refreshRes.access_token) {
                     acc.mclcAuth.access_token = refreshRes.access_token;
-                    fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                    window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                 } else {
                     window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte Microsoft dans l'onglet Gérer."), "error");
                     document.getElementById("status-text").innerText = t("status_ready", "Prêt");
@@ -480,7 +481,7 @@ export function setupLauncher() {
         if (inst.autoConnect) {
             const parts = inst.autoConnect.split(":");
             const srvHost = parts[0];
-            const srvPort = parts[1] ? parts[1] : "25565";
+            const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
             opts.server = { host: srvHost, port: srvPort };
             const minorVer = parseInt(inst.version.split('.')[1]) || 0;
             if (minorVer >= 20) {

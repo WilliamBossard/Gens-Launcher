@@ -71,9 +71,11 @@ export function setupUICore() {
                 if (content) {
                     const parsed = JSON.parse(content);
                     store.allAccounts = parsed.list || [];
-                    store.selectedAccountIdx = parsed.lastUsed !== undefined
-                        ? parsed.lastUsed
-                        : (store.allAccounts.length > 0 ? 0 : null);
+                    const lastUsed = parsed.lastUsed;
+                    store.selectedAccountIdx =
+                        (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length)
+                            ? lastUsed
+                            : (store.allAccounts.length > 0 ? 0 : null);
                 }
             } catch (e) { console.error("Erreur lecture comptes:", e); }
         } else {
@@ -248,10 +250,9 @@ export function setupUICore() {
             const arrowRot = isCollapsed ? '-90deg' : '0deg';
             
             let html = `<div class="category-header"
-                onclick="toggleCategory(this, '${window.escapeHTML(g).replace(/'/g, "\\'")}')"
+                data-group="${escapedGroupAttr}"
                 ondragover="event.preventDefault()"
                 ondrop="dropInstanceOnGroup(event, this.getAttribute('data-group'))"
-                data-group="${escapedGroupAttr}"
                 style="display: flex; align-items: center; gap: 8px;"
             >
                 <span>${window.escapeHTML(g)} (${groups[g].length})</span>
@@ -301,6 +302,10 @@ export function setupUICore() {
             html += `</div>`;
             container.innerHTML += html;
         }
+
+        container.querySelectorAll(".category-header").forEach(header => {
+            header.addEventListener("click", () => window.toggleCategory(header, header.dataset.group || ""));
+        });
 
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]

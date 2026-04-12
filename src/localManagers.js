@@ -1,5 +1,5 @@
 import { store } from "./store.js";
-import { yieldUI } from "./utils.js";
+import { yieldUI, sysLog } from "./utils.js";
 
 const fs = window.api.fs;
 const path = window.api.path;
@@ -9,6 +9,9 @@ function t(key, fallback) {
 }
 
 export function setupLocalManagers() {
+    function safeAttrJson(value) {
+        return JSON.stringify(value).replace(/'/g, "&#39;");
+    }
 function getModWarnings(inst) {
         const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
@@ -83,7 +86,7 @@ function getModWarnings(inst) {
                 const displayName = window.escapeHTML(file.replace(".jar.disabled", ".jar"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                const fileJson = JSON.stringify(file);
+                const fileJson = safeAttrJson(file);
 
                 let warningHtml = "";
                 if (warnings[file]) {
@@ -156,7 +159,7 @@ function getModWarnings(inst) {
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                const fileJson = JSON.stringify(file);
+                const fileJson = safeAttrJson(file);
                 
                 listDiv.innerHTML += `
                 <div class="mod-item">
@@ -210,7 +213,7 @@ function getModWarnings(inst) {
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                const fileJson = JSON.stringify(file);
+                const fileJson = safeAttrJson(file);
                 
                 listDiv.innerHTML += `
                 <div class="mod-item">
@@ -287,7 +290,7 @@ function getModWarnings(inst) {
         if (!inst.servers) inst.servers = [];
         if (!inst.servers.includes(ip)) {
             inst.servers.push(ip);
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
             await syncServersDat(inst);
         }
         document.getElementById("new-server-ip").value = "";
@@ -297,7 +300,7 @@ function getModWarnings(inst) {
     window.removeServer = async (index) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         inst.servers.splice(index, 1);
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
         await syncServersDat(inst);
         window.renderServersManager();
     };
@@ -309,7 +312,7 @@ function getModWarnings(inst) {
         } else {
             inst.autoConnect = ip;
         }
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
         window.renderServersManager();
     };
 
@@ -371,7 +374,7 @@ function getModWarnings(inst) {
                 const data = await res.json();
                 const formatNum = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
                 if (data.online)
-                    statusDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players.online)}/${formatNum(data.players.max)}</span>`;
+                    statusDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players?.online ?? 0)}/${formatNum(data.players?.max ?? 0)}</span>`;
                 else
                     statusDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
             } catch (e) {
@@ -509,12 +512,11 @@ function getModWarnings(inst) {
 
                 const tmpPath = newPath + ".tmp";
                 fs.writeFileSync(tmpPath, new Uint8Array(buffer));
+                fs.renameSync(tmpPath, newPath);
 
                 if (oldPath !== newPath && fs.existsSync(oldPath)) {
                     fs.unlinkSync(oldPath);
                 }
-
-                fs.renameSync(tmpPath, newPath);
                 updatedCount++;
 
                 window.updateLoadingPercent(

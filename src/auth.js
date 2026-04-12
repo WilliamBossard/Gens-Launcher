@@ -120,7 +120,7 @@ export function setupAuth() {
           store.selectedAccountIdx = store.allAccounts.length - 1;
           store.uiSelectedAccRow = store.selectedAccountIdx;
           
-          fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+          window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
           
           if(window.renderAccountManager) window.renderAccountManager();
           if(window.changeAccountFromCode) window.changeAccountFromCode();
@@ -159,7 +159,7 @@ export function setupAuth() {
           store.selectedAccountIdx = store.allAccounts.length > 0 ? 0 : null;
         else if (store.selectedAccountIdx > index) store.selectedAccountIdx--;
         
-        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+        window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         
         if(window.renderAccountManager) window.renderAccountManager();
         if(window.changeAccountFromCode) window.changeAccountFromCode();

@@ -21,11 +21,11 @@ export function setupInstances() {
             if (showSnapshots || v.type === "release") {
                 let opt1 = document.createElement("option");
                 opt1.value = v.id;
-                opt1.innerHTML = v.id;
+                opt1.textContent = v.id;
                 select1.appendChild(opt1);
                 let opt2 = document.createElement("option");
                 opt2.value = v.id;
-                opt2.innerHTML = v.id;
+                opt2.textContent = v.id;
                 select2.appendChild(opt2);
             }
         });
@@ -170,6 +170,7 @@ export function setupInstances() {
         document.getElementById("edit-group").value = inst.group || "";
         document.getElementById("edit-ram-input").value = ramMB;
         document.getElementById("edit-ram-slider").value = ramMB;
+        window.scanJavaVersions("edit-javapath", true); 
         document.getElementById("edit-javapath").value = inst.javaPath || "";
         document.getElementById("edit-res-w").value = inst.resW || "";
         document.getElementById("edit-res-h").value = inst.resH || "";
@@ -351,8 +352,8 @@ export function setupInstances() {
         });
 
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
 
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         if (fs.existsSync(defaultOpt)) {
@@ -479,7 +480,7 @@ export function setupInstances() {
             if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
         }
 
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
         
         window.selectInstance(store.selectedInstanceIdx);
         window.renderUI();
@@ -521,8 +522,8 @@ export function setupInstances() {
             store.allInstances.push(inst);
 
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
         } catch (e) {
             sysLog("Erreur Copie: " + e, true);
         }
@@ -544,7 +545,7 @@ export function setupInstances() {
             }
             
             store.allInstances.splice(store.selectedInstanceIdx, 1);
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
             store.selectedInstanceIdx = null;
             document.getElementById("panel-stats").style.display = "none";
             document.getElementById("action-panel").style.opacity = "0.4";
@@ -578,10 +579,10 @@ export function setupInstances() {
     window.dropInstanceOnGroup = (e, targetGroup) => {
         e.preventDefault();
         e.stopPropagation();
-        const idx = e.dataTransfer.getData("instIdx");
-        if (idx !== "") {
+        const idx = parseInt(e.dataTransfer.getData("instIdx"), 10);
+        if (!isNaN(idx) && store.allInstances[idx]) {
             store.allInstances[idx].group = targetGroup;
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
             window.renderUI();
         }
     };

@@ -31,10 +31,13 @@ export function setupWorldsAndGallery() {
             html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border);">
                 <div style="font-weight: bold; color: var(--text-light);">${safeF}</div>
-                <button class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="importOfficialWorld('${f.replace(/'/g, "\\'")}')">${t("toolbar_import", "Importer")}</button>
+                <button class="btn-primary btn-import-world" data-folder="${safeF}" style="padding: 4px 10px; font-size: 0.8rem;">${t("toolbar_import", "Importer")}</button>
             </div>`;
         });
         listDiv.innerHTML = html;
+        listDiv.querySelectorAll(".btn-import-world").forEach(btn => {
+            btn.addEventListener("click", () => window.importOfficialWorld(btn.dataset.folder));
+        });
     };
 
     window.importOfficialWorld = async (folderName) => {
@@ -52,7 +55,7 @@ export function setupWorldsAndGallery() {
             document.getElementById("modal-import-mc").style.display = "none";
             window.openWorldsModal();
         } catch (e) {
-            window.showToast("Error: " + e.message, "error");
+            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
     };
@@ -63,7 +66,7 @@ export function setupWorldsAndGallery() {
         const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
         const listDiv = document.getElementById("worlds-list");
 
-        listDiv.innerHTML = "<div style='text-align:center; color:#888;'>Chargement...</div>";
+        listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_loading", "Chargement...")}</div>`;
         document.getElementById("modal-worlds").style.display = "flex";
 
         if (!fs.existsSync(savesDir)) {
@@ -107,14 +110,18 @@ export function setupWorldsAndGallery() {
                     <span style="font-size: 0.75rem; color: #888;">${t("lbl_created", "Créé le : ")}${created} | ${t("lbl_played", "Joué le : ")}${modified}</span>
                 </div>
                 <div style="display: flex; gap: 6px;">
-                    <button class="btn-secondary" style="color: #f48a21; border-color: #f48a21; padding: 4px 8px; font-size: 0.75rem;" onclick="openRestoreModal('${f.replace(/'/g, "\\'")}')">${t("btn_restore", "Restaurer")}</button>
-                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="backupSingleWorld('${f.replace(/'/g, "\\'")}')">${t("btn_world_backup", "Sauvegarder")}</button>
-                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="copySingleWorld('${f.replace(/'/g, "\\'")}')">${t("btn_world_copy", "Copier")}</button>
-                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;" onclick="deleteSingleWorld('${f.replace(/'/g, "\\'")}')">${t("btn_delete", "Supprimer")}</button>
+                    <button class="btn-secondary btn-restore-world" data-folder="${safeF}" style="color: #f48a21; border-color: #f48a21; padding: 4px 8px; font-size: 0.75rem;">${t("btn_restore", "Restaurer")}</button>
+                    <button class="btn-secondary btn-backup-world" data-folder="${safeF}" style="padding: 4px 8px; font-size: 0.75rem;">${t("btn_world_backup", "Sauvegarder")}</button>
+                    <button class="btn-secondary btn-copy-world" data-folder="${safeF}" style="padding: 4px 8px; font-size: 0.75rem;">${t("btn_world_copy", "Copier")}</button>
+                    <button class="btn-secondary btn-delete-world" data-folder="${safeF}" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
         }
         listDiv.innerHTML = html;
+        listDiv.querySelectorAll(".btn-restore-world").forEach(btn => btn.addEventListener("click", () => window.openRestoreModal(btn.dataset.folder)));
+        listDiv.querySelectorAll(".btn-backup-world").forEach(btn => btn.addEventListener("click", () => window.backupSingleWorld(btn.dataset.folder)));
+        listDiv.querySelectorAll(".btn-copy-world").forEach(btn  => btn.addEventListener("click", () => window.copySingleWorld(btn.dataset.folder)));
+        listDiv.querySelectorAll(".btn-delete-world").forEach(btn => btn.addEventListener("click", () => window.deleteSingleWorld(btn.dataset.folder)));
     };
 
     window.closeWorldsModal = () => (document.getElementById("modal-worlds").style.display = "none");
@@ -124,10 +131,10 @@ export function setupWorldsAndGallery() {
         const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
         const src = path.join(savesDir, folderName);
 
-        let destName = folderName + " - Copie";
+        let destName = folderName + t("lbl_copy_suffix", " - Copie");
         let counter = 2;
         while (fs.existsSync(path.join(savesDir, destName))) {
-            destName = `${folderName} - Copie (${counter})`;
+            destName = `${folderName}${t("lbl_copy_suffix", " - Copie")} (${counter})`;
             counter++;
         }
         const dest = path.join(savesDir, destName);
@@ -138,7 +145,7 @@ export function setupWorldsAndGallery() {
             await fs.promises.cp(src, dest, { recursive: true });
             window.showToast(t("msg_world_copied", "Monde copié avec succès !"), "success");
         } catch (e) {
-            window.showToast("Erreur: " + e.message, "error");
+            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
         window.openWorldsModal();
@@ -153,7 +160,7 @@ export function setupWorldsAndGallery() {
                 await fs.promises.rm(src, { recursive: true, force: true });
                 window.showToast(t("msg_world_deleted", "Monde supprimé !"), "success");
             } catch (e) {
-                window.showToast("Erreur: " + e.message, "error");
+                window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
             }
             window.openWorldsModal();
         }
@@ -178,7 +185,7 @@ export function setupWorldsAndGallery() {
             await zip.writeZip(zipPath);
             window.showToast(t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"), "success");
         } catch (e) {
-            window.showToast("Erreur: " + e.message, "error");
+            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
     };
@@ -197,13 +204,16 @@ window.openGalleryModal = () => {
             } else {
                 files.forEach((f) => {
                     const fullPath = path.join(screensDir, f).replace(/\\/g, "/");
-                    const clickPath = path.join(screensDir, f).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-                    grid.innerHTML += `
-                    <div style="position: relative; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; aspect-ratio: 16/9; background: #000;">
-                        <img src="file:///${encodeURI(fullPath)}" style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;" onclick="openSystemPath('${clickPath}')">
-                        <div style="position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.7); font-size: 0.75rem; padding: 4px; box-sizing: border-box; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${f}</div>
-                        <button class="btn-secondary" style="position: absolute; top: 5px; right: 5px; padding: 2px 6px; font-size: 0.7rem; color: #f87171; border-color: #f87171; background: rgba(0,0,0,0.5);" onclick="deleteScreenshot('${f.replace(/'/g, "\\'")}')">X</button>
-                    </div>`;
+                    const safeF = window.escapeHTML(f);
+                    const card = document.createElement("div");
+                    card.style.cssText = "position:relative;border:1px solid var(--border);border-radius:4px;overflow:hidden;aspect-ratio:16/9;background:#000;";
+                    card.innerHTML = `
+                        <img src="file:///${encodeURI(fullPath)}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" class="screen-open-btn">
+                        <div style="position:absolute;bottom:0;width:100%;background:rgba(0,0,0,0.7);font-size:0.75rem;padding:4px;box-sizing:border-box;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">${safeF}</div>
+                        <button class="btn-secondary btn-del-screen" style="position:absolute;top:5px;right:5px;padding:2px 6px;font-size:0.7rem;color:#f87171;border-color:#f87171;background:rgba(0,0,0,0.5);">X</button>`;
+                    card.querySelector(".screen-open-btn").addEventListener("click", () => window.openSystemPath(path.join(screensDir, f)));
+                    card.querySelector(".btn-del-screen").addEventListener("click", () => window.deleteScreenshot(f));
+                    grid.appendChild(card);
                 });
             }
         } else {
@@ -239,18 +249,22 @@ window.openGalleryModal = () => {
                 const stats = fs.statSync(path.join(backupDir, b));
                 const dateStr = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                 const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
+                const safeB = window.escapeHTML(b);
                 
                 listDiv.innerHTML += `
                 <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light);">${b}</div>
-                        <div style="font-size: 0.75rem; color: #aaa;">${dateStr} &nbsp;|&nbsp; ${sizeMB} Mo</div>
+                        <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light);">${safeB}</div>
+                        <div style="font-size: 0.75rem; color: #aaa;">${dateStr} &nbsp;|&nbsp; ${sizeMB} ${t("lbl_mb", "Mo")}</div>
                     </div>
-                    <button class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="restoreWorldBackup('${b}', '${folderName.replace(/'/g, "\\'")}')">${t("btn_restore", "Restaurer")}</button>
+                    <button class="btn-primary btn-restore-backup" data-zip="${safeB}" data-folder="${window.escapeHTML(folderName)}" style="padding: 4px 10px; font-size: 0.8rem;">${t("btn_restore", "Restaurer")}</button>
                 </div>`;
             });
         }
         document.getElementById("modal-restore").style.display = "flex";
+        listDiv.querySelectorAll(".btn-restore-backup").forEach(btn => {
+            btn.addEventListener("click", () => window.restoreWorldBackup(btn.dataset.zip, btn.dataset.folder));
+        });
     };
 
    window.restoreWorldBackup = async (zipName, folderName) => {

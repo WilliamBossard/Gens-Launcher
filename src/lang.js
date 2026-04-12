@@ -134,7 +134,7 @@ const defaultFr = {
   msg_no_shaders: "Aucun shader installé.",
   msg_no_rps: "Aucun pack de textures installé.",
   msg_no_servers: "Aucun serveur enregistré.",
-  msg_no_acc: "Aucun profil enregistré.",
+  msg_no_acc: "Aucun profil.",
   opt_modpack: "Modpacks",
   btn_install: "Installer",
   msg_dl_mods_pack: "Téléchargement des mods",
@@ -412,6 +412,19 @@ const defaultFr = {
   msg_builder_notes_default: "Créé via le Modpack Builder.",
   msg_err_hash: "Fichier corrompu ou modifié !",
   msg_err_bg_type: "Format d'image non supporté (.jpg, .png, .webp, .gif, .bmp).",
+  lbl_mb: "Mo",
+  msg_err_import: "Erreur Import : ",
+  msg_err_import_invalid: "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher.",
+  opt_java_sys_default: "Java Système (Défaut)",
+  opt_java_sys: "Java Système (javaw)",
+  opt_java_global: "-- Utiliser le Java Global --",
+  lbl_manual: " (Manuel)",
+  lbl_mc_official: "Minecraft Officiel",
+  msg_update_downloading: "Téléchargement en cours... (Patientez)",
+  msg_update_check_error: "Erreur de vérification des mises à jour.",
+  msg_update_unreachable: "Impossible de joindre le serveur de mises à jour.",
+  msg_update_later: "Mise à jour prête. Redémarrez plus tard.",
+  msg_dl_java: "Téléchargement de Java",
 };
 
 const defaultEn = {
@@ -545,7 +558,7 @@ const defaultEn = {
   msg_no_shaders: "No shaders installed.",
   msg_no_rps: "No resource packs installed.",
   msg_no_servers: "No saved servers.",
-  msg_no_acc: "No profiles saved.",
+  msg_no_acc: "No profile.",
   opt_modpack: "Modpacks",
   btn_install: "Install",
   msg_dl_mods_pack: "Downloading mods",
@@ -823,6 +836,19 @@ const defaultEn = {
   msg_builder_notes_default: "Created via the Modpack Builder.",
   msg_err_hash: "Corrupted or tampered file!",
   msg_err_bg_type: "Unsupported image format (.jpg, .png, .webp, .gif, .bmp).",
+  lbl_mb: "MB",
+  msg_err_import: "Import Error: ",
+  msg_err_import_invalid: "instance.json not found. This is not a valid launcher backup.",
+  opt_java_sys_default: "System Java (Default)",
+  opt_java_sys: "System Java (javaw)",
+  opt_java_global: "-- Use Global Java --",
+  lbl_manual: " (Manual)",
+  lbl_mc_official: "Official Minecraft",
+  msg_update_downloading: "Downloading update... (Please wait)",
+  msg_update_check_error: "Error checking for updates.",
+  msg_update_unreachable: "Unable to reach the update server.",
+  msg_update_later: "Update ready. Restart later to apply it.",
+  msg_dl_java: "Downloading Java",
 };
 
 export function setupLang() {
@@ -875,21 +901,33 @@ export function setupLang() {
     window.loadLanguage = (code) => {
         const p = path.join(store.langDir, `${code}.json`);
         if (fs.existsSync(p)) {
-            store.currentLangObj = JSON.parse(fs.readFileSync(p, "utf8"));
-            window.applyTranslations();
+            try {
+                store.currentLangObj = JSON.parse(fs.readFileSync(p, "utf8"));
+                window.applyTranslations();
+            } catch (e) {
+                console.error("Erreur lecture fichier de langue:", e);
+            }
         }
     };
 
     window.changeLanguage = (code) => {
         store.globalSettings.language = code;
-        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+        if (window.safeWriteJSON) {
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        } else {
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+        }
         window.loadLanguage(code);
     };
 
 window.saveFirstLaunch = () => {
         const code = document.getElementById("first-launch-lang").value;
         store.globalSettings.language = code;
-        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+        if (window.safeWriteJSON) {
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        } else {
+            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+        }
         window.loadLanguage(code);
         if (window.populateLangDropdown) window.populateLangDropdown();
         

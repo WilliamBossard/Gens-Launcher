@@ -88,30 +88,47 @@ export function setupStats() {
         return { files: filesToDelete, size: totalSize };
     }
 
-    async function getInGameStatsAsync() {
+async function getInGameStatsAsync() {
         let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
 
         for (const inst of store.allInstances) {
-            const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
-            if (!fs.existsSync(savesDir)) continue;
-
             try {
-                const worlds = await fs.promises.readdir(savesDir);
-                for (const world of worlds) {
-                    const statsDir = path.join(savesDir, world, "stats");
-                    if (!fs.existsSync(statsDir)) continue;
+                const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+                
+                if (!fs.existsSync(savesDir)) continue;
 
+                const worlds = fs.readdirSync(savesDir);
+                
+                for (const world of worlds) {
                     try {
-                        const statFiles = await fs.promises.readdir(statsDir);
+                        const vanillaStatsDir = path.join(savesDir, world, "stats");
+                        const moddedStatsDir = path.join(savesDir, world, "players", "stats");
+                        
+                        let statsDirToUse = null;
+
+                        if (fs.existsSync(vanillaStatsDir)) {
+                            statsDirToUse = vanillaStatsDir;
+                        } else if (fs.existsSync(moddedStatsDir)) {
+                            statsDirToUse = moddedStatsDir;
+                        }
+
+                        if (!statsDirToUse) continue;
+
+                        const statFiles = fs.readdirSync(statsDirToUse);
+                        
                         for (const file of statFiles) {
                             if (!file.endsWith(".json")) continue;
+                            
                             try {
-                                const rawData = await fs.promises.readFile(path.join(statsDir, file), "utf8");
+                                const rawData = fs.readFileSync(path.join(statsDirToUse, file), "utf8");
                                 const data = JSON.parse(rawData);
                                 const custom = data.stats?.["minecraft:custom"] || {};
                                 
-                                totalKills += custom["minecraft:mob_kills"] || data["stat.killEntity"] || 0;
-                                totalJumps += custom["minecraft:jump"] || data["stat.jump"] || 0;
+                                const jumps = custom["minecraft:jump"] || data["stat.jump"] || 0;
+                                const kills = custom["minecraft:mob_kills"] || data["stat.killEntity"] || 0;
+
+                                totalKills += kills;
+                                totalJumps += jumps;
                                 
                                 const walk   = custom["minecraft:walk_one_cm"]     || data["stat.walkOneCm"]     || 0;
                                 const sprint = custom["minecraft:sprint_one_cm"]   || data["stat.sprintOneCm"]   || 0;
@@ -125,12 +142,19 @@ export function setupStats() {
                                 
                                 totalWalkCm += (walk + sprint + crouch + swim + fly + elytra + boat + horse + minec);
 
-                            } catch(e) {}
+                            } catch(e) { 
+                                console.error(`[Stats] Erreur lecture fichier ${file}:`, e); 
+                            }
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                         console.error(`[Stats] Erreur lecture monde ${world}:`, e);
+                    }
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error(`[Stats] Erreur lecture instance ${inst.name}:`, e);
+            }
         }
+        
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
     }
 
@@ -211,7 +235,7 @@ export function setupStats() {
             if (cacheEl) cacheEl.innerText = `${cacheMB} Mo`;
         } catch (e) { 
             console.error(e); 
-            if (cacheEl) cacheEl.innerText = "Erreur";
+            if (cacheEl) cacheEl.innerText = t("msg_err_ping", "Erreur");
         }
 
         try {
@@ -222,7 +246,7 @@ export function setupStats() {
             }
         } catch (e) { 
             console.error(e); 
-            if (diskEl) diskEl.innerText = "Erreur";
+            if (diskEl) diskEl.innerText = t("msg_err_ping", "Erreur");
         }
     };
 

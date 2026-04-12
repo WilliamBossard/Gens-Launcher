@@ -1513,8 +1513,10 @@
 
                     <label style="margin-top: 15px;" data-i18n="lbl_java">Chemin Java par défaut</label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="global-java" list="java-paths-list" placeholder="javaw" style="flex-grow: 1;">
+                        <select id="global-java" style="flex-grow: 1;"></select>
                         <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
+                        <button class="btn-secondary" onclick="document.getElementById('custom-java-file').click()">Parcourir</button>
+                        <input type="file" id="custom-java-file" style="display:none;" accept=".exe" onchange="addCustomJava(this, 'global-java')">
                     </div>
                     
                     <label style="margin-top: 15px;" data-i18n="lbl_cf_api">Clé API CurseForge (Optionnel)</label>
@@ -1791,8 +1793,10 @@
                 <div id="tab-java" class="settings-content">
                     <label data-i18n="lbl_java">Chemin de l'exécutable Java local</label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="edit-javapath" list="java-paths-list" data-i18n="ph_java_local" placeholder="Laisser vide pour utiliser le global" style="flex-grow: 1;">
+                        <select id="edit-javapath" style="flex-grow: 1;"></select>
                         <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
+                        <button class="btn-secondary" onclick="document.getElementById('custom-edit-java-file').click()">Parcourir</button>
+                        <input type="file" id="custom-edit-java-file" style="display:none;" accept=".exe" onchange="addCustomJava(this, 'edit-javapath')">
                     </div>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
                         <div style="flex: 1;"><label data-i18n="lbl_width">Largeur</label><input type="number" id="edit-res-w" placeholder="854"></div>

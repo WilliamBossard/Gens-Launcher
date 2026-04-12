@@ -98,14 +98,17 @@ app.whenReady().then(() => {
 
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
-        const tasks = instances.map(inst => ({
-            program: process.execPath,
-            arguments: `--auto-launch="${inst.name}"`,
-            iconPath: process.execPath,
-            iconIndex: 0,
-            title: `Lancer ${inst.name}`,
-            description: `Démarrer l'instance ${inst.name}`
-        }));
+        const tasks = instances.map(inst => {
+            const safeName = String(inst.name).replace(/["'\\\r\n\0]/g, "").substring(0, 100);
+            return {
+                program: process.execPath,
+                arguments: `--auto-launch="${safeName}"`,
+                iconPath: process.execPath,
+                iconIndex: 0,
+                title: `Lancer ${safeName}`,
+                description: `Démarrer l'instance ${safeName}`
+            };
+        });
         app.setUserTasks(tasks);
     }
 });
@@ -134,6 +137,10 @@ ipcMain.handle("check-java", async (_, javaPath) => {
 
 ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
     try {
+        if (!url || !/^https:\/\/api\.curseforge\.com\//i.test(url)) {
+            mainLog(`SÉCURITÉ : URL CurseForge rejetée dans le main process : ${url}`);
+            return { success: false, error: "URL non autorisée." };
+        }
         const response = await fetch(url, { headers: { "x-api-key": apiKey, "Accept": "application/json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
@@ -330,6 +337,9 @@ ipcMain.handle("login-microsoft", async () => {
 
 ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     try {
+        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+            return { success: false, error: "Identifiant de session invalide." };
+        }
         const cacheDir = path.join(app.getPath("userData"), "msa-cache");
         const flow = new Authflow(sessionLabel, cacheDir, {
             flow: "live",
@@ -348,6 +358,10 @@ ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
 
 ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
     try {
+        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+            mainLog(`Suppression cache MSA bloquée : label invalide "${sessionLabel}"`);
+            return;
+        }
         const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
         if (fs.existsSync(cacheDir)) {
             fs.rmSync(cacheDir, { recursive: true, force: true });

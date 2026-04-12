@@ -60,7 +60,7 @@ ipcRenderer.on("update-downloaded", async () => {
         ipcRenderer.send("restart_app");
     } else {
         const statusDiv = document.getElementById("update-status");
-        if (statusDiv) statusDiv.innerText = "Mise à jour prête. Redémarrez plus tard.";
+        if (statusDiv) statusDiv.innerText = store.currentLangObj?.msg_update_later || "Mise à jour prête. Redémarrez plus tard.";
     }
 });
 
@@ -112,6 +112,7 @@ async function loadNews() {
         </div>
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
         
+        if (!data || !Array.isArray(data.entries)) return;
         data.entries.slice(0, 6).forEach(news => {
             const rawImgUrl = news.playPageImage?.url || "";
             const imgUrl = rawImgUrl.startsWith("/")
@@ -137,7 +138,7 @@ async function loadNews() {
 
 window.toggleNews = () => {
     store.globalSettings.newsCollapsed = !store.globalSettings.newsCollapsed;
-    fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
+    window.safeWriteJSON(store.settingsFile, store.globalSettings);
     
     const wrapper = document.getElementById("news-content-wrapper");
     const btn = document.getElementById("btn-toggle-news");
@@ -171,7 +172,8 @@ window.checkServerStatus = async () => {
         const data = await res.json();
         
         if (data.online) {
-            let iconHtml = data.icon ? `<img src="${data.icon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
+            const safeIcon = (data.icon && /^https:\/\//i.test(data.icon)) ? data.icon : "";
+            let iconHtml = safeIcon ? `<img src="${safeIcon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
             let motdHtml = "Serveur Minecraft";
             if (data.motd && data.motd.html) {
@@ -210,7 +212,7 @@ window.checkServerStatus = async () => {
             </div>
             <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
                 <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${t("msg_online", "En ligne")}</div>
-                <div style="color: var(--text-light);">${data.players.online} / ${data.players.max} ${t("lbl_players", "joueurs")}</div>
+                <div style="color: var(--text-light);">${data.players?.online ?? "?"} / ${data.players?.max ?? "?"} ${t("lbl_players", "joueurs")}</div>
             </div>`;
         } else {
             banner.innerHTML = `
@@ -260,6 +262,7 @@ async function init() {
     try {
         const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
         const data = await res.json();
+        if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
         store.rawVersions = data.versions;
         fs.writeFileSync(path.join(store.dataDir, "versions_cache.json"), JSON.stringify(data.versions));
         if (window.updateVersionList) window.updateVersionList(false);

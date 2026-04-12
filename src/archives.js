@@ -43,11 +43,11 @@ export function setupArchives() {
             const instanceJsonPath = path.join(tempExtractDir, "instance.json");
             if (!fs.existsSync(instanceJsonPath)) {
                 fs.rmSync(tempExtractDir, { recursive: true, force: true });
-                throw new Error("Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher.");
+                throw new Error(t("msg_err_import_invalid", "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher."));
             }
 
-            const instData = JSON.parse(fs.readFileSync(instanceJsonPath, "utf8"));
-            const originalName = instData.name || "Instance Importée";
+            const rawData = JSON.parse(fs.readFileSync(instanceJsonPath, "utf8"));
+            const originalName = String(rawData.name || "Instance Importée").substring(0, 128);
 
             let finalName = originalName;
             let counter = 1;
@@ -56,7 +56,28 @@ export function setupArchives() {
                 counter++;
             }
 
-            instData.name = finalName;
+            const SAFE_LOADERS = ["vanilla", "fabric", "forge", "neoforge", "quilt"];
+            const instData = {
+                name:          finalName,
+                version:       String(rawData.version  || "1.20.4").substring(0, 32),
+                loader:        SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla",
+                loaderVersion: String(rawData.loaderVersion || "").substring(0, 64),
+                ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),
+                javaPath:      "",   
+                jvmArgs:       "",   
+                jvmProfile:    "none",
+                notes:         String(rawData.notes || "").substring(0, 1000),
+                icon:          "",
+                resW:          String(rawData.resW || "").replace(/[^0-9]/g, ""),
+                resH:          String(rawData.resH || "").replace(/[^0-9]/g, ""),
+                group:         String(rawData.group || "").substring(0, 64),
+                playTime:      0,
+                lastPlayed:    0,
+                sessionHistory:[],
+                servers:       [],
+                backupMode:    ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
+                backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
+            };
             const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
@@ -80,13 +101,13 @@ export function setupArchives() {
             store.allInstances.push(instData);
             
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
 
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
-            window.showToast("Erreur Import : " + err.message, "error");
+            window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         }
         window.hideLoading();
         window.renderUI();
@@ -158,7 +179,7 @@ export function setupArchives() {
           if (isOverride) {
             const resolvedTarget = path.resolve(targetPath);
             const resolvedInstDir = path.resolve(instDir);
-            if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
+            if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + "/") && !resolvedTarget.startsWith(resolvedInstDir + "\\")) {
                 console.error("Tentative de Zip Slip ignorée dans le MrPack :", entry.entryName);
                 return; 
             }
@@ -189,12 +210,19 @@ export function setupArchives() {
                 const modPath = path.join(instDir, modFile.path);
                 
                 const resolvedModPath = path.resolve(modPath);
-                if (resolvedModPath.startsWith(path.resolve(instDir) + path.sep)) {
+                if (resolvedModPath.startsWith(path.resolve(instDir) + "/") || resolvedModPath.startsWith(path.resolve(instDir) + "\\")) {
                     const dir = path.dirname(modPath);
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
                     try {
-                        const res = await fetch(modFile.downloads[0]);
+                        const downloadUrl = modFile.downloads[0];
+                        if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
+                            sysLog(`URL rejetée (protocole invalide) pour mrpack : ${downloadUrl}`, true);
+                            downloadedCount++;
+                            window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+                            continue;
+                        }
+                        const res = await fetch(downloadUrl);
                         if (res.ok) {
                             const buffer = await res.arrayBuffer();
                             fs.writeFileSync(modPath, new Uint8Array(buffer));
@@ -220,8 +248,8 @@ export function setupArchives() {
         store.allInstances.push(newInst);
         
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
 
         sysLog(`Modpack ${finalName} importé avec succès.`);
         window.showToast(t("msg_install_success", "Installation réussie !"), "success");
@@ -296,7 +324,7 @@ export function setupArchives() {
                     
                     const resolvedTarget = path.resolve(targetPath);
                     const resolvedInstDir = path.resolve(instDir);
-                    if (!resolvedTarget.startsWith(resolvedInstDir + path.sep) && resolvedTarget !== resolvedInstDir) {
+                    if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + "/") && !resolvedTarget.startsWith(resolvedInstDir + "\\")) {
                         console.error("Tentative de Zip Slip bloquée dans CurseForge :", entry.entryName);
                         return; 
                     }
@@ -334,7 +362,12 @@ export function setupArchives() {
                                 console.warn(`Téléchargement bloqué par l'auteur pour le mod ID: ${fileInfo.projectID}`);
                                 continue;
                             }
-                            const fileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
+                            if (!/^https:\/\//i.test(downloadUrl)) {
+                                sysLog(`URL CurseForge rejetée (protocole invalide) : ${downloadUrl}`, true);
+                                continue;
+                            }
+                            const rawFileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
+                            const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
                             
                             const modRes = await fetch(downloadUrl);
                             if (modRes.ok) {
@@ -357,8 +390,8 @@ export function setupArchives() {
             store.allInstances.push(newInst);
             
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-            fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
-            fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2));
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
             
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {

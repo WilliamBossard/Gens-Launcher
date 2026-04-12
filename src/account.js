@@ -40,8 +40,8 @@ export function setupAccountUI() {
         const btnDel = document.getElementById("btn-del-acc");
         const btnSkin = document.getElementById("btn-skin-acc");
 
-        if (store.allAccounts.length === 0) {
-            list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">${t("msg_no_acc", "Aucun profil enregistré.")}</div>`;
+if (store.allAccounts.length === 0) {
+            list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">${t("msg_no_acc", "Aucun profil")}</div>`; // <-- Modifié ici
             if (btnUse) btnUse.disabled = true;
             if (btnDel) btnDel.disabled = true;
             if (btnSkin) btnSkin.disabled = true;
@@ -66,7 +66,7 @@ export function setupAccountUI() {
                 fetchSkinBase64(acc.name).then(b64 => {
                     if (b64) {
                         acc.skinBase64 = b64;
-                        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                        window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                         const imgEl = document.getElementById(`acc-img-${i}`);
                         if (imgEl) imgEl.src = b64;
                     }
@@ -95,7 +95,7 @@ export function setupAccountUI() {
     window.useSelectedRow = () => {
         if (store.uiSelectedAccRow !== null) {
             store.selectedAccountIdx = store.uiSelectedAccRow;
-            fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+            window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             
             if (window.renderAccountManager) window.renderAccountManager();
             if (window.updateAccountDropdown) window.updateAccountDropdown();
@@ -126,7 +126,7 @@ export function setupAccountUI() {
                 
                 store.uiSelectedAccRow = null;
                 
-                fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                 
                 if (window.renderAccountManager) window.renderAccountManager();
                 if (window.updateAccountDropdown) window.updateAccountDropdown(); 
@@ -157,7 +157,7 @@ export function setupAccountUI() {
         });
         store.selectedAccountIdx = store.allAccounts.length - 1;
         
-        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+        window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         
         nameInput.value = "";
         document.getElementById("offline-input-container").style.display = "none";
@@ -175,9 +175,9 @@ export function setupAccountUI() {
         const skinImg = document.getElementById("active-skin");
         if (!dropdown) return;
         
-        dropdown.innerHTML = "";
+dropdown.innerHTML = "";
         if (store.allAccounts.length === 0) {
-            dropdown.innerHTML = `<option value="">${t("msg_no_acc", "Aucun compte")}</option>`;
+            dropdown.innerHTML = `<option value="">${t("msg_no_acc", "Aucun profil")}</option>`; 
             if (skinImg) skinImg.style.display = "none";
             return;
         }
@@ -197,7 +197,7 @@ export function setupAccountUI() {
                 fetchSkinBase64(activeAcc.name).then(b64 => {
                     if (b64) {
                         activeAcc.skinBase64 = b64;
-                        fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2), "utf8");
+                        window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                         skinImg.src = b64;
                     }
                 });
@@ -216,7 +216,7 @@ export function setupAccountUI() {
         const newIdx = parseInt(dropdown.value);
         if (!isNaN(newIdx)) {
             store.selectedAccountIdx = newIdx;
-            fs.writeFileSync(store.accountFile, JSON.stringify({ list: store.allAccounts, lastUsed: store.selectedAccountIdx }, null, 2));
+            window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             window.updateAccountDropdown(); 
             if (window.renderUI) window.renderUI();
             if (window.renderAccountManager) window.renderAccountManager();
