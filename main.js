@@ -147,6 +147,14 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
         return { success: true, data };
     } catch (e) { return { success: false, error: e.message }; }
 });
+ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
+    return new Promise((resolve) => {
+        execFile("tar", ["-xzf", archivePath, "-C", destDir], (err) => {
+            if (err) resolve({ success: false, error: err.message });
+            else resolve({ success: true });
+        });
+    });
+});
 
 const activeMinecraftClients = new Map();
 const runningFilePath = path.join(safeDataDir, "running.json");

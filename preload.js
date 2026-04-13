@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld("api", {
     tools: {
         hashFile: (filePath, algo) => crypto.createHash(algo).update(fs.readFileSync(filePath)).digest("hex"),
         hashBuffer: (arr, algo) => crypto.createHash(algo).update(Buffer.from(arr)).digest("hex"),
-
+        extractTar: (archivePath, destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
         extractAllTo: (zipPath, destDir) => {
             const z = new AdmZip(zipPath);
             const targetDir = enforceSandbox(destDir);

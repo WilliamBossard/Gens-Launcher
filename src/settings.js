@@ -52,14 +52,20 @@ export function setupSettings() {
 
             let isInstalled = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
             if (!isInstalled) {
-                const basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
+                let basePaths = [];
+                if (window.api.platform === "win32") {
+                    basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
+                } else if (window.api.platform === "linux") {
+                    basePaths = ["/usr/lib/jvm", "/usr/java"];
+                } else if (window.api.platform === "darwin") {
+                    basePaths = ["/Library/Java/JavaVirtualMachines"];
+                }
+
                 for (let bp of basePaths) {
                     if (fs.existsSync(bp)) {
                         try {
                             const dirs = fs.readdirSync(bp);
-                            if (dirs.some(d => d.includes(v.toString()) && fs.existsSync(path.join(bp, d, "bin", "javaw.exe")))) {
-                                isInstalled = true;
-                            }
+                            if (dirs.some(d => d.includes(v.toString()))) isInstalled = true;
                         } catch(e) {}
                     }
                 }
@@ -109,15 +115,12 @@ export function setupSettings() {
         const allowedBgExts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
         if (bgPath && fs.existsSync(bgPath)) {
             if (!allowedBgExts.includes(path.extname(bgPath).toLowerCase())) {
-                window.showToast(t("msg_err_bg_type", "Format d'image non supporté (.jpg, .png, .webp, .gif, .bmp)."), "error");
+                window.showToast(t("msg_err_bg_type", "Format d'image non supporté."), "error");
                 bgPath = store.globalSettings.theme?.bg || "";
             } else if (!bgPath.startsWith(store.dataDir)) {
                 const ext = path.extname(bgPath);
                 const newBgPath = path.join(store.dataDir, "background_copy" + ext);
-                try {
-                    fs.copyFileSync(bgPath, newBgPath);
-                    bgPath = newBgPath;
-                } catch(e) {}
+                try { fs.copyFileSync(bgPath, newBgPath); bgPath = newBgPath; } catch(e) {}
             }
         }
 
@@ -130,12 +133,9 @@ export function setupSettings() {
         };
 
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
-        
         if(store.selectedInstanceIdx !== null) window.selectInstance(store.selectedInstanceIdx);
         else if(window.applyTheme) window.applyTheme();
-        
         window.closeGlobalSettings();
-        if(window.checkServerStatus) window.checkServerStatus();
     };
 
     window.saveDefaultOptions = () => {
@@ -145,7 +145,7 @@ export function setupSettings() {
             if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
             store.globalSettings.defaultOptionsInstance = null;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
+            window.showToast(t("msg_profile_disabled"), "info");
             return;
         }
         if (idx === "") return;
@@ -155,285 +155,147 @@ export function setupSettings() {
             fs.copyFileSync(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_options_saved", "Profil d'options sauvegardé !"), "success");
-        } else {
-            window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois sur cette instance !"), "error");
+            window.showToast(t("msg_options_saved"), "success");
         }
-    };
-
-    window.saveDefaultServers = () => {
-        const idx = document.getElementById("global-servers-source").value;
-        const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-        
-        if (idx === "none") {
-            if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
-            store.globalSettings.defaultServersInstance = null;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_profile_disabled", "Profil désactivé."), "info");
-            return;
-        }
-        if (idx === "") return;
-        const inst = store.allInstances[idx];
-        const sourceSrv = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "servers.dat");
-        if (fs.existsSync(sourceSrv)) {
-            fs.copyFileSync(sourceSrv, defaultSrv);
-            store.globalSettings.defaultServersInstance = inst.name;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
-        } else {
-            window.showToast(t("msg_err_format", "Erreur."), "error");
-        }
-    };
-
-    window.forceInjectOptions = () => {
-        const inst = store.allInstances[store.selectedInstanceIdx];
-        if (!inst) return;
-        const destOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
-        const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (!fs.existsSync(defaultOpt)) {
-            window.showToast(t("msg_force_sync_error", "Aucun profil par défaut défini dans les Paramètres Globaux."), "error");
-            return;
-        }
-        try {
-            fs.copyFileSync(defaultOpt, destOpt);
-            window.showToast(t("msg_force_sync_success", "Touches synchronisées avec succès !"), "success");
-        } catch(e) { window.showToast("Erreur de synchronisation.", "error"); }
     };
 
     window.getFriendlyJavaName = (jPath) => {
-        if (!jPath || jPath === "javaw") return t("opt_java_sys_default", "Java Système (Défaut)");
+        if (!jPath || jPath === "javaw") return t("opt_java_sys_default");
         let name = "Java";
-        if (jPath.includes("jre25")) name = "Java 25";
-        else if (jPath.includes("jre21")) name = "Java 21";
-        else if (jPath.includes("jre17")) name = "Java 17";
-        else if (jPath.includes("jre8")) name = "Java 8";
-        else {
-            const match = jPath.match(/jdk-?(\d+)/i) || jPath.match(/jre-?(\d+)/i) || jPath.match(/java-(\d+)/i);
-            if (match) name = `Java ${match[1]}`;
-        }
+        const match = jPath.match(/jre(\d+)/) || jPath.match(/jdk-?(\d+)/i) || jPath.match(/jre-?(\d+)/i);
+        if (match) name = `Java ${match[1]}`;
         
         let source = "Local";
         if (jPath.includes("GensLauncher")) source = "Gens Launcher";
-        else if (jPath.includes("Microsoft.4297") || jPath.includes("runtime")) source = t("lbl_mc_official", "Minecraft Officiel");
-        else if (jPath.includes("curseforge")) source = "CurseForge";
-        else if (jPath.includes("Adoptium")) source = "Adoptium";
-        else if (jPath.includes("Corretto")) source = "Amazon Corretto";
+        else if (jPath.includes(".minecraft")) source = t("lbl_mc_official");
 
         return `${name} (${source})`;
     };
 
-    window.addCustomJava = (input, selectId) => {
-        const file = input.files[0];
-        if (file) {
-            const selectEl = document.getElementById(selectId);
-            const pathStr = window.api.getFilePath(file);
-            
-            let exists = Array.from(selectEl.options).some(opt => opt.value === pathStr);
-            if (!exists) {
-                let opt = document.createElement("option");
-                opt.value = pathStr;
-                opt.innerText = window.getFriendlyJavaName(pathStr) + t("lbl_manual", " (Manuel)");
-                selectEl.appendChild(opt);
-            }
-            selectEl.value = pathStr;
-        }
-        input.value = "";
-    };
-
     window.scanJavaVersions = (targetSelectId = null, silent = false) => {
-        if (!silent) document.getElementById("status-text").innerText = t("msg_search_java", "Recherche de Java...");
-        
-        const isGlobal = document.getElementById("modal-settings").style.display === "flex";
-        const selectId = targetSelectId || (isGlobal ? "global-java" : "edit-javapath");
+        if (!silent) document.getElementById("status-text").innerText = t("msg_search_java");
+        const selectId = targetSelectId || (document.getElementById("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
         const selectEl = document.getElementById(selectId);
+        const savedValue = selectEl.value;
         
-        const savedValue = selectEl.value || (isGlobal ? store.globalSettings.defaultJavaPath : store.allInstances[store.selectedInstanceIdx]?.javaPath);
-        
-        selectEl.innerHTML = "";
-        
-        if (selectId === "global-java") {
-            selectEl.innerHTML += `<option value="javaw">${t("opt_java_sys", "Java Système (javaw)")}</option>`;
-        } else {
-            selectEl.innerHTML += `<option value="">${t("opt_java_global", "-- Utiliser le Java Global --")}</option>`;
-            selectEl.innerHTML += `<option value="javaw">${t("opt_java_sys", "Java Système (javaw)")}</option>`;
+        selectEl.innerHTML = (selectId === "global-java") 
+            ? `<option value="javaw">${t("opt_java_sys")}</option>`
+            : `<option value="">${t("opt_java_global")}</option><option value="javaw">${t("opt_java_sys")}</option>`;
+
+        let basePaths = [ path.join(store.dataDir, "java") ];
+        if (window.api.platform === "win32") {
+            basePaths.push("C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", path.join(window.api.appData, ".minecraft", "runtime"));
+        } else if (window.api.platform === "linux") {
+            basePaths.push("/usr/lib/jvm", "/usr/java", "/opt/jdk");
+        } else if (window.api.platform === "darwin") {
+            basePaths.push("/Library/Java/JavaVirtualMachines");
         }
-
-        const localAppData = path.resolve(window.api.appData, "../Local");
-        const userProfile = path.resolve(window.api.appData, "../../");
-
-        const basePaths = [
-            path.join(store.dataDir, "java"), "C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java",
-            "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Amazon Corretto",
-            path.join(window.api.appData, ".minecraft", "runtime"), 
-            path.join(localAppData, "Packages", "Microsoft.4297127D64EC6_8wekyb3d8bbwe", "LocalCache", "Local", "runtime"), 
-            path.join(userProfile, "curseforge", "minecraft", "Install", "runtime") 
-        ];
         
         let found = 0;
-        let foundPaths = [];
-        
-        function findJavaW(dir, depth = 0) {
-            if (depth > 3) return null; 
+        const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
+
+        function findJava(dir, depth = 0) {
+            if (depth > 3) return;
             try {
                 const files = fs.readdirSync(dir);
                 for (let f of files) {
-                    const fullPath = path.join(dir, f);
-                    if (fs.statSync(fullPath).isDirectory) { 
-                        const res = findJavaW(fullPath, depth + 1);
-                        if (res) return res;
-                    } else if (f.toLowerCase() === "javaw.exe") return fullPath;
+                    const full = path.join(dir, f);
+                    const s = fs.statSync(full);
+                    if (s.isDirectory) findJava(full, depth + 1);
+                    else if (f.toLowerCase() === javaExeName) {
+                        let opt = document.createElement("option");
+                        opt.value = full;
+                        opt.innerText = window.getFriendlyJavaName(full);
+                        selectEl.appendChild(opt);
+                        found++;
+                    }
                 }
-            } catch (e) {}
-            return null;
+            } catch(e) {}
         }
 
-        for (let bp of basePaths) {
-            if (fs.existsSync(bp)) {
-                try {
-                    fs.readdirSync(bp).forEach((d) => {
-                        const subDir = path.join(bp, d);
-                        if (fs.statSync(subDir).isDirectory) {
-                            const jPath = findJavaW(subDir);
-                            if (jPath && !foundPaths.includes(jPath)) {
-                                foundPaths.push(jPath);
-                                let opt = document.createElement("option");
-                                opt.value = jPath;
-                                opt.innerText = window.getFriendlyJavaName(jPath);
-                                selectEl.appendChild(opt);
-                                found++;
-                            }
-                        }
-                    });
-                } catch (e) {}
-            }
-        }
-        
-        let valueExists = Array.from(selectEl.options).some(opt => opt.value === savedValue);
-        if (savedValue && savedValue !== "javaw" && !valueExists) {
-            let opt = document.createElement("option");
-            opt.value = savedValue;
-            opt.innerText = window.getFriendlyJavaName(savedValue) + t("lbl_manual", " (Manuel)");
-            selectEl.appendChild(opt);
-        }
-
-        selectEl.value = savedValue || (selectId === "global-java" ? "javaw" : "");
-
-        if (!silent) {
-            document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-            window.showToast(`${found} ${t("msg_java_found", "version(s) de Java trouvée(s).")}`, "info");
-        }
+        basePaths.forEach(bp => { if (fs.existsSync(bp)) findJava(bp); });
+        selectEl.value = savedValue || selectEl.value;
+        if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
     };
 
     window.downloadJavaAuto = async (version = 21) => {
-        window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version}...`);
+        window.showLoading(t("msg_dl_java") + ` ${version}...`);
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
         if (!fs.existsSync(javaDir)) fs.mkdirSync(javaDir, { recursive: true });
-        const zipPath = path.join(javaDir, `jre${version}.zip`);
 
         try {
-            const releaseType = version >= 25 ? "ea" : "ga";
-            const imageType = version >= 21 ? "jdk" : "jre";
-            const rawPlatform = window.api.platform;
-            const platform = rawPlatform === "darwin" ? "mac"
-                           : rawPlatform === "linux"  ? "linux"
-                           : "windows";
-            const arch = "x64";
-            const url = `https://api.adoptium.net/v3/binary/latest/${version}/${releaseType}/${platform}/${arch}/${imageType}/hotspot/normal/eclipse`;
+            const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
+            const ext = (platform === "windows") ? ".zip" : ".tar.gz";
+            const archivePath = path.join(javaDir, `jre${version}${ext}`);
+            const url = `https://api.adoptium.net/v3/binary/latest/${version}/ga/${platform}/x64/jre/hotspot/normal/eclipse`;
 
             const res = await fetch(url);
-            if (!res.ok) throw new Error("Version de Java introuvable sur le serveur.");
+            if (!res.ok) throw new Error("Version de Java introuvable.");
             
-            fs.writeFileSync(zipPath, Buffer.from(await res.arrayBuffer()));
-            window.showLoading(t("msg_extract_java", "Extraction de Java..."));
+            // Correction Buffer -> Uint8Array pour compatibilité Electron moderne
+            fs.writeFileSync(archivePath, new Uint8Array(await res.arrayBuffer()));
+            
+            window.showLoading(t("msg_extract_java"));
             await yieldUI();
             
             const extractDir = path.join(javaDir, `jre${version}`);
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
             
-            window.api.tools.extractAllTo(zipPath, extractDir);
-            fs.unlinkSync(zipPath);
+            if (platform === "windows") {
+                window.api.tools.extractAllTo(archivePath, extractDir);
+            } else {
+                fs.mkdirSync(extractDir, { recursive: true });
+                const extractRes = await window.api.tools.extractTar(archivePath, extractDir);
+                if (!extractRes.success) throw new Error(extractRes.error);
+            }
+            fs.unlinkSync(archivePath);
 
-            const isWindows = window.api.platform === "win32";
-            const javaExeName = isWindows ? "javaw.exe" : "javaw";
-            const javaExeNameFallback = isWindows ? null : "java";
-
-            function findJavaExe(dir) {
-                for (let file of fs.readdirSync(dir)) {
-                    const fullPath = path.join(dir, file);
-                    if (fs.statSync(fullPath).isDirectory) {
-                        const found = findJavaExe(fullPath);
-                        if (found) return found;
-                    } else if (file.toLowerCase() === javaExeName || (javaExeNameFallback && file.toLowerCase() === javaExeNameFallback)) {
-                        return fullPath;
-                    }
+            const javaExe = (platform === "windows") ? "javaw.exe" : "java";
+            function findExe(dir) {
+                for (let f of fs.readdirSync(dir)) {
+                    const full = path.join(dir, f);
+                    if (fs.statSync(full).isDirectory) { const r = findExe(full); if(r) return r; }
+                    else if (f.toLowerCase() === javaExe) return full;
                 }
-                return null;
             }
             
-            const javaExePath = findJavaExe(extractDir);
-            if (javaExePath) {
-                store.globalSettings.defaultJavaPath = javaExePath;
+            const exePath = findExe(extractDir);
+            if (exePath) {
+                if (platform !== "windows") fs.promises.chmod(exePath, 0o755);
+                store.globalSettings.defaultJavaPath = exePath;
                 window.safeWriteJSON(store.settingsFile, store.globalSettings);
-                
-                const btn = document.getElementById(`btn-dl-java-${version}`);
-                if (btn) {
-                    btn.innerText = t("btn_java_installed", "Installé");
-                    btn.style.color = "#17B139";
-                    btn.style.borderColor = "#17B139";
-                }
-                
-                window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
-                return javaExePath;
+                window.showToast(t("msg_java_installed_success"), "success");
+                return exePath;
             }
-            throw new Error("javaw.exe introuvable.");
+            throw new Error("Exécutable Java introuvable.");
         } catch (e) {
-            sysLog("Erreur Auto-Java : " + e, true);
-            window.showToast(t("msg_err_java", "Erreur Java") + " : " + e, "error");
+            window.showToast(t("msg_err_java") + " : " + e.message, "error");
             return null;
-        } finally {
-            window.hideLoading();
-        }
+        } finally { window.hideLoading(); }
     };
 
     window.checkLauncherUpdates = async () => {
         const statusDiv = document.getElementById("update-status");
-        if (statusDiv) statusDiv.innerText = t("msg_check_updates", "Vérification en cours...");
+        if (statusDiv) statusDiv.innerText = t("msg_check_updates");
         try {
             const res = await window.api.invoke("check-for-updates");
-            if (!res.success && statusDiv) {
-                statusDiv.innerText = t("msg_update_check_error", "Erreur de vérification.");
-                window.showToast("Erreur de mise à jour : " + res.error, "error");
-            }
-        } catch (e) {
-            if (statusDiv) statusDiv.innerText = t("msg_update_unreachable", "Impossible de joindre le serveur.");
-        }
+            if (!res.success && statusDiv) statusDiv.innerText = t("msg_update_check_error");
+        } catch (e) { if (statusDiv) statusDiv.innerText = t("msg_update_unreachable"); }
     };
 
     window.renderUpdateTab = () => {
+        const container = document.getElementById("update-available-container");
         if (store.pendingLauncherUpdate) {
-            document.getElementById("update-available-container").style.display = "block";
-            document.getElementById("btn-check-launcher").style.display = "none"; 
+            container.style.display = "block";
+            document.getElementById("btn-check-launcher").style.display = "none";
             document.getElementById("new-version-badge").innerText = "v" + store.pendingLauncherUpdate.version;
-            
-            let notes = store.pendingLauncherUpdate.releaseNotes || "Aucun patch note fourni pour cette version.";
-            if (Array.isArray(notes)) {
-                notes = notes.map(n => n.note || "").join("\n");
-            }
-            
-            const cleanNotes = notes.replace(/<\/?[^>]+(>|$)/g, ""); 
-            document.getElementById("update-changelog").innerText = cleanNotes;
-            
-        } else {
-            document.getElementById("update-available-container").style.display = "none";
-            document.getElementById("btn-check-launcher").style.display = "inline-block";
-        }
+            document.getElementById("update-changelog").innerText = (store.pendingLauncherUpdate.releaseNotes || "").replace(/<\/?[^>]+(>|$)/g, "");
+        } else container.style.display = "none";
     };
 
     window.startLauncherUpdate = () => {
         window.api.send("download-update");
         document.getElementById("btn-start-update").disabled = true;
-        const statusDiv = document.getElementById("update-status");
-        if (statusDiv) statusDiv.innerText = t("msg_update_downloading", "Téléchargement en cours... (Patientez)");
     };
 }

@@ -68,18 +68,23 @@ function getModWarnings(inst) {
         return warnings;
     }
 
-    window.renderModsManager = function() {
+    window.renderModsManager = async function() {
         const modsListDiv = document.getElementById("mods-list");
-        modsListDiv.innerHTML = "";
+        modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_loading", "Chargement...")}</div>`;
+        
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
+        
         const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
         if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
         
+        const files = await fs.promises.readdir(modsPath);
         const warnings = getModWarnings(inst);
-        let hasMods = false;
         
-        fs.readdirSync(modsPath).forEach((file) => {
+        let hasMods = false;
+        let htmlBuilder = ""; 
+        
+        for (const file of files) {
             if (file.endsWith(".jar") || file.endsWith(".jar.disabled")) {
                 hasMods = true;
                 const isEnabled = !file.endsWith(".disabled");
@@ -94,7 +99,7 @@ function getModWarnings(inst) {
                     warningHtml = `<span class="custom-tooltip-trigger" data-tooltip="${safeTooltip}" style="margin-left:6px; color:#f87171; font-size:0.9rem; font-weight:bold;">${t("lbl_warning", "[!]")}</span>`;
                 }
                 
-                modsListDiv.innerHTML += `
+                htmlBuilder += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center; flex-grow: 1; word-break: break-all; padding-right: 10px;">${displayName}${warningHtml}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
@@ -103,8 +108,13 @@ function getModWarnings(inst) {
                     </div>
                 </div>`;
             }
-        });
-        if (!hasMods) modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
+        }
+        
+        if (hasMods) {
+            modsListDiv.innerHTML = htmlBuilder;
+        } else {
+            modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
+        }
     };
     
     window.filterLocalMods = () => {

@@ -584,7 +584,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
                     try {
                         const buffer = await res.arrayBuffer();
-                        fs.writeFileSync(installerPath, Buffer.from(buffer));
+                        fs.writeFileSync(installerPath, new Uint8Array(buffer));
                         document.getElementById("progress-bar").style.width = "100%";
                         document.getElementById("status-text").innerText = t("msg_dl_complete", "Téléchargement terminé !");
                     } finally { clearInterval(fakeProgress); }
