@@ -1,8 +1,9 @@
 {
   "name": "gens-launcher",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
+  "author": "William Bossard", 
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
@@ -10,9 +11,22 @@
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux"
   },
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.8.3",
+    "minecraft-launcher-core": "^3.18.2",
+    "prismarine-auth": "^3.1.1",
+    "prismarine-nbt": "^2.2.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1"
+  },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
+    "electronVersion": "31.0.0",
     "directories": {
       "output": "dist"
     },
@@ -35,8 +49,7 @@
       "createStartMenuShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
-      "uninstallDisplayName": "Désinstaller Gens Launcher",
-      "license": ""
+      "uninstallDisplayName": "Désinstaller Gens Launcher"
     },
     "linux": {
       "target": ["AppImage", "deb"],
