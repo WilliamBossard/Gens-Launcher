@@ -34,13 +34,29 @@ function mainLog(msg) {
 }
 
 function createWindow() {
+    const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+    const iconPath = path.join(__dirname, 'assets', iconExt);
+
     mainWindow = new BrowserWindow({
-        width: 1200, height: 800, minWidth: 1000, minHeight: 600,
-        icon: path.join(__dirname, "assets/icon.ico"),
-        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.js") },
+        width: 1200, 
+        height: 800, 
+        minWidth: 1000, 
+        minHeight: 600,
+        icon: iconPath, 
+        webPreferences: { 
+            nodeIntegration: false, 
+            contextIsolation: true, 
+            sandbox: false, 
+            preload: path.join(__dirname, "preload.js") 
+        },
     });
+
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile("index.html");
+    
+    // Log de vérification (optionnel, pour debugger dans tes logs)
+    mainLog(`Fenêtre créée avec l'icône : ${iconPath}`);
+    
     fs.writeFileSync(logPath, "--- Gens Launcher Main Log ---\n");
 }
 

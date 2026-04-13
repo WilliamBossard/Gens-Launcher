@@ -56,6 +56,7 @@
       "target": ["AppImage", "tar.gz"],
       "category": "Game",
       "icon": "assets/icon.png",
+      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"],
       "artifactName": "GensLauncher-${version}-${arch}.${ext}"
     }
   }
