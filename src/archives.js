@@ -13,8 +13,8 @@ export function setupArchives() {
     window.handleImport = async (input) => {
         const file = input.files[0];
         if (!file) return;
-        const p = file.path;
-        input.value = ""; 
+        const p = (typeof file === "string") ? file : window.api.getFilePath(file);
+        input.value = "";
         
         if (p.endsWith('.zip')) await window.handleZipImport(p);
         else if (p.endsWith('.mrpack')) await window.handleMrPackImport(p);

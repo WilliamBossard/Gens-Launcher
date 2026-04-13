@@ -110,7 +110,7 @@ export function setupAuth() {
       try {
         const result = await ipcRenderer.invoke("login-microsoft");
 
-        if (result.success) {
+if (result.success) {
           store.allAccounts.push({
             type: "microsoft",
             name: result.auth.name,
@@ -128,6 +128,9 @@ export function setupAuth() {
           if(window.closeAccountModal) window.closeAccountModal();
           
           if(window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
+          
+          if(window.checkAchievement) window.checkAchievement("vip");
+
         } else if (result.cancelled) {
           if(window.showToast) window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
         } else {

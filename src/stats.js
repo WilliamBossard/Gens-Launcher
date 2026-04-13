@@ -1,5 +1,6 @@
 import { store } from "./store.js";
 import { yieldUI } from "./utils.js";
+import { ACHIEVEMENTS } from "./achievements.js"; 
 
 const fs = window.api.fs;
 const path = window.api.path;
@@ -88,7 +89,7 @@ export function setupStats() {
         return { files: filesToDelete, size: totalSize };
     }
 
-async function getInGameStatsAsync() {
+    async function getInGameStatsAsync() {
         let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
 
         for (const inst of store.allInstances) {
@@ -158,17 +159,42 @@ async function getInGameStatsAsync() {
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
     }
 
-    window.openStatsModal = async () => {
+window.openStatsModal = async () => {
         document.getElementById("modal-stats").style.display = "flex";
+
+        const renderAchievements = () => {
+            const advDiv = document.getElementById("dashboard-achievements");
+            if (advDiv && ACHIEVEMENTS && Array.isArray(ACHIEVEMENTS)) {
+                advDiv.innerHTML = "";
+                const unlocked = store.globalSettings.unlockedAchievements || [];
+                
+                ACHIEVEMENTS.forEach(adv => {
+                    const isUnlocked = unlocked.includes(adv.id);
+                    const safeName = t(adv.nameKey, "???");
+                    const safeDesc = t(adv.descKey, "???");
+                    
+                    advDiv.innerHTML += `
+                    <div class="adv-card ${isUnlocked ? '' : 'locked'}" style="border-color: ${isUnlocked ? 'var(--accent)' : 'var(--border)'}; margin-bottom: 5px;">
+                        <img src="${adv.icon}" style="width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0; filter: ${isUnlocked ? 'none' : 'grayscale(100%) opacity(0.5)'};">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-weight: bold; color: ${isUnlocked ? '#FFFF55' : '#888'}; font-size: 0.9rem;">${safeName}</span>
+                            <span style="font-size: 0.75rem; color: ${isUnlocked ? '#aaa' : '#555'};">${safeDesc}</span>
+                        </div>
+                    </div>`;
+                });
+            }
+        };
         
+        renderAchievements(); 
+
         const diskEl = document.getElementById("dashboard-disk");
         const cacheEl = document.getElementById("dashboard-cache-size");
         if (diskEl) diskEl.innerText = t("msg_calc", "Calcul...");
         if (cacheEl) cacheEl.innerText = t("msg_calc", "Calcul...");
         
-        try {
-            let totalTimeMs = 0, totalMods = 0, favInstance = "-", maxTime = -1;
+        let totalTimeMs = 0, totalMods = 0, favInstance = "-", maxTime = -1;
 
+        try {
             for (const inst of store.allInstances) {
                 const playTime = inst.playTime || 0;
                 totalTimeMs += playTime;
@@ -220,8 +246,9 @@ async function getInGameStatsAsync() {
             }
         } catch(e) { console.error(e); }
 
+        let igStats = { kills: 0, walkCm: 0, jumps: 0 };
         try {
-            const igStats = await getInGameStatsAsync();
+            igStats = await getInGameStatsAsync();
             if (document.getElementById("stat-mobs")) {
                 document.getElementById("stat-mobs").innerText = igStats.kills.toLocaleString();
                 document.getElementById("stat-walk").innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km"); 
@@ -248,6 +275,17 @@ async function getInGameStatsAsync() {
             console.error(e); 
             if (diskEl) diskEl.innerText = t("msg_err_ping", "Erreur");
         }
+
+        if (window.checkAchievement) {
+            if (totalTimeMs >= 360000000) window.checkAchievement("veteran");
+            if (store.allInstances.length >= 5) window.checkAchievement("architect");
+            if (totalMods >= 50) window.checkAchievement("collector");
+            if (igStats.kills >= 1000) window.checkAchievement("killer");
+            if (igStats.walkCm >= 10000000) window.checkAchievement("explorer");
+            if (igStats.jumps >= 10000) window.checkAchievement("kangaroo");
+            
+            renderAchievements(); 
+        }
     };
 
     window.cleanCache = async () => {
@@ -269,6 +307,8 @@ async function getInGameStatsAsync() {
             
             if (window.hideLoading) window.hideLoading();
             if (window.showToast) window.showToast(t("msg_cache_clean_success", "Nettoyage terminé !"), "success");
+            
+            if (window.checkAchievement) window.checkAchievement("cleaner");
             
             window.openStatsModal(); 
         }

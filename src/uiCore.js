@@ -416,13 +416,16 @@ export function setupUICore() {
 
         const files = e.dataTransfer.files;
 
-        if (files.length === 1 && (files[0].path.endsWith(".zip") || files[0].path.endsWith(".mrpack"))) {
-            const nameLower = files[0].name.toLowerCase();
-            if (!nameLower.includes("shader") && !nameLower.includes("bsl") && !nameLower.includes("complementary") && !nameLower.includes("ptgi") && !nameLower.includes("iris") && !nameLower.includes("seus")) {
-                const tempInput = { files: [files[0]], value: "" };
-                if (window.handleImport) {
-                    window.handleImport(tempInput);
-                    return; 
+        if (files.length === 1) {
+            const f0path = window.api.getFilePath(files[0]);
+            if (f0path.endsWith(".zip") || f0path.endsWith(".mrpack")) {
+                const nameLower = files[0].name.toLowerCase();
+                if (!nameLower.includes("shader") && !nameLower.includes("bsl") && !nameLower.includes("complementary") && !nameLower.includes("ptgi") && !nameLower.includes("iris") && !nameLower.includes("seus")) {
+                    const tempInput = { files: [files[0]], value: "" };
+                    if (window.handleImport) {
+                        window.handleImport(tempInput);
+                        return;
+                    }
                 }
             }
         }
@@ -437,23 +440,24 @@ export function setupUICore() {
         let added = 0;
 
         for (const file of files) {
-            const ext = path.extname(file.path).toLowerCase();
+            const filePath = window.api.getFilePath(file);
+            const ext = path.extname(filePath).toLowerCase();
             try {
                 if (ext === ".jar") {
                     const modsDir = path.join(instFolder, "mods");
                     if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
-                    fs.copyFileSync(file.path, path.join(modsDir, file.name));
+                    fs.copyFileSync(filePath, path.join(modsDir, file.name));
                     added++;
                 } else if (ext === ".zip") {
                     const nameLower = file.name.toLowerCase();
                     if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
                         const shadersDir = path.join(instFolder, "shaderpacks");
                         if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
-                        fs.copyFileSync(file.path, path.join(shadersDir, file.name));
+                        fs.copyFileSync(filePath, path.join(shadersDir, file.name));
                     } else {
                         const rpDir = path.join(instFolder, "resourcepacks");
                         if (!fs.existsSync(rpDir)) fs.mkdirSync(rpDir, { recursive: true });
-                        fs.copyFileSync(file.path, path.join(rpDir, file.name));
+                        fs.copyFileSync(filePath, path.join(rpDir, file.name));
                     }
                     added++;
                 }

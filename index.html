@@ -1081,7 +1081,75 @@
             background: var(--border);
             margin: 4px 0;
         }
+       /* --- SYSTÈME DE PROGRÈS (MINECRAFT STYLE) --- */
+        #advancement-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 100000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .advancement-toast {
+            background: #212121;
+            border: 2px solid #555555;
+            box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 10px 15px;
+            /* Animation élastique super satisfaisante */
+            animation: slideInTopRightBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            color: white;
+            min-width: 250px;
+        }
+
+        /* La nouvelle animation avec le petit rebond */
+        @keyframes slideInTopRightBounce {
+            0% { transform: translateX(120%); opacity: 0; }
+            70% { transform: translateX(-15px); opacity: 1; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+
+        .advancement-icon { width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0;}
+        .advancement-text { display: flex; flex-direction: column; }
+        .advancement-title { color: #FFFF55; font-size: 0.75rem; text-transform: uppercase; font-family: 'Consolas', monospace; }
+        .advancement-name { color: #fff; font-size: 0.95rem; }
         
+        .adv-card {
+            background: rgba(0,0,0,0.2); 
+            border: 1px solid var(--border); 
+            border-radius: 4px; 
+            padding: 10px; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px;
+            /* Transition fluide pour le survol */
+            transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .adv-card.locked { 
+            opacity: 0.4; 
+            filter: grayscale(100%); 
+        }
+
+        /* Effet "Wahou" au survol d'un succès DÉBLOQUÉ */
+        .adv-card:not(.locked):hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 6px 15px rgba(255, 255, 85, 0.15); /* Halo jaune léger */
+            border-color: #FFFF55 !important; /* Bordure dorée */
+            background: rgba(255, 255, 85, 0.05); /* Fond légèrement éclairé */
+        }
+
+        /* Effet subtil au survol d'un succès BLOQUÉ */
+        .adv-card.locked:hover {
+            transform: translateY(-2px);
+            opacity: 0.6; /* S'éclaire un tout petit peu */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
     </style>
 </head>
 
@@ -1089,6 +1157,7 @@
     <div id="app-background"></div>
 
     <div id="toast-container"></div>
+    <div id="advancement-container"></div>
     <div id="drop-overlay" data-i18n="msg_drop_install">Relâchez pour installer</div>
 
     <div id="loading-overlay">
@@ -1263,7 +1332,7 @@
         </div>
     </div>
 
-    <div id="modal-stats" class="modal">
+<div id="modal-stats" class="modal">
         <div class="modal-card" style="width: 600px;">
             <div class="modal-header" data-i18n="modal_stats_title">Tableau de Bord</div>
             <div class="modal-body" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
@@ -1324,7 +1393,13 @@
                     <div id="dashboard-graph" style="display: flex; align-items: flex-end; gap: 6px; height: 80px; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 8px;">
                     </div>
                 </div>
-            </div>
+
+                <div style="margin-top: 20px;">
+                    <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;" data-i18n="lbl_achievements">Vos Progrès</div>
+                    <div id="dashboard-achievements" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
+                    </div>
+                </div>
+                </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeStatsModal()" data-i18n="modal_close">Fermer</button>
             </div>

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, shell, clipboard } = require("electron");
+const { contextBridge, ipcRenderer, shell, clipboard, webUtils } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -15,7 +15,7 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 function enforceSandbox(p) {
     const resolved = path.resolve(p);
     if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
-        console.error(`🚨 SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
+        console.error(`SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
         throw new Error("Accès refusé par le système de sécurité du Launcher.");
     }
     return resolved; 
@@ -23,7 +23,7 @@ function enforceSandbox(p) {
 
 function safeExternalUrl(url) {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        console.error(`🚨 SÉCURITÉ : Protocole interdit bloqué : ${url}`);
+        console.error(`SÉCURITÉ : Protocole interdit bloqué : ${url}`);
         throw new Error("Seuls les liens HTTP/HTTPS sont autorisés.");
     }
     return url;
@@ -144,7 +144,10 @@ contextBridge.exposeInMainWorld("api", {
         writeText: (text) => clipboard.writeText(text)
     },
     
-    appData: _appPaths.appData,          
+    appData: _appPaths.appData,
     platform: _appPaths.platform, 
-    version: _appPaths.version       
+    version: _appPaths.version,
+
+    // Remplace file.path (supprimé dans Electron 32+)
+    getFilePath: (file) => webUtils.getPathForFile(file),
 });

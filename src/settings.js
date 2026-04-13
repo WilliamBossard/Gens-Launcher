@@ -226,7 +226,7 @@ export function setupSettings() {
         const file = input.files[0];
         if (file) {
             const selectEl = document.getElementById(selectId);
-            const pathStr = file.path;
+            const pathStr = window.api.getFilePath(file);
             
             let exists = Array.from(selectEl.options).some(opt => opt.value === pathStr);
             if (!exists) {

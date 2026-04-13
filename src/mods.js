@@ -749,6 +749,7 @@ function setupMods() {
             window.showToast(t("msg_builder_partial", `Modpack créé avec ${failed.length} erreur(s).`).replace("{n}", String(failed.length)), "info");
         } else {
             window.showToast(t("msg_builder_success", "Modpack créé avec succès !"), "success");
+            window.checkAchievement("modder");
         }
     };
 }

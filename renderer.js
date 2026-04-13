@@ -12,6 +12,9 @@ import { setupStats } from "./src/stats.js";
 import { setupLocalManagers } from "./src/localManagers.js";
 import { setupInstances } from "./src/instances.js";
 import { setupUICore } from "./src/uiCore.js";
+import { checkAchievement, ACHIEVEMENTS } from "./src/achievements.js";
+window.checkAchievement = checkAchievement;
+window.ACHIEVEMENTS = ACHIEVEMENTS;
 
 const ipcRenderer = window.api;
 const fs = window.api.fs;
@@ -172,7 +175,7 @@ window.checkServerStatus = async () => {
         const data = await res.json();
         
         if (data.online) {
-            const safeIcon = (data.icon && /^https:\/\//i.test(data.icon)) ? data.icon : "";
+            const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
             let iconHtml = safeIcon ? `<img src="${safeIcon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
             let motdHtml = "Serveur Minecraft";

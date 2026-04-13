@@ -15,6 +15,7 @@ export const store = {
     rawVersions: [],
     globalSettings: {
         defaultRam: 4096,
+        unlockedAchievements: [],
         defaultJavaPath: "",
         cfApiKey: "", 
         serverIp: "",

@@ -484,6 +484,9 @@ export function setupInstances() {
         
         window.selectInstance(store.selectedInstanceIdx);
         window.renderUI();
+        if (store.pendingIconPath || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
+            if (window.checkAchievement) window.checkAchievement("artist");
+        }
         window.closeEditModal();
     };
 
@@ -560,11 +563,12 @@ export function setupInstances() {
     window.previewInstanceIcon = (input) => {
         const file = input.files[0];
         if (file) {
-            store.pendingIconPath = file.path; 
-            const localPath = "file:///" + encodeURI(file.path.replace(/\\/g, "/"));
+            const filePath = window.api.getFilePath(file);
+            store.pendingIconPath = filePath;
+            const localPath = "file:///" + encodeURI(filePath.replace(/\\/g, "/"));
             document.getElementById("edit-icon-preview").src = localPath;
         }
-        input.value = ""; 
+        input.value = "";
     };
 
     window.dragInstanceStart = (e, idx) => {

@@ -347,8 +347,12 @@ export function setupLauncher() {
         if (window.renderUI) window.renderUI(); 
     }); 
 
-    document.getElementById("launch-btn").addEventListener("click", async () => {
+document.getElementById("launch-btn").addEventListener("click", async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
+
+        if (window.checkAchievement) window.checkAchievement("first_launch");
+        const hour = new Date().getHours();
+        if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
 
         if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
             try {
@@ -598,6 +602,7 @@ export function setupLauncher() {
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
         
         store.activeInstances.add(inst.name);
+        window.checkAchievement("first_launch");
         store.primaryRpcInstance = inst.name; 
         window.setUIState();
         if (window.renderUI) window.renderUI(); 
