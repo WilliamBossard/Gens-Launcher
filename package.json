@@ -24,7 +24,7 @@
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3"
   },
-  "build": {
+"build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
     "directories": {
@@ -52,24 +52,24 @@
       "uninstallDisplayName": "Désinstaller Gens Launcher",
       "license": ""
     },
-"linux": {
-  "target": ["AppImage", "deb"],
-  "category": "Game",
-  "icon": "assets/icon.png",
-  "artifactName": "GensLauncher-${version}-${arch}.${ext}"
-},
-"deb": {
-  "priority": "optional",
-  "afterInstall": "assets/linux/after-install.sh", 
-  "depends": [
-    "libnss3",
-    "libatk1.0-0",
-    "libatk-bridge2.0-0",
-    "libcups2",
-    "libgtk-3-0",
-    "libgbm1",
-    "libasound2"
-  ]
-}
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Game",
+      "icon": "assets/icon.png",
+      "artifactName": "GensLauncher-${version}-${arch}.${ext}",
+      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"],
+      "deb": {
+        "priority": "optional",
+        "depends": [
+          "libnss3",
+          "libatk1.0-0",
+          "libatk-bridge2.0-0",
+          "libcups2",
+          "libgtk-3-0",
+          "libgbm1",
+          "libasound2"
+        ]
+      }
+    }
   }
 }
