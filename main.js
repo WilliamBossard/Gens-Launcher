@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("ele
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile, exec } = require("child_process"); // Ajout de 'exec' ici
+const { execFile, exec } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
@@ -118,31 +118,34 @@ app.whenReady().then(() => {
 });
 
 // =====================================================================
-// --- GESTION DES MISES À JOUR (LA MÉTHODE ULTIME AVEC APT INSTALL) ---
+// --- GESTION DES MISES À JOUR (LA MÉTHODE ULTIME AVEC DPKG) ---
 // =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Déclenchement de l'installation root (pkexec + apt)...");
+        mainLog("Linux : Déclenchement de l'installation root (pkexec + dpkg)...");
         
         if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
-            // pkexec ouvre la fenêtre graphique pour demander le mot de passe sudo
-            // apt install gère l'installation et les dépendances proprement
-            const command = `pkexec apt install -y "${linuxUpdatePath}"`;
+            // dpkg -i installe le paquet directement en root, 
+            // évitant le bug de permission de l'utilisateur _apt.
+            const command = `pkexec dpkg -i "${linuxUpdatePath}"`;
             mainLog("Exécution de : " + command);
 
             // On lance la commande en arrière-plan et on attend sa fin
             exec(command, (error, stdout, stderr) => {
                 if (error) {
                     mainLog(`ERREUR d'installation : ${error.message}`);
-                    // Plan B : si l'utilisateur annule le mot de passe ou si ça plante, on ouvre le dossier
+                    mainLog(`Détails de l'erreur : ${stderr}`);
+                    // Plan B : si l'utilisateur annule ou si ça plante, on ouvre le dossier
                     shell.showItemInFolder(linuxUpdatePath);
                     return;
                 }
                 
-                mainLog(`Installation APT réussie ! Redémarrage en cours...`);
-                // Une fois installé à 100%, on dit au launcher de redémarrer sur la nouvelle version
-                app.relaunch();
-                app.exit(0);
+                mainLog(`Installation DPKG réussie ! Redémarrage en cours...`);
+                // On laisse 1 seconde au système de fichiers pour finaliser l'écriture
+                setTimeout(() => {
+                    app.relaunch();
+                    app.exit(0);
+                }, 1000);
             });
         } else {
             mainLog("Erreur : Fichier .deb introuvable sur le disque.");
