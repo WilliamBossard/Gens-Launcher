@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, session, Tray, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { execFile, exec } = require("child_process"); // Ajout de 'exec' ici
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
@@ -21,6 +21,7 @@ const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "l
 
 let mainWindow;
 let tray = null; 
+let linuxUpdatePath = null; // Stocke le chemin du fichier .deb
 
 const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
 if (!fs.existsSync(safeDataDir)) {
@@ -116,29 +117,42 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
-// --- GESTION DES MISES À JOUR (ANTI-REBOND LINUX) ---
+// =====================================================================
+// --- GESTION DES MISES À JOUR (LA MÉTHODE ULTIME AVEC APT INSTALL) ---
+// =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Préparation de l'installation du .deb.");
+        mainLog("Linux : Déclenchement de l'installation root (pkexec + apt)...");
         
-        // On détruit manuellement la fenêtre pour éviter un crash au moment du exit
-        if (mainWindow) {
-            mainWindow.removeAllListeners('close');
-            mainWindow.destroy();
+        if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
+            // pkexec ouvre la fenêtre graphique pour demander le mot de passe sudo
+            // apt install gère l'installation et les dépendances proprement
+            const command = `pkexec apt install -y "${linuxUpdatePath}"`;
+            mainLog("Exécution de : " + command);
+
+            // On lance la commande en arrière-plan et on attend sa fin
+            exec(command, (error, stdout, stderr) => {
+                if (error) {
+                    mainLog(`ERREUR d'installation : ${error.message}`);
+                    // Plan B : si l'utilisateur annule le mot de passe ou si ça plante, on ouvre le dossier
+                    shell.showItemInFolder(linuxUpdatePath);
+                    return;
+                }
+                
+                mainLog(`Installation APT réussie ! Redémarrage en cours...`);
+                // Une fois installé à 100%, on dit au launcher de redémarrer sur la nouvelle version
+                app.relaunch();
+                app.exit(0);
+            });
+        } else {
+            mainLog("Erreur : Fichier .deb introuvable sur le disque.");
         }
-
-        // On lance la commande d'installation
-        autoUpdater.quitAndInstall(false, false);
-
-        // On attend 1.5s pour être sûr que le système a pris le relais
-        setTimeout(() => {
-            mainLog("Linux : Fermeture définitive via process.exit.");
-            process.exit(0); // Plus radical que app.exit
-        }, 1500);
     } else {
+        // Sur Windows, l'updater de base marche parfaitement
         autoUpdater.quitAndInstall();
     }
 });
+// =====================================================================
 
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
@@ -279,7 +293,15 @@ ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
 autoUpdater.on("update-available", (info) => { if (mainWindow) mainWindow.webContents.send("update-available-prompt", info); });
 autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { text: "Gens Launcher est à jour !", type: "success" }); });
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
-autoUpdater.on("update-downloaded", () => { if (mainWindow) mainWindow.webContents.send("update-downloaded"); });
+
+// ON RÉCUPÈRE LE CHEMIN DU FICHIER TÉLÉCHARGÉ
+autoUpdater.on("update-downloaded", (info) => { 
+    if (info && info.downloadedFile) {
+        linuxUpdatePath = info.downloadedFile;
+        mainLog("Mise à jour téléchargée ici : " + linuxUpdatePath);
+    }
+    if (mainWindow) mainWindow.webContents.send("update-downloaded"); 
+});
 
 let isAuthRunning = false;
 let activeMicrosoftAuthFlow = null;
