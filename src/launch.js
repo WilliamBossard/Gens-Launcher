@@ -350,9 +350,17 @@ export function setupLauncher() {
 document.getElementById("launch-btn").addEventListener("click", async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
 
-        if (window.checkAchievement) window.checkAchievement("first_launch");
-        const hour = new Date().getHours();
-        if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
+        if (window.checkAchievement) {
+
+            window.checkAchievement("first_launch");
+
+            const ramToVerify = inst.ram || store.globalSettings.defaultRam;
+            if (ramToVerify > 8192) { 
+                window.checkAchievement("war_machine");
+            }
+            const hour = new Date().getHours();
+            if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
+        }
 
         if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
             try {

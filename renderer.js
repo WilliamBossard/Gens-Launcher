@@ -82,7 +82,19 @@ window.applyTheme = function() {
     root.style.setProperty("--accent", th.accent);
 
     const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
+    root.style.setProperty("--panel-opacity", op);
+
     const appBg = document.getElementById("app-background");
+    if (appBg) {
+        if (th.bg && fs.existsSync(th.bg)) {
+            const safeBg = th.bg.replace(/\\/g, "/");
+            appBg.style.backgroundImage = `url("${safeBg}")`;
+            appBg.style.filter = `brightness(${1 - (th.dim || 0.5)}) blur(${th.blur || 5}px)`;
+        } else {
+            appBg.style.backgroundImage = "";
+            appBg.style.filter = "";
+        }
+    }
     
     if (store.globalSettings.disableAnimations) {
         document.body.classList.add("no-animations");

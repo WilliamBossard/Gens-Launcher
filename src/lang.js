@@ -451,6 +451,10 @@ const defaultFr = {
   adv_vip_desc: "Connecter un compte Microsoft officiel.",
   adv_kangaroo_name: "Kangourou",
   adv_kangaroo_desc: "Faire plus de 10 000 sauts en jeu.",
+  adv_polyglot_name: "Polyglotte",
+  adv_polyglot_desc: "Changer la langue du launcher.",
+  adv_warmachine_name: "Machine de Guerre",
+  adv_warmachine_desc: "Allouer plus de 8 Go de RAM à une instance.",
 };
 
 const defaultEn = {
@@ -901,6 +905,10 @@ const defaultEn = {
   adv_vip_desc: "Connect an official Microsoft account.",
   adv_kangaroo_name: "Kangaroo",
   adv_kangaroo_desc: "Jump more than 10,000 times in-game.",
+  adv_polyglot_name: "Polyglot",
+  adv_polyglot_desc: "Change the launcher's language.",
+  adv_warmachine_name: "War Machine",
+  adv_warmachine_desc: "Allocate more than 8 GB of RAM to an instance.",
 };
 
 export function setupLang() {
@@ -909,16 +917,8 @@ export function setupLang() {
         if (fs.existsSync(filePath)) {
             try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) {}
         }
-        let updated = false;
-        for (let key in defaultObj) {
-            if (current[key] === undefined) {
-                current[key] = defaultObj[key];
-                updated = true;
-            }
-        }
-        if (updated || !fs.existsSync(filePath)) {
-            fs.writeFileSync(filePath, JSON.stringify(current, null, 2));
-        }
+        const merged = Object.assign({}, current, defaultObj);
+        fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
     }
 
     syncLangFile(path.join(store.langDir, "fr.json"), defaultFr);
@@ -962,7 +962,7 @@ export function setupLang() {
         }
     };
 
-    window.changeLanguage = (code) => {
+window.changeLanguage = (code) => {
         store.globalSettings.language = code;
         if (window.safeWriteJSON) {
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
@@ -970,6 +970,10 @@ export function setupLang() {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         }
         window.loadLanguage(code);
+
+        if (window.checkAchievement) {
+            window.checkAchievement("polyglot");
+        }
     };
 
 window.saveFirstLaunch = () => {

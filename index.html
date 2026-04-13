@@ -1114,6 +1114,15 @@
             100% { transform: translateX(0); opacity: 1; }
         }
 
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to   { transform: translateX(150%); opacity: 0; }
+        }
+
+        .advancement-toast-exit {
+            animation: slideOutRight 0.5s ease-in forwards !important;
+        }
+
         .advancement-icon { width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0;}
         .advancement-text { display: flex; flex-direction: column; }
         .advancement-title { color: #FFFF55; font-size: 0.75rem; text-transform: uppercase; font-family: 'Consolas', monospace; }

@@ -79,6 +79,18 @@ export const ACHIEVEMENTS = [
         nameKey: "adv_kangaroo_name", 
         descKey: "adv_kangaroo_desc" 
     },
+    { 
+        id: "polyglot", 
+        icon: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a7 7 0 100 14A7 7 0 008 1zm0 12a5 5 0 110-10 5 5 0 010 10z' fill='%2355ff55'/%3E%3Cpath d='M5 8h6M8 5v6' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E", 
+        nameKey: "adv_polyglot_name", 
+        descKey: "adv_polyglot_desc" 
+    },
+    { 
+        id: "war_machine", 
+        icon: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 13l2-8 4-3 4 3 2 8z' fill='%23ff5555'/%3E%3Crect x='6' y='10' width='4' height='4' fill='%23000'/%3E%3C/svg%3E", 
+        nameKey: "adv_warmachine_name", 
+        descKey: "adv_warmachine_desc" 
+    },
 ];
 
 /**
@@ -117,12 +129,20 @@ export function checkAchievement(id) {
         </div>
     `;
     
+    if (store.globalSettings.disableAnimations) {
+        toast.style.animation = "none";
+    }
+
     container.appendChild(toast);
 
     setTimeout(() => {
-        toast.style.transition = "opacity 0.8s ease, transform 0.8s ease";
-        toast.style.opacity = "0";
-        toast.style.transform = "translateX(150%)"; 
-        setTimeout(() => toast.remove(), 800);
+        if (store.globalSettings.disableAnimations) {
+            toast.remove();
+            return;
+        }
+        toast.classList.add("advancement-toast-exit");
+        const onEnd = () => toast.remove();
+        toast.addEventListener("animationend", onEnd, { once: true });
+        setTimeout(onEnd, 700);
     }, 5000);
 }
