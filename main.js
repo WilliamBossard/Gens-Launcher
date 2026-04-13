@@ -8,6 +8,7 @@ const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
 
+// --- CONFIGURATION LINUX (SANDBOX) ---
 if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-setuid-sandbox');
@@ -34,6 +35,7 @@ function mainLog(msg) {
 }
 
 function createWindow() {
+    // Choix de l'icône selon la plateforme
     const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'assets', iconExt);
 
@@ -54,9 +56,7 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile("index.html");
     
-    // Log de vérification (optionnel, pour debugger dans tes logs)
     mainLog(`Fenêtre créée avec l'icône : ${iconPath}`);
-    
     fs.writeFileSync(logPath, "--- Gens Launcher Main Log ---\n");
 }
 
@@ -117,6 +117,18 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
+// --- GESTION DES MISES À JOUR (RESTART) ---
+ipcMain.on("restart_app", () => {
+    if (process.platform === 'linux') {
+        // Sur Linux, on quitte sans redémarrer pour laisser le .deb s'installer proprement
+        mainLog("Fermeture pour mise à jour sur Linux (sans redémarrage auto).");
+        autoUpdater.quitAndInstall(false, false);
+    } else {
+        // Sur Windows, on redémarre normalement
+        autoUpdater.quitAndInstall();
+    }
+});
+
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
         const tasks = instances.map(inst => {
@@ -168,6 +180,7 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
         return { success: true, data };
     } catch (e) { return { success: false, error: e.message }; }
 });
+
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
     return new Promise((resolve) => {
         execFile("tar", ["-xzf", archivePath, "-C", destDir], (err) => {
@@ -249,7 +262,6 @@ ipcMain.handle("check-for-updates", async () => {
 
 ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
-ipcMain.on("restart_app", () => { autoUpdater.quitAndInstall(); });
 ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
 ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
 
