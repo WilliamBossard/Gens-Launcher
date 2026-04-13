@@ -1,9 +1,10 @@
 {
   "name": "gens-launcher",
-  "version": "1.5.5",
-  "description": "Lanceur Minecraft open-source moderne et léger.",
+  "version": "1.5.7",
+  "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
-  "author": "William Bossard <ton-email@exemple.com>",
+  "author": "William Bossard <wbossard@free.fr>",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
@@ -38,7 +39,9 @@
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
@@ -52,15 +55,25 @@
       "uninstallDisplayName": "Désinstaller Gens Launcher"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Game",
       "icon": "assets/icon.png",
       "artifactName": "GensLauncher-${version}-${arch}.${ext}",
-      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"]
+      "executableArgs": [
+        "--no-sandbox",
+        "--disable-setuid-sandbox"
+      ],
+      "desktop": {
+        "Name": "Gens Launcher",
+        "Icon": "gens-launcher"
+      }
     },
     "deb": {
       "priority": "optional",
-      "maintainer": "William Bossard <ton-email@exemple.com>"
+      "maintainer": "William Bossard <wbossard@free.fr>"
     }
   }
 }
