@@ -117,45 +117,44 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
-// =====================================================================
-// --- GESTION DES MISES À JOUR : COPIE DANS TÉLÉCHARGEMENTS (LINUX) ---
-// =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Copie du .deb vers le dossier Téléchargements.");
+        mainLog("Linux : Lancement de la mise à jour...");
         
         if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
             try {
-                // 1. On trouve le vrai dossier "Téléchargements" de l'utilisateur
+                // 1. On place le fichier dans Téléchargements pour éviter les bugs de droits
                 const downloadsFolder = app.getPath("downloads");
-                
-                // 2. On crée un nom clair pour le fichier
                 const newFilePath = path.join(downloadsFolder, "GensLauncher-MiseAJour.deb");
                 
-                // 3. On copie le fichier caché vers ce dossier public
                 fs.copyFileSync(linuxUpdatePath, newFilePath);
-                mainLog("Fichier copié avec succès vers : " + newFilePath);
+                mainLog("Fichier copié vers : " + newFilePath);
 
-                // 4. On ouvre l'explorateur de fichiers en surlignant ce nouveau fichier
-                shell.showItemInFolder(newFilePath);
+                // 2. LA MAGIE EST ICI : On demande à l'OS d'ouvrir le fichier .deb
+                // Cela va automatiquement lancer le "Centre de logiciels" ou "l'Installeur de paquets" de Linux.
+                shell.openPath(newFilePath).then((error) => {
+                    if (error) {
+                        mainLog("Erreur ouverture auto : " + error);
+                        // Plan B si l'OS ne sait pas comment ouvrir un .deb : on ouvre le dossier
+                        shell.showItemInFolder(newFilePath);
+                    }
+                });
                 
             } catch (err) {
-                mainLog("Erreur lors de la copie du fichier : " + err.message);
-                // Si la copie rate, on ouvre le fichier d'origine par sécurité
-                shell.showItemInFolder(linuxUpdatePath);
+                mainLog("Erreur copie/ouverture : " + err.message);
             }
 
-            // 5. On ferme le launcher pour permettre l'installation
+            // 3. On ferme notre launcher pour libérer les fichiers et laisser l'installeur travailler
             setTimeout(() => {
                 app.quit();
-            }, 1000);
+            }, 2000); // 2 secondes de délai pour être sûr que l'installeur s'est bien lancé
 
         } else {
-            mainLog("Erreur : Fichier .deb introuvable sur le disque.");
+            mainLog("Erreur : Fichier .deb introuvable.");
             shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
         }
     } else {
-        // Sur Windows, on garde l'installation automatique
+        // Sur Windows, on garde l'installation invisible
         autoUpdater.quitAndInstall();
     }
 });
