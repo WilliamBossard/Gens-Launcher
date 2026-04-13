@@ -85,7 +85,10 @@ app.whenReady().then(() => {
     });
 
     try {
-        tray = new Tray(path.join(__dirname, "assets/icon.ico"));
+        const trayIcon = process.platform === 'win32'
+            ? path.join(__dirname, "assets/icon.ico")
+            : path.join(__dirname, "assets/icon.png");
+        tray = new Tray(trayIcon);
         const contextMenu = Menu.buildFromTemplate([
             { label: 'Afficher Gens Launcher', click: () => { if (mainWindow) mainWindow.show(); } },
             { type: 'separator' },
@@ -118,53 +121,65 @@ app.whenReady().then(() => {
 });
 
 // =====================================================================
-// --- GESTION DES MISES À JOUR : LA MÉTHODE PARFAITE (PKEXEC + APT) ---
+// --- GESTION DES MISES À JOUR LINUX ---
 // =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Installation via apt-get avec pkexec...");
-        
+
+        // --- CAS 1 : AppImage ---
+        // electron-updater gère le remplacement et le relancement nativement.
+        // Il suffit d'appeler quitAndInstall(), pas besoin de pkexec/dpkg.
+        if (process.env.APPIMAGE) {
+            mainLog("Linux AppImage : installation via autoUpdater.quitAndInstall()");
+            autoUpdater.quitAndInstall();
+            return;
+        }
+
+        // --- CAS 2 : paquet .deb ---
         if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
             try {
-                // 1. On déplace le fichier dans Téléchargements (dossier public).
-                // Cela contourne le blocage de sécurité de l'utilisateur "_apt".
+                // Copie dans ~/Téléchargements pour éviter le blocage de l'utilisateur _apt
                 const downloadsFolder = app.getPath("downloads");
-                const newFilePath = path.join(downloadsFolder, "GensLauncher-MiseAJour.deb");
-                
-                fs.copyFileSync(linuxUpdatePath, newFilePath);
-                mainLog("Fichier copié dans un dossier public : " + newFilePath);
+                const destPath = path.join(downloadsFolder, "GensLauncher-MiseAJour.deb");
+                fs.copyFileSync(linuxUpdatePath, destPath);
+                mainLog("Fichier .deb copié dans : " + destPath);
 
-                // 2. On lance l'installation avec 'apt-get'
-                const command = `pkexec apt-get install -y "${newFilePath}"`;
-                mainLog("Exécution : " + command);
-
-                exec(command, (error, stdout, stderr) => {
-                    if (error) {
-                        mainLog(`ERREUR d'installation : ${error.message}`);
-                        // Plan B : si erreur ou annulation, on ouvre le dossier
-                        shell.showItemInFolder(newFilePath);
-                        setTimeout(() => app.quit(), 1000);
-                        return;
-                    }
-                    
-                    mainLog(`Mise à jour réussie ! Redémarrage...`);
-                    // On relance la nouvelle version proprement
-                    setTimeout(() => {
+                // Tentative 1 : pkexec dpkg -i  (plus fiable qu'apt-get avec un fichier local)
+                exec(`pkexec dpkg -i "${destPath}"`, (err) => {
+                    if (!err) {
+                        mainLog("Installation dpkg réussie, redémarrage...");
                         app.relaunch();
                         app.exit(0);
-                    }, 1000);
+                        return;
+                    }
+
+                    mainLog(`pkexec dpkg échoué (${err.message}), tentative xdg-open...`);
+
+                    // Tentative 2 : ouvrir avec le gestionnaire de paquets graphique (GNOME Software, Discover…)
+                    exec(`xdg-open "${destPath}"`, (err2) => {
+                        if (err2) {
+                            // Plan C : afficher le fichier dans l'explorateur
+                            mainLog("xdg-open échoué, ouverture du dossier.");
+                            shell.showItemInFolder(destPath);
+                        } else {
+                            mainLog("Gestionnaire de paquets ouvert avec le .deb.");
+                        }
+                        // Dans tous les cas, on quitte pour laisser l'installateur travailler
+                        setTimeout(() => app.quit(), 1500);
+                    });
                 });
-                
+
             } catch (err) {
-                mainLog("Erreur fatale : " + err.message);
-                shell.showItemInFolder(linuxUpdatePath);
+                mainLog("Erreur fatale mise à jour deb : " + err.message);
+                shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
             }
         } else {
-            mainLog("Erreur : Fichier .deb introuvable.");
+            mainLog("Erreur : Fichier .deb introuvable, redirection vers GitHub.");
             shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
         }
+
     } else {
-        // Sur Windows, on garde l'installation invisible d'origine
+        // Windows : installation silencieuse via NSIS
         autoUpdater.quitAndInstall();
     }
 });
