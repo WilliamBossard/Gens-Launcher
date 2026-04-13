@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.4.7",
+  "version": "1.5.2",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
   "scripts": {
@@ -10,21 +10,7 @@
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux"
   },
-  "author": "Gens",
-  "license": "MIT",
-  "dependencies": {
-    "adm-zip": "^0.5.10",
-    "discord-rpc": "^4.0.1",
-    "electron-updater": "^6.8.3",
-    "minecraft-launcher-core": "^3.18.2",
-    "prismarine-auth": "^3.1.1",
-    "prismarine-nbt": "^2.2.1"
-  },
-  "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
-  },
-"build": {
+  "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
     "directories": {
@@ -57,19 +43,19 @@
       "category": "Game",
       "icon": "assets/icon.png",
       "artifactName": "GensLauncher-${version}-${arch}.${ext}",
-      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"],
-      "deb": {
-        "priority": "optional",
-        "depends": [
-          "libnss3",
-          "libatk1.0-0",
-          "libatk-bridge2.0-0",
-          "libcups2",
-          "libgtk-3-0",
-          "libgbm1",
-          "libasound2"
-        ]
-      }
+      "executableArgs": ["--no-sandbox", "--disable-setuid-sandbox"]
+    },
+    "deb": {
+      "priority": "optional",
+      "depends": [
+        "libnss3",
+        "libatk1.0-0",
+        "libatk-bridge2.0-0",
+        "libcups2",
+        "libgtk-3-0",
+        "libgbm1",
+        "libasound2"
+      ]
     }
   }
 }
