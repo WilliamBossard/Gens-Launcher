@@ -120,11 +120,19 @@ app.whenReady().then(() => {
 // --- GESTION DES MISES À JOUR (RESTART) ---
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        // Sur Linux, on quitte sans redémarrer pour laisser le .deb s'installer proprement
-        mainLog("Fermeture pour mise à jour sur Linux (sans redémarrage auto).");
+        mainLog("Linux : Lancement de l'installation du .deb...");
+        
+        // On demande l'installation sans redémarrage automatique immédiat
         autoUpdater.quitAndInstall(false, false);
+
+        // On force la fermeture du processus après un court délai pour
+        // empêcher toute tentative de redémarrage automatique fantôme.
+        setTimeout(() => {
+            mainLog("Linux : Fermeture forcée pour installation.");
+            app.exit(0); 
+        }, 500);
     } else {
-        // Sur Windows, on redémarre normalement
+        // Comportement standard sur Windows
         autoUpdater.quitAndInstall();
     }
 });
