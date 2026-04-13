@@ -1,9 +1,7 @@
 name: Build & Release Gens Launcher
 
-on:
-  push:
-    tags:
-      - 'v*'
+on: 
+  workflow_dispatch:
 
 jobs:
   build:
