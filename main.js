@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("ele
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { execFile, exec } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
@@ -117,44 +117,54 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
+// =====================================================================
+// --- GESTION DES MISES À JOUR : LA MÉTHODE PARFAITE (PKEXEC + APT) ---
+// =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Lancement de la mise à jour...");
+        mainLog("Linux : Installation via apt-get avec pkexec...");
         
         if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
             try {
-                // 1. On place le fichier dans Téléchargements pour éviter les bugs de droits
+                // 1. On déplace le fichier dans Téléchargements (dossier public).
+                // Cela contourne le blocage de sécurité de l'utilisateur "_apt".
                 const downloadsFolder = app.getPath("downloads");
                 const newFilePath = path.join(downloadsFolder, "GensLauncher-MiseAJour.deb");
                 
                 fs.copyFileSync(linuxUpdatePath, newFilePath);
-                mainLog("Fichier copié vers : " + newFilePath);
+                mainLog("Fichier copié dans un dossier public : " + newFilePath);
 
-                // 2. LA MAGIE EST ICI : On demande à l'OS d'ouvrir le fichier .deb
-                // Cela va automatiquement lancer le "Centre de logiciels" ou "l'Installeur de paquets" de Linux.
-                shell.openPath(newFilePath).then((error) => {
+                // 2. On lance l'installation avec 'apt-get'
+                const command = `pkexec apt-get install -y "${newFilePath}"`;
+                mainLog("Exécution : " + command);
+
+                exec(command, (error, stdout, stderr) => {
                     if (error) {
-                        mainLog("Erreur ouverture auto : " + error);
-                        // Plan B si l'OS ne sait pas comment ouvrir un .deb : on ouvre le dossier
+                        mainLog(`ERREUR d'installation : ${error.message}`);
+                        // Plan B : si erreur ou annulation, on ouvre le dossier
                         shell.showItemInFolder(newFilePath);
+                        setTimeout(() => app.quit(), 1000);
+                        return;
                     }
+                    
+                    mainLog(`Mise à jour réussie ! Redémarrage...`);
+                    // On relance la nouvelle version proprement
+                    setTimeout(() => {
+                        app.relaunch();
+                        app.exit(0);
+                    }, 1000);
                 });
                 
             } catch (err) {
-                mainLog("Erreur copie/ouverture : " + err.message);
+                mainLog("Erreur fatale : " + err.message);
+                shell.showItemInFolder(linuxUpdatePath);
             }
-
-            // 3. On ferme notre launcher pour libérer les fichiers et laisser l'installeur travailler
-            setTimeout(() => {
-                app.quit();
-            }, 2000); // 2 secondes de délai pour être sûr que l'installeur s'est bien lancé
-
         } else {
             mainLog("Erreur : Fichier .deb introuvable.");
             shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
         }
     } else {
-        // Sur Windows, on garde l'installation invisible
+        // Sur Windows, on garde l'installation invisible d'origine
         autoUpdater.quitAndInstall();
     }
 });
