@@ -8,6 +8,11 @@ const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
 
+if (process.platform === 'linux') {
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-setuid-sandbox');
+}
+
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 app.userAgentFallback = CHROME_UA;
 
@@ -15,10 +20,6 @@ const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "l
 
 let mainWindow;
 let tray = null; 
-
-if (process.platform === 'linux') {
-    app.commandLine.appendSwitch('no-sandbox');
-}
 
 const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
 if (!fs.existsSync(safeDataDir)) {
