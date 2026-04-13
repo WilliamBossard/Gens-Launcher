@@ -39,9 +39,18 @@
     ],
     "win": {
       "target": ["nsis"],
-      "icon": "assets/icon.ico",
-      "requestedExecutionLevel": "asInvoker",
-      "artifactName": "GensLauncher-Setup-${version}.${ext}"
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "uninstallDisplayName": "Désinstaller Gens Launcher",
+      "license": ""
     },
     "linux": {
       "target": ["AppImage", "tar.gz"],

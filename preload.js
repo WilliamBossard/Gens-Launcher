@@ -125,6 +125,9 @@ contextBridge.exposeInMainWorld("api", {
             rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
             cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
             unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 
+            
+            // --- LA LIGNE AJOUTÉE EST ICI ---
+            chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode)
         }
     },
     
@@ -147,7 +150,6 @@ contextBridge.exposeInMainWorld("api", {
     appData: _appPaths.appData,
     platform: _appPaths.platform, 
     version: _appPaths.version,
-
-    // Remplace file.path (supprimé dans Electron 32+)
+    
     getFilePath: (file) => webUtils.getPathForFile(file),
 });

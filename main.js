@@ -16,6 +16,10 @@ const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "l
 let mainWindow;
 let tray = null; 
 
+if (process.platform === 'linux') {
+    app.commandLine.appendSwitch('no-sandbox');
+}
+
 const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
 if (!fs.existsSync(safeDataDir)) {
     fs.mkdirSync(safeDataDir, { recursive: true });
