@@ -35,7 +35,6 @@ function mainLog(msg) {
 }
 
 function createWindow() {
-    // Choix de l'icône selon la plateforme
     const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'assets', iconExt);
 
@@ -117,22 +116,26 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
-// --- GESTION DES MISES À JOUR (RESTART) ---
+// --- GESTION DES MISES À JOUR (ANTI-REBOND LINUX) ---
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
-        mainLog("Linux : Lancement de l'installation du .deb...");
+        mainLog("Linux : Préparation de l'installation du .deb.");
         
-        // On demande l'installation sans redémarrage automatique immédiat
+        // On détruit manuellement la fenêtre pour éviter un crash au moment du exit
+        if (mainWindow) {
+            mainWindow.removeAllListeners('close');
+            mainWindow.destroy();
+        }
+
+        // On lance la commande d'installation
         autoUpdater.quitAndInstall(false, false);
 
-        // On force la fermeture du processus après un court délai pour
-        // empêcher toute tentative de redémarrage automatique fantôme.
+        // On attend 1.5s pour être sûr que le système a pris le relais
         setTimeout(() => {
-            mainLog("Linux : Fermeture forcée pour installation.");
-            app.exit(0); 
-        }, 500);
+            mainLog("Linux : Fermeture définitive via process.exit.");
+            process.exit(0); // Plus radical que app.exit
+        }, 1500);
     } else {
-        // Comportement standard sur Windows
         autoUpdater.quitAndInstall();
     }
 });
