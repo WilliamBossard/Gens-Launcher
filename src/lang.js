@@ -917,7 +917,13 @@ export function setupLang() {
         if (fs.existsSync(filePath)) {
             try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) {}
         }
+        
         const merged = Object.assign({}, current, defaultObj);
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
         fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
     }
 
