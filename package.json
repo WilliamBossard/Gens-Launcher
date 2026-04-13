@@ -1,9 +1,9 @@
 {
   "name": "gens-launcher",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Lanceur Minecraft open-source moderne et léger.",
   "main": "main.js",
-  "author": "William Bossard <ton-email@exemple.com>", 
+  "author": "William Bossard <ton-email@exemple.com>",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
@@ -60,16 +60,7 @@
     },
     "deb": {
       "priority": "optional",
-      "maintainer": "William Bossard <wbossard@free.fr>",
-      "depends": [
-        "libnss3",
-        "libatk1.0-0",
-        "libatk-bridge2.0-0",
-        "libcups2",
-        "libgtk-3-0",
-        "libgbm1",
-        "libasound2"
-      ]
+      "maintainer": "William Bossard <ton-email@exemple.com>"
     }
   }
 }
