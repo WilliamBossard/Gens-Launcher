@@ -8,13 +8,8 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
-// Convertit un chemin disque en URL file:// correcte sur toutes les plateformes.
-// Sur Linux/Mac : "/home/user/img.png" → "file:///home/user/img.png"  (3 slashs)
-// Sur Windows   : "C:/Users/img.png"   → "file:///C:/Users/img.png"   (3 slashs)
-// Le bug habituel ("file:///" + chemin-linux) donnait 4 slashs sur Linux.
 window.pathToFileUrl = (p) => {
     const normalized = p.replace(/\\/g, "/");
-    // Un chemin absolu Linux commence par "/", Windows par une lettre de lecteur.
     const prefix = normalized.startsWith("/") ? "file://" : "file:///";
     return prefix + encodeURI(normalized);
 };
@@ -71,8 +66,6 @@ window.copyLogs = () => {
     }
 };
 
-// Écriture JSON atomique : on écrit dans un fichier .tmp puis on renomme,
-// pour ne jamais corrompre le fichier destination si le processus est coupé.
 window.safeWriteJSON = (filePath, data) => {
     const tmp = filePath + ".tmp";
     try {
@@ -80,12 +73,10 @@ window.safeWriteJSON = (filePath, data) => {
         fs.renameSync(tmp, filePath);
     } catch(e) {
         sysLog("safeWriteJSON ERREUR sur " + filePath + " : " + e.message, true);
-        // Nettoyage du .tmp orphelin si la rename a échoué
         try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch(_) {}
     }
 };
 
-// Chargement initial de toutes les données persistées (instances, comptes, settings)
 window.loadStorage = () => {
     try {
         if (fs.existsSync(store.instanceFile))
@@ -103,7 +94,6 @@ window.loadStorage = () => {
     try {
         if (fs.existsSync(store.settingsFile)) {
             const saved = JSON.parse(fs.readFileSync(store.settingsFile, "utf8"));
-            // On fusionne pour ne pas perdre les nouvelles clés ajoutées dans le store par défaut
             store.globalSettings = Object.assign({}, store.globalSettings, saved);
         }
     } catch(e) { sysLog("Erreur lecture settings.json : " + e.message, true); }

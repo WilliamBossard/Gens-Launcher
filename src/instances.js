@@ -116,10 +116,6 @@ export function setupInstances() {
                 
                 const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
                 const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
-                
-                // Sur Linux le chemin commence par "/" : "file:///" + "/home/..." = 4 slashs (cassé).
-                // La forme correcte est "file://" + chemin-absolu (= "file:///home/..." avec 3 slashs).
-                // Sur Windows le chemin commence par "C:/" donc "file:///" est correct.
                 const imgUrl = window.pathToFileUrl(imgPath);
                 appBg.style.backgroundImage = `url("${imgUrl}")`;
                 appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;

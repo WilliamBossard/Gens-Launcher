@@ -201,7 +201,7 @@ export function setupSettings() {
                 for (let f of files) {
                     const full = path.join(dir, f);
                     const s = fs.statSync(full);
-                    if (s.isDirectory) findJava(full, depth + 1);  // isDirectory est déjà un booléen (exposé via preload)
+                    if (s.isDirectory) findJava(full, depth + 1);  
                     else if (f.toLowerCase() === javaExeName) {
                         let opt = document.createElement("option");
                         opt.value = full;
@@ -226,7 +226,6 @@ export function setupSettings() {
 
         try {
             const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
-            // Détection de l'architecture réelle : x64 par défaut, aarch64 pour ARM (Raspberry Pi, Apple M1 via Rosetta, etc.)
             const rawArch = window.api.arch || "x64";
             const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
             const ext = (platform === "windows") ? ".zip" : ".tar.gz";
@@ -236,7 +235,6 @@ export function setupSettings() {
             const res = await fetch(url);
             if (!res.ok) throw new Error("Version de Java introuvable.");
             
-            // Correction Buffer -> Uint8Array pour compatibilité Electron moderne
             fs.writeFileSync(archivePath, new Uint8Array(await res.arrayBuffer()));
             
             window.showLoading(t("msg_extract_java"));
@@ -259,7 +257,6 @@ export function setupSettings() {
                 for (let f of fs.readdirSync(dir)) {
                     const full = path.join(dir, f);
                     const stat = fs.statSync(full);
-                    // Le preload expose isDirectory comme un booléen (pas une fonction)
                     if (stat.isDirectory) { const r = findExe(full); if (r) return r; }
                     else if (f.toLowerCase() === javaExe) return full;
                 }

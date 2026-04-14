@@ -8,7 +8,6 @@ const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
 
-// --- CONFIGURATION LINUX (SANDBOX) ---
 if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-setuid-sandbox');
@@ -21,7 +20,7 @@ const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "l
 
 let mainWindow;
 let tray = null; 
-let linuxUpdatePath = null; // Stocke le chemin du fichier .deb caché
+let linuxUpdatePath = null; 
 
 const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
 if (!fs.existsSync(safeDataDir)) {
@@ -120,31 +119,22 @@ app.whenReady().then(() => {
     }, 3000);
 });
 
-// =====================================================================
-// --- GESTION DES MISES À JOUR LINUX ---
-// =====================================================================
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
 
-        // --- CAS 1 : AppImage ---
-        // electron-updater gère le remplacement et le relancement nativement.
-        // Il suffit d'appeler quitAndInstall(), pas besoin de pkexec/dpkg.
         if (process.env.APPIMAGE) {
             mainLog("Linux AppImage : installation via autoUpdater.quitAndInstall()");
             autoUpdater.quitAndInstall();
             return;
         }
 
-        // --- CAS 2 : paquet .deb ---
         if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
             try {
-                // Copie dans ~/Téléchargements pour éviter le blocage de l'utilisateur _apt
                 const downloadsFolder = app.getPath("downloads");
                 const destPath = path.join(downloadsFolder, "GensLauncher-MiseAJour.deb");
                 fs.copyFileSync(linuxUpdatePath, destPath);
                 mainLog("Fichier .deb copié dans : " + destPath);
 
-                // Tentative 1 : pkexec dpkg -i  (plus fiable qu'apt-get avec un fichier local)
                 exec(`pkexec dpkg -i "${destPath}"`, (err) => {
                     if (!err) {
                         mainLog("Installation dpkg réussie, redémarrage...");
@@ -155,16 +145,13 @@ ipcMain.on("restart_app", () => {
 
                     mainLog(`pkexec dpkg échoué (${err.message}), tentative xdg-open...`);
 
-                    // Tentative 2 : ouvrir avec le gestionnaire de paquets graphique (GNOME Software, Discover…)
                     exec(`xdg-open "${destPath}"`, (err2) => {
                         if (err2) {
-                            // Plan C : afficher le fichier dans l'explorateur
                             mainLog("xdg-open échoué, ouverture du dossier.");
                             shell.showItemInFolder(destPath);
                         } else {
                             mainLog("Gestionnaire de paquets ouvert avec le .deb.");
                         }
-                        // Dans tous les cas, on quitte pour laisser l'installateur travailler
                         setTimeout(() => app.quit(), 1500);
                     });
                 });
@@ -179,11 +166,9 @@ ipcMain.on("restart_app", () => {
         }
 
     } else {
-        // Windows : installation silencieuse via NSIS
         autoUpdater.quitAndInstall();
     }
 });
-// =====================================================================
 
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
@@ -325,7 +310,6 @@ autoUpdater.on("update-available", (info) => { if (mainWindow) mainWindow.webCon
 autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { text: "Gens Launcher est à jour !", type: "success" }); });
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
 
-// ON RÉCUPÈRE LE CHEMIN DU FICHIER TÉLÉCHARGÉ DANS LE CACHE
 autoUpdater.on("update-downloaded", (info) => { 
     if (info && info.downloadedFile) {
         linuxUpdatePath = info.downloadedFile;

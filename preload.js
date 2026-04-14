@@ -125,8 +125,6 @@ contextBridge.exposeInMainWorld("api", {
             rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
             cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
             unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 
-            
-            // --- LA LIGNE AJOUTÉE EST ICI ---
             chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode)
         }
     },

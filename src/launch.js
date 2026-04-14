@@ -333,16 +333,6 @@ export function setupLauncher() {
             windowHidden = false;
         }
 
-        try {
-            const notif = new Notification("Gens Launcher", {
-                body: code === 0
-                    ? t("msg_game_closed_normal", `${instanceId} s'est fermé normalement.`).replace("{name}", instanceId)
-                    : t("msg_game_closed_error", `Le jeu s'est arrêté avec une erreur (code ${code}).`).replace("{code}", String(code)),
-                silent: true
-            });
-            notif.onclick = () => { ipcRenderer.send("show-window"); };
-        } catch(e) {}
-
         window.setUIState();
         if (window.renderUI) window.renderUI(); 
     }); 
@@ -396,7 +386,6 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         if (ramMB < 128) ramMB = ramMB * 1024;
         ramMB = Math.max(1024, ramMB);
 
-        // "javaw" est un exécutable Windows uniquement. Sur Linux/Mac, l'exe s'appelle "java".
         const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
         let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaExe;
         
@@ -415,7 +404,6 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         sysLog(`Version de Minecraft: ${inst.version} -> Java requis: Java ${requiredJava}`);
 
         document.getElementById("status-text").innerText = t("msg_check_java", "Vérification de Java...");
-        // Pour tester la version on utilise toujours "java" (pas "javaw" qui n'a pas de sortie console)
         let javaToTest = (jPath === "javaw" || jPath === "java") ? "java" : jPath;
         if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.slice(0, -9) + "java.exe";
         else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.slice(0, -5) + "java";
