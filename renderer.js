@@ -1,4 +1,5 @@
 import { store } from "./src/store.js";
+import "./src/utils.js";
 import { initRPC } from "./src/discord.js";
 import { setupAuth } from "./src/auth.js";
 import { setupMods } from "./src/mods.js";
@@ -87,8 +88,7 @@ window.applyTheme = function() {
     const appBg = document.getElementById("app-background");
     if (appBg) {
         if (th.bg && fs.existsSync(th.bg)) {
-            const safeBg = th.bg.replace(/\\/g, "/");
-            appBg.style.backgroundImage = `url("${safeBg}")`;
+            appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;
             appBg.style.filter = `brightness(${1 - (th.dim || 0.5)}) blur(${th.blur || 5}px)`;
         } else {
             appBg.style.backgroundImage = "";

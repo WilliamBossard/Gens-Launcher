@@ -203,7 +203,7 @@ ipcMain.on("update-jump-list", (event, instances) => {
 });
 
 ipcMain.on("get-paths-sync", (event) => {
-    event.returnValue = { appData: app.getPath("appData"), platform: process.platform, version: app.getVersion() };
+    event.returnValue = { appData: app.getPath("appData"), platform: process.platform, arch: process.arch, version: app.getVersion() };
 });
 
 ipcMain.handle("get-still-running", async () => {

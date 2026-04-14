@@ -148,7 +148,8 @@ contextBridge.exposeInMainWorld("api", {
     },
     
     appData: _appPaths.appData,
-    platform: _appPaths.platform, 
+    platform: _appPaths.platform,
+    arch: _appPaths.arch,
     version: _appPaths.version,
     
     getFilePath: (file) => webUtils.getPathForFile(file),

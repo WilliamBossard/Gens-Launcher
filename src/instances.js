@@ -117,7 +117,11 @@ export function setupInstances() {
                 const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
                 const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
                 
-                appBg.style.backgroundImage = `url("file:///${encodeURI(imgPath)}")`;
+                // Sur Linux le chemin commence par "/" : "file:///" + "/home/..." = 4 slashs (cassé).
+                // La forme correcte est "file://" + chemin-absolu (= "file:///home/..." avec 3 slashs).
+                // Sur Windows le chemin commence par "C:/" donc "file:///" est correct.
+                const imgUrl = window.pathToFileUrl(imgPath);
+                appBg.style.backgroundImage = `url("${imgUrl}")`;
                 appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;
                 
                 root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
@@ -472,7 +476,7 @@ export function setupInstances() {
             
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
-                inst.icon = "file:///" + encodeURI(newIconPath.replace(/\\/g, "/"));
+                inst.icon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
             } catch(e) {}
             store.pendingIconPath = null;
         } else {
@@ -565,7 +569,7 @@ export function setupInstances() {
         if (file) {
             const filePath = window.api.getFilePath(file);
             store.pendingIconPath = filePath;
-            const localPath = "file:///" + encodeURI(filePath.replace(/\\/g, "/"));
+            const localPath = window.pathToFileUrl(filePath.replace(/\\/g, "/"));
             document.getElementById("edit-icon-preview").src = localPath;
         }
         input.value = "";

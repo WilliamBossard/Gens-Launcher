@@ -201,7 +201,7 @@ export function setupSettings() {
                 for (let f of files) {
                     const full = path.join(dir, f);
                     const s = fs.statSync(full);
-                    if (s.isDirectory) findJava(full, depth + 1);
+                    if (s.isDirectory) findJava(full, depth + 1);  // isDirectory est déjà un booléen (exposé via preload)
                     else if (f.toLowerCase() === javaExeName) {
                         let opt = document.createElement("option");
                         opt.value = full;
@@ -226,9 +226,12 @@ export function setupSettings() {
 
         try {
             const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
+            // Détection de l'architecture réelle : x64 par défaut, aarch64 pour ARM (Raspberry Pi, Apple M1 via Rosetta, etc.)
+            const rawArch = window.api.arch || "x64";
+            const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
             const ext = (platform === "windows") ? ".zip" : ".tar.gz";
             const archivePath = path.join(javaDir, `jre${version}${ext}`);
-            const url = `https://api.adoptium.net/v3/binary/latest/${version}/ga/${platform}/x64/jre/hotspot/normal/eclipse`;
+            const url = `https://api.adoptium.net/v3/binary/latest/${version}/ga/${platform}/${arch}/jre/hotspot/normal/eclipse`;
 
             const res = await fetch(url);
             if (!res.ok) throw new Error("Version de Java introuvable.");
@@ -255,14 +258,16 @@ export function setupSettings() {
             function findExe(dir) {
                 for (let f of fs.readdirSync(dir)) {
                     const full = path.join(dir, f);
-                    if (fs.statSync(full).isDirectory) { const r = findExe(full); if(r) return r; }
+                    const stat = fs.statSync(full);
+                    // Le preload expose isDirectory comme un booléen (pas une fonction)
+                    if (stat.isDirectory) { const r = findExe(full); if (r) return r; }
                     else if (f.toLowerCase() === javaExe) return full;
                 }
             }
             
             const exePath = findExe(extractDir);
             if (exePath) {
-                if (platform !== "windows") fs.promises.chmod(exePath, 0o755);
+                if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
                 store.globalSettings.defaultJavaPath = exePath;
                 window.safeWriteJSON(store.settingsFile, store.globalSettings);
                 window.showToast(t("msg_java_installed_success"), "success");

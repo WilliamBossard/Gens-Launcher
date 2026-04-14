@@ -396,7 +396,9 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         if (ramMB < 128) ramMB = ramMB * 1024;
         ramMB = Math.max(1024, ramMB);
 
-        let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || "javaw";
+        // "javaw" est un exécutable Windows uniquement. Sur Linux/Mac, l'exe s'appelle "java".
+        const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
+        let jPath = inst.javaPath && inst.javaPath.trim() !== "" ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaExe;
         
         let customArgs = inst.jvmArgs && inst.jvmArgs.trim() !== "" ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
         
@@ -413,9 +415,10 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         sysLog(`Version de Minecraft: ${inst.version} -> Java requis: Java ${requiredJava}`);
 
         document.getElementById("status-text").innerText = t("msg_check_java", "Vérification de Java...");
-        let javaToTest = jPath === "javaw" ? "java" : jPath;
-        if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.substring(0, javaToTest.length - 9) + "java.exe";
-        else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.substring(0, javaToTest.length - 5) + "java";
+        // Pour tester la version on utilise toujours "java" (pas "javaw" qui n'a pas de sortie console)
+        let javaToTest = (jPath === "javaw" || jPath === "java") ? "java" : jPath;
+        if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.slice(0, -9) + "java.exe";
+        else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.slice(0, -5) + "java";
 
         const res = await ipcRenderer.invoke("check-java", javaToTest);
         const errorStr = (res.err ? res.err.message + res.stdout + res.stderr : "").toLowerCase();
