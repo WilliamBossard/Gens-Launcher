@@ -482,13 +482,21 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         };
 
         if (inst.autoConnect) {
-            const parts = inst.autoConnect.split(":");
-            const srvHost = parts[0];
-            const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
-            opts.server = { host: srvHost, port: srvPort };
-            const minorVer = parseInt(inst.version.split('.')[1]) || 0;
-            if (minorVer >= 20) {
-                opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+            const autoConnectValid = /^[a-zA-Z0-9.\-]+(:\d{1,5})?$/.test(inst.autoConnect.trim());
+            if (!autoConnectValid) {
+                sysLog(`autoConnect ignoré : format invalide "${inst.autoConnect}"`, true);
+                window.showToast(t("msg_err_autoconnect", "Adresse de connexion automatique invalide, ignorée."), "error");
+            } else {
+                const parts = inst.autoConnect.split(":");
+                const srvHost = parts[0];
+                const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
+                if (srvHost && srvPort >= 1 && srvPort <= 65535) {
+                    opts.server = { host: srvHost, port: srvPort };
+                    const minorVer = parseInt(inst.version.split('.')[1]) || 0;
+                    if (minorVer >= 20) {
+                        opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+                    }
+                }
             }
         }
 
@@ -554,7 +562,17 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
                     document.getElementById("status-text").innerText = `${t("msg_dl_loader", "Téléchargement de ")}${inst.loader} (Patientez)...`;
                     await yieldUI();
                     let downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${inst.version}-${inst.loaderVersion}/forge-${inst.version}-${inst.loaderVersion}-installer.jar`;
-                    if (inst.loader === "neoforge") downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${inst.loaderVersion}/neoforge-${inst.loaderVersion}-installer.jar`;
+                    let sha1Url   = `https://maven.minecraftforge.net/net/minecraftforge/forge/${inst.version}-${inst.loaderVersion}/forge-${inst.version}-${inst.loaderVersion}-installer.jar.sha1`;
+                    if (inst.loader === "neoforge") {
+                        downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${inst.loaderVersion}/neoforge-${inst.loaderVersion}-installer.jar`;
+                        sha1Url     = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${inst.loaderVersion}/neoforge-${inst.loaderVersion}-installer.jar.sha1`;
+                    }
+
+                    let expectedSha1 = null;
+                    try {
+                        const shaRes = await fetch(sha1Url);
+                        if (shaRes.ok) expectedSha1 = (await shaRes.text()).trim().toLowerCase().split(/\s/)[0];
+                    } catch(e) { sysLog("Impossible de récupérer le hash SHA1 officiel : " + e.message, true); }
 
                     sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
                     let res = await fetch(downloadUrl);
@@ -575,13 +593,31 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
 
                     try {
                         const buffer = await res.arrayBuffer();
-                        fs.writeFileSync(installerPath, new Uint8Array(buffer));
+                        const fileBytes = new Uint8Array(buffer);
+
+                        if (expectedSha1) {
+                            document.getElementById("status-text").innerText = t("msg_verify_hash", "Vérification de l'intégrité...");
+                            const actualSha1 = window.api.tools.hashBuffer(fileBytes, "sha1");
+                            if (actualSha1 !== expectedSha1) {
+                                throw new Error(
+                                    `Échec de la vérification SHA1 de l'installeur ${inst.loader} !\n` +
+                                    `Attendu : ${expectedSha1}\nObtenu  : ${actualSha1}\n` +
+                                    `Le fichier pourrait être corrompu ou altéré.`
+                                );
+                            }
+                            sysLog(`Hash SHA1 vérifié avec succès pour ${inst.loader} ${inst.loaderVersion}.`);
+                        } else {
+                            sysLog(`Avertissement : hash SHA1 non disponible, vérification ignorée pour ${inst.loader}.`, true);
+                        }
+
+                        fs.writeFileSync(installerPath, fileBytes);
                         document.getElementById("progress-bar").style.width = "100%";
                         document.getElementById("status-text").innerText = t("msg_dl_complete", "Téléchargement terminé !");
                     } finally { clearInterval(fakeProgress); }
                     sysLog(`Installeur ${inst.loader} téléchargé avec succès.`);
                 } catch (err) {
                     sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
+                    try { if (fs.existsSync(installerPath)) fs.unlinkSync(installerPath); } catch(_) {}
                     window.showToast(t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
                     document.getElementById("status-text").innerText = t("status_ready", "Prêt");
                     return;
@@ -601,7 +637,6 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         document.getElementById("status-text").innerText = t("msg_prep_files", "Préparation des fichiers...");
         
         store.activeInstances.add(inst.name);
-        window.checkAchievement("first_launch");
         store.primaryRpcInstance = inst.name; 
         window.setUIState();
         if (window.renderUI) window.renderUI(); 

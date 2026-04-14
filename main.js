@@ -27,6 +27,7 @@ if (!fs.existsSync(safeDataDir)) {
     fs.mkdirSync(safeDataDir, { recursive: true });
 }
 const logPath = path.join(safeDataDir, "main-process.log");
+fs.writeFileSync(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
 
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
@@ -56,7 +57,6 @@ function createWindow() {
     mainWindow.loadFile("index.html");
     
     mainLog(`Fenêtre créée avec l'icône : ${iconPath}`);
-    fs.writeFileSync(logPath, "--- Gens Launcher Main Log ---\n");
 }
 
 app.whenReady().then(() => {
@@ -135,7 +135,7 @@ ipcMain.on("restart_app", () => {
                 fs.copyFileSync(linuxUpdatePath, destPath);
                 mainLog("Fichier .deb copié dans : " + destPath);
 
-                exec(`pkexec dpkg -i "${destPath}"`, (err) => {
+                execFile("pkexec", ["dpkg", "-i", destPath], (err) => {
                     if (!err) {
                         mainLog("Installation dpkg réussie, redémarrage...");
                         app.relaunch();
@@ -145,7 +145,7 @@ ipcMain.on("restart_app", () => {
 
                     mainLog(`pkexec dpkg échoué (${err.message}), tentative xdg-open...`);
 
-                    exec(`xdg-open "${destPath}"`, (err2) => {
+                    execFile("xdg-open", [destPath], (err2) => {
                         if (err2) {
                             mainLog("xdg-open échoué, ouverture du dossier.");
                             shell.showItemInFolder(destPath);
@@ -223,6 +223,28 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
 });
 
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
+    if (process.platform === "win32" && archivePath.endsWith(".zip")) {
+        try {
+            const AdmZip = require("adm-zip");
+            const z = new AdmZip(archivePath);
+            z.getEntries().forEach(entry => {
+                const entryPath = require("path").resolve(destDir, entry.entryName);
+                if (!entryPath.startsWith(destDir + require("path").sep) && entryPath !== destDir) {
+                    mainLog("ZIP SLIP bloqué : " + entry.entryName);
+                    return;
+                }
+                if (entry.isDirectory) {
+                    fs.mkdirSync(entryPath, { recursive: true });
+                } else {
+                    fs.mkdirSync(require("path").dirname(entryPath), { recursive: true });
+                    fs.writeFileSync(entryPath, z.readFile(entry.entryName));
+                }
+            });
+            return { success: true };
+        } catch(e) {
+            return { success: false, error: e.message };
+        }
+    }
     return new Promise((resolve) => {
         execFile("tar", ["-xzf", archivePath, "-C", destDir], (err) => {
             if (err) resolve({ success: false, error: err.message });
@@ -462,10 +484,34 @@ ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
 });
 
 const discordClientId = "1490353507218227301";
-let rpc = new DiscordRPC.Client({ transport: "ipc" });
+let rpc = null;
 let rpcReady = false;
-rpc.login({ clientId: discordClientId }).then(() => { rpcReady = true; }).catch(() => {});
-ipcMain.on("update-discord", (event, data) => { if (!rpcReady) return; if (data === "clear") { rpc.clearActivity().catch(()=>{}); return; } rpc.setActivity(data).catch(()=>{}); });
+let rpcReconnectTimer = null;
+
+function connectRPC() {
+    if (rpcReconnectTimer) { clearTimeout(rpcReconnectTimer); rpcReconnectTimer = null; }
+    rpc = new DiscordRPC.Client({ transport: "ipc" });
+    rpc.on("ready", () => {
+        rpcReady = true;
+        mainLog("Discord RPC connecté.");
+    });
+    rpc.on("disconnected", () => {
+        rpcReady = false;
+        mainLog("Discord RPC déconnecté, tentative de reconnexion dans 15s...");
+        rpcReconnectTimer = setTimeout(connectRPC, 15000);
+    });
+    rpc.login({ clientId: discordClientId }).catch(() => {
+        rpcReady = false;
+        rpcReconnectTimer = setTimeout(connectRPC, 15000);
+    });
+}
+connectRPC();
+
+ipcMain.on("update-discord", (event, data) => {
+    if (!rpcReady || !rpc) return;
+    if (data === "clear") { rpc.clearActivity().catch(() => {}); return; }
+    rpc.setActivity(data).catch(() => {});
+});
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
