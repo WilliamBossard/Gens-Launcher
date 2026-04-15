@@ -296,6 +296,21 @@ function getModWarnings(inst) {
     window.addServer = async () => {
         const ip = document.getElementById("new-server-ip").value.trim();
         if (!ip) return;
+
+        const serverValid = /^[a-zA-Z0-9.\-]+(:\d{1,5})?$/.test(ip);
+        if (!serverValid) {
+            window.showToast(t("msg_err_server_invalid", "Adresse de serveur invalide."), "error");
+            return;
+        }
+        const portMatch = ip.match(/:(\d+)$/);
+        if (portMatch) {
+            const port = parseInt(portMatch[1], 10);
+            if (port < 1 || port > 65535) {
+                window.showToast(t("msg_err_server_invalid", "Port invalide (1-65535)."), "error");
+                return;
+            }
+        }
+
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst.servers) inst.servers = [];
         if (!inst.servers.includes(ip)) {
@@ -380,7 +395,7 @@ function getModWarnings(inst) {
             const statusDiv = document.getElementById(`srv-ping-${i}`);
             if (!statusDiv) continue;
             try {
-                const res = await fetch(`https://api.mcsrvstat.us/3/${ip}`);
+                const res = await fetch(`https://api.mcsrvstat.us/3/${encodeURIComponent(ip)}`);
                 const data = await res.json();
                 const formatNum = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
                 if (data.online)
@@ -520,8 +535,19 @@ function getModWarnings(inst) {
                     clearTimeout(dlTimeout);
                 }
 
+                const fileBytes = new Uint8Array(buffer);
+
+                if (update.newFileObj.hashes?.sha1) {
+                    const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                    if (dlHash !== update.newFileObj.hashes.sha1) {
+                        sysLog(`SÉCURITÉ : hash SHA1 invalide pour la mise à jour ${update.newFileObj.filename} (attendu: ${update.newFileObj.hashes.sha1}, reçu: ${dlHash})`, true);
+                        window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${update.newFileObj.filename}`, "error");
+                        continue;
+                    }
+                }
+
                 const tmpPath = newPath + ".tmp";
-                fs.writeFileSync(tmpPath, new Uint8Array(buffer));
+                fs.writeFileSync(tmpPath, fileBytes);
                 fs.renameSync(tmpPath, newPath);
 
                 if (oldPath !== newPath && fs.existsSync(oldPath)) {

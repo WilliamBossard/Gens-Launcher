@@ -230,12 +230,44 @@ export function setupSettings() {
             const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
             const ext = (platform === "windows") ? ".zip" : ".tar.gz";
             const archivePath = path.join(javaDir, `jre${version}${ext}`);
-            const url = `https://api.adoptium.net/v3/binary/latest/${version}/ga/${platform}/${arch}/jre/hotspot/normal/eclipse`;
+            const baseParams = `${version}/ga/${platform}/${arch}/jre/hotspot/normal/eclipse`;
+            const url         = `https://api.adoptium.net/v3/binary/latest/${baseParams}`;
+            const checksumUrl = `https://api.adoptium.net/v3/checksum/latest/${baseParams}`;
+
+            let expectedSha256 = null;
+            try {
+                const shaRes = await fetch(checksumUrl);
+                if (shaRes.ok) {
+                    const shaText = (await shaRes.text()).trim();
+                    expectedSha256 = shaText.split(/\s+/)[0].toLowerCase();
+                    sysLog(`Hash SHA256 Adoptium récupéré pour Java ${version} : ${expectedSha256}`);
+                }
+            } catch (e) {
+                sysLog(`Impossible de récupérer le hash SHA256 Adoptium : ${e.message}`, true);
+            }
 
             const res = await fetch(url);
             if (!res.ok) throw new Error("Version de Java introuvable.");
             
-            fs.writeFileSync(archivePath, new Uint8Array(await res.arrayBuffer()));
+            const fileBytes = new Uint8Array(await res.arrayBuffer());
+
+            if (expectedSha256) {
+                window.showLoading(t("msg_verify_hash", "Vérification de l'intégrité..."));
+                await yieldUI();
+                const actualSha256 = window.api.tools.hashBuffer(fileBytes, "sha256");
+                if (actualSha256 !== expectedSha256) {
+                    throw new Error(
+                        `Échec de la vérification SHA256 du binaire Java ${version} !\n` +
+                        `Attendu : ${expectedSha256}\nObtenu  : ${actualSha256}\n` +
+                        `Le fichier pourrait être corrompu ou altéré.`
+                    );
+                }
+                sysLog(`Hash SHA256 vérifié avec succès pour Java ${version}.`);
+            } else {
+                sysLog(`Avertissement : hash SHA256 non disponible, vérification ignorée pour Java ${version}.`, true);
+            }
+
+            fs.writeFileSync(archivePath, fileBytes);
             
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
@@ -272,6 +304,8 @@ export function setupSettings() {
             }
             throw new Error("Exécutable Java introuvable.");
         } catch (e) {
+            const archivePath = path.join(store.dataDir, "java", `jre${version}${window.api.platform === "win32" ? ".zip" : ".tar.gz"}`);
+            try { if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath); } catch(_) {}
             window.showToast(t("msg_err_java") + " : " + e.message, "error");
             return null;
         } finally { window.hideLoading(); }
