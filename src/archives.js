@@ -225,7 +225,20 @@ export function setupArchives() {
                         const res = await fetch(downloadUrl);
                         if (res.ok) {
                             const buffer = await res.arrayBuffer();
-                            fs.writeFileSync(modPath, new Uint8Array(buffer));
+                            const fileBytes = new Uint8Array(buffer);
+
+                            if (modFile.hashes?.sha1) {
+                                const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                                if (dlHash !== modFile.hashes.sha1) {
+                                    sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${modFile.path} (attendu: ${modFile.hashes.sha1}, reçu: ${dlHash})`, true);
+                                    window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${path.basename(modFile.path)}`, "error");
+                                    downloadedCount++;
+                                    window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+                                    continue;
+                                }
+                            }
+
+                            fs.writeFileSync(modPath, fileBytes);
                         }
                     } catch (e) {
                         sysLog(`Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`, true);

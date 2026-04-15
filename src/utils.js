@@ -77,29 +77,6 @@ window.safeWriteJSON = (filePath, data) => {
     }
 };
 
-window.loadStorage = () => {
-    try {
-        if (fs.existsSync(store.instanceFile))
-            store.allInstances = JSON.parse(fs.readFileSync(store.instanceFile, "utf8"));
-    } catch(e) { sysLog("Erreur lecture instances.json : " + e.message, true); store.allInstances = []; }
-
-    try {
-        if (fs.existsSync(store.accountFile)) {
-            const acc = JSON.parse(fs.readFileSync(store.accountFile, "utf8"));
-            store.allAccounts = acc.list || [];
-            store.selectedAccountIdx = acc.lastUsed !== undefined ? acc.lastUsed : null;
-        }
-    } catch(e) { sysLog("Erreur lecture accounts.json : " + e.message, true); store.allAccounts = []; }
-
-    try {
-        if (fs.existsSync(store.settingsFile)) {
-            const saved = JSON.parse(fs.readFileSync(store.settingsFile, "utf8"));
-            store.globalSettings = Object.assign({}, store.globalSettings, saved);
-        }
-    } catch(e) { sysLog("Erreur lecture settings.json : " + e.message, true); }
-};
-
-
 window.showToast = (msg, type = "info") => {
     const container = document.getElementById("toast-container");
     if (!container) return;

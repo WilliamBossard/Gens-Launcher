@@ -231,7 +231,8 @@ function setupMods() {
               if (mrpackFile) file = mrpackFile;
 
               statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
-              const tempPath = path.join(store.dataDir, file.filename);
+              const safeTempName = sanitizeFilename(file.filename || "modpack.mrpack");
+              const tempPath = path.join(store.dataDir, safeTempName);
               const buffer = await (await fetch(file.url)).arrayBuffer();
               fs.writeFileSync(tempPath, new Uint8Array(buffer));
 

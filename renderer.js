@@ -183,7 +183,7 @@ window.checkServerStatus = async () => {
     }
 
     try {
-        const res = await fetch(`https://api.mcstatus.io/v2/status/java/${ip}`);
+        const res = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(ip)}`);
         const data = await res.json();
         
         if (data.online) {

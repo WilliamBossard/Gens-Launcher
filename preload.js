@@ -12,29 +12,13 @@ const _ipcListeners = {};
 
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 
-const _readAllowlist = [
-    path.join(_appPaths.appData, "GensLauncher"), // dataDir complet
-];
-
 function enforceSandbox(p) {
     const resolved = path.resolve(p);
     if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
         console.error(`SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
         throw new Error("Accès refusé par le système de sécurité du Launcher.");
     }
-    return resolved;
-}
-
-function enforceSandboxRead(p) {
-    const resolved = path.resolve(p);
-    const allowed = _readAllowlist.some(
-        base => resolved.startsWith(base + path.sep) || resolved === base
-    );
-    if (!allowed) {
-        console.error(`SÉCURITÉ : Tentative de lecture bloquée vers ${resolved}`);
-        throw new Error("Lecture refusée par le système de sécurité du Launcher.");
-    }
-    return resolved;
+    return resolved; 
 }
 
 function safeExternalUrl(url) {
@@ -114,11 +98,11 @@ contextBridge.exposeInMainWorld("api", {
     },
     
     fs: {
-        existsSync: (p) => fs.existsSync(enforceSandboxRead(p)),
-        readFileSync: (p, enc) => fs.readFileSync(enforceSandboxRead(p), enc),
-        readdirSync: (p) => fs.readdirSync(enforceSandboxRead(p)),
+        existsSync: (p) => fs.existsSync(p),
+        readFileSync: (p, enc) => fs.readFileSync(p, enc),
+        readdirSync: (p) => fs.readdirSync(p),
         statSync: (p) => {
-            const s = fs.statSync(enforceSandboxRead(p));
+            const s = fs.statSync(p);
             return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
         },
 
@@ -128,18 +112,19 @@ contextBridge.exposeInMainWorld("api", {
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
         renameSync: (p, n) => fs.renameSync(enforceSandbox(p), enforceSandbox(n)),
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
-        copyFileSync: (src, dest) => fs.copyFileSync(enforceSandboxRead(src), enforceSandbox(dest)),
+        
+        copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
 
         promises: {
-            readFile: (p, enc) => fs.promises.readFile(enforceSandboxRead(p), enc),
-            readdir: (p) => fs.promises.readdir(enforceSandboxRead(p)),
+            readFile: (p, enc) => fs.promises.readFile(p, enc),
+            readdir: (p) => fs.promises.readdir(p),
             stat: async (p) => {
-                const s = await fs.promises.stat(enforceSandboxRead(p));
+                const s = await fs.promises.stat(p);
                 return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
             },
-            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts),
-            cp: (s, d, o) => fs.promises.cp(enforceSandboxRead(s), enforceSandbox(d), o),
-            unlink: (p) => fs.promises.unlink(enforceSandbox(p)),
+            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
+            cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
+            unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 
             chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode)
         }
     },
