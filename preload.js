@@ -6,35 +6,24 @@ const nbt = require("prismarine-nbt");
 const AdmZip = require("adm-zip");
 const crypto = require("crypto"); 
 
-const _appPaths = ipcRenderer.sendSync("get-paths-sync");
-const _ipcListeners = {};
-const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
+let safeDataDir = "";
+let machineID = "default_id";
 
-function enforceSandbox(p) {
-    const resolved = path.resolve(p);
-    if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
-        console.error(`SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
-        throw new Error("Accès refusé par le système de sécurité du Launcher.");
-    }
-    return resolved; 
-}
-
-function safeExternalUrl(url) {
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        console.error(`SÉCURITÉ : Protocole interdit bloqué : ${url}`);
-        throw new Error("Seuls les liens HTTP/HTTPS sont autorisés.");
-    }
-    return url;
-}
-
-let username = "default";
 try {
-    username = os.userInfo().username;
-} catch (e) {
-    username = process.env.USER || process.env.LOGNAME || "linux_user";
+    const _appPaths = ipcRenderer.sendSync("get-paths-sync");
+    safeDataDir = path.join(_appPaths.appData, "GensLauncher");
+
+    let username = "user";
+    try {
+        username = os.userInfo().username;
+    } catch(e) {
+        username = process.env.USER || "linux_user";
+    }
+    machineID = os.hostname() + "_" + username;
+} catch (err) {
+    console.error("ERREUR CRITIQUE PRELOAD INIT :", err);
 }
 
-const machineID = os.hostname() + "_" + username;
 const SECRET_KEY = crypto.createHash('sha256').update(machineID).digest();
 
 function encryptData(text) {
