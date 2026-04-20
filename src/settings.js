@@ -156,7 +156,60 @@ export function setupSettings() {
             store.globalSettings.defaultOptionsInstance = inst.name;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_options_saved"), "success");
+        } else {
+            window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
         }
+    };
+    
+    window.saveDefaultServers = () => {
+        const idx = document.getElementById("global-servers-source").value;
+        if (idx === "none") {
+            const defaultSrv = path.join(store.dataDir, "default_servers.dat");
+            if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
+            store.globalSettings.defaultServersInstance = null;
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
+            return;
+        }
+        if (idx === "") return;
+        const inst = store.allInstances[parseInt(idx)];
+        if (!inst) return;
+        const sourceDat = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "servers.dat");
+        if (fs.existsSync(sourceDat)) {
+            fs.copyFileSync(sourceDat, path.join(store.dataDir, "default_servers.dat"));
+            store.globalSettings.defaultServersInstance = inst.name;
+            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
+        } else {
+            window.showToast(t("msg_no_options_found", "Aucun servers.dat trouvé. Lancez le jeu au moins une fois !"), "error");
+        }
+    };
+
+    window.addCustomJava = (input, selectId) => {
+        const file = input.files[0];
+        if (!file) return;
+
+        const filePath = window.api.getFilePath(file);
+        input.value = ""; 
+
+        const baseName = window.api.path.basename(filePath).toLowerCase();
+        const validNames = ["java", "javaw", "java.exe", "javaw.exe"];
+        if (!validNames.includes(baseName)) {
+            window.showToast(t("msg_err_java", "Erreur Java") + ` : "${baseName}" n'est pas un exécutable Java valide.`, "error");
+            return;
+        }
+
+        const selectEl = document.getElementById(selectId);
+        if (!selectEl) return;
+
+        const exists = Array.from(selectEl.options).some(o => o.value === filePath);
+        if (!exists) {
+            const opt = document.createElement("option");
+            opt.value = filePath;
+            opt.innerText = window.getFriendlyJavaName(filePath) + t("lbl_manual", " (Manuel)");
+            selectEl.appendChild(opt);
+        }
+        selectEl.value = filePath;
     };
 
     window.getFriendlyJavaName = (jPath) => {
@@ -333,5 +386,178 @@ export function setupSettings() {
     window.startLauncherUpdate = () => {
         window.api.send("download-update");
         document.getElementById("btn-start-update").disabled = true;
+    };
+}
+
+export function setupHorizonSettings() {
+    window.refreshHorizonUI = async () => {
+        const container = document.getElementById("horizon-container");
+        if (!container) return;
+
+        const status = await window.api.invoke("check-horizon-status");
+
+        if (!status.installed) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;">
+                    <h2 style="color: var(--text-light); margin-bottom: 10px;">${t("horizon_not_installed", "Module Cloud non détecté")}</h2>
+                    <p style="opacity: 0.7; margin-bottom: 30px; font-size: 0.9rem;">${t("horizon_install_desc", "Installez Gens Horizon pour sauvegarder automatiquement vos mondes.")}</p>
+                    <button class="btn-primary" onclick="handleHorizonInstall()" style="padding: 10px 25px;">${t("btn_install_horizon", "Installer Horizon")}</button>
+                </div>`;
+            return;
+        }
+
+        let hSettings = await window.api.invoke("get-horizon-settings");
+
+        window.saveHorizonConfig = async (key, value) => {
+            let val = value;
+            if (value === "true") val = true;
+            if (value === "false") val = false;
+
+            hSettings[key] = val;
+            const res = await window.api.invoke("save-horizon-settings", hSettings);
+            if (res.success) {
+                if (key === "systemEnabled") {
+                    store.horizonActive = (val === true);
+                }
+                window.showToast(t("horizon_setting_saved", "Paramètre enregistré"), "success");
+                window.refreshHorizonUI();
+            }
+        };
+
+        const isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
+        
+        const statusColor = isEnabled ? "#17B139" : "#f87171";
+        const statusText = isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif");
+
+        const linkBtnHTML = status.linked 
+            ? `<button class="btn-secondary" style="color: #17B139; border-color: #17B139; cursor: default;">${t("horizon_linked", "Compte Associé")}</button>`
+            : `<button class="btn-primary" onclick="runHorizon('login')">${t("btn_horizon_link", "Associer un compte")}</button>`;
+
+        const updateBtnHTML = (status.needsUpdate && !status.offline)
+            ? `<button class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21;" onclick="handleHorizonInstall()">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
+            : `<button class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem;" onclick="handleHorizonInstall()">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+
+        let html = `
+            <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                        <span style="width: 10px; height: 10px; min-width: 10px; background: ${statusColor}; border-radius: 50%;"></span>
+                        <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${statusText}</strong>
+                    </div>
+                    <select onchange="saveHorizonConfig('systemEnabled', this.value)" style="width: 110px; height: 32px; flex-shrink: 0; margin-left: 12px;">
+                        <option value="true" ${isEnabled ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                        <option value="false" ${!isEnabled ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <div style="font-size: 0.75rem; color: #aaa;">
+                        ${t("horizon_version", "Version :")} ${status.localVersion}
+                        ${(status.needsUpdate && !status.offline) ? `<span style="color:#f48a21; margin-left:6px; font-weight:bold;">${t("horizon_update_available", "Mise à jour disponible")} : ${status.latestVersion}</span>` : ""}
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                        ${updateBtnHTML}
+                        ${isEnabled ? linkBtnHTML : ''}
+                    </div>
+                </div>
+            </div>`;
+
+        if (isEnabled) {
+            html += `
+            <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 15px;">
+                <div style="font-weight: bold; color: var(--text-light); margin-bottom: 15px; font-size: 0.95rem;">${t("horizon_settings_title", "Paramètres du Cloud")}</div>
+
+                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
+                <select onchange="saveHorizonConfig('syncMode', this.value)" style="width: 100%; margin-bottom: 12px;">
+                    <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_sync_smart", "Smart (Archive compressée)")}</option>
+                    <option value="INCREMENTAL" ${hSettings.syncMode === "INCREMENTAL" ? "selected" : ""}>${t("horizon_sync_incremental", "Incrémentiel")}</option>
+                </select>
+
+                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
+                <select onchange="saveHorizonConfig('autoSync', this.value)" style="width: 100%; margin-bottom: 12px;">
+                    <option value="true" ${hSettings.autoSync === true || hSettings.autoSync === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                    <option value="false" ${hSettings.autoSync === false || hSettings.autoSync === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                </select>
+
+                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_upload", "Envoi auto. (Upload)")}</label>
+                <select onchange="saveHorizonConfig('autoUpload', this.value)" style="width: 100%;">
+                    <option value="true" ${hSettings.autoUpload === true || hSettings.autoUpload === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                    <option value="false" ${hSettings.autoUpload === false || hSettings.autoUpload === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                </select>
+            </div>
+
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+                <div style="font-weight: bold; color: var(--text-light); margin-bottom: 10px;">${t("horizon_cloud_instances", "Vos Instances Cloud")}</div>
+                <div id="horizon-cloud-grid" class="instances-grid">
+                    <div style="color: #aaa; font-size: 0.85rem;">${t("msg_loading", "Chargement...")}</div>
+                </div>
+            </div>`;
+        }
+
+        container.innerHTML = html;
+
+        if (isEnabled && status.linked) {
+            window.api.invoke("call-horizon", ['--sync', '--list']);
+        }
+    };
+
+    window.handleHorizonInstall = async () => {
+        window.showLoading(t("btn_install_horizon", "Installation de Horizon..."));
+        try {
+            const res = await window.api.invoke("install-horizon");
+            window.hideLoading();
+            if (res.success) {
+                window.showToast(t("horizon_install_success", "Horizon installé avec succès !") + ` (${res.version})`, "success");
+                window.refreshHorizonUI();
+            } else {
+                window.showToast(t("horizon_install_error", "Erreur d'installation : ") + (res.error || "inconnue"), "error");
+            }
+        } catch(e) {
+            window.hideLoading();
+            window.showToast(t("horizon_install_error", "Erreur d'installation : ") + e.message, "error");
+        }
+    };
+    
+    window.runHorizon = async (action) => {
+        const zone = document.getElementById("horizon-progress-zone");
+        if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
+        
+        await window.api.invoke("call-horizon", `--${action}`);
+        await window.refreshHorizonUI();
+
+        if (zone) {
+            setTimeout(() => {
+                zone.style.display = "none";
+                document.getElementById("horizon-bar").style.width = "0%";
+            }, 2000);
+        }
+    };
+
+    window.api.on("horizon-status", (data) => {
+        const bar = document.getElementById("horizon-bar");
+        const step = document.getElementById("horizon-step");
+        const perc = document.getElementById("horizon-perc");
+        
+        if (data.type === "PROGRESS") {
+            if (bar) bar.style.width = data.value + "%";
+            if (perc) perc.innerText = data.value + "%";
+            if (step) step.innerText = data.step === "COMPRESSING" ? `${t("msg_compress", "Compression")} ${data.instance}...` : `${t("msg_loading", "Traitement...")}...`;
+        }
+    });
+
+    window.switchTabGlob = (tabId) => {
+        const tabs = document.querySelectorAll(".settings-tab");
+        const contents = document.querySelectorAll(".settings-content");
+        tabs.forEach(t => t.classList.remove("active"));
+        contents.forEach(c => c.classList.remove("active"));
+        document.getElementById(tabId).classList.add("active");
+        
+        const btnId = "tab-btn-glob-" + tabId.split("-").pop();
+        const tabBtn = document.getElementById(btnId);
+        if(tabBtn) tabBtn.classList.add("active");
+
+        if (tabId === "tab-glob-horizon") {
+            window.refreshHorizonUI();
+            if (window.clearHorizonUpdateBadges) window.clearHorizonUpdateBadges();
+        }
     };
 }

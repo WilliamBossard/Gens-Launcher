@@ -103,8 +103,8 @@ function getModWarnings(inst) {
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; display:flex; align-items:center; flex-grow: 1; word-break: break-all; padding-right: 10px;">${displayName}${warningHtml}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleMod(${fileJson}, this.checked)' title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick='deleteMod(${fileJson})' title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleMod(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 2px 6px; font-size: 0.7rem;" onclick='deleteMod(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
@@ -175,8 +175,8 @@ function getModWarnings(inst) {
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleShader(${fileJson}, this.checked)' title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteShader(${fileJson})' title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleShader(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteShader(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
@@ -229,8 +229,8 @@ function getModWarnings(inst) {
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleResourcePack(${fileJson}, this.checked)' title="Activer/Désactiver">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteResourcePack(${fileJson})' title="Supprimer définitivement">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleResourcePack(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteResourcePack(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
@@ -359,7 +359,7 @@ function getModWarnings(inst) {
             
             let autoBtnHtml = "";
             if (canAutoConnect) {
-                autoBtnHtml = `<button class="btn-secondary btn-auto-connect" data-ip="${safeIp}" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" title="Quick-Connect">&gt;&gt; ${t("btn_auto_connect", "Auto")}</button>`;
+                autoBtnHtml = `<button class="btn-secondary btn-auto-connect" data-ip="${safeIp}" style="color: ${isAuto ? 'var(--accent)' : '#aaa'}; border-color: ${isAuto ? 'var(--accent)' : 'var(--border)'}; padding: 4px 8px; font-size: 0.75rem;" title="${t("lbl_quick_connect", "Connexion automatique au lancement")}">&gt;&gt; ${t("btn_auto_connect", "Auto")}</button>`;
             } else {
                 autoBtnHtml = `<span style="font-size: 0.65rem; color: #666; margin-right: 5px; align-self: center;" title="${t("msg_req_mc_120", "Nécessite Minecraft 1.20+")}">Auto 1.20+</span>`;
             }

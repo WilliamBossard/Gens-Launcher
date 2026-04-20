@@ -11,17 +11,6 @@ function t(key, fallback) {
 
 export function setupUICore() {
 
-    window.safeWriteJSON = (filePath, dataObject) => {
-        try {
-            const tempPath = filePath + ".tmp";
-            fs.writeFileSync(tempPath, JSON.stringify(dataObject, null, 2), "utf8");
-            fs.renameSync(tempPath, filePath);
-        } catch (e) {
-            console.error("Erreur de sauvegarde sécurisée :", e);
-            fs.writeFileSync(filePath, JSON.stringify(dataObject, null, 2), "utf8");
-        }
-    };
-
     window.loadStorage = () => {
         if (!fs.existsSync(store.dataDir))        fs.mkdirSync(store.dataDir,        { recursive: true });
         if (!fs.existsSync(store.instancesRoot))  fs.mkdirSync(store.instancesRoot,  { recursive: true });
@@ -67,17 +56,15 @@ export function setupUICore() {
 
         if (store.accountFile && fs.existsSync(store.accountFile)) {
             try {
-                const content = fs.readFileSync(store.accountFile, "utf8");
-                if (content) {
-                    const parsed = JSON.parse(content);
+                const parsed = window.api.security.readJSON(store.accountFile);
+                if (parsed) {
                     store.allAccounts = parsed.list || [];
                     const lastUsed = parsed.lastUsed;
                     store.selectedAccountIdx =
                         (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length)
-                            ? lastUsed
-                            : (store.allAccounts.length > 0 ? 0 : null);
+                            ? lastUsed : (store.allAccounts.length > 0 ? 0 : null);
                 }
-            } catch (e) { console.error("Erreur lecture comptes:", e); }
+            } catch (e) { console.error("Erreur lecture comptes chiffrés:", e); }
         } else {
             store.allAccounts = [];
             store.selectedAccountIdx = null;
@@ -223,7 +210,8 @@ export function setupUICore() {
         const groups = {};
         filtered.forEach(inst => {
             let g = inst.group;
-            if (!g || g === "Général" || g === "General") g = defaultGroup;
+            const GENERAL_ALIASES = new Set(["", "Général", "General", "général", "general"]);
+            if (!g || GENERAL_ALIASES.has(g.trim())) g = defaultGroup;
             
             if (!groups[g]) groups[g] = [];
             groups[g].push(inst);
@@ -260,9 +248,12 @@ export function setupUICore() {
             </div>`;
 
             html += `<div class="instances-grid" style="display: ${displayStyle};">`;
-            groups[g].forEach(inst => {
+groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+
+                const isPhantom = inst.version === "...";
+                const phantomClass = isPhantom ? "is-phantom" : "";
 
                 let iconSrc = inst.icon;
                 if (!iconSrc || iconSrc === "") {
@@ -285,7 +276,7 @@ export function setupUICore() {
                     : "";
 
                 html += `
-                <div class="instance-card ${isActive}"
+                <div class="instance-card ${isActive} ${phantomClass}"
                     style="position: relative;"
                     onclick="selectInstance(${inst.originalIndex})"
                     ondblclick="handleInstanceDoubleClick(${inst.originalIndex})" 
@@ -293,10 +284,15 @@ export function setupUICore() {
                     draggable="true"
                     ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
+                    <div class="progress-circle-container" style="position: absolute; top: 5px; right: 5px; width: 34px; height: 34px; display: ${isPhantom ? 'flex' : 'none'}; z-index: 10; background: rgba(0,0,0,0.6); border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); align-items: center; justify-content: center;">
+                        <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; position: absolute;"></div>
+                        <div class="progress-text" style="font-size: 0.65rem; font-weight: bold; color: white; position: absolute; z-index: 11;">0%</div>
+                    </div>
+                    
                     ${runningBadge}
                     <img src="${iconSrc}" class="instance-icon">
                     <div class="instance-name">${safeName}</div>
-                    <div class="instance-version">${safeVersion} (${safeLoader})</div>
+                    <div class="instance-version">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
                 </div>`;
             });
             html += `</div>`;
@@ -328,17 +324,6 @@ export function setupUICore() {
         if (tabId === "tab-shaders"      && window.renderShadersManager)      window.renderShadersManager();
         if (tabId === "tab-resourcepacks"&& window.renderResourcePacksManager)window.renderResourcePacksManager();
         if (tabId === "tab-servers"      && window.renderServersManager)      window.renderServersManager();
-    };
-
-    window.switchTabGlob = (tabId) => {
-        document.querySelectorAll("#modal-settings .settings-tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll("#modal-settings .settings-content").forEach(c => c.classList.remove("active"));
-        
-        const btn = document.getElementById("tab-btn-" + tabId.replace("tab-", ""));
-        if (btn) btn.classList.add("active");
-        
-        const tab = document.getElementById(tabId);
-        if (tab) tab.classList.add("active");
     };
 
     let tooltipEl = document.getElementById("global-tooltip");
@@ -400,6 +385,14 @@ export function setupUICore() {
     });
 
     document.addEventListener("dragover", (e) => e.preventDefault());
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            window._isInternalDrag = false;
+            dragCounter = 0;
+            if (dropOverlay) dropOverlay.style.display = "none";
+        }
+    });
 
     document.addEventListener("drop", (e) => {
         e.preventDefault();
@@ -499,15 +492,24 @@ export function setupUICore() {
         const menu = document.getElementById("custom-context-menu");
         if (!menu) return;
 
+        const cloudDivider = document.getElementById("ctx-cloud-divider");
+        const cloudImport  = document.getElementById("ctx-cloud-import");
+        const cloudUpload  = document.getElementById("ctx-cloud-upload");
+        const showCloud    = store.horizonActive === true;
+        const cloudDisplay = showCloud ? "block" : "none";
+        if (cloudDivider) cloudDivider.style.display = cloudDisplay;
+        if (cloudImport)  cloudImport.style.display  = cloudDisplay;
+        if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
+
         menu.style.display = "flex";
         
         let x = e.clientX;
         let y = e.clientY;
-        if (x + menu.offsetWidth > window.innerWidth) x = window.innerWidth - menu.offsetWidth - 5;
+        if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
         if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
         
         menu.style.left = x + "px";
-        menu.style.top = y + "px";
+        menu.style.top  = y + "px";
     };
 
     document.addEventListener("click", () => {

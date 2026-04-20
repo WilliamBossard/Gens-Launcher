@@ -234,6 +234,35 @@
             gap: 15px;
         }
 
+.progress-circle-container {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 34px;
+            height: 34px;
+            display: none; /* Caché par défaut */
+            z-index: 10;
+            background: rgba(0,0,0,0.6);
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+        }
+        .progress-circle {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 50%;
+            /* L'astuce du masque pour faire un anneau au lieu d'un camembert */
+            mask: radial-gradient(transparent 55%, black 56%);
+            -webkit-mask: radial-gradient(transparent 55%, black 56%);
+        }
+        .progress-text {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: white;
+            z-index: 11;
+        }
+
         .instance-card {
             padding: 10px;
             border: 1px solid transparent;
@@ -550,6 +579,7 @@
 
         .settings-sidebar {
             width: 170px;
+            flex-shrink: 0;
             border-right: 1px solid var(--border);
             background: rgba(0, 0, 0, 0.1);
             display: flex;
@@ -1145,6 +1175,15 @@
             filter: grayscale(100%); 
         }
 
+.instance-card.is-phantom {
+    pointer-events: none; 
+}
+
+/* Applique le gris et la transparence à TOUT, SAUF au conteneur de la roue magique */
+.instance-card.is-phantom > *:not(.progress-circle-container) {
+    filter: grayscale(0.9) opacity(0.5);
+}
+
         /* Effet "Wahou" au survol d'un succès DÉBLOQUÉ */
         .adv-card:not(.locked):hover {
             transform: translateY(-4px) scale(1.02);
@@ -1174,7 +1213,7 @@
             <div class="spinner"></div>
             <div id="loading-percent" style="position: absolute; font-size: 0.9rem; font-weight: bold; color: var(--text-light);"></div>
         </div>
-        <div id="loading-text" style="margin-top:15px; font-weight:bold; font-size:1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+        <div id="loading-text" style="margin-top:15px; font-weight:bold; font-size:1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);" data-i18n="msg_processing">
             Traitement en cours...</div>
     </div>
 
@@ -1255,7 +1294,10 @@
             
             <button class="tool-btn" onclick="openGlobalSettings()" style="position: relative;">
                 <span data-i18n="toolbar_settings">Paramètres Globaux</span>
+                <!-- Pastille MAJ launcher -->
                 <span id="settings-update-badge" style="display:none; position: absolute; top: 2px; right: 2px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f87171;"></span>
+                <!-- Pastille MAJ Horizon (positionnée légèrement décalée pour ne pas superposer) -->
+                <span id="horizon-update-badge" style="display:none; position: absolute; top: 2px; right: 14px; background:#f48a21; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f48a21;" data-i18n-title="horizon_update_available"></span>
             </button>
             
             <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'" data-i18n="toolbar_logs">Afficher les logs</button>
@@ -1558,7 +1600,11 @@
                     <div id="tab-btn-glob-gen" class="settings-tab active" onclick="switchTabGlob('tab-glob-gen')" data-i18n="tab_gen">Général</div>
                     <div id="tab-btn-glob-app" class="settings-tab" onclick="switchTabGlob('tab-glob-app')" data-i18n="tab_appearance">Apparence</div>
                     <div id="tab-btn-glob-updates" class="settings-tab" onclick="switchTabGlob('tab-glob-updates')" data-i18n="tab_updates">Mises à jour</div>
-                    <div id="tab-btn-glob-java" class="settings-tab" onclick="switchTabGlob('tab-glob-java')">Gérer Java</div>
+                    <div id="tab-btn-glob-java" class="settings-tab" onclick="switchTabGlob('tab-glob-java')" data-i18n="horizon_java_tab">Gérer Java</div>
+                    <div id="tab-btn-glob-horizon" class="settings-tab" onclick="switchTabGlob('tab-glob-horizon')" style="position: relative;">
+                        Horizon
+                        <span id="horizon-tab-badge" style="display:none; position: absolute; top: 6px; right: 8px; background:#f48a21; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f48a21;"></span>
+                    </div>
                 </div>
 
                 <div id="tab-glob-gen" class="settings-content active">
@@ -1636,7 +1682,8 @@
                         <input type="text" id="global-bg-path" placeholder="C:\Images\bg.png" style="flex-grow: 1;">
                         <button class="btn-secondary" onclick="document.getElementById('bg-upload').click()" data-i18n="btn_browse">Parcourir</button>
                         <button class="btn-secondary" onclick="document.getElementById('global-bg-path').value=''" data-i18n="btn_clear">Effacer</button>
-                        <input type="file" id="bg-upload" accept="image/png, image/jpeg, image/gif" style="display:none;" onchange="document.getElementById('global-bg-path').value=this.files[0].path">
+                        <input type="file" id="bg-upload" accept="image/png, image/jpeg, image/gif, image/webp, image/bmp" style="display:none;"
+                               onchange="document.getElementById('global-bg-path').value = window.api.getFilePath(this.files[0])">
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_darkness">Assombrissement du fond (Opacité)</label>
@@ -1726,6 +1773,25 @@
                         </div>
                     </div>
                 </div>
+<div id="tab-glob-horizon" class="settings-content">
+    <div class="settings-header">
+        <h2 style="color: var(--text-light); margin-bottom: 5px;" data-i18n="horizon_tab_title">Synchronisation Cloud</h2>
+        <p style="font-size: 0.85rem; opacity: 0.6;" data-i18n="horizon_tab_desc">Gérez la sauvegarde de vos instances via Gens Horizon.</p>
+    </div>
+
+    <div id="horizon-container" style="margin-top: 15px;">
+    </div>
+
+    <div id="horizon-progress-zone" style="display: none; margin-top: 20px; padding: 15px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.8rem; color: var(--text-light);">
+            <span id="horizon-step" style="font-weight: bold;" data-i18n="horizon_initializing">Initialisation...</span>
+            <span id="horizon-perc" style="opacity: 0.7;">0%</span>
+        </div>
+        <div style="width: 100%; background: var(--bg-main); height: 6px; border-radius: 3px; overflow: hidden;">
+            <div id="horizon-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
+        </div>
+    </div>
+</div>
             </div> 
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeGlobalSettings()" data-i18n="modal_close">Fermer</button>
@@ -1826,7 +1892,7 @@
                         </div>
                     </div>
                     <div style="display: flex; gap: 5px; margin-bottom: 5px; padding-top: 10px;">
-                        <input type="text" id="local-mod-search" placeholder="Rechercher un mod installé..." style="flex-grow: 1; padding: 4px; font-size: 0.8rem;" oninput="filterLocalMods()">
+                        <input type="text" id="local-mod-search" data-i18n="ph_search_local_mod" placeholder="Rechercher un mod installé..." style="flex-grow: 1; padding: 4px; font-size: 0.8rem;" oninput="filterLocalMods()">
                     </div>
                     <div id="mods-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
@@ -2082,12 +2148,21 @@
         </div>
     </div>
 <div id="custom-context-menu" class="context-menu">
-        <div class="context-menu-item" onclick="ctxLaunch()">Lancer</div>
+        <div class="context-menu-item" onclick="ctxLaunch()" data-i18n="ctx_launch">Lancer</div>
+        <div class="context-menu-divider" id="ctx-cloud-divider"></div>
+        <div class="context-menu-item" id="ctx-cloud-import" onclick="ctxSyncCloud()" data-i18n="ctx_cloud_import">Importer du Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-upload" onclick="ctxUploadCloud()" data-i18n="ctx_cloud_upload">Envoyer sur le Cloud</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxFolder()">Ouvrir le dossier</div>
-        <div class="context-menu-item" onclick="ctxEdit()">Modifier</div>
+        <div class="context-menu-item" onclick="ctxFolder()" data-i18n="ctx_open_folder">Ouvrir le dossier</div>
+        <div class="context-menu-item" onclick="ctxEdit()" data-i18n="ctx_edit">Modifier</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxDelete()" style="color:#f87171;">Supprimer</div>
+        <div class="context-menu-item" onclick="ctxDelete()" style="color:#f87171;" data-i18n="btn_delete">Supprimer</div>
+    </div>
+
+    <div id="cloud-only-context-menu" class="context-menu">
+        <div class="context-menu-item" onclick="ctxRestoreCloud()" data-i18n="ctx_restore_cloud">Restaurer l'instance</div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud">Supprimer du Cloud</div>
     </div>
     <script type="module" src="renderer.js"></script>
     

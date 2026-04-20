@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("ele
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile, exec } = require("child_process");
+const { execFile, exec, spawn } = require("child_process");
+const axios = require("axios"); 
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
@@ -22,12 +23,22 @@ let mainWindow;
 let tray = null; 
 let linuxUpdatePath = null; 
 
-const safeDataDir = path.join(app.getPath("userData"), "GensLauncher");
+const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
 if (!fs.existsSync(safeDataDir)) {
     fs.mkdirSync(safeDataDir, { recursive: true });
 }
 const logPath = path.join(safeDataDir, "main-process.log");
 fs.writeFileSync(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
+
+const horizonBinDir = path.join(safeDataDir, "bin");
+const isWin = process.platform === "win32";
+const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
+const horizonExePath = path.join(horizonBinDir, horizonBinName);
+const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
+
+if (!fs.existsSync(horizonBinDir)) {
+    fs.mkdirSync(horizonBinDir, { recursive: true });
+}
 
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
@@ -102,8 +113,8 @@ app.whenReady().then(() => {
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
     
     let autoDl = false;
-    try {
-        const settingsPath = path.join(app.getPath("userData"), "GensLauncher", "settings.json");
+try {
+        const settingsPath = path.join(safeDataDir, "settings.json");
         if (fs.existsSync(settingsPath)) {
             const sets = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
             autoDl = !!sets.autoDownloadUpdates;
@@ -118,6 +129,34 @@ app.whenReady().then(() => {
         });
     }, 3000);
 });
+
+function runHorizonAction(action, event = null) {
+    return new Promise((resolve) => {
+        const args = Array.isArray(action) ? action : [action];
+        mainLog(`[Horizon] Exécution de l'action : ${args.join(' ')}`);
+        
+        const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir });
+
+        horizon.stdout.on('data', (data) => {
+            const lines = data.toString().split('\n');
+            for (let line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const json = JSON.parse(line);
+                    if (event) event.sender.send('horizon-status', json);
+                    mainLog(`[Horizon Output] ${line}`);
+                } catch (e) {
+                    mainLog(`[Horizon Raw] ${line}`);
+                }
+            }
+        });
+
+        horizon.on('close', (code) => {
+            mainLog(`[Horizon] Terminé avec le code ${code}`);
+            resolve(code);
+        });
+    });
+}
 
 ipcMain.on("restart_app", () => {
     if (process.platform === 'linux') {
@@ -213,7 +252,7 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
     try {
         if (!url || !/^https:\/\/api\.curseforge\.com\//i.test(url)) {
             mainLog(`SÉCURITÉ : URL CurseForge rejetée dans le main process : ${url}`);
-            return { success: false, error: "URL non autorisée." };
+            return { success: false, errorCode: "ERR_URL_REJECTED", error: "URL non autorisée." };
         }
         const response = await fetch(url, { headers: { "x-api-key": apiKey, "Accept": "application/json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -329,7 +368,7 @@ ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
 ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
 
 autoUpdater.on("update-available", (info) => { if (mainWindow) mainWindow.webContents.send("update-available-prompt", info); });
-autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { text: "Gens Launcher est à jour !", type: "success" }); });
+autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); });
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
 
 autoUpdater.on("update-downloaded", (info) => { 
@@ -353,12 +392,12 @@ ipcMain.on("cancel-login-microsoft", () => {
 });
 
 ipcMain.handle("login-microsoft", async () => {
-    if (isAuthRunning) return { success: false, error: "Une connexion est déjà en cours." };
+    if (isAuthRunning) return { success: false, errorCode: "ERR_AUTH_RUNNING", error: "Une connexion est déjà en cours." };
     isAuthRunning = true;
     loginMicrosoftUserCancelled = false;
 
-    const sessionLabel = `gens-${crypto.randomUUID()}`;
-    const cacheDir = path.join(app.getPath("userData"), "msa-cache");
+const sessionLabel = `gens-${crypto.randomUUID()}`;
+    const cacheDir = path.join(safeDataDir, "msa-cache");
 
     try {
         const flow = new Authflow(
@@ -409,11 +448,11 @@ ipcMain.handle("login-microsoft", async () => {
         const profile = response.profile;
 
         if (!response.token) {
-            return { success: false, error: "Jeton Minecraft introuvable après connexion Microsoft." };
+            return { success: false, errorCode: "ERR_NO_MC_TOKEN", error: "Jeton Minecraft introuvable après connexion Microsoft." };
         }
         if (!profile || !profile.name || !profile.id) {
-            const hint = profile?.errorMessage || profile?.error || "Pas de profil Minecraft sur ce compte. Lance le launcher officiel une fois ou vérifie l’achat Java.";
-            return { success: false, error: String(hint) };
+            const hint = profile?.errorMessage || profile?.error || null;
+            return { success: false, errorCode: "ERR_NO_MC_PROFILE", error: hint || "Pas de profil Minecraft" };
         }
 
         mainLog(`Authentification réussie : ${profile.name}`);
@@ -448,10 +487,10 @@ ipcMain.handle("login-microsoft", async () => {
 
 ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     try {
-        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
             return { success: false, error: "Identifiant de session invalide." };
         }
-        const cacheDir = path.join(app.getPath("userData"), "msa-cache");
+        const cacheDir = path.join(safeDataDir, "msa-cache");
         const flow = new Authflow(sessionLabel, cacheDir, {
             flow: "live",
             authTitle: Titles.MinecraftNintendoSwitch,
@@ -469,17 +508,126 @@ ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
 
 ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
     try {
-        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
             mainLog(`Suppression cache MSA bloquée : label invalide "${sessionLabel}"`);
             return;
         }
-        const cacheDir = path.join(app.getPath("userData"), "msa-cache", sessionLabel);
+        const cacheDir = path.join(safeDataDir, "msa-cache", sessionLabel);
         if (fs.existsSync(cacheDir)) {
             fs.rmSync(cacheDir, { recursive: true, force: true });
             mainLog(`Cache MSA supprimé pour : ${sessionLabel}`);
         }
     } catch(e) {
         mainLog("Erreur suppression cache MSA : " + e.message);
+    }
+});
+
+ipcMain.handle("get-horizon-settings", async () => {
+    const settingsPath = path.join(horizonBinDir, "horizon_settings.json");
+    
+    const defaults = { 
+        systemEnabled: true, 
+        syncMode: "SMART", 
+        autoSync: true, 
+        autoUpload: true 
+    };
+
+    let fileContent = {};
+    if (fs.existsSync(settingsPath)) {
+        try {
+            fileContent = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+        } catch(e) { fileContent = {}; }
+    }
+
+    const merged = { ...defaults, ...fileContent };
+    const keysInFile = Object.keys(fileContent).length;
+    const keysRequired = Object.keys(defaults).length;
+
+    if (keysInFile < keysRequired) {
+        fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
+        mainLog("[Horizon] Paramètres manquants détectés : Le fichier a été mis à jour et réparé.");
+    }
+
+    return merged;
+});
+
+ipcMain.handle("save-horizon-settings", async (event, settings) => {
+    try {
+        const settingsPath = path.join(horizonBinDir, "horizon_settings.json");
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle("check-horizon-status", async () => {
+    const tokenPath = path.join(horizonBinDir, "token.json");
+    
+    const isInstalled = fs.existsSync(horizonExePath);
+    const isLinked = fs.existsSync(tokenPath); 
+    
+    let localVersion = "v0.0.0";
+    if (fs.existsSync(horizonVersionPath)) {
+        localVersion = JSON.parse(fs.readFileSync(horizonVersionPath)).version;
+    }
+
+    try {
+        const res = await axios.get('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
+        const latestVersion = res.data.tag_name;
+        return {
+            installed: isInstalled,
+            localVersion,
+            latestVersion,
+            needsUpdate: latestVersion !== localVersion,
+            linked: isLinked 
+        };
+    } catch (e) {
+        return { 
+            installed: isInstalled, 
+            localVersion, 
+            latestVersion: null, 
+            needsUpdate: false, 
+            offline: true, 
+            linked: isLinked 
+        };
+    }
+});
+
+ipcMain.handle('call-horizon', async (event, action) => {
+    return await runHorizonAction(action, event);
+});
+
+ipcMain.handle('install-horizon', async (event) => {
+    try {
+        const res = await axios.get('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
+        
+        const asset = res.data.assets.find(a => {
+            if (isWin) return a.name.endsWith('.exe');
+            return a.name.toLowerCase().includes('linux') || !a.name.includes('.');
+        });
+        
+        const latestVersion = res.data.tag_name;
+
+        if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
+
+        const response = await axios({
+            url: asset.browser_download_url,
+            method: 'GET',
+            responseType: 'arraybuffer'
+        });
+
+        fs.writeFileSync(horizonExePath, Buffer.from(response.data));
+        
+        if (!isWin) {
+            fs.chmodSync(horizonExePath, 0o755);
+        }
+        
+        fs.writeFileSync(horizonVersionPath, JSON.stringify({ version: latestVersion }));
+
+        return { success: true, version: latestVersion };
+    } catch (e) {
+        return { success: false, error: e.message };
     }
 });
 

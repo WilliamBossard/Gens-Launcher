@@ -120,7 +120,7 @@ if (result.success) {
           store.selectedAccountIdx = store.allAccounts.length - 1;
           store.uiSelectedAccRow = store.selectedAccountIdx;
           
-          window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+          window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
           
           if(window.renderAccountManager) window.renderAccountManager();
           if(window.changeAccountFromCode) window.changeAccountFromCode();
@@ -134,7 +134,15 @@ if (result.success) {
         } else if (result.cancelled) {
           if(window.showToast) window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
         } else {
-          if(window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + result.error, "error");
+          let errMsg = result.error || "";
+          if (result.errorCode === "ERR_AUTH_RUNNING") {
+            errMsg = t("msg_err_auth_running", "Une connexion Microsoft est déjà en cours.");
+          } else if (result.errorCode === "ERR_NO_MC_TOKEN") {
+            errMsg = t("msg_err_no_mc_token", "Jeton Minecraft introuvable. Vérifiez que le compte possède Minecraft Java.");
+          } else if (result.errorCode === "ERR_NO_MC_PROFILE") {
+            errMsg = t("msg_err_no_mc_profile", "Aucun profil Minecraft trouvé sur ce compte. Lancez le launcher officiel au moins une fois.");
+          }
+          if(window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
         }
       } catch (e) {
         if (window.showToast) window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
@@ -162,7 +170,7 @@ if (result.success) {
           store.selectedAccountIdx = store.allAccounts.length > 0 ? 0 : null;
         else if (store.selectedAccountIdx > index) store.selectedAccountIdx--;
         
-        window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         
         if(window.renderAccountManager) window.renderAccountManager();
         if(window.changeAccountFromCode) window.changeAccountFromCode();

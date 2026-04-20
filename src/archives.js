@@ -47,7 +47,7 @@ export function setupArchives() {
             }
 
             const rawData = JSON.parse(fs.readFileSync(instanceJsonPath, "utf8"));
-            const originalName = String(rawData.name || "Instance Importée").substring(0, 128);
+            const originalName = String(rawData.name || t("lbl_instance_imported", "Instance Importée")).substring(0, 128);
 
             let finalName = originalName;
             let counter = 1;
@@ -130,7 +130,7 @@ export function setupArchives() {
         }
 
         const index = JSON.parse(indexText);
-        const packName = index.name || "Modpack Importé";
+        const packName = index.name || t("lbl_modpack_imported", "Modpack Importé");
         const mcVer = index.dependencies.minecraft;
 
         let loaderType = "vanilla";
@@ -253,12 +253,16 @@ export function setupArchives() {
 
         await Promise.all(workers);
 
-        const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (fs.existsSync(defaultOpt)) {
-            try { fs.copyFileSync(defaultOpt, path.join(instDir, "options.txt")); } catch(e) {}
+const defaultOpt = path.join(store.dataDir, "default_options.txt");
+        const instOpt = path.join(instDir, "options.txt");
+        if (fs.existsSync(defaultOpt) && !fs.existsSync(instOpt)) {
+            try { fs.copyFileSync(defaultOpt, instOpt); } catch(e) {}
         }
 
-        store.allInstances.push(newInst);
+store.allInstances.push(newInst);
+        
+        const instJsonPath = path.join(instDir, "instance.json");
+        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
         
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
@@ -361,14 +365,16 @@ export function setupArchives() {
 
             window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
 
-            const queue = [...filesToDownload];
-            const workers = Array(5).fill(null).map(async () => {
+const queue = [...filesToDownload];
+            const workers = Array(3).fill(null).map(async () => {
                 while (queue.length > 0) {
                     const fileInfo = queue.shift();
                     try {
                         const url = `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}/download-url`;
                         const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
                         
+                        await new Promise(r => setTimeout(r, 150));
+
                         if (res.success && res.data && res.data.data) {
                             const downloadUrl = res.data.data;
                             if (!downloadUrl) {
@@ -400,7 +406,10 @@ export function setupArchives() {
 
             await Promise.all(workers);
 
-            store.allInstances.push(newInst);
+store.allInstances.push(newInst);
+            
+            const instJsonPath = path.join(instDir, "instance.json");
+            try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
             
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);

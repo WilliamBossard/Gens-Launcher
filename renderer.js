@@ -8,7 +8,7 @@ import { setupArchives } from "./src/archives.js";
 import { setupLang } from "./src/lang.js";
 import { setupAccountUI } from "./src/account.js";
 import { setupWorldsAndGallery } from "./src/worlds.js";
-import { setupSettings } from "./src/settings.js";
+import { setupSettings, setupHorizonSettings } from "./src/settings.js";
 import { setupStats } from "./src/stats.js";
 import { setupLocalManagers } from "./src/localManagers.js";
 import { setupInstances } from "./src/instances.js";
@@ -23,7 +23,7 @@ const os = window.api.os;
 const path = window.api.path;
 
 initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang();
-setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupStats();
+setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupHorizonSettings(); setupStats();
 setupLocalManagers(); setupInstances(); setupUICore();
 
 function t(key, fallback) {
@@ -31,40 +31,39 @@ function t(key, fallback) {
 }
 
 ipcRenderer.on("update-msg", (data) => {
-    window.showToast(data.text, data.type);
+    const text = (data.key && store.currentLangObj[data.key]) ? store.currentLangObj[data.key] : data.text;
+    window.showToast(text, data.type);
     const statusDiv = document.getElementById("update-status");
-    if (statusDiv) statusDiv.innerText = data.text;
+    if (statusDiv) statusDiv.innerText = text;
 });
 
 ipcRenderer.on("update-available-prompt", async (info) => {
     store.pendingLauncherUpdate = info;
-    
     const badge = document.getElementById("settings-update-badge");
     if (badge) badge.style.display = "block";
-
     if (window.renderUpdateTab) window.renderUpdateTab();
 
     if (store.globalSettings.autoDownloadUpdates) {
-        window.showToast(store.currentLangObj?.msg_update_found_bg || "Mise à jour trouvée ! Téléchargement en arrière-plan...", "info");
+        window.showToast(t("msg_update_found_bg", "Mise à jour trouvée ! Téléchargement en arrière-plan..."), "info");
         ipcRenderer.send("download-update"); 
     } else {
-        const title = store.currentLangObj?.lbl_new_version || "Nouvelle version disponible :";
+        const title = t("lbl_new_version", "Nouvelle version disponible :");
         window.showToast(`${title} v${info.version}`, "success");
     }
 });
 
 ipcRenderer.on("update-progress", (pct) => {
     const statusDiv = document.getElementById("update-status");
-    if (statusDiv) statusDiv.innerText = `Téléchargement de la mise à jour : ${pct}%`;
+    if (statusDiv) statusDiv.innerText = `${t("msg_update_downloading", "Téléchargement en cours... (Patientez)")} ${pct}%`;
 });
 
 ipcRenderer.on("update-downloaded", async () => {
-    const msg = store.currentLangObj?.msg_update_restart || "Mise à jour prête ! Voulez-vous redémarrer maintenant ?";
+    const msg = t("msg_update_restart", "Mise à jour prête ! Voulez-vous redémarrer maintenant ?");
     if (await window.showCustomConfirm(msg)) {
         ipcRenderer.send("restart_app");
     } else {
         const statusDiv = document.getElementById("update-status");
-        if (statusDiv) statusDiv.innerText = store.currentLangObj?.msg_update_later || "Mise à jour prête. Redémarrez plus tard.";
+        if (statusDiv) statusDiv.innerText = t("msg_update_later", "Mise à jour prête. Redémarrez plus tard.");
     }
 });
 
@@ -96,17 +95,11 @@ window.applyTheme = function() {
         }
     }
     
-    if (store.globalSettings.disableAnimations) {
-        document.body.classList.add("no-animations");
-    } else {
-        document.body.classList.remove("no-animations");
-    }
+    if (store.globalSettings.disableAnimations) document.body.classList.add("no-animations");
+    else document.body.classList.remove("no-animations");
 
-    if (store.globalSettings.disableTransparency) {
-        document.body.classList.add("no-transparency");
-    } else {
-        document.body.classList.remove("no-transparency");
-    }
+    if (store.globalSettings.disableTransparency) document.body.classList.add("no-transparency");
+    else document.body.classList.remove("no-transparency");
 };
 
 async function loadNews() {
@@ -116,13 +109,12 @@ async function loadNews() {
         const container = document.getElementById("news-container");
 
         container.style.display = "block";
-
         const isCollapsed = store.globalSettings.newsCollapsed;
         const toggleText = isCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
         
         let html = `
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
-            <div style="font-weight: bold; color: var(--text-light);">${store.currentLangObj?.lbl_news || "Actualités Minecraft"}</div>
+            <div style="font-weight: bold; color: var(--text-light);">${t("lbl_news", "Actualités Minecraft")}</div>
             <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleNews()" id="btn-toggle-news">${toggleText}</button>
         </div>
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
@@ -130,9 +122,7 @@ async function loadNews() {
         if (!data || !Array.isArray(data.entries)) return;
         data.entries.slice(0, 6).forEach(news => {
             const rawImgUrl = news.playPageImage?.url || "";
-            const imgUrl = rawImgUrl.startsWith("/")
-                ? `https://launchercontent.mojang.com${rawImgUrl}`
-                : rawImgUrl;
+            const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
             const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
             const safeTitle = window.escapeHTML(news.title);
             const safeCategory = window.escapeHTML(news.category);
@@ -197,21 +187,17 @@ window.checkServerStatus = async () => {
                 const clean = document.createElement('div');
                 function processNode(src, dest) {
                     for (const child of src.childNodes) {
-                        if (child.nodeType === Node.TEXT_NODE) {
-                            dest.appendChild(document.createTextNode(child.textContent));
-                        } else if (child.nodeType === Node.ELEMENT_NODE) {
-                            if (child.tagName === 'BR') {
-                                dest.appendChild(document.createElement('br'));
-                            } else if (child.tagName === 'SPAN') {
+                        if (child.nodeType === Node.TEXT_NODE) dest.appendChild(document.createTextNode(child.textContent));
+                        else if (child.nodeType === Node.ELEMENT_NODE) {
+                            if (child.tagName === 'BR') dest.appendChild(document.createElement('br'));
+                            else if (child.tagName === 'SPAN') {
                                 const span = document.createElement('span');
                                 const rawStyle = child.getAttribute('style') || '';
                                 const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
                                 if (safeStyle) span.setAttribute('style', safeStyle);
                                 processNode(child, span);
                                 dest.appendChild(span);
-                            } else {
-                                processNode(child, dest);
-                            }
+                            } else processNode(child, dest);
                         }
                     }
                 }
@@ -242,6 +228,45 @@ window.checkServerStatus = async () => {
     }
 };
 
+async function checkCloudAtStartup() {
+    try {
+        const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
+        const setPath = window.api.path.join(binPath, "horizon_settings.json");
+        
+        console.log("🔍 [DÉMARRAGE] Test du nouveau chemin propre :", setPath);
+        
+        let systemEnabled = false;
+        let autoSyncEnabled = false; 
+        
+        if (window.api.fs.existsSync(setPath)) {
+            const raw = window.api.fs.readFileSync(setPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            
+            systemEnabled = (parsed.systemEnabled === true || parsed.systemEnabled === "true");
+            autoSyncEnabled = (parsed.autoSync === true || parsed.autoSync === "true");
+            console.log("📄 [DÉMARRAGE] Paramètres lus :", parsed);
+        } else {
+            console.log("[DÉMARRAGE] Fichier introuvable à l'adresse indiquée.");
+            return;
+        }
+
+        if (!systemEnabled) {
+            console.log("[DÉMARRAGE] Système Horizon désactivé par l'utilisateur.");
+            return; 
+        }
+
+        if (!autoSyncEnabled) return;
+
+        const status = await window.api.invoke("check-horizon-status");
+        if (status.installed && !status.offline) {
+            const checkResult = await window.api.invoke("call-horizon", "--check");
+            if (checkResult && checkResult.status === "UPDATE_AVAILABLE") {
+                window.showToast(t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
+            }
+        }
+    } catch (e) { console.error("🚨 Erreur démarrage :", e); }
+}
+
 async function init() {
     const totalRamMB = Math.floor(os.totalmem() / (1024 * 1024));
     store.maxSafeRam = Math.max(1024, totalRamMB - 2048);
@@ -258,11 +283,8 @@ async function init() {
     window.applyTheme();
     
     if (window.populateLangDropdown) window.populateLangDropdown();
-    if (!store.globalSettings.language) {
-        document.getElementById("modal-first-launch").style.display = "flex";
-    } else {
-        if (window.loadLanguage) window.loadLanguage(store.globalSettings.language);
-    }
+    if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";
+    else if (window.loadLanguage) window.loadLanguage(store.globalSettings.language);
 
     window.renderUI();
 
@@ -271,6 +293,8 @@ async function init() {
     if (window.restoreRunningInstances) window.restoreRunningInstances();
 
     loadNews();
+    checkCloudAtStartup();
+    checkHorizonUpdateAtStartup();
     window.checkServerStatus();
     setInterval(window.checkServerStatus, 60000);
 
@@ -291,5 +315,222 @@ async function init() {
         }
     }
 }
+
+window.ctxSyncCloud = async () => {
+    const inst = store.allInstances[store.selectedInstanceIdx];
+    if(inst) {
+        document.getElementById("custom-context-menu").style.display = "none";
+        await window.api.invoke("call-horizon", ['--sync', inst.name]);
+    }
+};
+
+window.ctxUploadCloud = async () => {
+    const inst = store.allInstances[store.selectedInstanceIdx];
+    if(inst) {
+        document.getElementById("custom-context-menu").style.display = "none";
+        await window.api.invoke("call-horizon", ['--upload', inst.name]);
+    }
+};
+
+window.api.on("horizon-status", async (data) => {
+    if (data.type === "CLOUD_LIST") {
+        const grid = document.getElementById("horizon-cloud-grid");
+        if (!grid) return;
+        
+        if (!data.data || data.data.length === 0) {
+            grid.innerHTML = `<div style='color: #aaa; font-size: 0.85rem; padding: 10px;'>${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`;
+            return;
+        }
+        
+        let html = "";
+        data.data.forEach(instName => {
+            const isLocal = store.allInstances.some(i => i.name === instName);
+            const statusColor = isLocal ? "#17B139" : "#aaa";
+            const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
+            
+            html += `
+            <div class="instance-card" style="position: relative; cursor: context-menu;" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
+                <img class="instance-icon" src="${store.defaultIcons.vanilla}">
+                <div class="instance-name">${window.escapeHTML(instName)}</div>
+                <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
+            </div>`;
+        });
+        grid.innerHTML = html;
+        return;
+    }
+
+    const cards = document.querySelectorAll('.instance-card');
+    let targetCards = []; 
+    
+    cards.forEach(c => {
+        const nameEl = c.querySelector('.instance-name');
+        if (nameEl && data.instance && nameEl.innerText.trim() === data.instance.trim()) {
+            targetCards.push(c); 
+        }
+    });
+
+    targetCards.forEach(targetCard => {
+        const circleContainer = targetCard.querySelector('.progress-circle-container');
+        const textInfo = targetCard.querySelector('.progress-text');
+
+        if (data.type === "PROGRESS") {
+            if (circleContainer && textInfo) {
+                circleContainer.style.display = "flex";
+                if (data.step === "CHECKING") {
+                    textInfo.innerText = "..."; 
+                    textInfo.style.fontSize = "0.7rem";
+                } else {
+                    textInfo.innerText = Math.round(data.value) + "%"; 
+                    textInfo.style.fontSize = "0.65rem";
+                }
+            }
+        } 
+        else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
+            if (circleContainer) circleContainer.style.display = "none";
+        }
+    });
+
+    if (data.type === "SUCCESS" || data.type === "ERROR") {
+        if (data.type === "SUCCESS") {
+            window.api.invoke("call-horizon", ['--sync', '--list']); 
+            if (data.action === "delete" || (data.message && data.message.toLowerCase().includes("supprim"))) {
+                window.showToast(`${data.instance} : ${t("horizon_deleted_cloud", "Supprimé du Cloud.")}`, "success");
+            } else {
+                window.showToast(`${data.instance} : ${t("horizon_done_success", "Terminé avec succès !")}`, "success");
+            }
+        } else {
+            window.showToast(`${data.instance} : ${t("msg_err_sys", "Erreur")} → ${data.message}`, "error");
+        }
+    }
+});
+
+window.openCloudContextMenu = (e, instName, isLocal) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (isLocal) {
+        const idx = store.allInstances.findIndex(i => i.name === instName);
+        if (idx !== -1) window.openContextMenu(e, idx);
+    } else {
+        store.cloudTarget = instName;
+        const menu = document.getElementById("cloud-only-context-menu");
+        if (!menu) return;
+        menu.style.display = "flex";
+        menu.style.left = e.pageX + "px";
+        menu.style.top = e.pageY + "px";
+    }
+};
+
+window.ctxRestoreCloud = async () => {
+    document.getElementById("cloud-only-context-menu").style.display = "none";
+    if (window.closeGlobalSettings) window.closeGlobalSettings(); 
+    
+    const targetName = store.cloudTarget;
+    window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
+
+    if (!store.allInstances.some(i => i.name === targetName)) {
+        store.allInstances.push({
+            name: targetName,
+            version: "...",
+            loader: "vanilla",
+            ram: store.globalSettings.defaultRam.toString(),
+            group: t("lbl_group_general", "Général")
+        });
+        window.renderUI();
+    }
+
+    await window.api.invoke("call-horizon", ['--sync', targetName, '--force']);
+    
+    const instFolder = window.api.path.join(store.instancesRoot, targetName.replace(/[^a-z0-9]/gi, "_"));
+    const jsonPath = window.api.path.join(instFolder, "instance.json");
+    
+    let realInst = null;
+    if (window.api.fs.existsSync(jsonPath)) {
+        try { realInst = JSON.parse(window.api.fs.readFileSync(jsonPath, "utf8")); } catch(e) {}
+    }
+
+    const idx = store.allInstances.findIndex(i => i.name === targetName);
+    if (idx !== -1) {
+        if (realInst) {
+            store.allInstances[idx] = realInst; 
+        }
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.renderUI(); 
+    }
+};
+
+window.ctxDeleteCloudOnly = async () => {
+    document.getElementById("cloud-only-context-menu").style.display = "none";
+    if (await window.showCustomConfirm(t("msg_also_delete_cloud", "Supprimer définitivement du Cloud ?").replace("{name}", store.cloudTarget), true)) {
+        window.showToast(t("msg_cache_cleaning", "Suppression en cours..."), "info");
+        await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
+        window.api.invoke("call-horizon", ['--sync', '--list']); 
+    }
+};
+
+document.addEventListener("click", () => {
+    const menuCloud = document.getElementById("cloud-only-context-menu");
+    if (menuCloud) menuCloud.style.display = "none";
+});
+
+async function checkHorizonUpdateAtStartup() {
+    try {
+        const binPath    = window.api.path.join(window.api.appData, "GensLauncher", "bin");
+        const exePath    = window.api.path.join(binPath, "Horizon.exe");
+        const setPath    = window.api.path.join(binPath, "horizon_settings.json");
+        const isInstalled = window.api.fs.existsSync(exePath);
+
+        let systemEnabled = false;
+        if (isInstalled && window.api.fs.existsSync(setPath)) {
+            try {
+                const raw = window.api.fs.readFileSync(setPath, 'utf8');
+                const parsed = JSON.parse(raw);
+                systemEnabled = parsed.systemEnabled === true || parsed.systemEnabled === "true";
+            } catch (_) {}
+        }
+
+        store.horizonActive = isInstalled && systemEnabled;
+    } catch (_) {
+        store.horizonActive = false;
+    }
+
+    await new Promise(r => setTimeout(r, 4000));
+
+    try {
+        const status = await window.api.invoke("check-horizon-status");
+        const isActive = status.installed && !status.offline;
+        if (isActive) {
+            try {
+                const setPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", "horizon_settings.json");
+                if (window.api.fs.existsSync(setPath)) {
+                    const parsed = JSON.parse(window.api.fs.readFileSync(setPath, 'utf8'));
+                    store.horizonActive = parsed.systemEnabled === true || parsed.systemEnabled === "true";
+                }
+            } catch (_) {}
+        }
+
+        if (!status.installed || status.offline || !status.needsUpdate) return;
+
+        const horizonBadge = document.getElementById("horizon-update-badge");
+        if (horizonBadge) horizonBadge.style.display = "block";
+        const tabBadge = document.getElementById("horizon-tab-badge");
+        if (tabBadge) tabBadge.style.display = "block";
+
+        const msg = t("horizon_update_toast",
+            "Gens Horizon a une mise à jour disponible ({version}). Ouvrez les Paramètres → Horizon pour l'installer."
+        ).replace("{version}", status.latestVersion || "");
+        window.showToast(msg, "info");
+
+    } catch (e) {
+        console.log("[Horizon] Vérification MAJ démarrage échouée :", e.message);
+    }
+}
+
+window.clearHorizonUpdateBadges = () => {
+    const horizonBadge = document.getElementById("horizon-update-badge");
+    if (horizonBadge) horizonBadge.style.display = "none";
+    const tabBadge = document.getElementById("horizon-tab-badge");
+    if (tabBadge) tabBadge.style.display = "none";
+};
 
 init();

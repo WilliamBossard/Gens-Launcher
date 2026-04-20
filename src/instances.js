@@ -297,7 +297,7 @@ export function setupInstances() {
         store.pendingIconPath = null;
     };
 
-   window.saveInstance = () => {
+    window.saveInstance = () => {
         const nameInput = document.getElementById("new-name");
         const name = nameInput.value.trim();
         
@@ -339,7 +339,7 @@ export function setupInstances() {
         if (rawRam < 128) rawRam = rawRam * 1024; 
         rawRam = Math.max(1024, rawRam);
 
-        store.allInstances.push({
+        const newInst = {
             name,
             version: document.getElementById("new-version").value,
             loader: document.getElementById("new-loader").value,
@@ -349,7 +349,9 @@ export function setupInstances() {
             jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, sessionHistory: [], group: "", servers: [], backupMode: "none", backupLimit: 5,
-        });
+        };
+
+        store.allInstances.push(newInst);
 
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
@@ -364,6 +366,9 @@ export function setupInstances() {
         if (fs.existsSync(defaultSrv)) {
             try { fs.copyFileSync(defaultSrv, path.join(destFolder, "servers.dat")); } catch(e) {}
         }
+
+        const instJsonPath = path.join(destFolder, "instance.json");
+        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
 
         window.renderUI();
         window.closeInstanceModal();
@@ -481,8 +486,11 @@ export function setupInstances() {
         }
 
         window.safeWriteJSON(store.instanceFile, store.allInstances);
-        
         window.selectInstance(store.selectedInstanceIdx);
+        
+        const instJsonPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json");
+        try { fs.writeFileSync(instJsonPath, JSON.stringify(inst, null, 2)); } catch(e) {}
+        
         window.renderUI();
         if (store.pendingIconPath || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
             if (window.checkAchievement) window.checkAchievement("artist");
@@ -516,17 +524,20 @@ export function setupInstances() {
         await yieldUI();
         try {
             const oldPath = path.join(store.instancesRoot, oldInst.name.replace(/[^a-z0-9]/gi, "_"));
-            if (fs.existsSync(oldPath))
-                await fs.promises.cp(
-                    oldPath,
-                    path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_")),
-                    { recursive: true }
-                );
+            const newPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            
+            if (fs.existsSync(oldPath)) {
+                await fs.promises.cp(oldPath, newPath, { recursive: true });
+            }
             store.allInstances.push(inst);
 
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
+            
+            const instJsonPath = path.join(newPath, "instance.json");
+            try { fs.writeFileSync(instJsonPath, JSON.stringify(inst, null, 2)); } catch(e) {}
+            
         } catch (e) {
             sysLog("Erreur Copie: " + e, true);
         }
@@ -535,8 +546,20 @@ export function setupInstances() {
     };
 
     window.deleteInstance = async () => {
-        if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance ?"), true)) {
+        if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
+            
+            try {
+                const hStatus = await window.api.invoke("check-horizon-status");
+                if (hStatus && hStatus.linked) {
+                    const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?\n(Si non, elle pourra être restaurée plus tard depuis les paramètres)").replace("{name}", inst.name);
+                    if (await window.showCustomConfirm(confirmMsg, true)) {
+                        window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
+                        await window.api.invoke("call-horizon", ['--sync', '--delete', inst.name]);
+                    }
+                }
+            } catch(e) { console.error("Erreur check cloud:", e); }
+
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
             try {
                 if (fs.existsSync(instFolder)) {

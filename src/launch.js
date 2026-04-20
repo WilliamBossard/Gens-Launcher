@@ -15,6 +15,24 @@ let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
 let windowHidden = false;
 
+function getCloudSettings() {
+    try {
+        const setPath = path.join(window.api.appData, "GensLauncher", "bin", "horizon_settings.json");
+        
+        if (!fs.existsSync(setPath)) {
+            return { systemEnabled: false, autoSync: false, autoUpload: false };
+        }
+        const parsed = JSON.parse(fs.readFileSync(setPath, 'utf8'));
+        return {
+            systemEnabled: (parsed.systemEnabled === true || parsed.systemEnabled === "true"),
+            autoSync: (parsed.autoSync === true || parsed.autoSync === "true"),
+            autoUpload: (parsed.autoUpload === true || parsed.autoUpload === "true")
+        };
+    } catch (e) {
+        return { systemEnabled: false, autoSync: false, autoUpload: false };
+    }
+}
+
 async function performAutoBackup(inst, mode) {
     if (!inst || inst.backupMode !== mode) return;
     const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
@@ -273,8 +291,10 @@ export function setupLauncher() {
         }
 
         const closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
+        let closedInst = null;
+        
         if (closedInstIndex !== -1) {
-            const closedInst = store.allInstances[closedInstIndex];
+            closedInst = store.allInstances[closedInstIndex];
             
             const sessionDuration = Date.now() - (closedInst._tempSessionStart || Date.now());
             closedInst._tempSessionStart = null; 
@@ -305,21 +325,11 @@ export function setupLauncher() {
             }
 
             window.safeWriteJSON(store.instanceFile, store.allInstances);
-            await performAutoBackup(closedInst, "on_close");
 
             if (store.selectedInstanceIdx === closedInstIndex) {
                 const logOutput = document.getElementById("log-output");
-                logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
-                
-                 if (code !== 0) {
-                    document.getElementById("console-container").style.display = "block";
-                    const culprit = await window.analyzeCrash(instanceId);
-                    if (culprit) {
-                       const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
-                        if (action) { window.openEditModal('tab-mods'); }
-                    } else {
-                       window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
-                    }
+                if (logOutput) {
+                    logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
                 }
                 
                 document.getElementById("status-text").innerText = t("status_ready", "Prêt");
@@ -335,15 +345,39 @@ export function setupLauncher() {
 
         window.setUIState();
         if (window.renderUI) window.renderUI(); 
+
+        if (code !== 0 && closedInstIndex !== -1 && store.selectedInstanceIdx === closedInstIndex) {
+            document.getElementById("console-container").style.display = "block";
+            const culprit = await window.analyzeCrash(instanceId);
+            if (culprit) {
+               const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
+                if (action) { window.openEditModal('tab-mods'); }
+            } else {
+               window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
+            }
+        }
+
+        if (closedInst) {
+            await performAutoBackup(closedInst, "on_close");
+
+            const horizonStatus = await window.api.invoke("check-horizon-status");
+            const cloudPrefs = getCloudSettings(); 
+
+            if (horizonStatus.installed && cloudPrefs.systemEnabled) {
+                if (cloudPrefs.autoUpload) {
+                    document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
+                    await window.api.invoke("call-horizon", ['--upload', instanceId]);
+                    document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                }
+            }
+        }
     }); 
 
-document.getElementById("launch-btn").addEventListener("click", async () => {
+    document.getElementById("launch-btn").addEventListener("click", async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
 
         if (window.checkAchievement) {
-
             window.checkAchievement("first_launch");
-
             const ramToVerify = inst.ram || store.globalSettings.defaultRam;
             if (ramToVerify > 8192) { 
                 window.checkAchievement("war_machine");
@@ -367,6 +401,16 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
         const logOutput = document.getElementById("log-output");
 
         await performAutoBackup(inst, "on_launch");
+
+        const horizonStatus = await window.api.invoke("check-horizon-status");
+        const cloudPrefs = getCloudSettings(); 
+
+        if (horizonStatus.installed && cloudPrefs.systemEnabled) {
+            if (cloudPrefs.autoSync) {
+                document.getElementById("status-text").innerText = t("msg_cloud_sync", "Vérification du Cloud en cours...");
+                await window.api.invoke("call-horizon", ['--sync', inst.name]);
+            }
+        }
 
         document.getElementById("console-container").style.display = "block";
         logOutput.innerHTML = "";
@@ -458,7 +502,7 @@ document.getElementById("launch-btn").addEventListener("click", async () => {
                 const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
                 if (refreshRes.success && refreshRes.access_token) {
                     acc.mclcAuth.access_token = refreshRes.access_token;
-                    window.safeWriteJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                    window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                 } else {
                     window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte Microsoft dans l'onglet Gérer."), "error");
                     document.getElementById("status-text").innerText = t("status_ready", "Prêt");

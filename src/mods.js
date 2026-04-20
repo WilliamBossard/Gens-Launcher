@@ -736,9 +736,13 @@ function setupMods() {
 
         await Promise.all(workers);
 
-        window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
+window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
 
         store.allInstances.push(newInst);
+        
+        const instJsonPath = path.join(instDir, "instance.json");
+        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
+        
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
         window.safeWriteJSON(store.instanceFile, store.allInstances);

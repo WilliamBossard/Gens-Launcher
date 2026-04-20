@@ -125,7 +125,7 @@ export function checkAchievement(id) {
         <img src="${adv.icon}" class="advancement-icon">
         <div class="advancement-text">
             <span class="advancement-title">${t("adv_unlocked", "Progrès réalisé !")}</span>
-            <span class="advancement-name">${t(adv.nameKey, "Succès")}</span>
+            <span class="advancement-name">${t(adv.nameKey, t("lbl_achievement_fallback", "Succès"))}</span>
         </div>
     `;
     

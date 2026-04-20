@@ -42,6 +42,7 @@ export const store = {
     dragCounter: 0,
     primaryRpcInstance: null,
     pendingLauncherUpdate: null,
+    horizonActive: false,      
 
     defaultIcons: {
         vanilla: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' fill='%2317B139'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='5' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='3' y='4' width='2' height='3' fill='%23000'/%3E%3C/svg%3E",
