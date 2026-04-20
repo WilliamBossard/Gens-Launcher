@@ -54,15 +54,18 @@ export function setupUICore() {
             } catch (e) { console.error("Erreur lecture instances:", e); }
         }
 
-        if (store.accountFile && fs.existsSync(store.accountFile)) {
+if (store.accountFile && fs.existsSync(store.accountFile)) {
             try {
-                const parsed = window.api.security.readJSON(store.accountFile);
-                if (parsed) {
-                    store.allAccounts = parsed.list || [];
-                    const lastUsed = parsed.lastUsed;
-                    store.selectedAccountIdx =
-                        (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length)
-                            ? lastUsed : (store.allAccounts.length > 0 ? 0 : null);
+                if (window.api.security && typeof window.api.security.readJSON === 'function') {
+                    const parsed = window.api.security.readJSON(store.accountFile);
+                    if (parsed) {
+                        store.allAccounts = parsed.list || [];
+                        const lastUsed = parsed.lastUsed;
+                        store.selectedAccountIdx = (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length) ? lastUsed : (store.allAccounts.length > 0 ? 0 : null);
+                    }
+                } else {
+                    console.error("L'API security est absente sur ce système.");
+                    store.allAccounts = [];
                 }
             } catch (e) { console.error("Erreur lecture comptes chiffrés:", e); }
         } else {

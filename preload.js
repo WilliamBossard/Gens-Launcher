@@ -27,7 +27,14 @@ function safeExternalUrl(url) {
     return url;
 }
 
-const machineID = os.hostname() + "_" + os.userInfo().username;
+let username = "default";
+try {
+    username = os.userInfo().username;
+} catch (e) {
+    username = process.env.USER || process.env.LOGNAME || "linux_user";
+}
+
+const machineID = os.hostname() + "_" + username;
 const SECRET_KEY = crypto.createHash('sha256').update(machineID).digest();
 
 function encryptData(text) {
