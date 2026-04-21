@@ -529,6 +529,9 @@ const defaultFr = {
   msg_opening_browser_login: "Ouverture du navigateur pour la connexion...",
   horizon_upload_success: "sauvegardée sur le Cloud avec succès !",
   msg_applying_delta: "Mise à jour des fichiers...",
+  msg_update_downloading: "Téléchargement de la mise à jour...",
+  msg_update_restart: "Mise à jour prête ! Voulez-vous redémarrer maintenant ?",
+  msg_update_later: "Mise à jour prête. Redémarrez plus tard.",
 };
 
 const defaultEn = {
@@ -1057,6 +1060,9 @@ const defaultEn = {
   msg_opening_browser_login: "Opening browser for login...",
   horizon_upload_success: "successfully saved to the Cloud!",
   msg_applying_delta: "Updating files...",
+  msg_update_downloading: "Downloading update... (Please wait)",
+  msg_update_restart: "Update ready! Do you want to restart now?",
+  msg_update_later: "Update ready. Restart later to apply.",
 };
 
 export function setupLang() {
