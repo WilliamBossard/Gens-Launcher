@@ -222,7 +222,15 @@ export function setupArchives() {
                             window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
                             continue;
                         }
-                        const res = await fetch(downloadUrl);
+                        const dlController = new AbortController();
+                        const dlTimeout = setTimeout(() => dlController.abort(), 30000); // 30 sec max
+                        let res;
+                        try {
+                            res = await fetch(downloadUrl, { signal: dlController.signal });
+                        } finally {
+                            clearTimeout(dlTimeout);
+                        }
+                        
                         if (res.ok) {
                             const buffer = await res.arrayBuffer();
                             const fileBytes = new Uint8Array(buffer);
@@ -386,9 +394,17 @@ const queue = [...filesToDownload];
                                 continue;
                             }
                             const rawFileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
-                            const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
+const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
                             
-                            const modRes = await fetch(downloadUrl);
+                            const dlController = new AbortController();
+                            const dlTimeout = setTimeout(() => dlController.abort(), 30000);
+                            let modRes;
+                            try {
+                                modRes = await fetch(downloadUrl, { signal: dlController.signal });
+                            } finally {
+                                clearTimeout(dlTimeout);
+                            }
+                            
                             if (modRes.ok) {
                                 const buffer = await modRes.arrayBuffer();
                                 fs.writeFileSync(path.join(modsDir, fileName), new Uint8Array(buffer));

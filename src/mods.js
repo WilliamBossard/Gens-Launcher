@@ -721,7 +721,7 @@ function setupMods() {
                         }
                     }
 
-                    fs.writeFileSync(destPath, new Uint8Array(buffer));
+fs.writeFileSync(destPath, new Uint8Array(buffer));
 
                 } catch (e) {
                     sysLog(`Erreur DL ${mod.name}: ` + e, true);
@@ -731,6 +731,8 @@ function setupMods() {
                 done++;
                 let pct = Math.round((done / total) * 100);
                 window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
+                
+                await new Promise(resolve => setTimeout(resolve, 50));
             }
         });
 

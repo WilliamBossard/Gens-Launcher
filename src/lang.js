@@ -517,6 +517,18 @@ const defaultFr = {
   msg_err_no_mc_token: "Jeton Minecraft introuvable. Vérifiez que le compte possède Minecraft Java.",
   msg_err_no_mc_profile: "Aucun profil Minecraft trouvé sur ce compte. Lancez le launcher officiel au moins une fois.",
   ph_search_local_mod: "Rechercher un mod installé...",
+  horizon_mode_smart: "Smart (Incrémentiel - Recommandé)",
+  horizon_mode_full: "Classique (Archive complète)",
+  lbl_active_cloud: "Cloud Actif :",
+  btn_change: "Changer",
+  msg_cloud_link_req: "Veuillez associer un compte {provider} pour voir vos instances.",
+  horizon_login_ready: "Serveur Horizon prêt (port {port}). Ouverture du navigateur...",
+  horizon_login_success: "Authentification réussie ! Jeton sauvegardé.",
+  horizon_login_error_port: "Erreur : Le port {port} est déjà utilisé par un autre programme.",
+  horizon_login_error_timeout: "La connexion a expiré ou a été annulée.",
+  msg_opening_browser_login: "Ouverture du navigateur pour la connexion...",
+  horizon_upload_success: "sauvegardée sur le Cloud avec succès !",
+  msg_applying_delta: "Mise à jour des fichiers...",
 };
 
 const defaultEn = {
@@ -1033,6 +1045,18 @@ const defaultEn = {
   msg_err_no_mc_token: "Minecraft token not found. Make sure the account owns Minecraft Java Edition.",
   msg_err_no_mc_profile: "No Minecraft profile found on this account. Launch the official launcher at least once.",
   ph_search_local_mod: "Search installed mods...",
+  horizon_mode_smart: "Smart (Incremental - Recommended)",
+  horizon_mode_full: "Classic (Full Archive)",
+  lbl_active_cloud: "Active Cloud:",
+  btn_change: "Change",
+  msg_cloud_link_req: "Please link a {provider} account to view your instances.",
+  horizon_login_ready: "Horizon server ready (port {port}). Opening browser...",
+  horizon_login_success: "Authentication successful! Token saved.",
+  horizon_login_error_port: "Error: Port {port} is already in use by another program.",
+  horizon_login_error_timeout: "Connection timed out or was cancelled.",
+  msg_opening_browser_login: "Opening browser for login...",
+  horizon_upload_success: "successfully saved to the Cloud!",
+  msg_applying_delta: "Updating files...",
 };
 
 export function setupLang() {

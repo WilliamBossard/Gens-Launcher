@@ -425,40 +425,65 @@ export function setupHorizonSettings() {
         };
 
         const isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
-        
         const statusColor = isEnabled ? "#17B139" : "#f87171";
         const statusText = isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif");
+        const currentProvider = status.provider || "google";
 
-        const linkBtnHTML = status.linked 
-            ? `<button class="btn-secondary" style="color: #17B139; border-color: #17B139; cursor: default;">${t("horizon_linked", "Compte Associé")}</button>`
-            : `<button class="btn-primary" onclick="runHorizon('login')">${t("btn_horizon_link", "Associer un compte")}</button>`;
+        let linkBtnHTML = "";
+        if (status.linked) {
+            linkBtnHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; height: 28px; background: rgba(23, 177, 57, 0.1); padding: 0 12px; border-radius: 4px; border: 1px solid #17B139; flex-shrink: 0; box-sizing: border-box; margin-left: auto;">
+                    <span style="color: #17B139; font-weight: bold; font-size: 0.85rem; white-space: nowrap;">✔ ${t("horizon_linked", "Compte Associé")}</span>
+                </div>
+            `;
+        } else {
+            linkBtnHTML = `
+                <button class="btn-primary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; flex-shrink: 0; white-space: nowrap; box-sizing: border-box; margin-left: auto;" onclick="runHorizonLogin(document.getElementById('horizon-provider-select').value)">
+                    ${t("btn_horizon_link", "Associer un compte")}
+                </button>
+            `;
+        }
 
         const updateBtnHTML = (status.needsUpdate && !status.offline)
-            ? `<button class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21;" onclick="handleHorizonInstall()">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
-            : `<button class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem;" onclick="handleHorizonInstall()">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+            ? `<button class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;" onclick="handleHorizonInstall()">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
+            : `<button class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;" onclick="handleHorizonInstall()">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
 
         let html = `
             <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
                     <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
                         <span style="width: 10px; height: 10px; min-width: 10px; background: ${statusColor}; border-radius: 50%;"></span>
                         <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${statusText}</strong>
                     </div>
-                    <select onchange="saveHorizonConfig('systemEnabled', this.value)" style="width: 110px; height: 32px; flex-shrink: 0; margin-left: 12px;">
+                    <select onchange="saveHorizonConfig('systemEnabled', this.value)" style="width: 110px; height: 28px; font-size: 0.8rem; flex-shrink: 0; margin-left: auto;">
                         <option value="true" ${isEnabled ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                         <option value="false" ${!isEnabled ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                     </select>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                    <div style="font-size: 0.75rem; color: #aaa;">
+                
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="font-size: 0.75rem; color: #aaa; min-width: 150px;">
                         ${t("horizon_version", "Version :")} ${status.localVersion}
                         ${(status.needsUpdate && !status.offline) ? `<span style="color:#f48a21; margin-left:6px; font-weight:bold;">${t("horizon_update_available", "Mise à jour disponible")} : ${status.latestVersion}</span>` : ""}
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: auto;">
                         ${updateBtnHTML}
-                        ${isEnabled ? linkBtnHTML : ''}
                     </div>
                 </div>
+
+                ${isEnabled ? `
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                        <span style="font-size: 0.85rem; color: var(--text-light); font-weight: bold;">${t("lbl_active_cloud", "Cloud Actif :")}</span>
+                        <select id="horizon-provider-select" onchange="changeHorizonProvider(this.value)" style="width: 130px; height: 28px; font-size: 0.8rem;">
+                            <option value="google" ${currentProvider === "google" ? "selected" : ""}>Google Drive</option>
+                            <option value="dropbox" ${currentProvider === "dropbox" ? "selected" : ""}>Dropbox</option>
+                            <option value="onedrive" ${currentProvider === "onedrive" ? "selected" : ""}>OneDrive</option>
+                        </select>
+                    </div>
+                    ${linkBtnHTML}
+                </div>` : ''}
             </div>`;
 
         if (isEnabled) {
@@ -468,8 +493,8 @@ export function setupHorizonSettings() {
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
                 <select onchange="saveHorizonConfig('syncMode', this.value)" style="width: 100%; margin-bottom: 12px;">
-                    <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_sync_smart", "Smart (Archive compressée)")}</option>
-                    <option value="INCREMENTAL" ${hSettings.syncMode === "INCREMENTAL" ? "selected" : ""}>${t("horizon_sync_incremental", "Incrémentiel")}</option>
+                    <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_mode_smart", "Smart (Incrémentiel - Recommandé)")}</option>
+                    <option value="FULL" ${hSettings.syncMode === "FULL" ? "selected" : ""}>${t("horizon_mode_full", "Classique (Archive complète)")}</option>
                 </select>
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
@@ -497,6 +522,40 @@ export function setupHorizonSettings() {
 
         if (isEnabled && status.linked) {
             window.api.invoke("call-horizon", ['--sync', '--list']);
+        } else if (isEnabled && !status.linked) {
+            const grid = document.getElementById("horizon-cloud-grid");
+            const prettyProvider = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
+            if (grid) {
+                const msg = t("msg_cloud_link_req", "Veuillez associer un compte {provider} pour voir vos instances.").replace("{provider}", prettyProvider);
+                grid.innerHTML = `<div style="color:#f87171; font-size:0.85rem; padding: 10px;">${msg}</div>`;
+            }
+        }
+    };
+
+    window.changeHorizonProvider = async (newProvider) => {
+        await window.saveHorizonConfig('provider', newProvider);
+        await window.refreshHorizonUI(); 
+    };
+
+window.runHorizonLogin = async (provider) => {
+        window.showToast(t("msg_opening_browser_login", "Ouverture du navigateur pour connexion..."), "info");
+        
+        await window.api.invoke("call-horizon", ['--login', `--provider=${provider}`]);
+        await window.refreshHorizonUI();
+    };
+    
+    window.runHorizon = async (action) => {
+        const zone = document.getElementById("horizon-progress-zone");
+        if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
+        
+        await window.api.invoke("call-horizon", `--${action}`);
+        await window.refreshHorizonUI();
+
+        if (zone) {
+            setTimeout(() => {
+                zone.style.display = "none";
+                document.getElementById("horizon-bar").style.width = "0%";
+            }, 2000);
         }
     };
 
@@ -516,33 +575,6 @@ export function setupHorizonSettings() {
             window.showToast(t("horizon_install_error", "Erreur d'installation : ") + e.message, "error");
         }
     };
-    
-    window.runHorizon = async (action) => {
-        const zone = document.getElementById("horizon-progress-zone");
-        if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
-        
-        await window.api.invoke("call-horizon", `--${action}`);
-        await window.refreshHorizonUI();
-
-        if (zone) {
-            setTimeout(() => {
-                zone.style.display = "none";
-                document.getElementById("horizon-bar").style.width = "0%";
-            }, 2000);
-        }
-    };
-
-    window.api.on("horizon-status", (data) => {
-        const bar = document.getElementById("horizon-bar");
-        const step = document.getElementById("horizon-step");
-        const perc = document.getElementById("horizon-perc");
-        
-        if (data.type === "PROGRESS") {
-            if (bar) bar.style.width = data.value + "%";
-            if (perc) perc.innerText = data.value + "%";
-            if (step) step.innerText = data.step === "COMPRESSING" ? `${t("msg_compress", "Compression")} ${data.instance}...` : `${t("msg_loading", "Traitement...")}...`;
-        }
-    });
 
     window.switchTabGlob = (tabId) => {
         const tabs = document.querySelectorAll(".settings-tab");

@@ -1593,7 +1593,7 @@
     </div>
 
     <div id="modal-settings" class="modal">
-        <div class="modal-card" style="width: 600px;">
+        <div class="modal-card" style="width: 650px;">
             <div class="modal-header" data-i18n="toolbar_settings">Paramètres Globaux du Launcher</div>
             <div class="settings-layout">
                 <div class="settings-sidebar">
@@ -2160,9 +2160,11 @@
     </div>
 
     <div id="cloud-only-context-menu" class="context-menu">
-        <div class="context-menu-item" onclick="ctxRestoreCloud()" data-i18n="ctx_restore_cloud">Restaurer l'instance</div>
+        <div class="context-menu-item" id="ctx-cloud-restore-item" onclick="ctxRestoreCloud()" data-i18n="ctx_restore_cloud">Restaurer l'instance</div>
+        <div class="context-menu-item" id="ctx-cloud-sync-item"   onclick="ctxSyncCloudFromMenu()"   data-i18n="ctx_cloud_import"  style="display:none;">Importer du Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-upload-item" onclick="ctxUploadCloudFromMenu()" data-i18n="ctx_cloud_upload" style="display:none;">Envoyer sur le Cloud</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud">Supprimer du Cloud</div>
+        <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud" style="color:#f87171;">Supprimer du Cloud</div>
     </div>
     <script type="module" src="renderer.js"></script>
     

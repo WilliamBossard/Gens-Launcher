@@ -18,59 +18,49 @@ export function setupUICore() {
 
         if (fs.existsSync(store.settingsFile)) {
             try {
-                const raw = fs.readFileSync(store.settingsFile, "utf8");
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    store.globalSettings = { ...store.globalSettings, ...parsed };
-                    if (parsed.theme) {
-                        store.globalSettings.theme = { ...store.globalSettings.theme, ...parsed.theme };
-                    }
+                const settingsContent = fs.readFileSync(store.settingsFile, "utf8");
+                if (settingsContent) {
+                    store.globalSettings = { ...store.globalSettings, ...JSON.parse(settingsContent) };
                 }
-            } catch(e) { console.error("Erreur lecture settings:", e); }
-        }
-        if (!store.globalSettings.theme) {
-            store.globalSettings.theme = { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
-        }
-        
-        if (store.globalSettings.disableAnimations === undefined) store.globalSettings.disableAnimations = false;
-        if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
-
-        if (!store.globalSettings.language) store.globalSettings.language = "fr";
-
-        if (!store.defaultIcons) {
-            store.defaultIcons = {
-                vanilla:  "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' fill='%2317B139'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='5' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='3' y='4' width='2' height='3' fill='%23000'/%3E%3C/svg%3E",
-                forge:    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232b2b2b'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%238c8c8c'/%3E%3C/svg%3E",
-                fabric:   "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23e2d4b7'/%3E%3Cpath d='M0 4h16v2H0zM0 10h16v2H0zM4 0h2v16H4zM10 0h2v16H10z' fill='%23c8b593'/%3E%3C/svg%3E",
-                quilt:    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%237c3aed'/%3E%3Crect x='0' y='0' width='8' height='8' fill='%239f67f5'/%3E%3Crect x='8' y='8' width='8' height='8' fill='%239f67f5'/%3E%3Crect x='3' y='3' width='2' height='2' fill='%23fff'/%3E%3Crect x='11' y='11' width='2' height='2' fill='%23fff'/%3E%3C/svg%3E",
-                neoforge: "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f48a21'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%23ffffff'/%3E%3C/svg%3E"
-            };
+            } catch (e) { console.error("Erreur lecture settings:", e); }
         }
 
         if (fs.existsSync(store.instanceFile)) {
             try {
                 const content = fs.readFileSync(store.instanceFile, "utf8");
-                if (content) store.allInstances = JSON.parse(content);
+                if (content) {
+                    let loadedInstances = JSON.parse(content);                   
+                    const initialCount = loadedInstances.length;
+                    store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
+                    
+                    if (store.allInstances.length !== initialCount) {
+                        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2), "utf8");
+                        console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
+                    }
+                }
             } catch (e) { console.error("Erreur lecture instances:", e); }
         }
 
-if (store.accountFile && fs.existsSync(store.accountFile)) {
+        if (!store.globalSettings.theme) {
+            store.globalSettings.theme = { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
+        }
+        if (store.globalSettings.disableAnimations === undefined) store.globalSettings.disableAnimations = false;
+        if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
+        if (!store.globalSettings.language) store.globalSettings.language = "fr";
+
+        if (store.accountFile && fs.existsSync(store.accountFile)) {
             try {
                 if (window.api.security && typeof window.api.security.readJSON === 'function') {
                     const parsed = window.api.security.readJSON(store.accountFile);
                     if (parsed) {
                         store.allAccounts = parsed.list || [];
                         const lastUsed = parsed.lastUsed;
-                        store.selectedAccountIdx = (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length) ? lastUsed : (store.allAccounts.length > 0 ? 0 : null);
+                        store.selectedAccountIdx = (typeof lastUsed === "number" && lastUsed >= 0 && lastUsed < store.allAccounts.length) 
+                            ? lastUsed 
+                            : (store.allAccounts.length > 0 ? 0 : null);
                     }
-                } else {
-                    console.error("L'API security est absente sur ce système.");
-                    store.allAccounts = [];
                 }
             } catch (e) { console.error("Erreur lecture comptes chiffrés:", e); }
-        } else {
-            store.allAccounts = [];
-            store.selectedAccountIdx = null;
         }
 
         if (store.globalSettings.defaultRam > store.maxSafeRam) {

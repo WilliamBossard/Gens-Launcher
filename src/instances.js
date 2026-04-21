@@ -400,7 +400,11 @@ export function setupInstances() {
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
-            if (oldFolder !== newFolder) {
+if (oldFolder !== newFolder) {
+                if (fs.existsSync(newFolder)) {
+                    window.showToast(t("msg_err_similar_name", "Un dossier portant ce nom existe déjà sur votre PC !"), "error");
+                    return;
+                }
                 try {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);

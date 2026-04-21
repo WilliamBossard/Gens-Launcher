@@ -99,14 +99,14 @@ app.whenReady().then(() => {
             ? path.join(__dirname, "assets/icon.ico")
             : path.join(__dirname, "assets/icon.png");
         tray = new Tray(trayIcon);
-        const contextMenu = Menu.buildFromTemplate([
-            { label: 'Afficher Gens Launcher', click: () => { if (mainWindow) mainWindow.show(); } },
+const contextMenu = Menu.buildFromTemplate([
+            { label: 'Afficher Gens Launcher', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); } },
             { type: 'separator' },
             { label: 'Quitter', click: () => { app.quit(); } }
         ]);
         tray.setToolTip('Gens Launcher');
         tray.setContextMenu(contextMenu);
-        tray.on('double-click', () => { if (mainWindow) mainWindow.show(); });
+        tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); });
     } catch (e) { console.error("Erreur Tray:", e); }
 
     autoUpdater.logger = { info: (m) => mainLog(m), warn: (m) => mainLog("WARN: " + m), error: (m) => mainLog("ERR: " + m) };
@@ -562,10 +562,21 @@ ipcMain.handle("save-horizon-settings", async (event, settings) => {
 });
 
 ipcMain.handle("check-horizon-status", async () => {
-    const tokenPath = path.join(horizonBinDir, "token.json");
+    let currentProvider = "google";
+    const hSettingsPath = path.join(horizonBinDir, "horizon_settings.json");
+    
+    if (fs.existsSync(hSettingsPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(hSettingsPath, "utf8"));
+            if (parsed.provider) currentProvider = parsed.provider;
+        } catch(e) {}
+    }
+
+    const specificTokenPath = path.join(horizonBinDir, `token_${currentProvider}.json`);
+    const legacyTokenPath = path.join(horizonBinDir, "token.json");
     
     const isInstalled = fs.existsSync(horizonExePath);
-    const isLinked = fs.existsSync(tokenPath); 
+    const isLinked = fs.existsSync(specificTokenPath) || (currentProvider === "google" && fs.existsSync(legacyTokenPath)); 
     
     let localVersion = "v0.0.0";
     if (fs.existsSync(horizonVersionPath)) {
@@ -580,7 +591,8 @@ ipcMain.handle("check-horizon-status", async () => {
             localVersion,
             latestVersion,
             needsUpdate: latestVersion !== localVersion,
-            linked: isLinked 
+            linked: isLinked,
+            provider: currentProvider 
         };
     } catch (e) {
         return { 
@@ -589,7 +601,8 @@ ipcMain.handle("check-horizon-status", async () => {
             latestVersion: null, 
             needsUpdate: false, 
             offline: true, 
-            linked: isLinked 
+            linked: isLinked,
+            provider: currentProvider
         };
     }
 });

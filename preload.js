@@ -84,9 +84,6 @@ contextBridge.exposeInMainWorld("api", {
             if (!fs.existsSync(filePath)) return null;
             const raw = fs.readFileSync(filePath, 'utf8');
             
-            // Migration : fichier en JSON brut (ancienne version) → on chiffre à la volée
-            // Note : window.api n'existe PAS dans le contexte preload (il est exposé au renderer
-            // via contextBridge). On utilise directement encryptData + fs.writeFileSync.
             if (raw.startsWith('{') || raw.startsWith('[')) {
                 const parsed = JSON.parse(raw);
                 try {

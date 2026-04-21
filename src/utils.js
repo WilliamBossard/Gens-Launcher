@@ -11,7 +11,7 @@ function t(key, fallback) {
 window.pathToFileUrl = (p) => {
     const normalized = p.replace(/\\/g, "/");
     const prefix = normalized.startsWith("/") ? "file://" : "file:///";
-    return prefix + encodeURI(normalized);
+    return prefix + encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F');
 };
 
 window.escapeHTML = (str) => {
