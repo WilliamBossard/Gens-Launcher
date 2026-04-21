@@ -55,9 +55,25 @@ ipcRenderer.on("update-available-prompt", async (info) => {
 ipcRenderer.on("update-progress", (pct) => {
     const statusDiv = document.getElementById("update-status");
     if (statusDiv) statusDiv.innerText = `${t("msg_update_downloading", "Téléchargement en cours... (Patientez)")} ${pct}%`;
+
+    const overlay = document.getElementById("loading-overlay");
+    const percentDiv = document.getElementById("loading-percent");
+    const textDiv = document.getElementById("loading-text");
+    const isSettingsOpen = document.getElementById("modal-settings")?.style.display === "flex";
+    
+    if (!store.globalSettings.autoDownloadUpdates || isSettingsOpen) {
+        if (overlay && percentDiv && textDiv) {
+            overlay.style.display = "flex";
+            percentDiv.innerText = pct + "%";
+            textDiv.innerText = t("msg_update_downloading", "Téléchargement de la mise à jour...");
+        }
+    }
 });
 
 ipcRenderer.on("update-downloaded", async () => {
+    const overlay = document.getElementById("loading-overlay");
+    if (overlay) overlay.style.display = "none";
+
     const msg = t("msg_update_restart", "Mise à jour prête ! Voulez-vous redémarrer maintenant ?");
     if (await window.showCustomConfirm(msg)) {
         ipcRenderer.send("restart_app");
