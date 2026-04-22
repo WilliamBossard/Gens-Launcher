@@ -472,6 +472,8 @@ if (oldFolder !== newFolder) {
             if (btnModsTab) btnModsTab.style.display = inst.loader === "vanilla" ? "none" : "block";
         }
 
+        const iconWasChanged = !!store.pendingIconPath;
+
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
             if (!fs.existsSync(instFolder)) fs.mkdirSync(instFolder, { recursive: true });
@@ -496,7 +498,7 @@ if (oldFolder !== newFolder) {
         try { fs.writeFileSync(instJsonPath, JSON.stringify(inst, null, 2)); } catch(e) {}
         
         window.renderUI();
-        if (store.pendingIconPath || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
+        if (iconWasChanged || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
             if (window.checkAchievement) window.checkAchievement("artist");
         }
         window.closeEditModal();
@@ -549,13 +551,17 @@ if (oldFolder !== newFolder) {
         window.renderUI();
     };
 
-    window.deleteInstance = async () => {
+window.deleteInstance = async () => {
         if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
             
             try {
                 const hStatus = await window.api.invoke("check-horizon-status");
-                if (hStatus && hStatus.linked) {
+                const binPath = path.join(store.instancesRoot, "..", "bin");
+                const manifestPath = path.join(binPath, `manifest_${inst.name}.json`);
+                const isSyncedToCloud = fs.existsSync(manifestPath);
+
+                if (hStatus && hStatus.linked && isSyncedToCloud) {
                     const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?\n(Si non, elle pourra être restaurée plus tard depuis les paramètres)").replace("{name}", inst.name);
                     if (await window.showCustomConfirm(confirmMsg, true)) {
                         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");

@@ -34,7 +34,7 @@ export function setupUICore() {
                     store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
                     
                     if (store.allInstances.length !== initialCount) {
-                        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2), "utf8");
+                        window.safeWriteJSON(store.instanceFile, store.allInstances);
                         console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
                     }
                 }
@@ -475,12 +475,9 @@ groups[g].forEach(inst => {
         });
     }
 
-    let ctxTargetIdx = null;
-
     window.openContextMenu = (e, idx) => {
         e.preventDefault();
         window.selectInstance(idx);
-        ctxTargetIdx = idx;
         
         const menu = document.getElementById("custom-context-menu");
         if (!menu) return;

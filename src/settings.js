@@ -145,7 +145,7 @@ export function setupSettings() {
             if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
             store.globalSettings.defaultOptionsInstance = null;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_profile_disabled"), "info");
+            window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
         if (idx === "") return;

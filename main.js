@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("ele
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile, exec, spawn } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const axios = require("axios"); 
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
@@ -149,6 +149,10 @@ function runHorizonAction(action, event = null) {
                     mainLog(`[Horizon Raw] ${line}`);
                 }
             }
+        });
+
+        horizon.stderr.on('data', (data) => {
+            mainLog(`[Horizon Error] ${data.toString().trim()}`);
         });
 
         horizon.on('close', (code) => {
@@ -345,16 +349,20 @@ ipcMain.on("launch-game", (event, opts) => {
     const instanceId = opts.instanceId;
     const launcher = new Client();
 
-    launcher.launch(opts).then((process) => {
-        activeMinecraftClients.set(instanceId, { process, launcher });
-        saveRunningInstances(activeMinecraftClients);
-    }).catch(e => mainLog("Erreur Lancement: " + e));
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
     launcher.on("close", (e) => {
         activeMinecraftClients.delete(instanceId);
         saveRunningInstances(activeMinecraftClients);
         mainWindow?.webContents.send("mc-close", { instanceId, code: e });
+    });
+
+    launcher.launch(opts).then((process) => {
+        activeMinecraftClients.set(instanceId, { process, launcher });
+        saveRunningInstances(activeMinecraftClients);
+    }).catch(e => {
+        mainLog("Erreur Lancement: " + e);
+        mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
     });
 });
 

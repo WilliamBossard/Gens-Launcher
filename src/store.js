@@ -26,7 +26,8 @@ export const store = {
         disableRPC: false,       
         multiInstance: false,
         autoDownloadUpdates: false,
-        totalInstancesCreated: 0 
+        totalInstancesCreated: 0,
+        collapsedGroups: {}
     },
     currentLangObj: {},
 

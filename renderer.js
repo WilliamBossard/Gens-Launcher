@@ -124,6 +124,10 @@ async function loadNews() {
         const data = await res.json();
         const container = document.getElementById("news-container");
 
+        if (!data || !Array.isArray(data.entries)) return;
+
+        if (!container) return;
+
         container.style.display = "block";
         const isCollapsed = store.globalSettings.newsCollapsed;
         const toggleText = isCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
@@ -134,8 +138,6 @@ async function loadNews() {
             <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleNews()" id="btn-toggle-news">${toggleText}</button>
         </div>
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
-        
-        if (!data || !Array.isArray(data.entries)) return;
         data.entries.slice(0, 6).forEach(news => {
             const rawImgUrl = news.playPageImage?.url || "";
             const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
@@ -171,7 +173,6 @@ window.toggleNews = () => {
         wrapper.style.display = "block";
         btn.innerText = store.currentLangObj?.btn_hide || "Masquer";
     }
-    window.renderUI();
 };
 
 window.checkServerStatus = async () => {
@@ -249,8 +250,6 @@ async function checkCloudAtStartup() {
         const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
         const setPath = window.api.path.join(binPath, "horizon_settings.json");
         
-        console.log("🔍 [DÉMARRAGE] Test du nouveau chemin propre :", setPath);
-        
         let systemEnabled = false;
         let autoSyncEnabled = false; 
         
@@ -260,14 +259,11 @@ async function checkCloudAtStartup() {
             
             systemEnabled = (parsed.systemEnabled === true || parsed.systemEnabled === "true");
             autoSyncEnabled = (parsed.autoSync === true || parsed.autoSync === "true");
-            console.log("📄 [DÉMARRAGE] Paramètres lus :", parsed);
         } else {
-            console.log("[DÉMARRAGE] Fichier introuvable à l'adresse indiquée.");
             return;
         }
 
         if (!systemEnabled) {
-            console.log("[DÉMARRAGE] Système Horizon désactivé par l'utilisateur.");
             return; 
         }
 
@@ -487,24 +483,28 @@ window.api.on("horizon-status", async (data) => {
     }
 });
 
-window.openContextMenu = (e, idx) => {
+window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();
-    window.selectInstance(idx);
-    window.ctxTargetIdx = idx; 
-    
-    const menu = document.getElementById("custom-context-menu");
-    if (!menu) return;
-    const cloudDivider = document.getElementById("ctx-cloud-divider");
-    const cloudSync    = document.getElementById("ctx-cloud-import") || document.getElementById("ctx-cloud-sync");
-    const cloudUpload  = document.getElementById("ctx-cloud-upload");
-    const inst = store.allInstances[idx];
-    const isPhantom = inst && inst.version === "...";
-    const showCloud = (store.horizonActive === true) && !isPhantom;
-    const cloudDisplay = showCloud ? "block" : "none";
+    e.stopPropagation();
 
-    if (cloudDivider) cloudDivider.style.display = cloudDisplay;
-    if (cloudSync)    cloudSync.style.display    = cloudDisplay;
-    if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
+    store.cloudTarget = instName;
+
+    const menu = document.getElementById("cloud-only-context-menu");
+    if (!menu) return;
+
+    const restoreItem = document.getElementById("ctx-cloud-restore-item");
+    const syncItem    = document.getElementById("ctx-cloud-sync-item");
+    const uploadItem  = document.getElementById("ctx-cloud-upload-item");
+
+    if (isLocal) {
+        if (restoreItem) restoreItem.style.display = "none";
+        if (syncItem)    syncItem.style.display    = "flex";
+        if (uploadItem)  uploadItem.style.display  = "flex";
+    } else {
+        if (restoreItem) restoreItem.style.display = "flex";
+        if (syncItem)    syncItem.style.display    = "none";
+        if (uploadItem)  uploadItem.style.display  = "none";
+    }
 
     menu.style.display = "flex";
     
