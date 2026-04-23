@@ -1072,7 +1072,7 @@ export function setupLang() {
             try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) {}
         }
         
-        const merged = Object.assign({}, defaultObj, current);
+        const merged = Object.assign({}, current, defaultObj);
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -1146,7 +1146,9 @@ window.saveFirstLaunch = () => {
         }
         window.loadLanguage(code);
         if (window.populateLangDropdown) window.populateLangDropdown();
-        
+
+        if (window.checkAchievement) window.checkAchievement("polyglot");
+
         document.getElementById("modal-first-launch").style.display = "none";
     };
 

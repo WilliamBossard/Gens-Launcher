@@ -160,6 +160,27 @@ export function setupSettings() {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
         }
     };
+
+    /**
+     * Injecte le profil d'options.txt par défaut dans l'instance actuellement sélectionnée.
+     * Appelée par le bouton "Injecter" dans l'onglet Général des paramètres d'instance.
+     */
+    window.forceInjectOptions = () => {
+        if (store.selectedInstanceIdx === null) return;
+        const defaultOpt = path.join(store.dataDir, "default_options.txt");
+        if (!fs.existsSync(defaultOpt)) {
+            window.showToast(t("msg_force_sync_error", "Aucun profil par défaut défini dans les Paramètres Globaux."), "error");
+            return;
+        }
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        const destOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
+        try {
+            fs.copyFileSync(defaultOpt, destOpt);
+            window.showToast(t("msg_force_sync_success", "Touches synchronisées avec succès !"), "success");
+        } catch(e) {
+            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
+        }
+    };
     
     window.saveDefaultServers = () => {
         const idx = document.getElementById("global-servers-source").value;

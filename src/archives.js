@@ -157,8 +157,9 @@ export function setupArchives() {
         const newInst = {
           name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
           ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+          jvmProfile: "none",
           notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-          lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+          lastPlayed: 0, sessionHistory: [], group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
 
         const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
@@ -223,7 +224,7 @@ export function setupArchives() {
                             continue;
                         }
                         const dlController = new AbortController();
-                        const dlTimeout = setTimeout(() => dlController.abort(), 30000); // 30 sec max
+                        const dlTimeout = setTimeout(() => dlController.abort(), 30000); 
                         let res;
                         try {
                             res = await fetch(downloadUrl, { signal: dlController.signal });
@@ -335,8 +336,9 @@ store.allInstances.push(newInst);
             const newInst = {
                 name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
                 ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+                jvmProfile: "none",
                 notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-                lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+                lastPlayed: 0, sessionHistory: [], group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
 
             const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));

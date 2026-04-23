@@ -34,7 +34,7 @@ export function setupUICore() {
                     store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
                     
                     if (store.allInstances.length !== initialCount) {
-                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2), "utf8");
                         console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
                     }
                 }
@@ -247,6 +247,9 @@ groups[g].forEach(inst => {
 
                 const isPhantom = inst.version === "...";
                 const phantomClass = isPhantom ? "is-phantom" : "";
+                const isAnyRunning = store.activeInstances.size > 0;
+                const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
+                const lockedClass = isLockedByMulti ? "is-locked" : "";
 
                 let iconSrc = inst.icon;
                 if (!iconSrc || iconSrc === "") {
@@ -269,12 +272,12 @@ groups[g].forEach(inst => {
                     : "";
 
                 html += `
-                <div class="instance-card ${isActive} ${phantomClass}"
-                    style="position: relative;"
+                <div class="instance-card ${isActive} ${phantomClass} ${lockedClass}"
+                    style="position: relative;${isLockedByMulti ? ' opacity: 0.4; pointer-events: none;' : ''}"
                     onclick="selectInstance(${inst.originalIndex})"
                     ondblclick="handleInstanceDoubleClick(${inst.originalIndex})" 
                     oncontextmenu="openContextMenu(event, ${inst.originalIndex})"
-                    draggable="true"
+                    draggable="${isLockedByMulti ? 'false' : 'true'}"
                     ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
                     <div class="progress-circle-container" style="position: absolute; top: 5px; right: 5px; width: 34px; height: 34px; display: ${isPhantom ? 'flex' : 'none'}; z-index: 10; background: rgba(0,0,0,0.6); border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); align-items: center; justify-content: center;">
@@ -475,9 +478,12 @@ groups[g].forEach(inst => {
         });
     }
 
+    let ctxTargetIdx = null;
+
     window.openContextMenu = (e, idx) => {
         e.preventDefault();
         window.selectInstance(idx);
+        ctxTargetIdx = idx;
         
         const menu = document.getElementById("custom-context-menu");
         if (!menu) return;

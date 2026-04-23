@@ -378,7 +378,7 @@ export function setupLauncher() {
 
         if (window.checkAchievement) {
             window.checkAchievement("first_launch");
-            const ramToVerify = inst.ram || store.globalSettings.defaultRam;
+            const ramToVerify = inst.ram ? parseInt(inst.ram, 10) : store.globalSettings.defaultRam;
             if (ramToVerify > 8192) { 
                 window.checkAchievement("war_machine");
             }

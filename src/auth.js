@@ -123,7 +123,6 @@ if (result.success) {
           window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
           
           if(window.renderAccountManager) window.renderAccountManager();
-          if(window.changeAccountFromCode) window.changeAccountFromCode();
           if(window.updateAccountDropdown) window.updateAccountDropdown(); 
           if(window.closeAccountModal) window.closeAccountModal();
           
@@ -154,27 +153,4 @@ if (result.success) {
       }
     };
 
-    window.deleteAccount = async (index) => {
-      if (await window.showCustomConfirm(t("msg_remove_acc", "Retirer ce compte ?"), true)) {
-        const accToDel = store.allAccounts[index];
-
-        if (accToDel && accToDel.type === "microsoft") {
-          const msaCacheKey = accToDel.mclcAuth?.meta?.msaCacheKey;
-          if (msaCacheKey) {
-            ipcRenderer.send("delete-msa-cache", msaCacheKey);
-          }
-        }
-
-        store.allAccounts.splice(index, 1);
-        if (store.selectedAccountIdx === index)
-          store.selectedAccountIdx = store.allAccounts.length > 0 ? 0 : null;
-        else if (store.selectedAccountIdx > index) store.selectedAccountIdx--;
-        
-        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
-        
-        if(window.renderAccountManager) window.renderAccountManager();
-        if(window.changeAccountFromCode) window.changeAccountFromCode();
-        if(window.updateAccountDropdown) window.updateAccountDropdown(); 
-      }
-    };
 }

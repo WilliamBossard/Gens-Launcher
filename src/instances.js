@@ -557,8 +557,9 @@ window.deleteInstance = async () => {
             
             try {
                 const hStatus = await window.api.invoke("check-horizon-status");
+                const safeFolderName = inst.name.replace(/[^a-z0-9]/gi, "_");
                 const binPath = path.join(store.instancesRoot, "..", "bin");
-                const manifestPath = path.join(binPath, `manifest_${inst.name}.json`);
+                const manifestPath = path.join(binPath, `manifest_${safeFolderName}.json`);
                 const isSyncedToCloud = fs.existsSync(manifestPath);
 
                 if (hStatus && hStatus.linked && isSyncedToCloud) {

@@ -126,8 +126,6 @@ async function loadNews() {
 
         if (!data || !Array.isArray(data.entries)) return;
 
-        if (!container) return;
-
         container.style.display = "block";
         const isCollapsed = store.globalSettings.newsCollapsed;
         const toggleText = isCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
@@ -483,6 +481,36 @@ window.api.on("horizon-status", async (data) => {
     }
 });
 
+window.openContextMenu = (e, idx) => {
+    e.preventDefault();
+    window.selectInstance(idx);
+    window.ctxTargetIdx = idx; 
+    
+    const menu = document.getElementById("custom-context-menu");
+    if (!menu) return;
+    const cloudDivider = document.getElementById("ctx-cloud-divider");
+    const cloudSync    = document.getElementById("ctx-cloud-import") || document.getElementById("ctx-cloud-sync");
+    const cloudUpload  = document.getElementById("ctx-cloud-upload");
+    const inst = store.allInstances[idx];
+    const isPhantom = inst && inst.version === "...";
+    const showCloud = (store.horizonActive === true) && !isPhantom;
+    const cloudDisplay = showCloud ? "block" : "none";
+
+    if (cloudDivider) cloudDivider.style.display = cloudDisplay;
+    if (cloudSync)    cloudSync.style.display    = cloudDisplay;
+    if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
+
+    menu.style.display = "flex";
+    
+    let x = e.clientX;
+    let y = e.clientY;
+    if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
+    if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
+    
+    menu.style.left = x + "px";
+    menu.style.top  = y + "px";
+};
+
 window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();
     e.stopPropagation();
@@ -563,8 +591,8 @@ window.ctxRestoreCloud = async () => {
                 const subDirs = window.api.fs.readdirSync(vDir);
                 if (subDirs.length > 0) {
                     const vName = subDirs[0].toLowerCase(); 
-                    const matchMC = vName.match(/1\.\d+(\.\d+)?/);
-                    if (matchMC) dVer = matchMC[0];
+                    const matchMC = vName.match(/(?:^|[^0-9])(\d+\.\d+(?:\.\d+)?)/);
+                    if (matchMC) dVer = matchMC[1];
 
                     if (vName.includes("fabric")) dLoader = "fabric";
                     else if (vName.includes("neoforge")) dLoader = "neoforge";
