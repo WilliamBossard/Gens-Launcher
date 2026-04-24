@@ -9,6 +9,9 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
+// Constante au niveau module — évite de recréer un Set à chaque itération de renderUI
+const GENERAL_ALIASES = new Set(["", "Général", "General", "général", "general"]);
+
 export function setupUICore() {
 
     window.loadStorage = () => {
@@ -203,7 +206,6 @@ export function setupUICore() {
         const groups = {};
         filtered.forEach(inst => {
             let g = inst.group;
-            const GENERAL_ALIASES = new Set(["", "Général", "General", "général", "general"]);
             if (!g || GENERAL_ALIASES.has(g.trim())) g = defaultGroup;
             
             if (!groups[g]) groups[g] = [];
@@ -222,6 +224,7 @@ export function setupUICore() {
             });
         }
 
+        let fullHtml = "";
         for (const g in groups) {
             const safeGroup = (g === defaultGroup) ? "" : g;
             const escapedGroupAttr = window.escapeHTML(safeGroup);
@@ -241,26 +244,32 @@ export function setupUICore() {
             </div>`;
 
             html += `<div class="instances-grid" style="display: ${displayStyle};">`;
-            groups[g].forEach(inst => {
-                const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
-                const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-                const isPhantom  = inst.version === "...";
-                const phantomClass = isPhantom ? "is-phantom" : "";
-                const isAnyRunning = store.activeInstances.size > 0;
-                const isRunning    = store.activeInstances.has(inst.name);
-                const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
-                const lockedClass = isLockedByMulti ? "is-locked" : "";
+groups[g].forEach(inst => {
+    const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
+    const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+    const isPhantom = inst.version === "...";
+    const phantomClass = isPhantom ? "is-phantom" : "";
+    const isAnyRunning = store.activeInstances.size > 0;
+    const isRunning = store.activeInstances.has(inst.name);
+    const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
+    const lockedClass = isLockedByMulti ? "is-locked" : "";
 
-                let iconSrc = inst.icon;
-                if (!iconSrc || iconSrc === "") {
-                    if (fs.existsSync(path.join(instFolder, "icon.png"))) {
-                        iconSrc = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/"));
+                // Cache icône : résoudre icon.png/jpg coûte 2 appels disque synchrones par carte.
+                // On mémoïse dans inst._iconCache, invalidé uniquement quand inst.icon change.
+                const iconCacheKey = inst.icon || "";
+                if (!inst._iconCache || inst._iconCacheKey !== iconCacheKey) {
+                    inst._iconCacheKey = iconCacheKey;
+                    if (iconCacheKey !== "") {
+                        inst._iconCache = iconCacheKey;
+                    } else if (fs.existsSync(path.join(instFolder, "icon.png"))) {
+                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/"));
                     } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
-                        iconSrc = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
+                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
                     } else {
-                        iconSrc = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                        inst._iconCache = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
                     }
                 }
+                const iconSrc = inst._iconCache;
 
                 const safeName = window.escapeHTML(inst.name);
                 const safeVersion = window.escapeHTML(inst.version);
@@ -290,8 +299,10 @@ export function setupUICore() {
                 </div>`;
             });
             html += `</div>`;
-            container.innerHTML += html;
+            fullHtml += html;
         }
+        // Un seul innerHTML = à la fin : évite N re-parses et N reflows (un par groupe)
+        container.innerHTML = fullHtml;
 
         container.querySelectorAll(".category-header").forEach(header => {
             header.addEventListener("click", () => window.toggleCategory(header, header.dataset.group || ""));

@@ -472,6 +472,7 @@ if (oldFolder !== newFolder) {
             if (btnModsTab) btnModsTab.style.display = inst.loader === "vanilla" ? "none" : "block";
         }
 
+        // Suivi du changement d'icône AVANT que pendingIconPath soit remis à null
         const iconWasChanged = !!store.pendingIconPath;
 
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
@@ -484,11 +485,15 @@ if (oldFolder !== newFolder) {
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
                 inst.icon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
+                inst._iconCache = null; // invalider le cache pour forcer la re-résolution
             } catch(e) {}
             store.pendingIconPath = null;
         } else {
             const iconSrc = document.getElementById("edit-icon-preview").src;
-            if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
+            if (!iconSrc.includes("svg+xml")) {
+                inst.icon = iconSrc;
+                inst._iconCache = null; // invalider le cache
+            }
         }
 
         window.safeWriteJSON(store.instanceFile, store.allInstances);
@@ -557,11 +562,14 @@ window.deleteInstance = async () => {
             
             try {
                 const hStatus = await window.api.invoke("check-horizon-status");
-                const safeFolderName = inst.name.replace(/[^a-z0-9]/gi, "_");
+                
+                // --- AJOUT : Vérification si l'instance est sur le Cloud ---
                 const binPath = path.join(store.instancesRoot, "..", "bin");
-                const manifestPath = path.join(binPath, `manifest_${safeFolderName}.json`);
+                const manifestPath = path.join(binPath, `manifest_${inst.name}.json`);
                 const isSyncedToCloud = fs.existsSync(manifestPath);
+                // -----------------------------------------------------------
 
+                // On ne propose de supprimer du Cloud QUE si isSyncedToCloud est vrai
                 if (hStatus && hStatus.linked && isSyncedToCloud) {
                     const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?\n(Si non, elle pourra être restaurée plus tard depuis les paramètres)").replace("{name}", inst.name);
                     if (await window.showCustomConfirm(confirmMsg, true)) {

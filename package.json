@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
