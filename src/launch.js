@@ -360,8 +360,6 @@ export function setupLauncher() {
         if (closedInst) {
             await performAutoBackup(closedInst, "on_close");
 
-            // Réutilise horizonStatus et cloudPrefs capturés au moment du lancement
-            // (évite un double appel IPC + lecture disque à chaque fermeture de jeu)
             if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                 if (cloudPrefs.autoUpload) {
                     document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
@@ -401,7 +399,6 @@ export function setupLauncher() {
 
         await performAutoBackup(inst, "on_launch");
 
-        // Lire une seule fois au lancement — résultat capturé dans la closure mc-close ci-dessous
         const horizonStatus = await window.api.invoke("check-horizon-status");
         const cloudPrefs    = getCloudSettings();
 

@@ -9,7 +9,6 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
-// Constante au niveau module — évite de recréer un Set à chaque itération de renderUI
 const GENERAL_ALIASES = new Set(["", "Général", "General", "général", "general"]);
 
 export function setupUICore() {
@@ -254,8 +253,6 @@ groups[g].forEach(inst => {
     const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
     const lockedClass = isLockedByMulti ? "is-locked" : "";
 
-                // Cache icône : résoudre icon.png/jpg coûte 2 appels disque synchrones par carte.
-                // On mémoïse dans inst._iconCache, invalidé uniquement quand inst.icon change.
                 const iconCacheKey = inst.icon || "";
                 if (!inst._iconCache || inst._iconCacheKey !== iconCacheKey) {
                     inst._iconCacheKey = iconCacheKey;
@@ -301,7 +298,6 @@ groups[g].forEach(inst => {
             html += `</div>`;
             fullHtml += html;
         }
-        // Un seul innerHTML = à la fin : évite N re-parses et N reflows (un par groupe)
         container.innerHTML = fullHtml;
 
         container.querySelectorAll(".category-header").forEach(header => {

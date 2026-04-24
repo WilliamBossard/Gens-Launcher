@@ -376,9 +376,6 @@ window.api.on("horizon-status", async (data) => {
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
 
-            // Résolution de l'icône :
-            // - Instance locale → même priorité que uiCore (icon custom > fichier disque > loader default)
-            // - Cloud-only → meta_{inst}.json téléchargé par --list (iconData base64 ou data URI)
             let iconSrc = store.defaultIcons.vanilla;
             if (isLocal) {
                 const localInst  = store.allInstances.find(i => i.name === instName);
@@ -446,7 +443,6 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 
-    // Cibler aussi les cartes dans la grille cloud Horizon (onglet Horizon)
     if (data.instance) {
         document.querySelectorAll('#horizon-cloud-grid .instance-card').forEach(c => {
             const nameEl = c.querySelector('.instance-name');
@@ -471,7 +467,6 @@ window.api.on("horizon-status", async (data) => {
                     textInfo.style.fontSize = "0.65rem";
                 }
             } else if (!circleContainer && data.instance) {
-                // Carte cloud sans cercle de progression : afficher le % dans la version
                 const versionEl = targetCard.querySelector('.instance-version');
                 if (versionEl) {
                     if (data.step === "CHECKING") {
@@ -485,7 +480,6 @@ window.api.on("horizon-status", async (data) => {
         } 
         else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
             if (circleContainer) circleContainer.style.display = "none";
-            // Remettre le texte de statut normal sur les cartes cloud
             const versionEl = targetCard.querySelector('.instance-version');
             if (versionEl && !circleContainer) {
                 const isLocal = targetCard.dataset.isLocal === "true";
@@ -578,18 +572,15 @@ window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // On mémorise le nom de l'instance ciblée pour que les boutons sachent quoi faire
     store.cloudTarget = instName;
 
     const menu = document.getElementById("cloud-only-context-menu");
     if (!menu) return;
 
-    // Récupération des boutons du menu
     const restoreItem = document.getElementById("ctx-cloud-restore-item");
     const syncItem    = document.getElementById("ctx-cloud-sync-item");
     const uploadItem  = document.getElementById("ctx-cloud-upload-item");
 
-    // Affichage conditionnel selon si l'instance est sur le PC ou que dans le Cloud
     if (isLocal) {
         if (restoreItem) restoreItem.style.display = "none";
         if (syncItem)    syncItem.style.display    = "flex";
@@ -600,10 +591,8 @@ window.openCloudContextMenu = (e, instName, isLocal) => {
         if (uploadItem)  uploadItem.style.display  = "none";
     }
 
-    // On affiche le menu
     menu.style.display = "flex";
     
-    // Positionnement sous la souris sans sortir de l'écran
     let x = e.clientX;
     let y = e.clientY;
     if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
@@ -621,7 +610,6 @@ window.ctxRestoreCloud = async () => {
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
 
     if (!store.allInstances.some(i => i.name === targetName)) {
-        // Lire meta_{inst}.json pour afficher l'icône réelle sur la carte fantôme dès l'apparition
         let phantomIcon   = "";
         let phantomLoader = "vanilla";
         const binPath   = window.api.path.join(window.api.appData, "GensLauncher", "bin");
@@ -707,7 +695,6 @@ window.ctxDeleteCloudOnly = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
     if (await window.showCustomConfirm(t("msg_also_delete_cloud", "Supprimer définitivement du Cloud ?").replace("{name}", store.cloudTarget), true)) {
         
-        // Afficher le spinner pendant la suppression (les grosses instances peuvent prendre du temps)
         window.showLoading(t("horizon_cloud_deleting", "Suppression du Cloud en cours...") + " " + store.cloudTarget);
 
         try {
