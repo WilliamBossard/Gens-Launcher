@@ -241,13 +241,13 @@ export function setupUICore() {
             </div>`;
 
             html += `<div class="instances-grid" style="display: ${displayStyle};">`;
-groups[g].forEach(inst => {
+            groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-
-                const isPhantom = inst.version === "...";
+                const isPhantom  = inst.version === "...";
                 const phantomClass = isPhantom ? "is-phantom" : "";
                 const isAnyRunning = store.activeInstances.size > 0;
+                const isRunning    = store.activeInstances.has(inst.name);
                 const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
                 const lockedClass = isLockedByMulti ? "is-locked" : "";
 
@@ -265,8 +265,6 @@ groups[g].forEach(inst => {
                 const safeName = window.escapeHTML(inst.name);
                 const safeVersion = window.escapeHTML(inst.version);
                 const safeLoader = window.escapeHTML(inst.loader);
-
-                const isRunning = store.activeInstances.has(inst.name);
                 const runningBadge = isRunning 
                     ? `<div style="position: absolute; top: -6px; right: -6px; background: #17B139; color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 10;">${t("lbl_running", "En cours")}</div>` 
                     : "";
