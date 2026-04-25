@@ -165,15 +165,13 @@ window.openStatsModal = async () => {
         const renderAchievements = () => {
             const advDiv = document.getElementById("dashboard-achievements");
             if (advDiv && ACHIEVEMENTS && Array.isArray(ACHIEVEMENTS)) {
-                advDiv.innerHTML = "";
                 const unlocked = store.globalSettings.unlockedAchievements || [];
-                
+                let advHtml = "";
                 ACHIEVEMENTS.forEach(adv => {
                     const isUnlocked = unlocked.includes(adv.id);
                     const safeName = t(adv.nameKey, "???");
                     const safeDesc = t(adv.descKey, "???");
-                    
-                    advDiv.innerHTML += `
+                    advHtml += `
                     <div class="adv-card ${isUnlocked ? '' : 'locked'}" style="border-color: ${isUnlocked ? 'var(--accent)' : 'var(--border)'}; margin-bottom: 5px;">
                         <img src="${adv.icon}" style="width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0; filter: ${isUnlocked ? 'none' : 'grayscale(100%) opacity(0.5)'};">
                         <div style="display: flex; flex-direction: column;">
@@ -182,6 +180,7 @@ window.openStatsModal = async () => {
                         </div>
                     </div>`;
                 });
+                advDiv.innerHTML = advHtml;
             }
         };
         

@@ -9,8 +9,20 @@ function t(key, fallback) {
 }
 
 export function setupWorldsAndGallery() {
+    function getMinecraftSavesDir() {
+        const platform = window.api.platform;
+        const os       = window.api.os;
+        if (platform === "win32") {
+            return path.join(window.api.appData, ".minecraft", "saves");
+        } else if (platform === "darwin") {
+            return path.join(os.userInfo().homedir || window.api.appData.replace(/\/Library.*/, ""), "Library", "Application Support", "minecraft", "saves");
+        } else {
+            return path.join(os.userInfo().homedir || path.join(window.api.appData, "..", ".."), ".minecraft", "saves");
+        }
+    }
+
     window.openImportMCWorldsModal = () => {
-        const mcDir = path.join(window.api.appData, ".minecraft", "saves");
+        const mcDir = getMinecraftSavesDir();
         const listDiv = document.getElementById("mc-worlds-list");
         listDiv.innerHTML = "";
         document.getElementById("modal-import-mc").style.display = "flex";
@@ -43,7 +55,7 @@ export function setupWorldsAndGallery() {
     window.importOfficialWorld = async (folderName) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const mcDir = path.join(window.api.appData, ".minecraft", "saves", folderName);
+        const mcDir = path.join(getMinecraftSavesDir(), folderName);
         const targetDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves", folderName);
 
         window.showLoading(t("msg_copy", "Copie en cours..."));
@@ -156,12 +168,15 @@ export function setupWorldsAndGallery() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
             const src = path.join(savesDir, folderName);
+            window.showLoading(t("msg_deleting", "Suppression en cours..."));
+            await yieldUI();
             try {
                 await fs.promises.rm(src, { recursive: true, force: true });
                 window.showToast(t("msg_world_deleted", "Monde supprimé !"), "success");
             } catch (e) {
                 window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
             }
+            window.hideLoading();
             window.openWorldsModal();
         }
     };
@@ -240,18 +255,20 @@ window.openGalleryModal = () => {
 
         const backups = fs.readdirSync(backupDir)
             .filter(f => f.startsWith(`${folderName}_backup_`) && f.endsWith(".zip"))
-            .sort((a, b) => fs.statSync(path.join(backupDir, b)).mtime.getTime() - fs.statSync(path.join(backupDir, a)).mtime.getTime());
+            .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtime.getTime() }))
+            .sort((a, b) => b.mtime - a.mtime)
+            .map(f => f.name);
 
         if (backups.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée pour ce monde.")}</div>`;
         } else {
+            let backupsHtml = "";
             backups.forEach(b => {
                 const stats = fs.statSync(path.join(backupDir, b));
                 const dateStr = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                 const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
                 const safeB = window.escapeHTML(b);
-                
-                listDiv.innerHTML += `
+                backupsHtml += `
                 <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light);">${safeB}</div>
@@ -260,6 +277,7 @@ window.openGalleryModal = () => {
                     <button class="btn-primary btn-restore-backup" data-zip="${safeB}" data-folder="${window.escapeHTML(folderName)}" style="padding: 4px 10px; font-size: 0.8rem;">${t("btn_restore", "Restaurer")}</button>
                 </div>`;
             });
+            listDiv.innerHTML = backupsHtml;
         }
         document.getElementById("modal-restore").style.display = "flex";
         listDiv.querySelectorAll(".btn-restore-backup").forEach(btn => {

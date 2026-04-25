@@ -158,9 +158,12 @@ export function setupLauncher() {
         let suspectedMod = null;
         try {
             if (fs.existsSync(crashDir)) {
-                const reports = fs.readdirSync(crashDir).filter(f => f.endsWith(".txt")).sort((a, b) => {
-                    return fs.statSync(path.join(crashDir, b)).mtime.getTime() - fs.statSync(path.join(crashDir, a)).mtime.getTime();
-                });
+                const reports = fs.readdirSync(crashDir)
+                    .filter(f => f.endsWith(".txt"))
+                    .map(f => ({ name: f, mtime: fs.statSync(path.join(crashDir, f)).mtime.getTime() }))
+                    .sort((a, b) => b.mtime - a.mtime)
+                    .map(f => f.name);
+
                 if (reports.length > 0) {
                     const latestReport = fs.readFileSync(path.join(crashDir, reports[0]), 'utf8');
                     const susMatch = latestReport.match(/Suspected Mods: (.*?)\s*\(/i) || latestReport.match(/Suspected mods: (.*?)\s*\(/i);
@@ -175,7 +178,13 @@ export function setupLauncher() {
             if (!suspectedMod) {
                 const logPath = path.join(instDir, "logs", "latest.log");
                 if (fs.existsSync(logPath)) {
-                    const logData = fs.readFileSync(logPath, 'utf8');
+                    const stat = fs.statSync(logPath);
+                    const readSize = Math.min(stat.size, 50 * 1024);
+                    const buf = Buffer.alloc(readSize);
+                    const fd = fs.openSync(logPath, 'r');
+                    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+                    fs.closeSync(fd);
+                    const logData = buf.toString('utf8');
                     const errMatch = logData.match(/Failed to load mod (.*?)\n/i) || logData.match(/Could not find required mod: (.*?) requires/i);
                     if (errMatch) suspectedMod = errMatch[1].trim();
                 }
@@ -360,6 +369,9 @@ export function setupLauncher() {
         if (closedInst) {
             await performAutoBackup(closedInst, "on_close");
 
+            const horizonStatus = await window.api.invoke("check-horizon-status");
+            const cloudPrefs = getCloudSettings(); 
+
             if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                 if (cloudPrefs.autoUpload) {
                     document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
@@ -400,7 +412,7 @@ export function setupLauncher() {
         await performAutoBackup(inst, "on_launch");
 
         const horizonStatus = await window.api.invoke("check-horizon-status");
-        const cloudPrefs    = getCloudSettings();
+        const cloudPrefs = getCloudSettings(); 
 
         if (horizonStatus.installed && cloudPrefs.systemEnabled) {
             if (cloudPrefs.autoSync) {
@@ -412,7 +424,7 @@ export function setupLauncher() {
         document.getElementById("console-container").style.display = "block";
         logOutput.innerHTML = "";
         sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
-        logOutput.innerHTML += `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`;
+        logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`);
 
         const destOpt = path.join(instancePath, "options.txt");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");

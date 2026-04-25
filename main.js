@@ -136,6 +136,16 @@ function runHorizonAction(action, event = null) {
         mainLog(`[Horizon] Exécution de l'action : ${args.join(' ')}`);
         
         const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir });
+        let settled = false;
+
+        const killTimer = setTimeout(() => {
+            if (!settled) {
+                mainLog(`[Horizon] TIMEOUT après 5 min — forçage de l'arrêt.`);
+                settled = true;
+                try { horizon.kill("SIGTERM"); } catch(_) {}
+                resolve(-1);
+            }
+        }, 5 * 60 * 1000);
 
         horizon.stdout.on('data', (data) => {
             const lines = data.toString().split('\n');
@@ -156,8 +166,21 @@ function runHorizonAction(action, event = null) {
         });
 
         horizon.on('close', (code) => {
-            mainLog(`[Horizon] Terminé avec le code ${code}`);
-            resolve(code);
+            if (!settled) {
+                settled = true;
+                clearTimeout(killTimer);
+                mainLog(`[Horizon] Terminé avec le code ${code}`);
+                resolve(code);
+            }
+        });
+
+        horizon.on('error', (err) => {
+            if (!settled) {
+                settled = true;
+                clearTimeout(killTimer);
+                mainLog(`[Horizon] Erreur spawn : ${err.message}`);
+                resolve(-1);
+            }
         });
     });
 }
@@ -360,10 +383,7 @@ ipcMain.on("launch-game", (event, opts) => {
     launcher.launch(opts).then((process) => {
         activeMinecraftClients.set(instanceId, { process, launcher });
         saveRunningInstances(activeMinecraftClients);
-    }).catch(e => {
-        mainLog("Erreur Lancement: " + e);
-        mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
-    });
+    }).catch(e => mainLog("Erreur Lancement: " + e));
 });
 
 ipcMain.handle("check-for-updates", async () => {
@@ -378,6 +398,10 @@ ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
 autoUpdater.on("update-available", (info) => { if (mainWindow) mainWindow.webContents.send("update-available-prompt", info); });
 autoUpdater.on("update-not-available", () => { if (mainWindow) mainWindow.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); });
 autoUpdater.on("download-progress", (progress) => { if (mainWindow) mainWindow.webContents.send("update-progress", Math.round(progress.percent)); });
+autoUpdater.on("error", (err) => {
+    mainLog(`[AutoUpdater] Erreur : ${err.message}`);
+    if (mainWindow) mainWindow.webContents.send("update-msg", { key: "msg_update_error", text: "Erreur lors de la vérification des mises à jour.", type: "error" });
+});
 
 autoUpdater.on("update-downloaded", (info) => { 
     if (info && info.downloadedFile) {

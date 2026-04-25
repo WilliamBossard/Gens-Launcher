@@ -156,22 +156,19 @@ function getModWarnings(inst) {
 
     window.renderShadersManager = function() {
         const listDiv = document.getElementById("shaders-list");
-        listDiv.innerHTML = "";
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "shaderpacks");
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-        let hasItems = false;
+        let shadersHtml = "";
         fs.readdirSync(targetPath).forEach((file) => {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
-                hasItems = true;
                 const isEnabled = !file.endsWith(".disabled");
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = safeAttrJson(file);
-                
-                listDiv.innerHTML += `
+                shadersHtml += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
@@ -181,7 +178,7 @@ function getModWarnings(inst) {
                 </div>`;
             }
         });
-        if (!hasItems) listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
+        listDiv.innerHTML = shadersHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
     };
 
     window.toggleShader = (filename, isEnabled) => {
@@ -210,22 +207,19 @@ function getModWarnings(inst) {
 
     window.renderResourcePacksManager = function() {
         const listDiv = document.getElementById("resourcepacks-list");
-        listDiv.innerHTML = "";
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "resourcepacks");
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-        let hasItems = false;
+        let rpHtml = "";
         fs.readdirSync(targetPath).forEach((file) => {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
-                hasItems = true;
                 const isEnabled = !file.endsWith(".disabled");
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = safeAttrJson(file);
-                
-                listDiv.innerHTML += `
+                rpHtml += `
                 <div class="mod-item">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
@@ -235,7 +229,7 @@ function getModWarnings(inst) {
                 </div>`;
             }
         });
-        if (!hasItems) listDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
+        listDiv.innerHTML = rpHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
     };
 
     window.toggleResourcePack = (filename, isEnabled) => {
@@ -343,7 +337,6 @@ function getModWarnings(inst) {
 
     window.renderServersManager = () => {
         const list = document.getElementById("server-list");
-        list.innerHTML = "";
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst.servers || inst.servers.length === 0) {
             list.innerHTML = `<div style='text-align:center; color:#888; padding: 15px;'>${t("msg_no_servers", "Aucun serveur.")}</div>`;
@@ -353,6 +346,7 @@ function getModWarnings(inst) {
         const minorVer = parseInt(inst.version.split('.')[1]) || 0;
         const canAutoConnect = minorVer >= 20;
 
+        let srvHtml = "";
         inst.servers.forEach((ip, i) => {
             const isAuto = inst.autoConnect === ip;
             const safeIp = window.escapeHTML(ip);
@@ -364,7 +358,7 @@ function getModWarnings(inst) {
                 autoBtnHtml = `<span style="font-size: 0.65rem; color: #666; margin-right: 5px; align-self: center;" title="${t("msg_req_mc_120", "Nécessite Minecraft 1.20+")}">Auto 1.20+</span>`;
             }
 
-            list.innerHTML += `
+            srvHtml += `
             <div style="background: rgba(0,0,0,0.2); border: 1px solid ${isAuto ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <span style="font-weight: bold; color: var(--text-light);">${safeIp}</span>
@@ -376,6 +370,7 @@ function getModWarnings(inst) {
                 </div>
             </div>`;
         });
+        list.innerHTML = srvHtml;
 
         list.querySelectorAll(".btn-auto-connect").forEach(btn => {
             btn.addEventListener("click", () => window.setAutoConnect(btn.dataset.ip));

@@ -368,42 +368,15 @@ window.api.on("horizon-status", async (data) => {
             return;
         }
         
-        const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-
         let html = "";
         data.data.forEach(instName => {
             const isLocal = store.allInstances.some(i => i.name === instName);
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
-
-            let iconSrc = store.defaultIcons.vanilla;
-            if (isLocal) {
-                const localInst  = store.allInstances.find(i => i.name === instName);
-                const instFolder = window.api.path.join(store.instancesRoot, instName.replace(/[^a-z0-9]/gi, "_"));
-                if (localInst.icon && localInst.icon !== "") {
-                    iconSrc = localInst.icon;
-                } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
-                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png"));
-                } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
-                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg"));
-                } else {
-                    iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
-                }
-            } else {
-                const metaPath = window.api.path.join(horizonBinPath, `meta_${instName}.json`);
-                if (window.api.fs.existsSync(metaPath)) {
-                    try {
-                        const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-                        iconSrc = (meta.iconData && meta.iconData !== "")
-                            ? meta.iconData
-                            : (store.defaultIcons[meta.loader] || store.defaultIcons.vanilla);
-                    } catch(e) {}
-                }
-            }
-
+            
             html += `
-            <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
-                <img class="instance-icon" src="${iconSrc}" onerror="this.src='${store.defaultIcons.vanilla}'">
+            <div class="instance-card" style="position: relative; cursor: context-menu;" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
+                <img class="instance-icon" src="${store.defaultIcons.vanilla}">
                 <div class="instance-name">${window.escapeHTML(instName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
             </div>`;
@@ -443,15 +416,6 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 
-    if (data.instance) {
-        document.querySelectorAll('#horizon-cloud-grid .instance-card').forEach(c => {
-            const nameEl = c.querySelector('.instance-name');
-            if (nameEl && nameEl.innerText.trim() === data.instance.trim()) {
-                targetCards.push(c);
-            }
-        });
-    }
-
     targetCards.forEach(targetCard => {
         const circleContainer = targetCard.querySelector('.progress-circle-container');
         const textInfo = targetCard.querySelector('.progress-text');
@@ -466,31 +430,10 @@ window.api.on("horizon-status", async (data) => {
                     textInfo.innerText = Math.round(data.value) + "%"; 
                     textInfo.style.fontSize = "0.65rem";
                 }
-            } else if (!circleContainer && data.instance) {
-                const versionEl = targetCard.querySelector('.instance-version');
-                if (versionEl) {
-                    if (data.step === "CHECKING") {
-                        versionEl.innerText = "...";
-                    } else {
-                        versionEl.innerText = Math.round(data.value) + "%";
-                    }
-                    versionEl.style.color = "var(--accent)";
-                }
             }
         } 
         else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
             if (circleContainer) circleContainer.style.display = "none";
-            const versionEl = targetCard.querySelector('.instance-version');
-            if (versionEl && !circleContainer) {
-                const isLocal = targetCard.dataset.isLocal === "true";
-                if (isLocal) {
-                    versionEl.style.color = "#17B139";
-                    versionEl.innerText   = window.store?.currentLangObj?.["horizon_cloud_local"] || "Sur le PC";
-                } else {
-                    versionEl.style.color = "#aaa";
-                    versionEl.innerText   = window.store?.currentLangObj?.["horizon_cloud_only"] || "Cloud Uniquement";
-                }
-            }
         }
     });
 
@@ -610,19 +553,8 @@ window.ctxRestoreCloud = async () => {
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
 
     if (!store.allInstances.some(i => i.name === targetName)) {
-        let phantomIcon   = "";
-        let phantomLoader = "vanilla";
-        const binPath   = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const metaPath  = window.api.path.join(binPath, `meta_${targetName}.json`);
-        if (window.api.fs.existsSync(metaPath)) {
-            try {
-                const meta  = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-                phantomIcon   = meta.iconData || "";
-                phantomLoader = meta.loader   || "vanilla";
-            } catch(e) {}
-        }
         store.allInstances.push({
-            name: targetName, version: "...", loader: phantomLoader, icon: phantomIcon,
+            name: targetName, version: "...", loader: "vanilla",
             ram: store.globalSettings.defaultRam.toString(), group: t("lbl_group_general", "Général")
         });
         window.renderUI();
@@ -695,20 +627,9 @@ window.ctxDeleteCloudOnly = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
     if (await window.showCustomConfirm(t("msg_also_delete_cloud", "Supprimer définitivement du Cloud ?").replace("{name}", store.cloudTarget), true)) {
         
-        window.showLoading(t("horizon_cloud_deleting", "Suppression du Cloud en cours...") + " " + store.cloudTarget);
+        window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
 
-        try {
-            await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
-            window.showToast(
-                store.cloudTarget + " " + t("horizon_deleted_cloud", "supprimée du Cloud avec succès."),
-                "success"
-            );
-        } catch(e) {
-            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
-        } finally {
-            window.hideLoading();
-        }
-
+        await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
         window.api.invoke("call-horizon", ['--sync', '--list']); 
     }
 };
@@ -739,7 +660,7 @@ document.addEventListener("click", () => {
 async function checkHorizonUpdateAtStartup() {
     try {
         const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const isWin = navigator.userAgent.toLowerCase().includes("win");
+        const isWin = window.api.platform === "win32";
         const exeName = isWin ? "Horizon.exe" : "Horizon";
         const exePath = window.api.path.join(binPath, exeName);
         const setPath = window.api.path.join(binPath, "horizon_settings.json");
