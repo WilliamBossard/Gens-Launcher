@@ -160,27 +160,6 @@ export function setupSettings() {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
         }
     };
-
-    /**
-     * Injecte le profil d'options.txt par défaut dans l'instance actuellement sélectionnée.
-     * Appelée par le bouton "Injecter" dans l'onglet Général des paramètres d'instance.
-     */
-    window.forceInjectOptions = () => {
-        if (store.selectedInstanceIdx === null) return;
-        const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (!fs.existsSync(defaultOpt)) {
-            window.showToast(t("msg_force_sync_error", "Aucun profil par défaut défini dans les Paramètres Globaux."), "error");
-            return;
-        }
-        const inst = store.allInstances[store.selectedInstanceIdx];
-        const destOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
-        try {
-            fs.copyFileSync(defaultOpt, destOpt);
-            window.showToast(t("msg_force_sync_success", "Touches synchronisées avec succès !"), "success");
-        } catch(e) {
-            window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
-        }
-    };
     
     window.saveDefaultServers = () => {
         const idx = document.getElementById("global-servers-source").value;
@@ -445,6 +424,14 @@ export function setupHorizonSettings() {
             }
         };
 
+        window.toggleDeltaThresholdRow = () => {
+            const modeSelect = document.getElementById("horizon-select-syncmode");
+            const row        = document.getElementById("delta-threshold-row");
+            if (modeSelect && row) {
+                row.style.display = modeSelect.value === "FULL" ? "none" : "block";
+            }
+        };
+
         const isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
         const statusColor = isEnabled ? "#17B139" : "#f87171";
         const statusText = isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif");
@@ -513,10 +500,32 @@ export function setupHorizonSettings() {
                 <div style="font-weight: bold; color: var(--text-light); margin-bottom: 15px; font-size: 0.95rem;">${t("horizon_settings_title", "Paramètres du Cloud")}</div>
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
-                <select onchange="saveHorizonConfig('syncMode', this.value)" style="width: 100%; margin-bottom: 12px;">
+                <select id="horizon-select-syncmode" onchange="saveHorizonConfig('syncMode', this.value); toggleDeltaThresholdRow();" style="width: 100%; margin-bottom: 12px;">
                     <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_mode_smart", "Smart (Incrémentiel - Recommandé)")}</option>
                     <option value="FULL" ${hSettings.syncMode === "FULL" ? "selected" : ""}>${t("horizon_mode_full", "Classique (Archive complète)")}</option>
                 </select>
+
+                <div id="delta-threshold-row" style="display: ${hSettings.syncMode !== 'FULL' ? 'block' : 'none'}; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                        <label style="font-size: 0.85rem;">${t("horizon_delta_threshold", "Repack automatique après N deltas")}</label>
+                        <span
+                            title="${t("horizon_delta_threshold_help", "En mode incrémentiel, chaque modification crée un \"delta\" (fichier de différences). Quand le nombre de deltas atteint ce seuil, Horizon crée automatiquement un nouveau backup complet et supprime les anciens deltas. Cela évite l'accumulation indéfinie et garde la restauration rapide. Valeur recommandée : 10.")}"
+                            style="display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; background: var(--accent); color:#fff; font-size:0.7rem; font-weight:bold; cursor:help; flex-shrink:0; line-height:1; user-select:none;"
+                        >?</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input
+                            type="number"
+                            id="horizon-delta-threshold"
+                            min="3" max="50"
+                            value="${hSettings.deltaCleanupThreshold || 10}"
+                            style="width: 70px;"
+                            onchange="saveHorizonConfig('deltaCleanupThreshold', parseInt(this.value) || 10)"
+                        >
+                        <span style="font-size: 0.8rem; color: #888;">${t("horizon_delta_threshold_unit", "deltas → repack complet")}</span>
+                    </div>
+                    <div style="font-size: 0.72rem; color: #666; margin-top: 4px;">${t("horizon_delta_threshold_hint", "Min : 3 · Max : 50 · Recommandé : 10")}</div>
+                </div>
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
                 <select onchange="saveHorizonConfig('autoSync', this.value)" style="width: 100%; margin-bottom: 12px;">

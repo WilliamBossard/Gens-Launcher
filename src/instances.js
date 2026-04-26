@@ -330,7 +330,8 @@ export function setupInstances() {
         try {
             fs.mkdirSync(destFolder, { recursive: true });
         } catch(e) {
-            sysLog("Erreur création dossier instance: " + e.message, true);
+            sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})` );
+        sysLog("Erreur création dossier instance: " + e.message, true);
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
             return;
         }
@@ -484,15 +485,11 @@ if (oldFolder !== newFolder) {
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
                 inst.icon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
-                inst._iconCache = null; 
             } catch(e) {}
             store.pendingIconPath = null;
         } else {
             const iconSrc = document.getElementById("edit-icon-preview").src;
-            if (!iconSrc.includes("svg+xml")) {
-                inst.icon = iconSrc;
-                inst._iconCache = null; 
-            }
+            if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
         }
 
         window.safeWriteJSON(store.instanceFile, store.allInstances);
@@ -519,6 +516,7 @@ if (oldFolder !== newFolder) {
     };
 
     window.copyInstance = async () => {
+        sysLog(`[INSTANCE] Début copie de l'instance.`);
         if (store.selectedInstanceIdx === null) return;
         const oldInst = store.allInstances[store.selectedInstanceIdx];
         let inst = JSON.parse(JSON.stringify(oldInst));
@@ -583,6 +581,7 @@ window.deleteInstance = async () => {
                 return; 
             }
             
+            sysLog(`[INSTANCE] Instance "${inst.name}" supprimée localement.`);
             store.allInstances.splice(store.selectedInstanceIdx, 1);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
             store.selectedInstanceIdx = null;

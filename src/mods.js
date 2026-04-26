@@ -81,12 +81,12 @@ function setupMods() {
 
             if (!data.hits) throw new Error("Réponse API Modrinth invalide");
 
+            resDiv.innerHTML = "";
             if (data.hits.length === 0) {
               resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version} (${loader}).</div>`;
               return;
             }
 
-            let modrinthHtml = "";
             data.hits.forEach((mod) => {
               const downloads = (mod.downloads / 1000000).toFixed(1) + "M DLs";
               const safeTitle = window.escapeHTML(mod.title);
@@ -103,7 +103,7 @@ function setupMods() {
                 ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
                 : `<button class="btn-primary" onclick="installGlobalMod('${safeProjectId}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>`;
 
-              modrinthHtml += `
+              resDiv.innerHTML += `
                         <div class="catalog-card">
                             <img src="${safeIconUrl}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                             <div style="flex-grow: 1; display: flex; flex-direction: column;">
@@ -114,7 +114,6 @@ function setupMods() {
                             ${btnHtml}
                         </div>`;
             });
-            resDiv.innerHTML = modrinthHtml;
         } 
         else if (source === "curseforge") {
             const apiKey = store.globalSettings.cfApiKey;
@@ -143,12 +142,12 @@ function setupMods() {
 
             if (!data || !data.data) throw new Error("Réponse API CurseForge invalide");
 
+            resDiv.innerHTML = "";
             if (data.data.length === 0) {
               resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version}.</div>`;
               return;
             }
 
-            let cfHtml = "";
             data.data.forEach((mod) => {
               const downloads = (mod.downloadCount / 1000000).toFixed(1) + "M DLs";
               const icon = mod.logo ? mod.logo.thumbnailUrl : "";
@@ -167,7 +166,7 @@ function setupMods() {
                 ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
                 : `<button class="btn-primary" onclick="installGlobalMod('${safeCfId}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>`;
 
-              cfHtml += `
+              resDiv.innerHTML += `
                         <div class="catalog-card">
                             <img src="${safeCfIcon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
                             <div style="flex-grow: 1; display: flex; flex-direction: column;">
@@ -178,7 +177,6 @@ function setupMods() {
                             ${btnHtml}
                         </div>`;
             });
-            resDiv.innerHTML = cfHtml;
         }
       } catch (e) {
         if (e.name === "AbortError") return;
@@ -352,6 +350,7 @@ function setupMods() {
 
         if (!isDependency) {
           statusText.innerText = "";
+          sysLog(`[MODS] Mod installé avec succès depuis le catalogue.`);
           window.showToast(t("msg_install_success", "Installation réussie !"), "success");
           if (projType === "mod" && window.renderModsManager) window.renderModsManager();
           if (projType === "shader" && window.renderShadersManager) window.renderShadersManager();
@@ -757,6 +756,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         if (failed.length > 0) {
             window.showToast(t("msg_builder_partial", `Modpack créé avec ${failed.length} erreur(s).`).replace("{n}", String(failed.length)), "info");
         } else {
+            sysLog(`[MODS] Modpack créé avec succès (builder).`);
             window.showToast(t("msg_builder_success", "Modpack créé avec succès !"), "success");
             window.checkAchievement("modder");
         }

@@ -165,13 +165,15 @@ window.openStatsModal = async () => {
         const renderAchievements = () => {
             const advDiv = document.getElementById("dashboard-achievements");
             if (advDiv && ACHIEVEMENTS && Array.isArray(ACHIEVEMENTS)) {
+                advDiv.innerHTML = "";
                 const unlocked = store.globalSettings.unlockedAchievements || [];
-                let advHtml = "";
+                
                 ACHIEVEMENTS.forEach(adv => {
                     const isUnlocked = unlocked.includes(adv.id);
                     const safeName = t(adv.nameKey, "???");
                     const safeDesc = t(adv.descKey, "???");
-                    advHtml += `
+                    
+                    advDiv.innerHTML += `
                     <div class="adv-card ${isUnlocked ? '' : 'locked'}" style="border-color: ${isUnlocked ? 'var(--accent)' : 'var(--border)'}; margin-bottom: 5px;">
                         <img src="${adv.icon}" style="width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0; filter: ${isUnlocked ? 'none' : 'grayscale(100%) opacity(0.5)'};">
                         <div style="display: flex; flex-direction: column;">
@@ -180,7 +182,6 @@ window.openStatsModal = async () => {
                         </div>
                     </div>`;
                 });
-                advDiv.innerHTML = advHtml;
             }
         };
         
@@ -192,12 +193,19 @@ window.openStatsModal = async () => {
         if (cacheEl) cacheEl.innerText = t("msg_calc", "Calcul...");
         
         let totalTimeMs = 0, totalMods = 0, favInstance = "-", maxTime = -1;
+        let totalSessions = 0, longestSessionMs = 0;
 
         try {
             for (const inst of store.allInstances) {
                 const playTime = inst.playTime || 0;
                 totalTimeMs += playTime;
                 if (playTime > maxTime) { maxTime = playTime; favInstance = inst.name; }
+
+                const sessions = inst.sessionHistory || [];
+                totalSessions += sessions.length;
+                for (const s of sessions) {
+                    if (s.ms > longestSessionMs) longestSessionMs = s.ms;
+                }
 
                 const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
                 if (fs.existsSync(modsPath)) {
@@ -212,6 +220,20 @@ window.openStatsModal = async () => {
             document.getElementById("dashboard-instances").innerText = store.globalSettings.totalInstancesCreated || store.allInstances.length;
             document.getElementById("dashboard-mods").innerText = totalMods;
             document.getElementById("dashboard-fav").innerText = maxTime > 0 ? favInstance : "-";
+
+            const sessEl = document.getElementById("dashboard-sessions");
+            if (sessEl) sessEl.innerText = totalSessions;
+
+            const longEl = document.getElementById("dashboard-longest");
+            if (longEl) {
+                if (longestSessionMs > 0) {
+                    const lh = Math.floor(longestSessionMs / 3600000);
+                    const lm = Math.floor((longestSessionMs % 3600000) / 60000);
+                    longEl.innerText = lh > 0 ? `${lh}h ${lm}m` : `${lm}m`;
+                } else {
+                    longEl.innerText = "-";
+                }
+            }
         } catch(e) { console.error(e); }
 
         try {

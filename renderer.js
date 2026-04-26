@@ -362,23 +362,64 @@ window.api.on("horizon-status", async (data) => {
     if (data.type === "CLOUD_LIST") {
         const grid = document.getElementById("horizon-cloud-grid");
         if (!grid) return;
-        
+
         if (!data.data || data.data.length === 0) {
             grid.innerHTML = `<div style='color: #aaa; font-size: 0.85rem; padding: 10px;'>${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`;
             return;
         }
-        
+
+        const richIndex = {};
+        (data.richData || []).forEach(r => { richIndex[r.name] = r; });
+
+        const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
+
         let html = "";
         data.data.forEach(instName => {
             const isLocal = store.allInstances.some(i => i.name === instName);
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
-            
+
+            const rich = richIndex[instName];
+            let metaLine = "";
+            if (rich) {
+                const sizeMB  = rich.sizeBytes > 0 ? (rich.sizeBytes / (1024 * 1024)).toFixed(1) + " Mo" : "";
+                const deltas  = rich.deltaCount > 0 ? `${rich.deltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
+                const dateStr = rich.lastBackup ? new Date(rich.lastBackup).toLocaleDateString() : "";
+                const deltaColor = rich.deltaCount >= 8 ? "#f48a21" : "#666";
+                metaLine = `<div style="font-size:0.65rem; color:${deltaColor}; margin-top:2px;">${deltas}${sizeMB ? " · " + sizeMB : ""}${dateStr ? " · " + dateStr : ""}</div>`;
+            }
+
+            let iconSrc = store.defaultIcons.vanilla;
+            if (isLocal) {
+                const localInst  = store.allInstances.find(i => i.name === instName);
+                const instFolder = window.api.path.join(store.instancesRoot, instName.replace(/[^a-z0-9]/gi, "_"));
+                if (localInst.icon && localInst.icon !== "") {
+                    iconSrc = localInst.icon;
+                } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
+                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png"));
+                } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
+                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg"));
+                } else {
+                    iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
+                }
+            } else {
+                const metaPath = window.api.path.join(horizonBinPath, `meta_${instName}.json`);
+                if (window.api.fs.existsSync(metaPath)) {
+                    try {
+                        const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
+                        iconSrc = (meta.iconData && meta.iconData !== "")
+                            ? meta.iconData
+                            : (store.defaultIcons[meta.loader] || store.defaultIcons.vanilla);
+                    } catch(e) {}
+                }
+            }
+
             html += `
-            <div class="instance-card" style="position: relative; cursor: context-menu;" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
-                <img class="instance-icon" src="${store.defaultIcons.vanilla}">
+            <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
+                <img class="instance-icon" src="${iconSrc}" onerror="this.src='${store.defaultIcons.vanilla}'">
                 <div class="instance-name">${window.escapeHTML(instName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
+                ${metaLine}
             </div>`;
         });
         grid.innerHTML = html;
@@ -535,7 +576,7 @@ window.openCloudContextMenu = (e, instName, isLocal) => {
     }
 
     menu.style.display = "flex";
-    
+
     let x = e.clientX;
     let y = e.clientY;
     if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
@@ -660,7 +701,7 @@ document.addEventListener("click", () => {
 async function checkHorizonUpdateAtStartup() {
     try {
         const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const isWin = window.api.platform === "win32";
+        const isWin = navigator.userAgent.toLowerCase().includes("win");
         const exeName = isWin ? "Horizon.exe" : "Horizon";
         const exePath = window.api.path.join(binPath, exeName);
         const setPath = window.api.path.join(binPath, "horizon_settings.json");

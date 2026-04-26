@@ -21,12 +21,64 @@ export function setupArchives() {
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 
+    /**
+     * Détecte automatiquement le loader et sa version depuis un dossier d'instance.
+     * Lit les fichiers présents (fabric.mod.json, mods.toml, quilt.mod.json, etc.)
+     * pour éviter que l'utilisateur ait à renseigner le loader manuellement.
+     * @param {string} instDir - Chemin du dossier de l'instance
+     * @returns {{ loader: string, loaderVersion: string }}
+     */
+    function detectLoaderFromFolder(instDir) {
+        try {
+            const modsDir = path.join(instDir, "mods");
+            if (fs.existsSync(modsDir)) {
+                const jars = fs.readdirSync(modsDir).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
+                for (const jar of jars) {
+                    const jarName = jar.toLowerCase();
+                    if (jarName.startsWith("neoforge-") || jarName.includes("neoforge")) {
+                        const verMatch = jarName.match(/neoforge[- _]([0-9.]+)/i);
+                        return { loader: "neoforge", loaderVersion: verMatch ? verMatch[1] : "" };
+                    }
+                    if (jarName.startsWith("forge-") || (jarName.includes("forge") && jarName.includes("universal"))) {
+                        const verMatch = jarName.match(/forge[- _]([0-9.]+(?:-[0-9.]+)?)/i);
+                        return { loader: "forge", loaderVersion: verMatch ? verMatch[1] : "" };
+                    }
+                    if (jarName.startsWith("fabric-api") || jarName === "fabric-loader.jar") {
+                        const verMatch = jarName.match(/fabric[- _loader]*[- _]([0-9.]+)/i);
+                        return { loader: "fabric", loaderVersion: verMatch ? verMatch[1] : "" };
+                    }
+                    if (jarName.startsWith("quilt-") || jarName.includes("quilt-loader")) {
+                        const verMatch = jarName.match(/quilt[- _loader]*[- _]([0-9.]+)/i);
+                        return { loader: "quilt", loaderVersion: verMatch ? verMatch[1] : "" };
+                    }
+                }
+            }
+            const fabricJson = path.join(instDir, "fabric.mod.json");
+            if (fs.existsSync(fabricJson)) return { loader: "fabric", loaderVersion: "" };
+
+            const quiltJson = path.join(instDir, "quilt.mod.json");
+            if (fs.existsSync(quiltJson)) return { loader: "quilt", loaderVersion: "" };
+
+            const forgeToml = path.join(instDir, "META-INF", "mods.toml");
+            if (fs.existsSync(forgeToml)) {
+                const content = fs.readFileSync(forgeToml, "utf8");
+                if (content.includes("neoforge")) return { loader: "neoforge", loaderVersion: "" };
+                return { loader: "forge", loaderVersion: "" };
+            }
+        } catch (e) {
+            sysLog(`[IMPORT] Détection loader échouée : ${e.message}`, true);
+        }
+        return { loader: "vanilla", loaderVersion: "" };
+    }
+
     window.handleZipImport = async (zipPath) => {
+        sysLog(`[IMPORT] Démarrage import ZIP : ${zipPath}`);
         try {
             const zipCheck = window.api.tools.AdmZip(zipPath);
             const manifestText = zipCheck.getEntryText("manifest.json");
-            
+
             if (manifestText) {
+                sysLog(`[IMPORT] Manifest CurseForge détecté.`);
                 return await window.handleCurseForgeImport(zipPath, manifestText);
             }
         } catch (e) {
@@ -37,9 +89,9 @@ export function setupArchives() {
         await yieldUI();
         try {
             const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
-            
+
             window.api.tools.extractAllTo(zipPath, tempExtractDir);
-            
+
             const instanceJsonPath = path.join(tempExtractDir, "instance.json");
             if (!fs.existsSync(instanceJsonPath)) {
                 fs.rmSync(tempExtractDir, { recursive: true, force: true });
@@ -57,14 +109,33 @@ export function setupArchives() {
             }
 
             const SAFE_LOADERS = ["vanilla", "fabric", "forge", "neoforge", "quilt"];
+            let detectedLoader        = SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla";
+            let detectedLoaderVersion = String(rawData.loaderVersion || "").substring(0, 64);
+
+            if (detectedLoader === "vanilla" && !rawData.loader) {
+                const filesDir = fs.existsSync(path.join(tempExtractDir, "files"))
+                    ? path.join(tempExtractDir, "files")
+                    : tempExtractDir;
+                const detected = detectLoaderFromFolder(filesDir);
+                if (detected.loader !== "vanilla") {
+                    detectedLoader        = detected.loader;
+                    detectedLoaderVersion = detected.loaderVersion;
+                    sysLog(`[IMPORT] Loader détecté automatiquement : ${detectedLoader} ${detectedLoaderVersion}`);
+                    window.showToast(
+                        `${t("msg_loader_detected", "Loader détecté automatiquement :")} ${detectedLoader}`,
+                        "success"
+                    );
+                }
+            }
+
             const instData = {
                 name:          finalName,
                 version:       String(rawData.version  || "1.20.4").substring(0, 32),
-                loader:        SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla",
-                loaderVersion: String(rawData.loaderVersion || "").substring(0, 64),
+                loader:        detectedLoader,
+                loaderVersion: detectedLoaderVersion,
                 ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),
-                javaPath:      "",   
-                jvmArgs:       "",   
+                javaPath:      "",
+                jvmArgs:       "",
                 jvmProfile:    "none",
                 notes:         String(rawData.notes || "").substring(0, 1000),
                 icon:          "",
@@ -99,11 +170,12 @@ export function setupArchives() {
             fs.rmSync(tempExtractDir, { recursive: true, force: true });
 
             store.allInstances.push(instData);
-            
+
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
 
+            sysLog(`[IMPORT] Instance "${finalName}" importée avec succès (${detectedLoader} ${detectedLoaderVersion}).`);
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
@@ -157,9 +229,8 @@ export function setupArchives() {
         const newInst = {
           name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
           ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
-          jvmProfile: "none",
           notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-          lastPlayed: 0, sessionHistory: [], group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+          lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
 
         const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
@@ -224,7 +295,7 @@ export function setupArchives() {
                             continue;
                         }
                         const dlController = new AbortController();
-                        const dlTimeout = setTimeout(() => dlController.abort(), 30000); 
+                        const dlTimeout = setTimeout(() => dlController.abort(), 30000);
                         let res;
                         try {
                             res = await fetch(downloadUrl, { signal: dlController.signal });
@@ -336,9 +407,8 @@ store.allInstances.push(newInst);
             const newInst = {
                 name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
                 ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
-                jvmProfile: "none",
                 notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-                lastPlayed: 0, sessionHistory: [], group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+                lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
 
             const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));

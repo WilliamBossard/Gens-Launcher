@@ -1146,9 +1146,7 @@ window.saveFirstLaunch = () => {
         }
         window.loadLanguage(code);
         if (window.populateLangDropdown) window.populateLangDropdown();
-
-        if (window.checkAchievement) window.checkAchievement("polyglot");
-
+        
         document.getElementById("modal-first-launch").style.display = "none";
     };
 

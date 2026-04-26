@@ -1407,6 +1407,16 @@
                         <div class="stat-label" data-i18n="stat_disk_usage">Espace disque utilisé</div>
                     </div>
                 </div>
+                <div style="display: flex; gap: 15px; margin-top: 15px;">
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-sessions" style="font-size: 1.6rem;">0</div>
+                        <div class="stat-label" data-i18n="stat_total_sessions">Sessions de jeu</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="dashboard-longest" style="font-size: 1.4rem;">-</div>
+                        <div class="stat-label" data-i18n="stat_longest_session">Session la plus longue</div>
+                    </div>
+                </div>
 
                 <div style="display: flex; gap: 15px; margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                     <div class="stat-box" style="flex: 1;">
@@ -1938,6 +1948,15 @@
                     <input type="number" id="edit-backup-limit" min="1" max="100" value="5" style="width: 80px;">
                     <div style="font-size: 0.75rem; color: #aaa; margin-top: 5px;" data-i18n="txt_backup_desc">Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.</div>
                     <button class="btn-secondary" style="margin-top: 15px;" onclick="openDir('backups')" data-i18n="btn_open_backups">Ouvrir le dossier des sauvegardes</button>
+
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
+                        <label style="font-weight: bold; color: var(--accent);" data-i18n="lbl_horizon_instance">☁ Gens Horizon (Cloud)</label>
+                        <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+                            <input type="checkbox" id="edit-disable-horizon" style="width:16px; height:16px; cursor:pointer;">
+                            <label for="edit-disable-horizon" style="cursor:pointer; font-size: 0.9rem;" data-i18n="lbl_disable_horizon_instance">Désactiver la synchronisation Cloud pour cette instance</label>
+                        </div>
+                        <div style="font-size: 0.75rem; color: #888; margin-top: 4px;" data-i18n="txt_disable_horizon_desc">Si activé, cette instance ne sera jamais uploadée ni synchronisée via Horizon, même si la synchronisation globale est active.</div>
+                    </div>
                 </div>
 
                 <div id="tab-java" class="settings-content">
@@ -2046,7 +2065,7 @@
                     
                     <div id="skin-divider" class="acc-divider" style="height: 1px; background: var(--border); margin: 5px 0;"></div>
                     
-                    <button class="btn-microsoft" id="btn-link-ms-skin" onclick="openSystemPath('https://www.minecraft.net/msaprofile/mygames/editionsminecraftjava/skin')" data-i18n="btn_change_mojang">Changer sur Minecraft.net</button>
+                    <button class="btn-microsoft" id="btn-link-ms-skin" onclick="openSystemPath('https://www.minecraft.net/fr-fr/msaprofile/mygames/editionsminecraftjava/skin')" data-i18n="btn_change_mojang">Changer sur Minecraft.net</button>
                     
                     <div style="font-size: 0.75rem; color: #aaa; text-align: center; margin-top: 10px;" data-i18n="tip_skin_3d">
                         💡 Astuce : Cliquez et glissez pour faire pivoter le personnage. Utilisez la molette pour zoomer.
