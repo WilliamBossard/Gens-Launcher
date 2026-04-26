@@ -649,7 +649,10 @@ ipcMain.handle('install-horizon', async (event) => {
         
         const asset = res.data.assets.find(a => {
             if (isWin) return a.name.endsWith('.exe');
-            return a.name.toLowerCase().includes('linux') || !a.name.includes('.');
+            return a.name.toLowerCase().includes('linux');
+        }) || res.data.assets.find(a => {
+            if (isWin) return false;
+            return !path.extname(a.name);
         });
         
         const latestVersion = res.data.tag_name;

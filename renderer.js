@@ -118,7 +118,10 @@ window.applyTheme = function() {
     else document.body.classList.remove("no-transparency");
 };
 
+let _newsLoaded = false;
+
 async function loadNews() {
+    if (_newsLoaded) return; 
     try {
         const res = await fetch("https://launchercontent.mojang.com/news.json");
         const data = await res.json();
@@ -154,6 +157,7 @@ async function loadNews() {
         });
         html += `</div>`;
         container.innerHTML = html;
+        _newsLoaded = true;
     } catch(e) { }
 }
 
@@ -313,7 +317,7 @@ async function init() {
         const data = await res.json();
         if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
         store.rawVersions = data.versions;
-        fs.writeFileSync(path.join(store.dataDir, "versions_cache.json"), JSON.stringify(data.versions));
+        window.safeWriteJSON(path.join(store.dataDir, "versions_cache.json"), data.versions);
         if (window.updateVersionList) window.updateVersionList(false);
     } catch (e) {
         const cachePath = path.join(store.dataDir, "versions_cache.json");
@@ -521,36 +525,6 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 });
-
-window.openContextMenu = (e, idx) => {
-    e.preventDefault();
-    window.selectInstance(idx);
-    window.ctxTargetIdx = idx; 
-    
-    const menu = document.getElementById("custom-context-menu");
-    if (!menu) return;
-    const cloudDivider = document.getElementById("ctx-cloud-divider");
-    const cloudSync    = document.getElementById("ctx-cloud-import") || document.getElementById("ctx-cloud-sync");
-    const cloudUpload  = document.getElementById("ctx-cloud-upload");
-    const inst = store.allInstances[idx];
-    const isPhantom = inst && inst.version === "...";
-    const showCloud = (store.horizonActive === true) && !isPhantom;
-    const cloudDisplay = showCloud ? "block" : "none";
-
-    if (cloudDivider) cloudDivider.style.display = cloudDisplay;
-    if (cloudSync)    cloudSync.style.display    = cloudDisplay;
-    if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
-
-    menu.style.display = "flex";
-    
-    let x = e.clientX;
-    let y = e.clientY;
-    if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
-    if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
-    
-    menu.style.left = x + "px";
-    menu.style.top  = y + "px";
-};
 
 window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();

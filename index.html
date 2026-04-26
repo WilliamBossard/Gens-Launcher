@@ -907,25 +907,26 @@
         }
         .ram-help-icon:hover { background: var(--accent); color: white; }
 
-        #global-tooltip {
-            position: fixed;
-            background: #1e1e1e;
-            border: 1px solid var(--accent);
-            padding: 6px 12px;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            z-index: 9999999;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.15s ease-in-out;
-            font-size: 0.75rem;
-            color: #fff;
-            min-width: max-content;
-            max-width: 250px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-            transform: translate(-50%, -100%);
-        }
+#global-tooltip {
+    position: fixed;
+    background: #1e1e1e;
+    border: 1px solid var(--accent);
+    padding: 8px 12px;
+    border-radius: 4px;
+    white-space: normal;      
+    line-height: 1.4;         
+    z-index: 9999999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out;
+    font-size: 0.75rem;
+    color: #fff;
+    max-width: 280px;         
+    width: max-content;       
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+    transform: translate(-50%, -100%);
+}
 
         #drop-overlay {
             display: none; 
@@ -1609,7 +1610,10 @@
                 <div class="settings-sidebar">
                     <div id="tab-btn-glob-gen" class="settings-tab active" onclick="switchTabGlob('tab-glob-gen')" data-i18n="tab_gen">Général</div>
                     <div id="tab-btn-glob-app" class="settings-tab" onclick="switchTabGlob('tab-glob-app')" data-i18n="tab_appearance">Apparence</div>
-                    <div id="tab-btn-glob-updates" class="settings-tab" onclick="switchTabGlob('tab-glob-updates')" data-i18n="tab_updates">Mises à jour</div>
+                    <div id="tab-btn-glob-updates" class="settings-tab" onclick="switchTabGlob('tab-glob-updates')" data-i18n="tab_updates" style="position: relative;">
+                        Mises à jour
+                        <span id="updates-tab-badge" style="display:none; position:absolute; top:6px; right:8px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow:0 0 5px #f87171;"></span>
+                    </div>
                     <div id="tab-btn-glob-java" class="settings-tab" onclick="switchTabGlob('tab-glob-java')" data-i18n="horizon_java_tab">Gérer Java</div>
                     <div id="tab-btn-glob-horizon" class="settings-tab" onclick="switchTabGlob('tab-glob-horizon')" style="position: relative;">
                         Horizon

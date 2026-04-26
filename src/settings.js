@@ -9,14 +9,16 @@ function t(key, fallback) {
 }
 
 export function setupSettings() {
-    
+    let _javaScanDone = false;  
+
+
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
         window.renderUpdateTab();
         if (window.populateLangDropdown) window.populateLangDropdown();
         document.getElementById("global-ram-input").value = store.globalSettings.defaultRam;
         document.getElementById("global-ram-slider").value = store.globalSettings.defaultRam;
-        window.scanJavaVersions("global-java", true); 
+        window.scanJavaVersions("global-java", true, /*forceRescan=*/false); 
         document.getElementById("global-java").value = store.globalSettings.defaultJavaPath;
         document.getElementById("global-cf-api").value = store.globalSettings.cfApiKey || ""; 
         document.getElementById("global-server-ip").value = store.globalSettings.serverIp || "";
@@ -225,11 +227,16 @@ export function setupSettings() {
         return `${name} (${source})`;
     };
 
-    window.scanJavaVersions = (targetSelectId = null, silent = false) => {
+    window.scanJavaVersions = (targetSelectId = null, silent = false, forceRescan = true) => {
         if (!silent) document.getElementById("status-text").innerText = t("msg_search_java");
         const selectId = targetSelectId || (document.getElementById("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
         const selectEl = document.getElementById(selectId);
         const savedValue = selectEl.value;
+
+        if (silent && !forceRescan && _javaScanDone && selectEl.options.length > 1) {
+            selectEl.value = savedValue || selectEl.value;
+            return;
+        }
         
         selectEl.innerHTML = (selectId === "global-java") 
             ? `<option value="javaw">${t("opt_java_sys")}</option>`
@@ -268,6 +275,7 @@ export function setupSettings() {
 
         basePaths.forEach(bp => { if (fs.existsSync(bp)) findJava(bp); });
         selectEl.value = savedValue || selectEl.value;
+        _javaScanDone = true;
         if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
     };
 
@@ -352,6 +360,7 @@ export function setupSettings() {
                 if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
                 store.globalSettings.defaultJavaPath = exePath;
                 window.safeWriteJSON(store.settingsFile, store.globalSettings);
+                _javaScanDone = false; 
                 window.showToast(t("msg_java_installed_success"), "success");
                 return exePath;
             }
@@ -374,13 +383,22 @@ export function setupSettings() {
     };
 
     window.renderUpdateTab = () => {
-        const container = document.getElementById("update-available-container");
+        const container  = document.getElementById("update-available-container");
+        const tabBadge   = document.getElementById("updates-tab-badge");
+        const checkBtn   = document.getElementById("btn-check-launcher");
+        const verBadge   = document.getElementById("new-version-badge");
+        const changelog  = document.getElementById("update-changelog");
+
         if (store.pendingLauncherUpdate) {
-            container.style.display = "block";
-            document.getElementById("btn-check-launcher").style.display = "none";
-            document.getElementById("new-version-badge").innerText = "v" + store.pendingLauncherUpdate.version;
-            document.getElementById("update-changelog").innerText = (store.pendingLauncherUpdate.releaseNotes || "").replace(/<\/?[^>]+(>|$)/g, "");
-        } else container.style.display = "none";
+            if (container)  container.style.display  = "block";
+            if (checkBtn)   checkBtn.style.display    = "none";
+            if (verBadge)   verBadge.innerText         = "v" + store.pendingLauncherUpdate.version;
+            if (changelog)  changelog.innerText        = (store.pendingLauncherUpdate.releaseNotes || "").replace(/<\/?[^>]+(>|$)/g, "");
+            if (tabBadge)   tabBadge.style.display    = "block";
+        } else {
+            if (container)  container.style.display  = "none";
+            if (tabBadge)   tabBadge.style.display   = "none";
+        }
     };
 
     window.startLauncherUpdate = () => {
@@ -506,12 +524,13 @@ export function setupHorizonSettings() {
                 </select>
 
                 <div id="delta-threshold-row" style="display: ${hSettings.syncMode !== 'FULL' ? 'block' : 'none'}; margin-bottom: 12px;">
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-                        <label style="font-size: 0.85rem;">${t("horizon_delta_threshold", "Repack automatique après N deltas")}</label>
-                        <span
-                            title="${t("horizon_delta_threshold_help", "En mode incrémentiel, chaque modification crée un \"delta\" (fichier de différences). Quand le nombre de deltas atteint ce seuil, Horizon crée automatiquement un nouveau backup complet et supprime les anciens deltas. Cela évite l'accumulation indéfinie et garde la restauration rapide. Valeur recommandée : 10.")}"
-                            style="display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; background: var(--accent); color:#fff; font-size:0.7rem; font-weight:bold; cursor:help; flex-shrink:0; line-height:1; user-select:none;"
-                        >?</span>
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <label style="font-size: 0.85rem; margin-top: 0;">${t("horizon_delta_threshold", "Auto-repack after N deltas")}</label>
+                        <div class="ram-help-icon custom-tooltip-trigger"
+                            data-i18n-tooltip="horizon_delta_threshold_help"
+                            data-tooltip="${t("horizon_delta_threshold_help", "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10.")}"
+                            style="display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;"
+                        >?</div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <input
@@ -522,9 +541,9 @@ export function setupHorizonSettings() {
                             style="width: 70px;"
                             onchange="saveHorizonConfig('deltaCleanupThreshold', parseInt(this.value) || 10)"
                         >
-                        <span style="font-size: 0.8rem; color: #888;">${t("horizon_delta_threshold_unit", "deltas → repack complet")}</span>
+                        <span style="font-size: 0.8rem; color: #888;">${t("horizon_delta_threshold_unit", "deltas → full repack")}</span>
                     </div>
-                    <div style="font-size: 0.72rem; color: #666; margin-top: 4px;">${t("horizon_delta_threshold_hint", "Min : 3 · Max : 50 · Recommandé : 10")}</div>
+                    <div style="font-size: 0.72rem; color: #666; margin-top: 4px;">${t("horizon_delta_threshold_hint", "Min: 3 · Max: 50 · Recommended: 10")}</div>
                 </div>
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
@@ -607,15 +626,17 @@ window.runHorizonLogin = async (provider) => {
     };
 
     window.switchTabGlob = (tabId) => {
-        const tabs = document.querySelectorAll(".settings-tab");
-        const contents = document.querySelectorAll(".settings-content");
+        const modal    = document.getElementById("modal-settings");
+        const tabs     = modal ? modal.querySelectorAll(".settings-tab")    : [];
+        const contents = modal ? modal.querySelectorAll(".settings-content") : [];
         tabs.forEach(t => t.classList.remove("active"));
         contents.forEach(c => c.classList.remove("active"));
-        document.getElementById(tabId).classList.add("active");
-        
+        const content = document.getElementById(tabId);
+        if (content) content.classList.add("active");
+
         const btnId = "tab-btn-glob-" + tabId.split("-").pop();
         const tabBtn = document.getElementById(btnId);
-        if(tabBtn) tabBtn.classList.add("active");
+        if (tabBtn) tabBtn.classList.add("active");
 
         if (tabId === "tab-glob-horizon") {
             window.refreshHorizonUI();

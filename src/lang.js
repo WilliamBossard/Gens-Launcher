@@ -532,6 +532,10 @@ const defaultFr = {
   msg_update_downloading: "Téléchargement de la mise à jour...",
   msg_update_restart: "Mise à jour prête ! Voulez-vous redémarrer maintenant ?",
   msg_update_later: "Mise à jour prête. Redémarrez plus tard.",
+  horizon_delta_threshold: "Auto-repack après N deltas",
+  horizon_delta_threshold_help: "En mode incrémentiel, chaque modification crée un fichier delta. Lorsque le nombre de deltas atteint ce seuil, Horizon crée automatiquement une nouvelle sauvegarde complète et supprime les anciens deltas. Cela évite une accumulation infinie et garde les restaurations rapides. Valeur recommandée : 10.",
+  horizon_delta_threshold_unit: "deltas → repack complet",
+  horizon_delta_threshold_hint: "Min : 3 · Max : 50 · Recommandé : 10",
 };
 
 const defaultEn = {
@@ -1063,6 +1067,10 @@ const defaultEn = {
   msg_update_downloading: "Downloading update... (Please wait)",
   msg_update_restart: "Update ready! Do you want to restart now?",
   msg_update_later: "Update ready. Restart later to apply.",
+  horizon_delta_threshold: "Auto-repack after N deltas",
+  horizon_delta_threshold_help: "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10.",
+  horizon_delta_threshold_unit: "deltas → full repack",
+  horizon_delta_threshold_hint: "Min: 3 · Max: 50 · Recommended: 10",
 };
 
 export function setupLang() {

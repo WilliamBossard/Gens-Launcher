@@ -483,32 +483,33 @@ groups[g].forEach(inst => {
         });
     }
 
-    let ctxTargetIdx = null;
-
     window.openContextMenu = (e, idx) => {
         e.preventDefault();
         window.selectInstance(idx);
-        ctxTargetIdx = idx;
-        
+        window.ctxTargetIdx = idx;
+
         const menu = document.getElementById("custom-context-menu");
         if (!menu) return;
 
         const cloudDivider = document.getElementById("ctx-cloud-divider");
-        const cloudImport  = document.getElementById("ctx-cloud-import");
+        const cloudSync    = document.getElementById("ctx-cloud-import") || document.getElementById("ctx-cloud-sync");
         const cloudUpload  = document.getElementById("ctx-cloud-upload");
-        const showCloud    = store.horizonActive === true;
+        const inst         = store.allInstances[idx];
+        const isPhantom    = inst && inst.version === "...";
+        const showCloud    = store.horizonActive === true && !isPhantom;
         const cloudDisplay = showCloud ? "block" : "none";
+
         if (cloudDivider) cloudDivider.style.display = cloudDisplay;
-        if (cloudImport)  cloudImport.style.display  = cloudDisplay;
+        if (cloudSync)    cloudSync.style.display    = cloudDisplay;
         if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
 
         menu.style.display = "flex";
-        
+
         let x = e.clientX;
         let y = e.clientY;
-        if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
+        if (x + menu.offsetWidth  > window.innerWidth)  x = window.innerWidth  - menu.offsetWidth  - 5;
         if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
-        
+
         menu.style.left = x + "px";
         menu.style.top  = y + "px";
     };
@@ -520,6 +521,6 @@ groups[g].forEach(inst => {
 
     window.ctxLaunch = () => { document.getElementById("launch-btn").click(); };
     window.ctxFolder = () => { if(window.openDir) window.openDir(''); };
-    window.ctxEdit = () => { if(window.openEditModal) window.openEditModal(); };
+    window.ctxEdit   = () => { if(window.openEditModal) window.openEditModal(); };
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
 }
