@@ -408,9 +408,18 @@ export function setupSettings() {
 }
 
 export function setupHorizonSettings() {
-    window.refreshHorizonUI = async () => {
+window.refreshHorizonUI = async () => {
         const container = document.getElementById("horizon-container");
         if (!container) return;
+
+        if (!window._lastCloudGridHtml) {
+            try {
+                const cachePath = window.api.path.join(store.dataDir, "horizon_cloud_cache.html");
+                if (window.api.fs.existsSync(cachePath)) {
+                    window._lastCloudGridHtml = window.api.fs.readFileSync(cachePath, "utf8");
+                }
+            } catch(e) {}
+        }
 
         const status = await window.api.invoke("check-horizon-status");
 
@@ -562,7 +571,7 @@ export function setupHorizonSettings() {
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
                 <div style="font-weight: bold; color: var(--text-light); margin-bottom: 10px;">${t("horizon_cloud_instances", "Vos Instances Cloud")}</div>
                 <div id="horizon-cloud-grid" class="instances-grid">
-                    <div style="color: #aaa; font-size: 0.85rem;">${t("msg_loading", "Chargement...")}</div>
+                    ${window._lastCloudGridHtml ? window._lastCloudGridHtml : `<div style="color: #aaa; font-size: 0.85rem;">${t("msg_loading", "Chargement...")}</div>`}
                 </div>
             </div>`;
         }

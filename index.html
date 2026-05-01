@@ -240,7 +240,7 @@
             right: 5px;
             width: 34px;
             height: 34px;
-            display: none; /* Caché par défaut */
+            display: none; 
             z-index: 10;
             background: rgba(0,0,0,0.6);
             border-radius: 50%;
@@ -252,7 +252,6 @@
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             border-radius: 50%;
-            /* L'astuce du masque pour faire un anneau au lieu d'un camembert */
             mask: radial-gradient(transparent 55%, black 56%);
             -webkit-mask: radial-gradient(transparent 55%, black 56%);
         }
@@ -307,7 +306,11 @@
         }
 
         .action-panel {
-            width: 230px;
+            flex: 0 0 160px; 
+            width: 160px;
+            max-width: 160px;
+            min-width: 160px;
+            box-sizing: border-box; 
             background: var(--bg-panel);
             border-left: 1px solid var(--border);
             padding: 10px;
@@ -315,9 +318,47 @@
             flex-direction: column;
             gap: 2px;
             overflow-y: auto;
+            overflow-x: hidden; 
             transition: background 0.3s;
         }
 
+        body.is-auto-launch .toolbar, 
+        body.is-auto-launch .workspace, 
+        body.is-auto-launch .statusbar,
+        body.is-auto-launch #toast-container,
+        body.is-auto-launch #loading-overlay { 
+        display: none !important;
+}
+#auto-launch-overlay {
+    display: none; 
+    position: fixed; 
+    inset: 0; 
+    background: #1e1e1e; 
+    z-index: 9999999; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    padding: 30px; 
+    -webkit-app-region: drag; 
+    border: 1px solid var(--border);
+}
+
+@keyframes auto-bar-slide {
+    0%   { left: -40%; width: 40%; }
+    50%  { left: 30%;  width: 50%; }
+    100% { left: 110%; width: 40%; }
+}
+
+#auto-progress-bar.indeterminate {
+    width: auto !important;
+    animation: auto-bar-slide 1.4s ease-in-out infinite;
+    background: var(--accent) !important;
+    box-shadow: 0 0 10px var(--accent);
+}
+
+#auto-progress-bar.has-value {
+    animation: none;
+}
         .panel-header {
             font-size: 0.95rem;
             color: var(--text-light);
@@ -328,6 +369,8 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            flex-shrink: 0; 
+            min-height: min-content; 
         }
 
         .panel-stats {
@@ -339,6 +382,8 @@
             background: rgba(0, 0, 0, 0.2);
             padding: 8px;
             border-radius: 3px;
+            flex-shrink: 0;
+            min-height: min-content;
         }
 
         .action-btn {
@@ -691,7 +736,6 @@
             cursor: not-allowed;
         }
 
-        /* --- MODALE MICROSOFT --- */
         #modal-ms-device .ms-device-help {
             font-size: 0.85rem;
             line-height: 1.45;
@@ -1112,7 +1156,6 @@
             background: var(--border);
             margin: 4px 0;
         }
-       /* --- SYSTÈME DE PROGRÈS (MINECRAFT STYLE) --- */
         #advancement-container {
             position: fixed;
             top: 20px;
@@ -1132,13 +1175,11 @@
             align-items: center;
             gap: 15px;
             padding: 10px 15px;
-            /* Animation élastique super satisfaisante */
             animation: slideInTopRightBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
             color: white;
             min-width: 250px;
         }
 
-        /* La nouvelle animation avec le petit rebond */
         @keyframes slideInTopRightBounce {
             0% { transform: translateX(120%); opacity: 0; }
             70% { transform: translateX(-15px); opacity: 1; }
@@ -1167,7 +1208,6 @@
             display: flex; 
             align-items: center; 
             gap: 10px;
-            /* Transition fluide pour le survol */
             transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
         }
 
@@ -1180,23 +1220,20 @@
     pointer-events: none; 
 }
 
-/* Applique le gris et la transparence à TOUT, SAUF au conteneur de la roue magique */
 .instance-card.is-phantom > *:not(.progress-circle-container) {
     filter: grayscale(0.9) opacity(0.5);
 }
 
-        /* Effet "Wahou" au survol d'un succès DÉBLOQUÉ */
         .adv-card:not(.locked):hover {
             transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 6px 15px rgba(255, 255, 85, 0.15); /* Halo jaune léger */
-            border-color: #FFFF55 !important; /* Bordure dorée */
-            background: rgba(255, 255, 85, 0.05); /* Fond légèrement éclairé */
+            box-shadow: 0 6px 15px rgba(255, 255, 85, 0.15); 
+            border-color: #FFFF55 !important; 
+            background: rgba(255, 255, 85, 0.05); 
         }
 
-        /* Effet subtil au survol d'un succès BLOQUÉ */
         .adv-card.locked:hover {
             transform: translateY(-2px);
-            opacity: 0.6; /* S'éclaire un tout petit peu */
+            opacity: 0.6; 
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
         }
     </style>
@@ -2172,6 +2209,7 @@
     </div>
 <div id="custom-context-menu" class="context-menu">
         <div class="context-menu-item" onclick="ctxLaunch()" data-i18n="ctx_launch">Lancer</div>
+        <div class="context-menu-item" onclick="ctxShortcut()" data-i18n="ctx_create_shortcut">Créer un raccourci bureau</div>
         <div class="context-menu-divider" id="ctx-cloud-divider"></div>
         <div class="context-menu-item" id="ctx-cloud-import" onclick="ctxSyncCloud()" data-i18n="ctx_cloud_import">Importer du Cloud</div>
         <div class="context-menu-item" id="ctx-cloud-upload" onclick="ctxUploadCloud()" data-i18n="ctx_cloud_upload">Envoyer sur le Cloud</div>
@@ -2189,6 +2227,16 @@
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud" style="color:#f87171;">Supprimer du Cloud</div>
     </div>
+<div id="auto-launch-overlay" style="display: none; position: fixed; inset: 0; background: #1e1e1e; z-index: 9999999; flex-direction: column; align-items: center; justify-content: center; padding: 30px; border: 1px solid var(--border); -webkit-app-region: drag;">
+    <img id="auto-icon" src="" style="width: 80px; height: 80px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); -webkit-app-region: no-drag;">
+    <div id="auto-inst-name" style="font-size: 1.4rem; font-weight: bold; color: var(--text-light); margin-bottom: 5px;"></div>
+    <div style="font-size: 0.9rem; color: #aaa; margin-bottom: 25px;"><span data-i18n="lbl_auto_session">Session de :</span> <span id="auto-acc-name" style="color: var(--accent); font-weight: bold;"></span></div>
+
+    <div style="width: 100%; max-width: 300px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; height: 12px; position: relative; overflow: hidden; -webkit-app-region: no-drag;">
+        <div id="auto-progress-bar" style="position: absolute; top: 0; left: 0; height: 100%; width: 0%; background: #007acc; background: var(--accent); transition: width 0.3s ease-out; box-shadow: 0 0 10px var(--accent);"></div>
+    </div>
+    <div id="auto-status-text" style="font-size: 0.8rem; color: #888; margin-top: 12px; text-align: center;" data-i18n="msg_auto_init">Initialisation...</div>
+</div>
     <script type="module" src="renderer.js"></script>
     
 </body>

@@ -11,24 +11,58 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
+const _screenshotCache = new Map(); 
+
+function getCachedScreenshot(inst) {
+    const safeDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
+    const cached = _screenshotCache.get(inst.name);
+
+    if (cached && cached.dir === safeDir) return cached.file;
+
+    let file = null;
+    try {
+        if (fs.existsSync(safeDir)) {
+            const files = fs.readdirSync(safeDir).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
+            if (files.length > 0) file = path.join(safeDir, files[Math.floor(Math.random() * files.length)]);
+        }
+    } catch(e) {}
+
+    _screenshotCache.set(inst.name, { dir: safeDir, file });
+    return file;
+}
+
+/** Invalide l'entrée de cache pour une instance donnée (appelé après une sauvegarde). */
+export function invalidateScreenshotCache(instName) {
+    _screenshotCache.delete(instName);
+}
+
 export function setupInstances() {
+
     window.updateVersionList = (showSnapshots) => {
         const select1 = document.getElementById("new-version");
         const select2 = document.getElementById("catalog-version");
-        select1.innerHTML = "";
-        select2.innerHTML = "";
+        const frag1 = document.createDocumentFragment();
+        const frag2 = document.createDocumentFragment();
+
         store.rawVersions.forEach((v) => {
             if (showSnapshots || v.type === "release") {
-                let opt1 = document.createElement("option");
+                const opt1 = document.createElement("option");
                 opt1.value = v.id;
                 opt1.textContent = v.id;
-                select1.appendChild(opt1);
-                let opt2 = document.createElement("option");
+                frag1.appendChild(opt1);
+
+                const opt2 = document.createElement("option");
                 opt2.value = v.id;
                 opt2.textContent = v.id;
-                select2.appendChild(opt2);
+                frag2.appendChild(opt2);
             }
         });
+
+        select1.innerHTML = "";
+        select1.appendChild(frag1);
+        select2.innerHTML = "";
+        select2.appendChild(frag2);
+
         window.updateLoaderVersions();
     };
 
@@ -37,49 +71,44 @@ export function setupInstances() {
         const loader = document.getElementById("new-loader").value;
         const container = document.getElementById("loader-version-container");
         const select = document.getElementById("new-loader-version");
-        
+
         select.innerHTML = "<option>" + t("msg_loading", "Chargement...") + "</option>";
-        
-        if (loader === "vanilla") {
-            container.style.display = "none";
-            return;
-        }
-        
+
+        if (loader === "vanilla") { container.style.display = "none"; return; }
         container.style.display = "block";
+
         try {
             let versions = [];
             if (loader === "fabric") {
                 const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
-                const data = await res.json();
-                versions = data.map(d => d.loader.version);
+                versions = (await res.json()).map(d => d.loader.version);
             } else if (loader === "quilt") {
                 const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
-                const data = await res.json();
-                versions = data.map(d => d.loader.version);
+                versions = (await res.json()).map(d => d.loader.version);
             } else if (loader === "forge") {
                 const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
-                const data = await res.json();
-                versions = data.map(d => d.version);
+                versions = (await res.json()).map(d => d.version);
             } else if (loader === "neoforge") {
                 const parts = mcVer.split('.');
-                const prefix = parts[1] + "." + (parts[2] || "0") + "."; 
+                const prefix = parts[1] + "." + (parts[2] || "0") + ".";
                 const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
-                const neoXml = await neoRes.text();
-                const neoDoc = new DOMParser().parseFromString(neoXml, "text/xml");
+                const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
                 const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
                 versions = allVers.filter(v => v.startsWith(prefix));
             }
-            
+
             select.innerHTML = "";
             if (versions.length === 0) {
                 select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `Incompatible avec la ${mcVer}`)}</option>`;
             } else {
+                const frag = document.createDocumentFragment();
                 versions.forEach(v => {
                     const opt = document.createElement("option");
                     opt.value = v;
-                    opt.innerText = v;
-                    select.appendChild(opt);
+                    opt.textContent = v;
+                    frag.appendChild(opt);
                 });
+                select.appendChild(frag);
             }
         } catch(e) {
             select.innerHTML = `<option value="">${t("msg_loader_incompat", "Incompatible")}</option>`;
@@ -92,48 +121,36 @@ export function setupInstances() {
         document.getElementById("action-panel").style.opacity = "1";
         document.getElementById("action-panel").style.pointerEvents = "auto";
         document.getElementById("panel-title").innerText = inst.name;
-        document.getElementById("btn-mods").style.display =
-            inst.loader === "vanilla" ? "none" : "block";
+        document.getElementById("btn-mods").style.display = inst.loader === "vanilla" ? "none" : "block";
         document.getElementById("panel-stats").style.display = "block";
 
-        let h = Math.floor((inst.playTime || 0) / 3600000);
-        let m = Math.floor(((inst.playTime || 0) % 3600000) / 60000);
+        const h = Math.floor((inst.playTime || 0) / 3600000);
+        const m = Math.floor(((inst.playTime || 0) % 3600000) / 60000);
         document.getElementById("stat-time").innerText = `${h}h ${m}m`;
         document.getElementById("stat-last").innerText = inst.lastPlayed
             ? new Date(inst.lastPlayed).toLocaleDateString()
             : t("lbl_never", "Jamais");
-            
+
         const appBg = document.getElementById("app-background");
-        const root = document.documentElement; 
-        const screensDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
-        let bgSet = false;
-        
-        if (fs.existsSync(screensDir)) {
-            const files = fs.readdirSync(screensDir).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
-            if (files.length > 0) {
-                const randomFile = files[Math.floor(Math.random() * files.length)];
-                const imgPath = path.join(screensDir, randomFile).replace(/\\/g, "/");
-                
-                const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
-                const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
-                const imgUrl = window.pathToFileUrl(imgPath);
-                appBg.style.backgroundImage = `url("${imgUrl}")`;
-                appBg.style.filter = `blur(${th.blur}px) brightness(${1 - th.dim})`;
-                
-                root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
-                root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
-                root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
-                
-                bgSet = true;
-            }
-        }
-        
-        if (!bgSet && window.applyTheme) {
+        const root = document.documentElement;
+        const imgPath = getCachedScreenshot(inst);
+        if (imgPath) {
+            const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
+            const disableTransp = store.globalSettings.disableTransparency;
+            const op = disableTransp ? 1 : (th.panelOpacity !== undefined ? th.panelOpacity : 0.6);
+            
+            appBg.style.backgroundImage = `url("${window.pathToFileUrl(imgPath.replace(/\\/g, "/"))}")`;
+            appBg.style.filter = disableTransp ? "none" : `blur(${th.blur}px) brightness(${1 - th.dim})`;
+            
+            root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
+            root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
+            root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
+        } else if (window.applyTheme) {
             window.applyTheme();
         }
 
         window.renderUI();
-        if (!store.isGameRunning) updateRPC(); 
+        if (!store.isGameRunning) updateRPC();
         if (window.updateLaunchButton) window.updateLaunchButton();
     };
 
@@ -152,9 +169,8 @@ export function setupInstances() {
     window.updateJvmDesc = () => {
         document.querySelectorAll(".jvm-desc").forEach(el => el.style.display = "none");
         const val = document.getElementById("edit-jvm-profile").value;
-        if (document.getElementById("jvm-desc-" + val)) {
-            document.getElementById("jvm-desc-" + val).style.display = "block";
-        }
+        const descEl = document.getElementById("jvm-desc-" + val);
+        if (descEl) descEl.style.display = "block";
     };
 
     window.openEditModal = (targetTab = "tab-general") => {
@@ -170,33 +186,36 @@ export function setupInstances() {
         document.getElementById("edit-group").value = inst.group || "";
         document.getElementById("edit-ram-input").value = ramMB;
         document.getElementById("edit-ram-slider").value = ramMB;
-        window.scanJavaVersions("edit-javapath", true); 
+        window.scanJavaVersions("edit-javapath", true);
         document.getElementById("edit-javapath").value = inst.javaPath || "";
         document.getElementById("edit-res-w").value = inst.resW || "";
         document.getElementById("edit-res-h").value = inst.resH || "";
         document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
-        
         document.getElementById("edit-jvm-profile").value = inst.jvmProfile || "none";
-        window.updateJvmDesc(); 
-
+        window.updateJvmDesc();
         document.getElementById("edit-notes").value = inst.notes || "";
         document.getElementById("edit-icon-preview").src = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
         document.getElementById("edit-backup-mode").value = inst.backupMode || "none";
         document.getElementById("edit-backup-limit").value = inst.backupLimit || 5;
+        if (document.getElementById("edit-disable-horizon")) {
+            document.getElementById("edit-disable-horizon").checked = !!inst.disableHorizon;
+        }
 
         const versionSelect = document.getElementById("edit-mc-version");
         if (versionSelect) {
-            versionSelect.innerHTML = "";
             const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
+            const frag = document.createDocumentFragment();
             (store.rawVersions || []).forEach(v => {
                 if (showBeta || v.type === "release") {
                     const opt = document.createElement("option");
                     opt.value = v.id;
-                    opt.innerText = v.id;
+                    opt.textContent = v.id;
                     if (v.id === inst.version) opt.selected = true;
-                    versionSelect.appendChild(opt);
+                    frag.appendChild(opt);
                 }
             });
+            versionSelect.innerHTML = "";
+            versionSelect.appendChild(frag);
         }
 
         const loaderSelect = document.getElementById("edit-loader-type");
@@ -209,9 +228,11 @@ export function setupInstances() {
         if (inst.loader === "vanilla") {
             btnModsTab.style.display = "none";
             if (targetTab === "tab-mods") targetTab = "tab-general";
-        } else btnModsTab.style.display = "block";
+        } else {
+            btnModsTab.style.display = "block";
+        }
 
-        if(window.switchTab) window.switchTab(targetTab);
+        if (window.switchTab) window.switchTab(targetTab);
         document.getElementById("modal-edit").style.display = "flex";
     };
 
@@ -224,12 +245,9 @@ export function setupInstances() {
         if (!loaderSelect || !loaderVerSelect) return;
 
         const loader = loaderSelect.value;
-        const mcVer = versionSelect ? versionSelect.value : (inst ? inst.version : "");
+        const mcVer = versionSelect ? versionSelect.value : (inst?.version || "");
 
-        if (loader === "vanilla") {
-            if (loaderVerContainer) loaderVerContainer.style.display = "none";
-            return;
-        }
+        if (loader === "vanilla") { if (loaderVerContainer) loaderVerContainer.style.display = "none"; return; }
         if (loaderVerContainer) loaderVerContainer.style.display = "block";
         loaderVerSelect.innerHTML = `<option>${t("msg_loading", "Chargement...")}</option>`;
 
@@ -237,12 +255,10 @@ export function setupInstances() {
             let versions = [];
             if (loader === "fabric") {
                 const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
-                const data = await res.json();
-                versions = data.map(d => d.loader.version);
+                versions = (await res.json()).map(d => d.loader.version);
             } else if (loader === "quilt") {
                 const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
-                const data = await res.json();
-                versions = data.map(d => d.loader.version);
+                versions = (await res.json()).map(d => d.loader.version);
             } else if (loader === "forge") {
                 const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
                 const data = await res.json();
@@ -251,8 +267,7 @@ export function setupInstances() {
                 const parts = mcVer.split(".");
                 const prefix = parts[1] + "." + (parts[2] || "0") + ".";
                 const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
-                const neoXml = await neoRes.text();
-                const neoDoc = new DOMParser().parseFromString(neoXml, "text/xml");
+                const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
                 const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
                 versions = allVers.filter(v => v.startsWith(prefix));
             }
@@ -261,13 +276,15 @@ export function setupInstances() {
             if (versions.length === 0) {
                 loaderVerSelect.innerHTML = `<option value="">${t("msg_no_loader_compat", "Incompatible avec cette version")}</option>`;
             } else {
+                const frag = document.createDocumentFragment();
                 versions.forEach(v => {
                     const opt = document.createElement("option");
                     opt.value = v;
-                    opt.innerText = v;
+                    opt.textContent = v;
                     if (inst && v === inst.loaderVersion) opt.selected = true;
-                    loaderVerSelect.appendChild(opt);
+                    frag.appendChild(opt);
                 });
+                loaderVerSelect.appendChild(frag);
             }
         } catch(e) {
             loaderVerSelect.innerHTML = `<option value="">${t("msg_err_loader_versions", "Erreur de chargement")}</option>`;
@@ -275,21 +292,22 @@ export function setupInstances() {
     };
 
     window.toggleEditSnapshots = () => {
-        const inst = store.allInstances[store.selectedInstanceIdx];
         const versionSelect = document.getElementById("edit-mc-version");
         const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
         if (!versionSelect) return;
         const currentVal = versionSelect.value;
-        versionSelect.innerHTML = "";
+        const frag = document.createDocumentFragment();
         (store.rawVersions || []).forEach(v => {
             if (showBeta || v.type === "release") {
                 const opt = document.createElement("option");
                 opt.value = v.id;
-                opt.innerText = v.id;
+                opt.textContent = v.id;
                 if (v.id === currentVal) opt.selected = true;
-                versionSelect.appendChild(opt);
+                frag.appendChild(opt);
             }
         });
+        versionSelect.innerHTML = "";
+        versionSelect.appendChild(frag);
     };
 
     window.closeEditModal = () => {
@@ -300,7 +318,7 @@ export function setupInstances() {
     window.saveInstance = () => {
         const nameInput = document.getElementById("new-name");
         const name = nameInput.value.trim();
-        
+
         if (!name) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
@@ -308,6 +326,7 @@ export function setupInstances() {
         }
 
         const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
+
         if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
@@ -330,14 +349,13 @@ export function setupInstances() {
         try {
             fs.mkdirSync(destFolder, { recursive: true });
         } catch(e) {
-            sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})` );
-        sysLog("Erreur création dossier instance: " + e.message, true);
+            sysLog("Erreur création dossier instance: " + e.message, true);
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
             return;
         }
 
         let rawRam = parseInt(document.getElementById("new-ram-input").value) || 4096;
-        if (rawRam < 128) rawRam = rawRam * 1024; 
+        if (rawRam < 128) rawRam = rawRam * 1024;
         rawRam = Math.max(1024, rawRam);
 
         const newInst = {
@@ -346,30 +364,26 @@ export function setupInstances() {
             loader: document.getElementById("new-loader").value,
             loaderVersion: document.getElementById("new-loader").value === "vanilla" ? "" : document.getElementById("new-loader-version").value,
             ram: String(rawRam),
-            javaPath: "", jvmArgs: "", 
+            javaPath: "", jvmArgs: "",
             jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, sessionHistory: [], group: "", servers: [], backupMode: "none", backupLimit: 5,
         };
 
         store.allInstances.push(newInst);
-
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
+
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
         window.safeWriteJSON(store.instanceFile, store.allInstances);
+        sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})`);
 
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (fs.existsSync(defaultOpt)) {
-            try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {}
-        }
+        if (fs.existsSync(defaultOpt)) { try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {} }
 
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-        if (fs.existsSync(defaultSrv)) {
-            try { fs.copyFileSync(defaultSrv, path.join(destFolder, "servers.dat")); } catch(e) {}
-        }
+        if (fs.existsSync(defaultSrv)) { try { fs.copyFileSync(defaultSrv, path.join(destFolder, "servers.dat")); } catch(e) {} }
 
-        const instJsonPath = path.join(destFolder, "instance.json");
-        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
+        try { fs.writeFileSync(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch(e) {}
 
         window.renderUI();
         window.closeInstanceModal();
@@ -401,7 +415,7 @@ export function setupInstances() {
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
-if (oldFolder !== newFolder) {
+            if (oldFolder !== newFolder) {
                 if (fs.existsSync(newFolder)) {
                     window.showToast(t("msg_err_similar_name", "Un dossier portant ce nom existe déjà sur votre PC !"), "error");
                     return;
@@ -413,44 +427,46 @@ if (oldFolder !== newFolder) {
                             inst.icon = inst.icon.replace(safeOldName, safeNewName);
                         }
                     }
-                } catch (err) {
+                } catch(err) {
                     console.error("Erreur de renommage:", err);
                     window.showToast(t("msg_err_rename_folder", "Erreur système : Impossible de renommer le dossier."), "error");
-                    return; 
+                    return;
                 }
             }
+
+            invalidateScreenshotCache(inst.name);
         }
 
         let rawRam = parseInt(document.getElementById("edit-ram-input").value) || 4096;
-        if (rawRam < 128) rawRam = rawRam * 1024; 
+        if (rawRam < 128) rawRam = rawRam * 1024;
         inst.ram = String(Math.max(1024, rawRam));
 
-        inst.name = newName;
-        inst.group = document.getElementById("edit-group").value.trim();
-        inst.javaPath = document.getElementById("edit-javapath").value;
-        inst.resW = document.getElementById("edit-res-w").value;
-        inst.resH = document.getElementById("edit-res-h").value;
-        inst.jvmArgs = document.getElementById("edit-jvmargs").value;
+        inst.name       = newName;
+        inst.group      = document.getElementById("edit-group").value.trim();
+        inst.javaPath   = document.getElementById("edit-javapath").value;
+        inst.resW       = document.getElementById("edit-res-w").value;
+        inst.resH       = document.getElementById("edit-res-h").value;
+        inst.jvmArgs    = document.getElementById("edit-jvmargs").value;
         inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
-        inst.notes = document.getElementById("edit-notes").value;
+        inst.notes      = document.getElementById("edit-notes").value;
         inst.backupMode = document.getElementById("edit-backup-mode").value;
         inst.backupLimit = parseInt(document.getElementById("edit-backup-limit").value) || 5;
+        if (document.getElementById("edit-disable-horizon")) {
+            inst.disableHorizon = document.getElementById("edit-disable-horizon").checked;
+        }
 
-        const editVersionEl = document.getElementById("edit-mc-version");
-        const editLoaderEl = document.getElementById("edit-loader-type");
+        const editVersionEl   = document.getElementById("edit-mc-version");
+        const editLoaderEl    = document.getElementById("edit-loader-type");
         const editLoaderVerEl = document.getElementById("edit-loader-version");
 
         if (editVersionEl && editLoaderEl) {
-            const newVersion = editVersionEl.value;
-            const newLoader = editLoaderEl.value;
+            const newVersion   = editVersionEl.value;
+            const newLoader    = editLoaderEl.value;
             const newLoaderVer = editLoaderVerEl ? editLoaderVerEl.value : "";
-
             const loaderVerEmpty = !newLoaderVer && newLoader !== "vanilla";
+
             if (loaderVerEmpty) {
-                window.showToast(
-                    t("msg_loader_no_compat", `Le loader ${newLoader} n'est pas encore disponible pour MC ${newVersion}. Passé en Vanilla.`),
-                    "error"
-                );
+                window.showToast(t("msg_loader_no_compat", `Le loader ${newLoader} n'est pas encore disponible pour MC ${newVersion}. Passé en Vanilla.`), "error");
                 inst.loader = "vanilla";
                 inst.loaderVersion = "";
             } else {
@@ -458,14 +474,12 @@ if (oldFolder !== newFolder) {
                     const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
                     ["versions", "libraries"].forEach(dir => {
                         const dirPath = path.join(instFolder, dir);
-                        if (fs.existsSync(dirPath)) {
-                            try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) {}
-                        }
+                        if (fs.existsSync(dirPath)) { try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) {} }
                     });
                     window.showToast(t("msg_version_changed", "Version changée ! Les fichiers seront retéléchargés au prochain lancement."), "info");
                 }
                 inst.version = newVersion;
-                inst.loader = newLoader;
+                inst.loader  = newLoader;
                 inst.loaderVersion = newLoader === "vanilla" ? "" : newLoaderVer;
             }
 
@@ -478,10 +492,8 @@ if (oldFolder !== newFolder) {
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
             if (!fs.existsSync(instFolder)) fs.mkdirSync(instFolder, { recursive: true });
-            
             const ext = path.extname(store.pendingIconPath);
             const newIconPath = path.join(instFolder, "icon" + ext);
-            
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
                 inst.icon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
@@ -494,10 +506,9 @@ if (oldFolder !== newFolder) {
 
         window.safeWriteJSON(store.instanceFile, store.allInstances);
         window.selectInstance(store.selectedInstanceIdx);
-        
-        const instJsonPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json");
-        try { fs.writeFileSync(instJsonPath, JSON.stringify(inst, null, 2)); } catch(e) {}
-        
+
+        try { fs.writeFileSync(path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+
         window.renderUI();
         if (iconWasChanged || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
             if (window.checkAchievement) window.checkAchievement("artist");
@@ -506,11 +517,7 @@ if (oldFolder !== newFolder) {
     };
 
     window.openDir = (f) => {
-        const dir = path.join(
-            store.instancesRoot,
-            store.allInstances[store.selectedInstanceIdx].name.replace(/[^a-z0-9]/gi, "_"),
-            f
-        );
+        const dir = path.join(store.instancesRoot, store.allInstances[store.selectedInstanceIdx].name.replace(/[^a-z0-9]/gi, "_"), f);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         shell.openPath(dir);
     };
@@ -519,10 +526,10 @@ if (oldFolder !== newFolder) {
         sysLog(`[INSTANCE] Début copie de l'instance.`);
         if (store.selectedInstanceIdx === null) return;
         const oldInst = store.allInstances[store.selectedInstanceIdx];
-        let inst = JSON.parse(JSON.stringify(oldInst));
+        const inst = JSON.parse(JSON.stringify(oldInst));
         let newName = inst.name + t("lbl_copy_suffix", " - Copie");
         let copyCounter = 2;
-        while (store.allInstances.some((i) => i.name === newName))
+        while (store.allInstances.some(i => i.name === newName))
             newName = inst.name + t("lbl_copy_suffix", " - Copie") + ` (${copyCounter++})`;
         inst.name = newName;
         inst.playTime = 0;
@@ -533,37 +540,28 @@ if (oldFolder !== newFolder) {
         try {
             const oldPath = path.join(store.instancesRoot, oldInst.name.replace(/[^a-z0-9]/gi, "_"));
             const newPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-            
-            if (fs.existsSync(oldPath)) {
-                await fs.promises.cp(oldPath, newPath, { recursive: true });
-            }
+            if (fs.existsSync(oldPath)) await fs.promises.cp(oldPath, newPath, { recursive: true });
             store.allInstances.push(inst);
-
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
-            
-            const instJsonPath = path.join(newPath, "instance.json");
-            try { fs.writeFileSync(instJsonPath, JSON.stringify(inst, null, 2)); } catch(e) {}
-            
-        } catch (e) {
-            sysLog("Erreur Copie: " + e, true);
-        }
+            try { fs.writeFileSync(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+        } catch(e) { sysLog("Erreur Copie: " + e, true); }
         window.hideLoading();
         window.renderUI();
     };
 
-window.deleteInstance = async () => {
+    window.deleteInstance = async () => {
         if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            
+
             try {
                 const hStatus = await window.api.invoke("check-horizon-status");
                 const binPath = path.join(store.instancesRoot, "..", "bin");
                 const manifestPath = path.join(binPath, `manifest_${inst.name}.json`);
                 const isSyncedToCloud = fs.existsSync(manifestPath);
-                if (hStatus && hStatus.linked && isSyncedToCloud) {
-                    const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?\n(Si non, elle pourra être restaurée plus tard depuis les paramètres)").replace("{name}", inst.name);
+                if (hStatus?.linked && isSyncedToCloud) {
+                    const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?").replace("{name}", inst.name);
                     if (await window.showCustomConfirm(confirmMsg, true)) {
                         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
                         await window.api.invoke("call-horizon", ['--sync', '--delete', inst.name]);
@@ -573,14 +571,14 @@ window.deleteInstance = async () => {
 
             const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
             try {
-                if (fs.existsSync(instFolder)) {
-                    await fs.promises.rm(instFolder, { recursive: true, force: true });
-                }
+                if (fs.existsSync(instFolder)) await fs.promises.rm(instFolder, { recursive: true, force: true });
             } catch(e) {
                 window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?"), "error");
-                return; 
+                return;
             }
-            
+
+            invalidateScreenshotCache(inst.name);
+
             sysLog(`[INSTANCE] Instance "${inst.name}" supprimée localement.`);
             store.allInstances.splice(store.selectedInstanceIdx, 1);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
@@ -589,8 +587,8 @@ window.deleteInstance = async () => {
             document.getElementById("action-panel").style.opacity = "0.4";
             document.getElementById("action-panel").style.pointerEvents = "none";
             document.getElementById("panel-title").innerText = t("panel_title", "Sélectionnez une instance");
-            
-            if(window.applyTheme) window.applyTheme();
+
+            if (window.applyTheme) window.applyTheme();
             window.renderUI();
         }
     };
@@ -600,20 +598,17 @@ window.deleteInstance = async () => {
         if (file) {
             const filePath = window.api.getFilePath(file);
             store.pendingIconPath = filePath;
-            const localPath = window.pathToFileUrl(filePath.replace(/\\/g, "/"));
-            document.getElementById("edit-icon-preview").src = localPath;
+            document.getElementById("edit-icon-preview").src = window.pathToFileUrl(filePath.replace(/\\/g, "/"));
         }
         input.value = "";
     };
 
     window.dragInstanceStart = (e, idx) => {
         e.dataTransfer.setData("instIdx", idx);
-        window._isInternalDrag = true; 
+        window._isInternalDrag = true;
     };
 
-    document.addEventListener("dragend", () => {
-        window._isInternalDrag = false;
-    });
+    document.addEventListener("dragend", () => { window._isInternalDrag = false; });
 
     window.dropInstanceOnGroup = (e, targetGroup) => {
         e.preventDefault();
@@ -628,11 +623,11 @@ window.deleteInstance = async () => {
 
     const defaultGalleryIcons = [
         store.defaultIcons.vanilla, store.defaultIcons.forge, store.defaultIcons.fabric, store.defaultIcons.quilt, store.defaultIcons.neoforge,
-        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 2h12v12H2z' fill='%238b8b8b'/%3E%3Cpath d='M4 4h8v8H4z' fill='%23555'/%3E%3C/svg%3E", 
-        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2l6 6-6 6-6-6z' fill='%2355ffff'/%3E%3C/svg%3E", 
-        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff5555'/%3E%3Cpath d='M8 2v4' stroke='%2300aa00' stroke-width='2'/%3E%3C/svg%3E", 
-        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 4h14v8H1z' fill='%238b5a2b'/%3E%3Crect x='7' y='6' width='2' height='3' fill='%23ccc'/%3E%3C/svg%3E", 
-        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300aaaa'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23aaffff'/%3E%3C/svg%3E", 
+        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 2h12v12H2z' fill='%238b8b8b'/%3E%3Cpath d='M4 4h8v8H4z' fill='%23555'/%3E%3C/svg%3E",
+        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2l6 6-6 6-6-6z' fill='%2355ffff'/%3E%3C/svg%3E",
+        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff5555'/%3E%3Cpath d='M8 2v4' stroke='%2300aa00' stroke-width='2'/%3E%3C/svg%3E",
+        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 4h14v8H1z' fill='%238b5a2b'/%3E%3Crect x='7' y='6' width='2' height='3' fill='%23ccc'/%3E%3C/svg%3E",
+        "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300aaaa'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23aaffff'/%3E%3C/svg%3E",
     ];
 
     window.openIconGallery = () => {
@@ -651,7 +646,7 @@ window.deleteInstance = async () => {
     };
 
     window.selectGalleryIcon = (icon) => {
-        store.pendingIconPath = null; 
+        store.pendingIconPath = null;
         document.getElementById("edit-icon-preview").src = icon;
         document.getElementById("modal-icon-gallery").style.display = "none";
     };

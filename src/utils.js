@@ -113,16 +113,26 @@ window.showCustomConfirm = (msg, isDestructive = false) => {
 };
 
 window.showLoading = (text, percent = null) => {
-    document.getElementById("loading-text").innerText    = text;
+    document.getElementById("loading-text").innerText = text;
     const pctEl = document.getElementById("loading-percent");
-    pctEl.innerText = percent !== null ? percent + "%" : "";
+    if (pctEl) pctEl.innerText = percent !== null ? percent + "%" : "";
     document.getElementById("loading-overlay").style.display = "flex";
+
+    const autoStatus = document.getElementById("auto-status-text");
+    const autoBar = document.getElementById("auto-progress-bar");
+    if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
+    if (autoBar && percent !== null) autoBar.style.width = percent + "%";
 };
 
 window.updateLoadingPercent = (percent, text = null) => {
     const pctEl = document.getElementById("loading-percent");
-    if (percent !== null) pctEl.innerText = percent + "%";
-    if (text    !== null) document.getElementById("loading-text").innerText = text;
+    if (percent !== null && pctEl) pctEl.innerText = percent + "%";
+    if (text !== null) document.getElementById("loading-text").innerText = text;
+
+    const autoStatus = document.getElementById("auto-status-text");
+    const autoBar = document.getElementById("auto-progress-bar");
+    if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
+    if (autoBar && percent !== null) autoBar.style.width = percent + "%";
 };
 
 window.hideLoading = () => {

@@ -474,11 +474,77 @@ groups[g].forEach(inst => {
     });
 
     if (window.api) {
+        let _autoBarInterval = null;
+        let _autoBarDir = 1;
+        let _autoBarPos = 5;
+
+        window.autoBarIndeterminate = () => {
+            const bar = document.getElementById("auto-progress-bar");
+            if (!bar) return;
+            bar.style.transition = "none";
+            bar.style.background = "#007acc";
+            bar.style.width = "5%";
+            if (_autoBarInterval) clearInterval(_autoBarInterval);
+            _autoBarDir = 1;
+            _autoBarPos = 5;
+            _autoBarInterval = setInterval(() => {
+                const b = document.getElementById("auto-progress-bar");
+                if (!b) { clearInterval(_autoBarInterval); return; }
+                _autoBarPos += _autoBarDir * 2;
+                if (_autoBarPos >= 85) _autoBarDir = -1;
+                if (_autoBarPos <= 5)  _autoBarDir = 1;
+                b.style.width = _autoBarPos + "%";
+            }, 25);
+        };
+
+        window.autoBarProgress = (perc) => {
+            if (_autoBarInterval) { clearInterval(_autoBarInterval); _autoBarInterval = null; }
+            const bar = document.getElementById("auto-progress-bar");
+            if (!bar) return;
+            bar.style.background = "#007acc";
+            bar.style.transition = "width 0.3s ease-out";
+            bar.style.width = perc + "%";
+        };
+
+        window.autoBarReset = () => {
+            if (_autoBarInterval) { clearInterval(_autoBarInterval); _autoBarInterval = null; }
+            const bar = document.getElementById("auto-progress-bar");
+            if (!bar) return;
+            bar.style.transition = "none";
+            bar.style.width = "0%";
+        };
+
         window.api.on("trigger-auto-launch", (instName) => {
+            window._isAutoLaunch = true;
+            
+            document.body.classList.add("is-auto-launch");
+            document.getElementById("auto-launch-overlay").style.display = "flex";
+
+            window.autoBarIndeterminate();
+
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
+                const inst = store.allInstances[idx];
+                const acc = store.allAccounts[store.selectedAccountIdx];
+
+                document.getElementById("auto-inst-name").innerText = inst.name;
+                document.getElementById("auto-acc-name").innerText = acc ? acc.name : "...";
+                
+                const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                let iconSrc = inst.icon || "";
+                if (iconSrc === "") {
+                    if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
+                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png").replace(/\\/g, "/"));
+                    } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
+                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
+                    } else {
+                        iconSrc = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                    }
+                }
+                document.getElementById("auto-icon").src = iconSrc;
+
                 window.selectInstance(idx);
-                setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
+                setTimeout(() => { document.getElementById('launch-btn').click(); }, 600);
             }
         });
     }
@@ -524,3 +590,40 @@ groups[g].forEach(inst => {
     window.ctxEdit   = () => { if(window.openEditModal) window.openEditModal(); };
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
 }
+
+window.ctxShortcut = async () => {
+    const inst = store.allInstances[window.ctxTargetIdx];
+    if (!inst) return;
+    document.getElementById("custom-context-menu").style.display = "none";
+    
+    const res = await window.api.invoke("create-desktop-shortcut", { 
+        instanceName: inst.name, 
+        iconPath: inst.icon 
+    });
+
+    if (res.success) {
+        window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
+    } else {
+        window.showToast(t("msg_shortcut_err", "Erreur lors de la création du raccourci."), "error");
+    }
+};
+
+window.showLoading = (text, percent = null) => {
+    document.getElementById("loading-text").innerText = text;
+    const pctEl = document.getElementById("loading-percent");
+    if (pctEl) pctEl.innerText = percent !== null ? percent + "%" : "";
+    document.getElementById("loading-overlay").style.display = "flex";
+
+    const autoStatus = document.getElementById("auto-status-text");
+    if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
+    if (percent !== null && window.autoBarProgress) window.autoBarProgress(percent);
+};
+
+window.updateLoadingPercent = (percent, text = null) => {
+    const pctEl = document.getElementById("loading-percent");
+    if (percent !== null && pctEl) pctEl.innerText = percent + "%";
+    if (text !== null) document.getElementById("loading-text").innerText = text;
+    const autoStatus = document.getElementById("auto-status-text");
+    if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
+    if (percent !== null && window.autoBarProgress) window.autoBarProgress(percent);
+};

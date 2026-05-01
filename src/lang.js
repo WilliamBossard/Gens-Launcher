@@ -536,6 +536,17 @@ const defaultFr = {
   horizon_delta_threshold_help: "En mode incrémentiel, chaque modification crée un fichier delta. Lorsque le nombre de deltas atteint ce seuil, Horizon crée automatiquement une nouvelle sauvegarde complète et supprime les anciens deltas. Cela évite une accumulation infinie et garde les restaurations rapides. Valeur recommandée : 10.",
   horizon_delta_threshold_unit: "deltas → repack complet",
   horizon_delta_threshold_hint: "Min : 3 · Max : 50 · Recommandé : 10",
+  lbl_horizon_instance: "☁ Gens Horizon (Cloud)",
+  lbl_disable_horizon_instance: "Désactiver la synchronisation Cloud pour cette instance",
+  txt_disable_horizon_desc: "Si activé, cette instance ne sera jamais uploadée ni synchronisée via Horizon.",
+  stat_total_sessions: "Sessions de jeu",
+  stat_longest_session: "Session la plus longue",
+  ctx_create_shortcut: "Créer un raccourci bureau",
+  msg_shortcut_created: "Raccourci créé sur le bureau !",
+  msg_shortcut_err: "Erreur lors de la création du raccourci.",
+  lbl_auto_session: "Session de :",
+  msg_auto_init: "Initialisation...",
+  msg_auto_close: "Fermeture du jeu et synchronisation...",
 };
 
 const defaultEn = {
@@ -1071,6 +1082,17 @@ const defaultEn = {
   horizon_delta_threshold_help: "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10.",
   horizon_delta_threshold_unit: "deltas → full repack",
   horizon_delta_threshold_hint: "Min: 3 · Max: 50 · Recommended: 10",
+  lbl_horizon_instance: "☁ Gens Horizon (Cloud)",
+  lbl_disable_horizon_instance: "Disable Cloud sync for this instance",
+  txt_disable_horizon_desc: "If enabled, this instance will never be uploaded or synced via Horizon.",
+  stat_total_sessions: "Game sessions",
+  stat_longest_session: "Longest session",
+  ctx_create_shortcut: "Create desktop shortcut",
+  msg_shortcut_created: "Shortcut created on desktop!",
+  msg_shortcut_err: "Error creating shortcut.",
+  lbl_auto_session: "Session of:",
+  msg_auto_init: "Initializing...",
+  msg_auto_close: "Closing game and syncing...",
 };
 
 export function setupLang() {

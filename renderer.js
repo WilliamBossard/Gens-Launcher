@@ -97,14 +97,19 @@ window.applyTheme = function() {
     const th = store.globalSettings.theme || { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
     root.style.setProperty("--accent", th.accent);
 
-    const op = th.panelOpacity !== undefined ? th.panelOpacity : 0.6;
+    const disableTransp = store.globalSettings.disableTransparency;
+    const op = disableTransp ? 1 : (th.panelOpacity !== undefined ? th.panelOpacity : 0.6);
+    
     root.style.setProperty("--panel-opacity", op);
+    root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
+    root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
+    root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
 
     const appBg = document.getElementById("app-background");
     if (appBg) {
         if (th.bg && fs.existsSync(th.bg)) {
             appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;
-            appBg.style.filter = `brightness(${1 - (th.dim || 0.5)}) blur(${th.blur || 5}px)`;
+            appBg.style.filter = disableTransp ? "none" : `brightness(${1 - (th.dim || 0.5)}) blur(${th.blur || 5}px)`;
         } else {
             appBg.style.backgroundImage = "";
             appBg.style.filter = "";
@@ -114,7 +119,7 @@ window.applyTheme = function() {
     if (store.globalSettings.disableAnimations) document.body.classList.add("no-animations");
     else document.body.classList.remove("no-animations");
 
-    if (store.globalSettings.disableTransparency) document.body.classList.add("no-transparency");
+    if (disableTransp) document.body.classList.add("no-transparency");
     else document.body.classList.remove("no-transparency");
 };
 
@@ -348,21 +353,6 @@ window.ctxUploadCloud = async () => {
 
 window.api.on("horizon-status", async (data) => {
     
-    const bar = document.getElementById("horizon-bar");
-    const step = document.getElementById("horizon-step");
-    const perc = document.getElementById("horizon-perc");
-    if (data.type === "PROGRESS") {
-        if (bar) bar.style.width = data.value + "%";
-        if (perc) perc.innerText = data.value + "%";
-        if (step) {
-            if (data.step === "COMPRESSING") step.innerText = `${t("msg_compress", "Compression")} ${data.instance}...`;
-            else if (data.step === "EXTRACTING") step.innerText = `${t("msg_extract", "Extraction")} ${data.instance}...`;
-            else if (data.step === "DOWNLOADING") step.innerText = `${t("msg_dl", "Téléchargement")} ${data.instance}...`;
-            else if (data.step === "UPLOADING") step.innerText = `Upload ${data.instance}...`;
-            else step.innerText = `${t("msg_loading", "Traitement...")}...`;
-        }
-    }
-
     if (data.type === "CLOUD_LIST") {
         const grid = document.getElementById("horizon-cloud-grid");
         if (!grid) return;
@@ -374,7 +364,6 @@ window.api.on("horizon-status", async (data) => {
 
         const richIndex = {};
         (data.richData || []).forEach(r => { richIndex[r.name] = r; });
-
         const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
 
         let html = "";
@@ -400,9 +389,9 @@ window.api.on("horizon-status", async (data) => {
                 if (localInst.icon && localInst.icon !== "") {
                     iconSrc = localInst.icon;
                 } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
-                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png"));
+                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png").replace(/\\/g, "/"));
                 } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
-                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg"));
+                    iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
                 } else {
                     iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
                 }
@@ -426,7 +415,15 @@ window.api.on("horizon-status", async (data) => {
                 ${metaLine}
             </div>`;
         });
+        
+        window._lastCloudGridHtml = html; 
         grid.innerHTML = html;
+
+        try {
+            const cachePath = window.api.path.join(store.dataDir, "horizon_cloud_cache.html");
+            window.api.fs.writeFileSync(cachePath, html, "utf8");
+        } catch(e) {}
+
         return;
     }
 
@@ -461,28 +458,60 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 
-    targetCards.forEach(targetCard => {
-        const circleContainer = targetCard.querySelector('.progress-circle-container');
-        const textInfo = targetCard.querySelector('.progress-text');
-
-        if (data.type === "PROGRESS") {
+    if (data.type === "PROGRESS") {
+        const val = Math.round(data.value);
+        
+        targetCards.forEach(targetCard => {
+            const circleContainer = targetCard.querySelector('.progress-circle-container');
+            const textInfo = targetCard.querySelector('.progress-text');
             if (circleContainer && textInfo) {
                 circleContainer.style.display = "flex";
                 if (data.step === "CHECKING") {
                     textInfo.innerText = "..."; 
                     textInfo.style.fontSize = "0.7rem";
                 } else {
-                    textInfo.innerText = Math.round(data.value) + "%"; 
+                    textInfo.innerText = val + "%"; 
                     textInfo.style.fontSize = "0.65rem";
                 }
             }
-        } 
-        else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
-            if (circleContainer) circleContainer.style.display = "none";
-        }
-    });
+        });
 
-    if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
+        if (window._isAutoLaunch) {
+            const autoStatus = document.getElementById("auto-status-text");
+            if (val > 0) {
+                if (window.autoBarProgress) window.autoBarProgress(val);
+            }
+            if (autoStatus) {
+                let stepText = t("msg_loading", "Traitement...");
+                if (data.step === "CHECKING")        stepText = t("msg_cloud_sync", "Vérification du Cloud...");
+                else if (data.step === "COMPRESSING") stepText = t("msg_compress",  "Compression...");
+                else if (data.step === "EXTRACTING")  stepText = t("msg_extract",   "Extraction...");
+                else if (data.step === "DOWNLOADING") stepText = t("msg_dl",        "Téléchargement...");
+                else if (data.step === "UPLOADING")   stepText = "Upload...";
+                autoStatus.innerText = val > 0 ? `${stepText} (${val}%)` : stepText;
+            }
+        }
+
+        const globalBar = document.getElementById("horizon-bar");
+        const globalStep = document.getElementById("horizon-step");
+        const globalPerc = document.getElementById("horizon-perc");
+        if (globalBar) globalBar.style.width = val + "%";
+        if (globalPerc) globalPerc.innerText = val + "%";
+        if (globalStep) {
+            if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${data.instance}...`;
+            else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${data.instance}...`;
+            else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${data.instance}...`;
+            else if (data.step === "UPLOADING") globalStep.innerText = `Upload ${data.instance}...`;
+            else globalStep.innerText = `${t("msg_loading", "Traitement...")}...`;
+        }
+    } 
+    else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
+        
+        targetCards.forEach(targetCard => {
+            const circleContainer = targetCard.querySelector('.progress-circle-container');
+            if (circleContainer) circleContainer.style.display = "none";
+        });
+
         let finalMsg = data.message || "";
 
         if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
