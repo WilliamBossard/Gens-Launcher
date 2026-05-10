@@ -313,7 +313,7 @@ function getModWarnings(inst) {
             await syncServersDat(inst);
         }
         document.getElementById("new-server-ip").value = "";
-        window.renderServersManager();
+        await window.renderServersManager();
     };
 
     window.removeServer = async (index) => {
@@ -321,10 +321,10 @@ function getModWarnings(inst) {
         inst.servers.splice(index, 1);
         window.safeWriteJSON(store.instanceFile, store.allInstances);
         await syncServersDat(inst);
-        window.renderServersManager();
+        await window.renderServersManager();
     };
 
-    window.setAutoConnect = (ip) => {
+    window.setAutoConnect = async (ip) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (inst.autoConnect === ip) {
             inst.autoConnect = null; 
@@ -332,12 +332,57 @@ function getModWarnings(inst) {
             inst.autoConnect = ip;
         }
         window.safeWriteJSON(store.instanceFile, store.allInstances);
-        window.renderServersManager();
+        await window.renderServersManager();
     };
 
-    window.renderServersManager = () => {
+    /**
+     * Lit servers.dat de l'instance et merge les IPs dedans dans inst.servers.
+     * Ne supprime jamais une IP déjà présente dans inst.servers (priorité au store).
+     * Retourne true si des nouveaux serveurs ont été trouvés.
+     */
+    async function syncServersDatToStore(inst) {
+        try {
+            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const datPath = path.join(instDir, "servers.dat");
+            if (!fs.existsSync(datPath)) return false;
+
+            const buffer = fs.readFileSync(datPath);
+            const { parsed } = await window.api.nbt.parse(buffer);
+
+            const entries = parsed?.value?.servers?.value?.value || [];
+            if (!Array.isArray(entries) || entries.length === 0) return false;
+
+            if (!inst.servers) inst.servers = [];
+            let changed = false;
+
+            for (const entry of entries) {
+                const ip = entry?.ip?.value || entry?.host?.value || "";
+                if (ip && !inst.servers.includes(ip)) {
+                    inst.servers.push(ip);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                window.safeWriteJSON(store.instanceFile, store.allInstances);
+                sysLog(`syncServersDatToStore : ${inst.name} — ${entries.length} serveur(s) importé(s) depuis servers.dat`);
+            }
+            return changed;
+        } catch (e) {
+            sysLog("syncServersDatToStore erreur : " + (e.message || e), true);
+            return false;
+        }
+    }
+
+    window.renderServersManager = async () => {
         const list = document.getElementById("server-list");
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
+
+        list.innerHTML = `<div style='text-align:center; color:#888; padding:15px;'>${t("msg_loading", "Chargement...")}</div>`;
+
+        await syncServersDatToStore(inst);
+
         if (!inst.servers || inst.servers.length === 0) {
             list.innerHTML = `<div style='text-align:center; color:#888; padding: 15px;'>${t("msg_no_servers", "Aucun serveur.")}</div>`;
             return;
@@ -382,25 +427,48 @@ function getModWarnings(inst) {
         window.pingServers();
     };
 
+    let _pingAbortController = null;
+
     window.pingServers = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        if (!inst || !inst.servers) return;
-        for (let i = 0; i < inst.servers.length; i++) {
-            const ip = inst.servers[i];
+        if (!inst || !inst.servers || inst.servers.length === 0) return;
+        if (_pingAbortController) _pingAbortController.abort();
+        _pingAbortController = new AbortController();
+        const signal = _pingAbortController.signal;
+
+        const instName = inst.name;
+        const servers  = [...inst.servers];
+
+        const pingOne = async (ip, i) => {
             const statusDiv = document.getElementById(`srv-ping-${i}`);
-            if (!statusDiv) continue;
+            if (!statusDiv || signal.aborted) return;
             try {
-                const res = await fetch(`https://api.mcsrvstat.us/3/${encodeURIComponent(ip)}`);
+                const res = await fetch(
+                    `https://api.mcsrvstat.us/3/${encodeURIComponent(ip)}`,
+                    { signal, headers: { 'Accept': 'application/json' } }
+                );
+                if (signal.aborted) return;
+                const currentInst = store.allInstances[store.selectedInstanceIdx];
+                if (!currentInst || currentInst.name !== instName) return;
+                const freshDiv = document.getElementById(`srv-ping-${i}`);
+                if (!freshDiv) return;
+
                 const data = await res.json();
                 const formatNum = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
                 if (data.online)
-                    statusDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players?.online ?? 0)}/${formatNum(data.players?.max ?? 0)}</span>`;
+                    freshDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players?.online ?? 0)}/${formatNum(data.players?.max ?? 0)}</span>`;
                 else
-                    statusDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
+                    freshDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
             } catch (e) {
-                statusDiv.innerHTML = `<span style="color:#f87171;">[x] ${t("msg_err_ping", "Erreur")}</span>`;
+                if (signal.aborted || e.name === "AbortError") return;
+                const freshDiv = document.getElementById(`srv-ping-${i}`);
+                if (freshDiv) freshDiv.innerHTML = `<span style="color:#f87171;">[x] ${t("msg_err_ping", "Erreur")}</span>`;
             }
-        }
+        };
+
+        const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
+        await Promise.allSettled(servers.map((ip, i) => pingOne(ip, i)));
+        clearTimeout(timeoutId);
     };
 
     let pendingUpdates = [];

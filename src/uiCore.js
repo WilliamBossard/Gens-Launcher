@@ -22,7 +22,21 @@ export function setupUICore() {
             try {
                 const settingsContent = fs.readFileSync(store.settingsFile, "utf8");
                 if (settingsContent) {
-                    store.globalSettings = { ...store.globalSettings, ...JSON.parse(settingsContent) };
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(settingsContent);
+                    } catch(_) {
+                        try {
+                            parsed = window.api.security.readJSON(store.settingsFile);
+                            if (parsed) {
+                                window.safeWriteJSON(store.settingsFile, parsed);
+                                console.log("Settings migrés du format chiffré vers le format clair.");
+                            }
+                        } catch(e2) {
+                            console.error("Erreur déchiffrement settings:", e2);
+                        }
+                    }
+                    if (parsed) store.globalSettings = { ...store.globalSettings, ...parsed };
                 }
             } catch (e) { console.error("Erreur lecture settings:", e); }
         }
@@ -69,9 +83,15 @@ export function setupUICore() {
             store.globalSettings.defaultRam = store.maxSafeRam;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
         }
+
+        store.horizonActive = store.globalSettings.systemEnabled === true;
     };
 
+    let _restorePollInterval = null;
+
     window.restoreRunningInstances = async () => {
+        if (_restorePollInterval) return;
+
         try {
             const stillRunning = await window.api.invoke("get-still-running");
             if (!stillRunning || stillRunning.length === 0) return;
@@ -85,7 +105,7 @@ export function setupUICore() {
                 if (inst && !inst._tempSessionStart) inst._tempSessionStart = Date.now();
             });
 
-            const pollInterval = setInterval(async () => {
+            _restorePollInterval = setInterval(async () => {
                 try {
                     const alive = await window.api.invoke("get-still-running");
                     const aliveSet = new Set(alive || []);
@@ -130,7 +150,10 @@ export function setupUICore() {
                         if (window.updateRPC)  window.updateRPC();
                     }
 
-                    if (store.activeInstances.size === 0) clearInterval(pollInterval);
+                    if (store.activeInstances.size === 0) {
+                        clearInterval(_restorePollInterval);
+                        _restorePollInterval = null;
+                    }
 
                 } catch(e) { }
             }, 5000);
@@ -144,7 +167,8 @@ export function setupUICore() {
         window.selectInstance(idx);
         const inst = store.allInstances[idx];
         if (!store.activeInstances.has(inst.name)) {
-            document.getElementById('launch-btn').click();
+            const btn = document.getElementById('launch-btn');
+            if (btn) btn.click();
         }
     };
 
@@ -307,7 +331,7 @@ groups[g].forEach(inst => {
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
                 .sort((a,b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
-                .slice(0, 3);
+                .slice(0, 10);
             
             window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
         }
@@ -321,10 +345,10 @@ groups[g].forEach(inst => {
         const tab = document.getElementById(tabId);
         if (tab) tab.classList.add("active");
 
-        if (tabId === "tab-mods"         && window.renderModsManager)         window.renderModsManager();
-        if (tabId === "tab-shaders"      && window.renderShadersManager)      window.renderShadersManager();
-        if (tabId === "tab-resourcepacks"&& window.renderResourcePacksManager)window.renderResourcePacksManager();
-        if (tabId === "tab-servers"      && window.renderServersManager)      window.renderServersManager();
+        if (tabId === "tab-mods"          && window.renderModsManager)         window.renderModsManager();
+        if (tabId === "tab-shaders"       && window.renderShadersManager)      window.renderShadersManager();
+        if (tabId === "tab-resourcepacks" && window.renderResourcePacksManager) window.renderResourcePacksManager();
+        if (tabId === "tab-servers"       && window.renderServersManager)      window.renderServersManager();
     };
 
     let tooltipEl = document.getElementById("global-tooltip");
@@ -474,53 +498,11 @@ groups[g].forEach(inst => {
     });
 
     if (window.api) {
-        let _autoBarInterval = null;
-        let _autoBarDir = 1;
-        let _autoBarPos = 5;
-
-        window.autoBarIndeterminate = () => {
-            const bar = document.getElementById("auto-progress-bar");
-            if (!bar) return;
-            bar.style.transition = "none";
-            bar.style.background = "#007acc";
-            bar.style.width = "5%";
-            if (_autoBarInterval) clearInterval(_autoBarInterval);
-            _autoBarDir = 1;
-            _autoBarPos = 5;
-            _autoBarInterval = setInterval(() => {
-                const b = document.getElementById("auto-progress-bar");
-                if (!b) { clearInterval(_autoBarInterval); return; }
-                _autoBarPos += _autoBarDir * 2;
-                if (_autoBarPos >= 85) _autoBarDir = -1;
-                if (_autoBarPos <= 5)  _autoBarDir = 1;
-                b.style.width = _autoBarPos + "%";
-            }, 25);
-        };
-
-        window.autoBarProgress = (perc) => {
-            if (_autoBarInterval) { clearInterval(_autoBarInterval); _autoBarInterval = null; }
-            const bar = document.getElementById("auto-progress-bar");
-            if (!bar) return;
-            bar.style.background = "#007acc";
-            bar.style.transition = "width 0.3s ease-out";
-            bar.style.width = perc + "%";
-        };
-
-        window.autoBarReset = () => {
-            if (_autoBarInterval) { clearInterval(_autoBarInterval); _autoBarInterval = null; }
-            const bar = document.getElementById("auto-progress-bar");
-            if (!bar) return;
-            bar.style.transition = "none";
-            bar.style.width = "0%";
-        };
-
         window.api.on("trigger-auto-launch", (instName) => {
             window._isAutoLaunch = true;
             
             document.body.classList.add("is-auto-launch");
             document.getElementById("auto-launch-overlay").style.display = "flex";
-
-            window.autoBarIndeterminate();
 
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
@@ -529,6 +511,22 @@ groups[g].forEach(inst => {
 
                 document.getElementById("auto-inst-name").innerText = inst.name;
                 document.getElementById("auto-acc-name").innerText = acc ? acc.name : "...";
+
+                const versionEl = document.getElementById("auto-badge-version");
+                const loaderEl  = document.getElementById("auto-badge-loader");
+                const ramEl     = document.getElementById("auto-badge-ram");
+
+                if (versionEl) versionEl.textContent = inst.version ? `MC ${inst.version}` : "";
+                if (loaderEl) {
+                    const loaderName = inst.loader ? (inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)) : "Vanilla";
+                    loaderEl.textContent = loaderName;
+                }
+                if (ramEl) {
+                    let ram = inst.ram || store.globalSettings.defaultRam || 4096;
+                    if (ram < 128) ram = ram * 1024;
+                    const ramStr = ram >= 1024 ? (ram / 1024).toFixed(ram % 1024 === 0 ? 0 : 1) + " Go" : ram + " Mo";
+                    ramEl.textContent = ramStr + " RAM";
+                }
                 
                 const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
                 let iconSrc = inst.icon || "";
@@ -544,7 +542,59 @@ groups[g].forEach(inst => {
                 document.getElementById("auto-icon").src = iconSrc;
 
                 window.selectInstance(idx);
-                setTimeout(() => { document.getElementById('launch-btn').click(); }, 600);
+
+                function waitForLaunchBtn(callback, timeout = 5000) {
+                    const btn = document.getElementById('launch-btn');
+                    if (btn) { callback(btn); return; }
+                    const start = Date.now();
+                    const observer = new MutationObserver(() => {
+                        const b = document.getElementById('launch-btn');
+                        if (b) { observer.disconnect(); callback(b); }
+                        else if (Date.now() - start > timeout) { observer.disconnect(); }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
+                }
+
+                waitForLaunchBtn((btn) => {
+                    setTimeout(() => btn.click(), 150);
+                });
+
+            } else {
+                const overlay = document.getElementById("auto-launch-overlay");
+                const statusEl = document.getElementById("auto-status-text");
+                const iconEl = document.getElementById("auto-icon");
+
+                if (iconEl) iconEl.style.opacity = "0.3";
+                if (statusEl) {
+                    statusEl.style.color = "#f87171";
+                    statusEl.innerText = store.currentLangObj?.["msg_auto_launch_not_found"]
+                        || `Instance "${instName}" introuvable. Raccourci obsolète ?`;
+                }
+
+                const nameEl = document.getElementById("auto-inst-name");
+                if (nameEl) nameEl.innerText = instName;
+
+                if (overlay) {
+                    const backBtn = document.createElement("button");
+                    backBtn.className = "btn-secondary";
+                    backBtn.style.cssText = "margin-top:20px; padding:8px 20px; font-size:0.9rem;";
+                    backBtn.innerText = store.currentLangObj?.["btn_back_to_launcher"] || "Ouvrir le launcher";
+                    backBtn.onclick = () => {
+                        document.body.classList.remove("is-auto-launch");
+                        overlay.style.display = "none";
+                        window._isAutoLaunch = false;
+                        if (window.renderUI) window.renderUI();
+                    };
+                    overlay.appendChild(backBtn);
+                }
+
+                setTimeout(() => {
+                    document.body.classList.remove("is-auto-launch");
+                    const o = document.getElementById("auto-launch-overlay");
+                    if (o) o.style.display = "none";
+                    window._isAutoLaunch = false;
+                    if (window.renderUI) window.renderUI();
+                }, 5000);
             }
         });
     }
@@ -595,14 +645,24 @@ window.ctxShortcut = async () => {
     const inst = store.allInstances[window.ctxTargetIdx];
     if (!inst) return;
     document.getElementById("custom-context-menu").style.display = "none";
-    
-    const res = await window.api.invoke("create-desktop-shortcut", { 
-        instanceName: inst.name, 
-        iconPath: inst.icon 
+
+    if (window.api.platform === 'darwin') {
+        window.showToast(t("msg_shortcut_macos", "Les raccourcis .command sont créés sur le bureau (double-clic pour lancer)."), "info");
+    }
+
+    const res = await window.api.invoke("create-desktop-shortcut", {
+        instanceName: inst.name,
+        iconPath: inst.icon
     });
 
     if (res.success) {
-        window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
+        if (res.updated) {
+            window.showToast(t("msg_shortcut_updated", "Raccourci mis à jour sur le bureau !"), "success");
+        } else {
+            window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
+        }
+    } else if (res.reason === 'unsupported_platform') {
+        window.showToast(t("msg_shortcut_unsupported", "Raccourcis non supportés sur cette plateforme."), "info");
     } else {
         window.showToast(t("msg_shortcut_err", "Erreur lors de la création du raccourci."), "error");
     }
@@ -616,7 +676,6 @@ window.showLoading = (text, percent = null) => {
 
     const autoStatus = document.getElementById("auto-status-text");
     if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-    if (percent !== null && window.autoBarProgress) window.autoBarProgress(percent);
 };
 
 window.updateLoadingPercent = (percent, text = null) => {
@@ -625,5 +684,4 @@ window.updateLoadingPercent = (percent, text = null) => {
     if (text !== null) document.getElementById("loading-text").innerText = text;
     const autoStatus = document.getElementById("auto-status-text");
     if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-    if (percent !== null && window.autoBarProgress) window.autoBarProgress(percent);
 };

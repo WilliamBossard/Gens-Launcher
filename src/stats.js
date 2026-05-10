@@ -9,9 +9,10 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
-export function setupStats() {
-    
-    async function getFolderSizeAsync(rootPath) {
+export function setupStats() { 
+    const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
+
+    async function getFolderSizeAsync(rootPath, excludeNames = EXCLUDED_DIRS) {
         let totalSize = 0;
         let queue = [rootPath];
         let loopCount = 0;
@@ -21,6 +22,7 @@ export function setupStats() {
             try {
                 const files = await fs.promises.readdir(currentPath);
                 for (const file of files) {
+                    if (excludeNames.has(file)) continue;
                     const fullPath = path.join(currentPath, file);
                     try {
                         const stats = await fs.promises.stat(fullPath);
@@ -29,12 +31,12 @@ export function setupStats() {
                         } else {
                             totalSize += stats.size;
                         }
-                    } catch (e) {} 
+                    } catch (e) {}
                 }
             } catch (e) {}
 
             loopCount++;
-            if (loopCount % 10 === 0) await new Promise(r => setTimeout(r, 1));
+            if (loopCount % 50 === 0) await new Promise(r => setTimeout(r, 0));
         }
         return totalSize;
     }
@@ -79,7 +81,13 @@ export function setupStats() {
                         const dStats = await fs.promises.stat(dPath);
                         if (dStats.isDirectory) {
                             filesToDelete.push(dPath);
-                            totalSize += await getFolderSizeAsync(dPath); 
+                            const subFiles = await fs.promises.readdir(dPath).catch(() => []);
+                            for (const sf of subFiles) {
+                                try {
+                                    const sfStat = await fs.promises.stat(path.join(dPath, sf));
+                                    if (!sfStat.isDirectory) totalSize += sfStat.size;
+                                } catch(_) {}
+                            }
                         }
                     } catch(e) {}
                 }
@@ -189,7 +197,14 @@ window.openStatsModal = async () => {
 
         const diskEl = document.getElementById("dashboard-disk");
         const cacheEl = document.getElementById("dashboard-cache-size");
-        if (diskEl) diskEl.innerText = t("msg_calc", "Calcul...");
+        const DISK_CACHE_TTL = 5 * 60 * 1000;
+        if (diskEl) {
+            if (window._diskSizeCache && (Date.now() - window._diskSizeCache.ts) < DISK_CACHE_TTL) {
+                diskEl.innerText = `${window._diskSizeCache.value} ${t("lbl_gb", "Go")}`;
+            } else {
+                diskEl.innerText = t("msg_calc", "Calcul...");
+            }
+        }
         if (cacheEl) cacheEl.innerText = t("msg_calc", "Calcul...");
         
         let totalTimeMs = 0, totalMods = 0, favInstance = "-", maxTime = -1;
@@ -287,10 +302,14 @@ window.openStatsModal = async () => {
         }
 
         try {
-            const totalBytes = await getFolderSizeAsync(store.dataDir);
-            const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
-            if (diskEl && document.getElementById("modal-stats").style.display === "flex") {
-                diskEl.innerText = `${totalGB} ${t("lbl_gb", "Go")}`;
+            const cacheStale = !window._diskSizeCache || (Date.now() - window._diskSizeCache.ts) >= DISK_CACHE_TTL;
+            if (cacheStale) {
+                const totalBytes = await getFolderSizeAsync(store.dataDir);
+                const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
+                window._diskSizeCache = { value: totalGB, ts: Date.now() };
+                if (diskEl && document.getElementById("modal-stats").style.display === "flex") {
+                    diskEl.innerText = `${totalGB} ${t("lbl_gb", "Go")}`;
+                }
             }
         } catch (e) { 
             console.error(e); 

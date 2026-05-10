@@ -16,7 +16,21 @@ if (process.platform === 'linux') {
 }
 
 const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-app.userAgentFallback = CHROME_UA;
+
+function sanitizeShortcutName(name) {
+    return String(name)
+        .replace(/[<>:"/\\|?*\r\n\0]/g, "")   
+        .replace(/['"`;$]/g, "")               
+        .trim()
+        .substring(0, 100);
+}
+
+function parseAutoLaunchArg(argv) {
+    const prefix = '--auto-launch=';
+    const arg = argv.find(a => a.startsWith(prefix));
+    if (!arg) return null;
+    return arg.slice(prefix.length).replace(/^["']|["']$/g, '');
+}
 
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
 
@@ -95,9 +109,9 @@ function createWindow() {
 
     mainWindow = new BrowserWindow({
         width: isAutoLaunch ? 420 : 1200,
-        height: isAutoLaunch ? 220 : 800,
+        height: isAutoLaunch ? 360 : 800,
         minWidth: isAutoLaunch ? 420 : 1000,
-        minHeight: isAutoLaunch ? 220 : 600,
+        minHeight: isAutoLaunch ? 360 : 600,
         resizable: !isAutoLaunch,
         maximizable: !isAutoLaunch,
         frame: !isAutoLaunch, 
@@ -136,11 +150,9 @@ app.whenReady().then(() => {
     createWindow();
 
 mainWindow.webContents.on('did-finish-load', () => {
-        const autoLaunchArg = process.argv.find(arg => arg.startsWith('--auto-launch='));
-        if (autoLaunchArg) {
-            const instName = autoLaunchArg.split('=')[1].replace(/"/g, '');
+        const instName = parseAutoLaunchArg(process.argv);
+        if (instName) {
             mainWindow.webContents.send("trigger-auto-launch", instName);
-            
             setTimeout(() => {
                 if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
             }, 500);
@@ -190,6 +202,27 @@ mainWindow.webContents.on('did-finish-load', () => {
 });
 
 function runHorizonAction(action, event = null) {
+    const _lockArgs = Array.isArray(action) ? action : [action];
+    const isWriteOp = _lockArgs.some(a => a === '--sync' || a === '--upload');
+
+    if (isWriteOp) {
+        const lockFile = path.join(horizonBinDir, 'horizon.lock');
+        if (fs.existsSync(lockFile)) {
+            const rawPid = (() => { try { return parseInt(fs.readFileSync(lockFile, 'utf8').trim(), 10); } catch(_) { return NaN; } })();
+            if (!isNaN(rawPid)) {
+                let alive = false;
+                try { process.kill(rawPid, 0); alive = true; } catch(_) {}
+                if (alive) {
+                    const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
+                    if (event) event.sender.send('horizon-status', msg);
+                    return Promise.resolve(-1);
+                } else {
+                    try { fs.unlinkSync(lockFile); } catch(_) {}
+                }
+            }
+        }
+    }
+
     return new Promise((resolve) => {
         const args = Array.isArray(action) ? action : [action];
         mainLog(`[Horizon] Exécution : ${args.join(' ')}`);
@@ -262,11 +295,11 @@ ipcMain.on("restart_app", () => {
 ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
         const tasks = instances.map(inst => {
-            const safeName = String(inst.name).replace(/["'\\r\n\0]/g, "").substring(0, 100);
+            const safeName = sanitizeShortcutName(inst.name);
             return {
                 program: process.execPath,
                 arguments: `--auto-launch="${safeName}"`,
-                iconPath: process.execPath,
+                iconPath: inst.iconIcoPath || process.execPath,
                 iconIndex: 0,
                 title: `Lancer ${safeName}`,
                 description: `Démarrer l'instance ${safeName}`
@@ -376,7 +409,7 @@ ipcMain.handle("force-stop-game", async (_, instanceId) => {
 ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath }) => {
     try {
         const desktopPath = app.getPath("desktop");
-        const safeName = instanceName.replace(/[<>:"/\\|?*]/g, "");
+        const safeName = sanitizeShortcutName(instanceName);
         const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
         const instFolder = path.join(instancesDir, instanceName.replace(/[^a-z0-9]/gi, "_"));
 
@@ -409,7 +442,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                         header.writeUInt16LE(1, 2);  
                         header.writeUInt16LE(1, 4);  
                         header.writeUInt8(0, 6);     
-                        header.writeUInt8(0, 7);     
+                        header.writeUInt8(0, 7);    
                         header.writeUInt8(0, 8);     
                         header.writeUInt8(0, 9);     
                         header.writeUInt16LE(1, 10); 
@@ -432,27 +465,55 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             }
         }
 
+        const alreadyExists = fs.existsSync(
+            path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command'}`)
+        );
+
         if (process.platform === 'win32') {
             const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
+            const mode = alreadyExists ? 'update' : 'create';
             const options = {
                 target: process.execPath,
-                args: `--auto-launch="${instanceName}"`,
+                args: `--auto-launch="${safeName}"`,
                 appUserModelId: "com.gens.launcher",
-                description: `Lancer ${instanceName}`,
-                icon: finalIconPath, 
+                description: `Lancer ${safeName}`,
+                icon: finalIconPath,
                 iconIndex: 0
             };
-            shell.writeShortcutLink(shortcutPath, 'create', options);
-            return { success: true };
+            shell.writeShortcutLink(shortcutPath, mode, options);
+            return { success: true, updated: alreadyExists };
+
         } else if (process.platform === 'linux') {
             const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-            const desktopFile = `[Desktop Entry]\nName=${instanceName}\nExec="${process.execPath}" --auto-launch="${instanceName}"\nTerminal=false\nType=Application\nIcon=${finalIconPath}\nCategories=Game;`;
-            fs.writeFileSync(shortcutPath, desktopFile);
+            const execLine = `"${process.execPath}" "--auto-launch=${safeName}"`;
+            const desktopFile = [
+                '[Desktop Entry]',
+                `Name=${safeName}`,
+                `Exec=${execLine}`,
+                'Terminal=false',
+                'Type=Application',
+                `Icon=${finalIconPath}`,
+                'Categories=Game;',
+                ''
+            ].join('\n');
+            fs.writeFileSync(shortcutPath, desktopFile, { encoding: 'utf8' });
             fs.chmodSync(shortcutPath, 0o755);
-            return { success: true };
+            return { success: true, updated: alreadyExists };
+
+        } else if (process.platform === 'darwin') {
+            const shortcutPath = path.join(desktopPath, `${safeName}.command`);
+            const script = [
+                '#!/bin/bash',
+                `# Raccourci Gens Launcher — ${safeName}`,
+                `"${process.execPath}" "--auto-launch=${safeName}" &`,
+                ''
+            ].join('\n');
+            fs.writeFileSync(shortcutPath, script, { encoding: 'utf8' });
+            fs.chmodSync(shortcutPath, 0o755);
+            return { success: true, updated: alreadyExists };
         }
-        
-        return { success: false };
+
+        return { success: false, reason: 'unsupported_platform' };
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -580,16 +641,23 @@ ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
 
 ipcMain.handle("get-horizon-settings", async () => {
     const settingsPath = path.join(horizonBinDir, "horizon_settings.json");
-    const defaults = { systemEnabled: true, syncMode: "SMART", autoSync: true, autoUpload: true };
+    const defaults = { systemEnabled: true, syncMode: "SMART", autoSync: true, autoUpload: true, maxRetries: 3, retryBaseDelay: 1500, deltaCleanupThreshold: 10 };
     let fileContent = {};
     if (fs.existsSync(settingsPath)) { try { fileContent = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch(e) {} }
     const merged = { ...defaults, ...fileContent };
-    if (Object.keys(fileContent).length < Object.keys(defaults).length) { fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2)); }
+    const hasMissingKey = Object.keys(defaults).some(k => !(k in fileContent));
+    if (hasMissingKey) { fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2)); }
     return merged;
 });
 
 ipcMain.handle("save-horizon-settings", async (event, settings) => {
-    try { const settingsPath = path.join(horizonBinDir, "horizon_settings.json"); fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); return { success: true }; }
+    try {
+        const ALLOWED_KEYS = ["systemEnabled", "syncMode", "autoSync", "autoUpload", "provider", "deltaCleanupThreshold", "maxRetries", "retryBaseDelay"];
+        const safe = Object.fromEntries(Object.entries(settings).filter(([k]) => ALLOWED_KEYS.includes(k)));
+        const settingsPath = path.join(horizonBinDir, "horizon_settings.json");
+        fs.writeFileSync(settingsPath, JSON.stringify(safe, null, 2));
+        return { success: true };
+    }
     catch(e) { return { success: false, error: e.message }; }
 });
 

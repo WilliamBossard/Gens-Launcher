@@ -12,7 +12,7 @@ export function setupAccountUI() {
     async function fetchSkinBase64(playerName) {
         try {
             const safeName = encodeURIComponent(playerName);
-            const res = await fetch(`https://mc-heads.net/avatar/${safeName}/32?t=${Date.now()}`);
+            const res = await fetch(`https://mc-heads.net/avatar/${safeName}/32`);
             if (!res.ok) return null;
             const blob = await res.blob();
             return new Promise((resolve) => {
@@ -62,8 +62,10 @@ export function setupAccountUI() {
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
 
-            if (!acc.skinBase64 && window.navigator.onLine) {
+            if (!acc.skinBase64 && !acc._fetchingSkin && window.navigator.onLine) {
+                acc._fetchingSkin = true;
                 fetchSkinBase64(acc.name).then(b64 => {
+                    acc._fetchingSkin = false;
                     if (b64) {
                         acc.skinBase64 = b64;
                         window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
@@ -72,7 +74,7 @@ export function setupAccountUI() {
                     }
                 });
             }
-            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${Date.now()}`;
+            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32`;
 
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
@@ -200,8 +202,10 @@ export function setupAccountUI() {
         if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
             
-            if (!activeAcc.skinBase64 && window.navigator.onLine) {
+            if (!activeAcc.skinBase64 && !activeAcc._fetchingSkin && window.navigator.onLine) {
+                activeAcc._fetchingSkin = true;
                 fetchSkinBase64(activeAcc.name).then(b64 => {
+                    activeAcc._fetchingSkin = false;
                     if (b64) {
                         activeAcc.skinBase64 = b64;
                         window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
@@ -209,8 +213,7 @@ export function setupAccountUI() {
                     }
                 });
             }
-            
-            skinImg.src = activeAcc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(activeAcc.name)}/32?t=${Date.now()}`;
+            skinImg.src = activeAcc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(activeAcc.name)}/32`;
             skinImg.style.display = "block";
         } else if (skinImg) {
             skinImg.style.display = "none";
@@ -279,7 +282,7 @@ export function setupAccountUI() {
         canvas.style.transition = "opacity 0.2s ease";
         canvas.style.opacity = "0";
 
-        const skinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}?t=${Date.now()}`;
+        const skinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}`;
 
         if (!fullscreenSkinViewer) {
             fullscreenSkinViewer = new skinview3d.SkinViewer({
@@ -306,7 +309,7 @@ export function setupAccountUI() {
                 if (mojangCapeUrl) {
                     fullscreenSkinViewer.loadCape(mojangCapeUrl);
                 } else {
-                    fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${encodeURIComponent(acc.name)}.png?t=${Date.now()}`).catch(() => {
+                    fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${encodeURIComponent(acc.name)}.png`).catch(() => {
                         fullscreenSkinViewer.loadCape(null);
                     });
                 }

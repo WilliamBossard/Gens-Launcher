@@ -87,33 +87,43 @@ function setupMods() {
               return;
             }
 
+            const frag = document.createDocumentFragment();
             data.hits.forEach((mod) => {
               const downloads = (mod.downloads / 1000000).toFixed(1) + "M DLs";
-              const safeTitle = window.escapeHTML(mod.title);
-              const safeDesc = window.escapeHTML(mod.description);
+              const safeTitle  = window.escapeHTML(mod.title);
+              const safeDesc   = window.escapeHTML(mod.description);
               const safeAuthor = window.escapeHTML(mod.author || t("lbl_author", "Auteur"));
-              const safeProjectId = window.escapeHTML(String(mod.project_id || ""));
               const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
-              
-              const searchString = mod.slug ? mod.slug.toLowerCase() : "";
-              const searchTitle = mod.title ? mod.title.toLowerCase().replace(/\s+/g, "") : "";
-              const isInstalled = installedItems.some(f => (searchString && f.includes(searchString)) || (searchTitle && f.includes(searchTitle)));
 
-              const btnHtml = isInstalled 
-                ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
-                : `<button class="btn-primary" onclick="installGlobalMod('${safeProjectId}', false, '${type}', 'modrinth')">${t("btn_install", "Installer")}</button>`;
+              const searchString = mod.slug  ? mod.slug.toLowerCase()  : "";
+              const searchTitle  = mod.title ? mod.title.toLowerCase().replace(/\s+/g, "") : "";
+              const isInstalled  = installedItems.some(f => (searchString && f.includes(searchString)) || (searchTitle && f.includes(searchTitle)));
 
-              resDiv.innerHTML += `
-                        <div class="catalog-card">
-                            <img src="${safeIconUrl}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
-                            <div style="flex-grow: 1; display: flex; flex-direction: column;">
-                                <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${safeTitle}</div>
-                                <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;">${safeAuthor} - ${downloads} (Modrinth)</div>
-                                <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
-                            </div>
-                            ${btnHtml}
-                        </div>`;
+              const card = document.createElement("div");
+              card.className = "catalog-card";
+              card.innerHTML = `
+                <img src="${safeIconUrl}" style="width:50px;height:50px;border-radius:6px;background:#333;">
+                <div style="flex-grow:1;display:flex;flex-direction:column;">
+                  <div style="font-weight:bold;color:var(--text-light);font-size:0.95rem;">${safeTitle}</div>
+                  <div style="font-size:0.75rem;color:#aaa;margin-bottom:5px;">${safeAuthor} - ${downloads} (Modrinth)</div>
+                  <div style="font-size:0.8rem;color:var(--text-main);">${safeDesc}</div>
+                </div>
+                ${isInstalled
+                  ? `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
+                  : `<button class="btn-primary btn-install-mod">${t("btn_install", "Installer")}</button>`}`;
+
+              if (!isInstalled) {
+                const btn = card.querySelector(".btn-install-mod");
+                btn.dataset.projectId = String(mod.project_id || "");
+                btn.dataset.projType  = type;
+                btn.dataset.source    = "modrinth";
+                btn.addEventListener("click", () => {
+                  window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source);
+                });
+              }
+              frag.appendChild(card);
             });
+            resDiv.appendChild(frag);
         } 
         else if (source === "curseforge") {
             const apiKey = store.globalSettings.cfApiKey;
@@ -148,35 +158,45 @@ function setupMods() {
               return;
             }
 
+            const cfFrag = document.createDocumentFragment();
             data.data.forEach((mod) => {
-              const downloads = (mod.downloadCount / 1000000).toFixed(1) + "M DLs";
+              const downloads  = (mod.downloadCount / 1000000).toFixed(1) + "M DLs";
               const icon = mod.logo ? mod.logo.thumbnailUrl : "";
               
-              const safeTitle = window.escapeHTML(mod.name);
-              const safeDesc = window.escapeHTML(mod.summary);
+              const safeTitle  = window.escapeHTML(mod.name);
+              const safeDesc   = window.escapeHTML(mod.summary);
               const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : t("lbl_author", "Auteur"));
-              const safeCfId = window.escapeHTML(String(mod.id || ""));
               const safeCfIcon = (icon && /^https:\/\//i.test(icon)) ? icon : "";
               
               const searchSlug = mod.slug ? mod.slug.toLowerCase() : "";
               const searchName = mod.name ? mod.name.toLowerCase().replace(/\s+/g, "") : "";
               const isInstalled = installedItems.some(f => (searchSlug && f.includes(searchSlug)) || (searchName && f.includes(searchName)));
 
-              const btnHtml = isInstalled 
-                ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
-                : `<button class="btn-primary" onclick="installGlobalMod('${safeCfId}', false, '${type}', 'curseforge')" style="background:#f48a21; border-color:#f48a21;">${t("btn_install", "Installer")}</button>`;
+              const card = document.createElement("div");
+              card.className = "catalog-card";
+              card.innerHTML = `
+                <img src="${safeCfIcon}" style="width:50px;height:50px;border-radius:6px;background:#333;">
+                <div style="flex-grow:1;display:flex;flex-direction:column;">
+                  <div style="font-weight:bold;color:var(--text-light);font-size:0.95rem;">${safeTitle}</div>
+                  <div style="font-size:0.75rem;color:#f48a21;margin-bottom:5px;">${safeAuthor} - ${downloads} (CurseForge)</div>
+                  <div style="font-size:0.8rem;color:var(--text-main);">${safeDesc}</div>
+                </div>
+                ${isInstalled
+                  ? `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
+                  : `<button class="btn-primary btn-install-cf" style="background:#f48a21;border-color:#f48a21;">${t("btn_install", "Installer")}</button>`}`;
 
-              resDiv.innerHTML += `
-                        <div class="catalog-card">
-                            <img src="${safeCfIcon}" style="width: 50px; height: 50px; border-radius: 6px; background: #333;">
-                            <div style="flex-grow: 1; display: flex; flex-direction: column;">
-                                <div style="font-weight: bold; color: var(--text-light); font-size: 0.95rem;">${safeTitle}</div>
-                                <div style="font-size: 0.75rem; color: #f48a21; margin-bottom: 5px;">${safeAuthor} - ${downloads} (CurseForge)</div>
-                                <div style="font-size: 0.8rem; color: var(--text-main);">${safeDesc}</div>
-                            </div>
-                            ${btnHtml}
-                        </div>`;
+              if (!isInstalled) {
+                const btn = card.querySelector(".btn-install-cf");
+                btn.dataset.projectId = String(mod.id || "");
+                btn.dataset.projType  = type;
+                btn.dataset.source    = "curseforge";
+                btn.addEventListener("click", () => {
+                  window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source);
+                });
+              }
+              cfFrag.appendChild(card);
             });
+            resDiv.appendChild(cfFrag);
         }
       } catch (e) {
         if (e.name === "AbortError") return;
@@ -217,7 +237,9 @@ function setupMods() {
             
             if (params.length > 0) url += "?" + params.join("&");
 
-            const versions = await (await fetch(url)).json();
+            const versionsRes = await fetch(url);
+            if (!versionsRes.ok) throw new Error(`Modrinth API HTTP ${versionsRes.status}`);
+            const versions = await versionsRes.json();
             if (versions.length === 0) {
               if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
               return;
@@ -233,7 +255,9 @@ function setupMods() {
               statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
               const safeTempName = sanitizeFilename(file.filename || "modpack.mrpack");
               const tempPath = path.join(store.dataDir, safeTempName);
-              const buffer = await (await fetch(file.url)).arrayBuffer();
+              const dlRes = await fetch(file.url);
+              if (!dlRes.ok) throw new Error(`Téléchargement modpack HTTP ${dlRes.status}`);
+              const buffer = await dlRes.arrayBuffer();
               fs.writeFileSync(tempPath, new Uint8Array(buffer));
 
               statusText.innerText = t("msg_install_mp", "Installation du modpack...");
@@ -259,7 +283,9 @@ function setupMods() {
                 if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
                 return;
               }
-              const buffer = await (await fetch(file.url)).arrayBuffer();
+              const dlModRes = await fetch(file.url);
+              if (!dlModRes.ok) throw new Error(`Téléchargement fichier HTTP ${dlModRes.status}`);
+              const buffer = await dlModRes.arrayBuffer();
               if (file.hashes?.sha1) {
                 const downloadedHash = window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
                 if (downloadedHash !== file.hashes.sha1) {

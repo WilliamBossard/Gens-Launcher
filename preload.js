@@ -166,7 +166,6 @@ contextBridge.exposeInMainWorld("api", {
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
         renameSync: (p, n) => fs.renameSync(enforceSandbox(p), enforceSandbox(n)),
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
-        
         copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
 
         promises: {

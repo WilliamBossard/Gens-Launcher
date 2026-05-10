@@ -11,13 +11,16 @@ function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
 
-const _screenshotCache = new Map(); 
+const _screenshotCache = new Map();
+const SCREENSHOT_CACHE_TTL = 30000; 
 
 function getCachedScreenshot(inst) {
     const safeDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
     const cached = _screenshotCache.get(inst.name);
 
-    if (cached && cached.dir === safeDir) return cached.file;
+    if (cached && cached.dir === safeDir && (Date.now() - cached.ts) < SCREENSHOT_CACHE_TTL) {
+        return cached.file;
+    }
 
     let file = null;
     try {
@@ -27,16 +30,52 @@ function getCachedScreenshot(inst) {
         }
     } catch(e) {}
 
-    _screenshotCache.set(inst.name, { dir: safeDir, file });
+    _screenshotCache.set(inst.name, { dir: safeDir, file, ts: Date.now() });
     return file;
 }
 
-/** Invalide l'entrée de cache pour une instance donnée (appelé après une sauvegarde). */
 export function invalidateScreenshotCache(instName) {
     _screenshotCache.delete(instName);
 }
 
 export function setupInstances() {
+
+    async function fetchLoaderVersions(loader, mcVer) {
+        if (loader === "fabric") {
+            const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
+            if (!res.ok) throw new Error(`Fabric API HTTP ${res.status}`);
+            return (await res.json()).map(d => d.loader.version);
+        }
+        if (loader === "quilt") {
+            const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
+            if (!res.ok) throw new Error(`Quilt API HTTP ${res.status}`);
+            return (await res.json()).map(d => d.loader.version);
+        }
+        if (loader === "forge") {
+            try {
+                const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
+                if (!res.ok) throw new Error(`bmclapi2 HTTP ${res.status}`);
+                const data = await res.json();
+                if (Array.isArray(data) && data.length > 0) return data.map(d => d.version);
+                throw new Error("Résultat vide");
+            } catch (_) {
+                const res = await fetch(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
+                if (!res.ok) throw new Error(`Forge officiel HTTP ${res.status}`);
+                const all = await res.json();
+                return (all[mcVer] || []).reverse();
+            }
+        }
+        if (loader === "neoforge") {
+            const parts = mcVer.split(".");
+            const prefix = parts[1] + "." + (parts[2] || "0") + ".";
+            const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
+            if (!neoRes.ok) throw new Error(`NeoForge API HTTP ${neoRes.status}`);
+            const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
+            const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
+            return allVers.filter(v => v.startsWith(prefix));
+        }
+        return [];
+    }
 
     window.updateVersionList = (showSnapshots) => {
         const select1 = document.getElementById("new-version");
@@ -78,25 +117,7 @@ export function setupInstances() {
         container.style.display = "block";
 
         try {
-            let versions = [];
-            if (loader === "fabric") {
-                const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
-                versions = (await res.json()).map(d => d.loader.version);
-            } else if (loader === "quilt") {
-                const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
-                versions = (await res.json()).map(d => d.loader.version);
-            } else if (loader === "forge") {
-                const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
-                versions = (await res.json()).map(d => d.version);
-            } else if (loader === "neoforge") {
-                const parts = mcVer.split('.');
-                const prefix = parts[1] + "." + (parts[2] || "0") + ".";
-                const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
-                const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
-                const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
-                versions = allVers.filter(v => v.startsWith(prefix));
-            }
-
+            const versions = await fetchLoaderVersions(loader, mcVer);
             select.innerHTML = "";
             if (versions.length === 0) {
                 select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `Incompatible avec la ${mcVer}`)}</option>`;
@@ -104,8 +125,7 @@ export function setupInstances() {
                 const frag = document.createDocumentFragment();
                 versions.forEach(v => {
                     const opt = document.createElement("option");
-                    opt.value = v;
-                    opt.textContent = v;
+                    opt.value = v; opt.textContent = v;
                     frag.appendChild(opt);
                 });
                 select.appendChild(frag);
@@ -252,26 +272,7 @@ export function setupInstances() {
         loaderVerSelect.innerHTML = `<option>${t("msg_loading", "Chargement...")}</option>`;
 
         try {
-            let versions = [];
-            if (loader === "fabric") {
-                const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
-                versions = (await res.json()).map(d => d.loader.version);
-            } else if (loader === "quilt") {
-                const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
-                versions = (await res.json()).map(d => d.loader.version);
-            } else if (loader === "forge") {
-                const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
-                const data = await res.json();
-                versions = Array.isArray(data) ? data.map(d => d.version) : [];
-            } else if (loader === "neoforge") {
-                const parts = mcVer.split(".");
-                const prefix = parts[1] + "." + (parts[2] || "0") + ".";
-                const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
-                const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
-                const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
-                versions = allVers.filter(v => v.startsWith(prefix));
-            }
-
+            const versions = await fetchLoaderVersions(loader, mcVer);
             loaderVerSelect.innerHTML = "";
             if (versions.length === 0) {
                 loaderVerSelect.innerHTML = `<option value="">${t("msg_no_loader_compat", "Incompatible avec cette version")}</option>`;
@@ -279,8 +280,7 @@ export function setupInstances() {
                 const frag = document.createDocumentFragment();
                 versions.forEach(v => {
                     const opt = document.createElement("option");
-                    opt.value = v;
-                    opt.textContent = v;
+                    opt.value = v; opt.textContent = v;
                     if (inst && v === inst.loaderVersion) opt.selected = true;
                     frag.appendChild(opt);
                 });
@@ -376,6 +376,7 @@ export function setupInstances() {
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
         window.safeWriteJSON(store.instanceFile, store.allInstances);
         sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})`);
+        if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
 
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         if (fs.existsSync(defaultOpt)) { try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {} }
@@ -395,6 +396,11 @@ export function setupInstances() {
 
         if (!newName) {
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
+            return;
+        }
+
+        if (newName !== inst.name && store.activeInstances.has(inst.name)) {
+            window.showToast(t("msg_err_rename_running", "Impossible de renommer une instance en cours d'exécution."), "error");
             return;
         }
 
@@ -444,8 +450,10 @@ export function setupInstances() {
         inst.name       = newName;
         inst.group      = document.getElementById("edit-group").value.trim();
         inst.javaPath   = document.getElementById("edit-javapath").value;
-        inst.resW       = document.getElementById("edit-res-w").value;
-        inst.resH       = document.getElementById("edit-res-h").value;
+        inst.resW = document.getElementById("edit-res-w").value;
+        inst.resH = document.getElementById("edit-res-h").value;
+        if (inst.resW) { const w = parseInt(inst.resW); inst.resW = isNaN(w) ? "" : String(Math.max(320, Math.min(7680, w))); }
+        if (inst.resH) { const h = parseInt(inst.resH); inst.resH = isNaN(h) ? "" : String(Math.max(240, Math.min(4320, h))); }
         inst.jvmArgs    = document.getElementById("edit-jvmargs").value;
         inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
         inst.notes      = document.getElementById("edit-notes").value;
@@ -510,9 +518,7 @@ export function setupInstances() {
         try { fs.writeFileSync(path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
 
         window.renderUI();
-        if (iconWasChanged || document.getElementById("edit-icon-preview").src !== store.defaultIcons[inst.loader]) {
-            if (window.checkAchievement) window.checkAchievement("artist");
-        }
+        if (iconWasChanged && window.checkAchievement) window.checkAchievement("artist");
         window.closeEditModal();
     };
 
@@ -552,6 +558,11 @@ export function setupInstances() {
     };
 
     window.deleteInstance = async () => {
+        const instToDelete = store.allInstances[store.selectedInstanceIdx];
+        if (instToDelete && store.activeInstances.has(instToDelete.name)) {
+            window.showToast(t("msg_err_delete_running", "Impossible de supprimer une instance en cours d'exécution."), "error");
+            return;
+        }
         if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
 

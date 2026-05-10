@@ -95,27 +95,33 @@ document.getElementById("console-filter")?.addEventListener("input", (e) => {
 window.applyTheme = function() {
     const root = document.documentElement;
     const th = store.globalSettings.theme || { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
-    root.style.setProperty("--accent", th.accent);
+
+    const accentRaw = String(th.accent || "#007acc");
+    const accent = /^#[0-9a-fA-F]{3,8}$/.test(accentRaw) ? accentRaw : "#007acc";
+    root.style.setProperty("--accent", accent);
 
     const disableTransp = store.globalSettings.disableTransparency;
-    const op = disableTransp ? 1 : (th.panelOpacity !== undefined ? th.panelOpacity : 0.6);
-    
+    const rawOp = th.panelOpacity !== undefined ? parseFloat(th.panelOpacity) : 0.6;
+    const op = disableTransp ? 1 : Math.max(0.1, Math.min(1, isNaN(rawOp) ? 0.6 : rawOp));
+
     root.style.setProperty("--panel-opacity", op);
-    root.style.setProperty("--bg-main", `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
-    root.style.setProperty("--bg-panel", `rgba(45, 45, 48, ${op})`);
+    root.style.setProperty("--bg-main",    `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
+    root.style.setProperty("--bg-panel",   `rgba(45, 45, 48, ${op})`);
     root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
 
     const appBg = document.getElementById("app-background");
     if (appBg) {
         if (th.bg && fs.existsSync(th.bg)) {
+            const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(th.dim))  ? 0.5 : parseFloat(th.dim)));
+            const blur = Math.max(0, Math.min(50,   isNaN(parseInt(th.blur))   ? 5   : parseInt(th.blur)));
             appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;
-            appBg.style.filter = disableTransp ? "none" : `brightness(${1 - (th.dim || 0.5)}) blur(${th.blur || 5}px)`;
+            appBg.style.filter = disableTransp ? "none" : `brightness(${1 - dim}) blur(${blur}px)`;
         } else {
             appBg.style.backgroundImage = "";
             appBg.style.filter = "";
         }
     }
-    
+
     if (store.globalSettings.disableAnimations) document.body.classList.add("no-animations");
     else document.body.classList.remove("no-animations");
 
@@ -126,9 +132,10 @@ window.applyTheme = function() {
 let _newsLoaded = false;
 
 async function loadNews() {
-    if (_newsLoaded) return; 
+    if (_newsLoaded) return;
     try {
         const res = await fetch("https://launchercontent.mojang.com/news.json");
+        if (!res.ok) throw new Error(`News HTTP ${res.status}`);
         const data = await res.json();
         const container = document.getElementById("news-container");
 
@@ -163,7 +170,9 @@ async function loadNews() {
         html += `</div>`;
         container.innerHTML = html;
         _newsLoaded = true;
-    } catch(e) { }
+    } catch(e) {
+        console.warn("loadNews failed:", e.message);
+    }
 }
 
 window.toggleNews = () => {
@@ -198,6 +207,7 @@ window.checkServerStatus = async () => {
 
     try {
         const res = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(ip)}`);
+        if (!res.ok) throw new Error(`mcstatus HTTP ${res.status}`);
         const data = await res.json();
         
         if (data.online) {
@@ -315,7 +325,10 @@ async function init() {
     checkCloudAtStartup();
     checkHorizonUpdateAtStartup();
     window.checkServerStatus();
-    setInterval(window.checkServerStatus, 60000);
+
+    window._serverStatusInterval = setInterval(() => {
+        if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
+    }, 120000);
 
     try {
         const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
@@ -437,6 +450,91 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
 
+    if (data.type === "QUOTA") {
+        const el = document.getElementById("horizon-quota-zone");
+        if (!el) return;
+
+        function fmtBytes(b) {
+            if (!b || b === 0) return "0 Mo";
+            if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " Go";
+            return (b / 1048576).toFixed(1) + " Mo";
+        }
+
+        const usedPct  = data.totalBytes > 0 ? Math.min(100, Math.round((data.usedBytes   / data.totalBytes) * 100)) : 0;
+        const horizPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.horizonBytes / data.totalBytes) * 100)) : 0;
+        const barColor = usedPct >= 90 ? "#f87171" : usedPct >= 70 ? "#f48a21" : "var(--accent)";
+        const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
+        const providerLabel = (data.provider || "google").charAt(0).toUpperCase() + (data.provider || "google").slice(1);
+
+        const instances = (data.instances || []).sort((a, b) => b.bytes - a.bytes);
+        let instRows = "";
+        for (const inst of instances.slice(0, 8)) {
+            const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
+            const deltaInfo = inst.deltaCount > 0 ? ` · ${inst.deltaCount} delta(s)` : "";
+            instRows += `
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                    <span style="flex:1; font-size:0.78rem; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHTML(inst.name)}">${window.escapeHTML(inst.name)}</span>
+                    <span style="font-size:0.72rem; color:#888; white-space:nowrap;">${fmtBytes(inst.bytes)}${deltaInfo}</span>
+                    <div style="width:60px; height:6px; background:var(--border); border-radius:3px; flex-shrink:0;">
+                        <div style="width:${pct}%; height:100%; background:var(--accent); border-radius:3px;"></div>
+                    </div>
+                </div>`;
+        }
+        if (instances.length > 8) {
+            instRows += `<div style="font-size:0.72rem; color:#666; margin-top:4px;">+ ${instances.length - 8} ${t("horizon_quota_more", "autre(s)")}...</div>`;
+        }
+
+        el.innerHTML = `
+            <div style="margin-bottom:8px; font-weight:bold; font-size:0.88rem; color:var(--text-light);">
+                ${t("horizon_quota_title", "Espace Cloud")}
+                <span style="font-size:0.75rem; color:#888; font-weight:normal; margin-left:6px;">${providerLabel}</span>
+            </div>
+
+            ${data.totalBytes > 0 ? `
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#aaa; margin-bottom:4px;">
+                <span>${t("horizon_quota_used", "Utilisé")} : <strong style="color:${barColor}">${fmtBytes(data.usedBytes)}</strong></span>
+                <span>${t("horizon_quota_total", "Total")} : ${totalText}</span>
+            </div>
+            <div style="height:10px; background:var(--border); border-radius:5px; overflow:hidden; margin-bottom:4px;">
+                <div style="width:${usedPct}%; height:100%; background:${barColor}; border-radius:5px; transition:width 0.4s;"></div>
+            </div>
+            <div style="font-size:0.7rem; color:#666; margin-bottom:10px;">${t("horizon_quota_horizon_share", "Dont Horizon")} : ${fmtBytes(data.horizonBytes)} (${horizPct}%)</div>
+            ` : `
+            <div style="font-size:0.78rem; color:#aaa; margin-bottom:10px;">
+                ${t("horizon_quota_unlimited", "Espace illimité")} · ${t("horizon_quota_used_by_horizon", "Horizon utilise")} <strong style="color:var(--accent)">${fmtBytes(data.horizonBytes)}</strong>
+            </div>`}
+
+            ${instances.length > 0 ? `
+            <div style="font-size:0.78rem; color:#888; margin-bottom:6px;">${t("horizon_quota_per_instance", "Détail par instance")}</div>
+            ${instRows}
+            ` : `<div style="font-size:0.78rem; color:#555;">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`}
+
+            <button class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px;"
+                onclick="window.refreshHorizonQuota()">
+                ↻ ${t("horizon_quota_refresh", "Actualiser")}
+            </button>`;
+
+        window._lastQuotaHtml = el.innerHTML;
+
+        return;
+    }
+
+    if (data.type === "ROLLBACK_LIST") {
+        const el = document.getElementById("horizon-rollback-list");
+        if (!el) return;
+        if (!data.data || data.data.length === 0) {
+            el.innerHTML = `<span style="color:#aaa; font-size:0.82rem;">${t("horizon_no_rollback", "Aucun rollback disponible.")}</span>`;
+            return;
+        }
+        el.innerHTML = data.data.map(r =>
+            `<div style="font-size:0.8rem; color:var(--text-light); margin-bottom:4px;">
+                <strong>${window.escapeHTML(r.instance)}</strong>
+                <span style="color:#888; margin-left:6px;">${r.timestamp ? new Date(r.timestamp).toLocaleString() : "?"}</span>
+            </div>`
+        ).join('');
+        return;
+    }
+
     const cards = document.querySelectorAll('.instance-card');
     let targetCards = []; 
     cards.forEach(c => {
@@ -478,17 +576,13 @@ window.api.on("horizon-status", async (data) => {
 
         if (window._isAutoLaunch) {
             const autoStatus = document.getElementById("auto-status-text");
-            if (val > 0) {
-                if (window.autoBarProgress) window.autoBarProgress(val);
-            }
             if (autoStatus) {
                 let stepText = t("msg_loading", "Traitement...");
-                if (data.step === "CHECKING")        stepText = t("msg_cloud_sync", "Vérification du Cloud...");
-                else if (data.step === "COMPRESSING") stepText = t("msg_compress",  "Compression...");
-                else if (data.step === "EXTRACTING")  stepText = t("msg_extract",   "Extraction...");
-                else if (data.step === "DOWNLOADING") stepText = t("msg_dl",        "Téléchargement...");
-                else if (data.step === "UPLOADING")   stepText = "Upload...";
-                autoStatus.innerText = val > 0 ? `${stepText} (${val}%)` : stepText;
+                if (data.step === "COMPRESSING") stepText = t("msg_compress", "Compression...");
+                else if (data.step === "EXTRACTING") stepText = t("msg_extract", "Extraction...");
+                else if (data.step === "DOWNLOADING") stepText = t("msg_dl", "Téléchargement...");
+                else if (data.step === "UPLOADING") stepText = "Upload...";
+                autoStatus.innerText = `${stepText} (${val}%)`;
             }
         }
 
@@ -514,7 +608,10 @@ window.api.on("horizon-status", async (data) => {
 
         let finalMsg = data.message || "";
 
-        if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
+        if (data.errorCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
+            finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
+        }
+        else if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
             const portMatch = finalMsg.match(/\d{4,5}/); 
             finalMsg = t("horizon_login_error_port", "Port déjà utilisé").replace("{port}", portMatch ? portMatch[0] : "");
         }
@@ -551,6 +648,9 @@ window.api.on("horizon-status", async (data) => {
         
         if (data.type === "SUCCESS" && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
             window.api.invoke("call-horizon", ['--sync', '--list']); 
+            if (data.mode === "FULL" || data.mode === "SMART" || data.mode === "REPACK") {
+                setTimeout(() => window.refreshHorizonQuotaSilent(), 800);
+            }
         }
     }
 });
@@ -764,6 +864,22 @@ window.clearHorizonUpdateBadges = () => {
     if (horizonBadge) horizonBadge.style.display = "none";
     const tabBadge = document.getElementById("horizon-tab-badge");
     if (tabBadge) tabBadge.style.display = "none";
+};
+
+window.refreshHorizonQuota = async () => {
+    const el = document.getElementById("horizon-quota-zone");
+    if (!el) return;
+    if (!window._lastQuotaHtml) {
+        el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">
+            <span style="display:inline-block; animation:spin 1s linear infinite; margin-right:6px;">⟳</span>
+            ${store.currentLangObj?.["msg_loading"] || "Chargement..."}
+        </div>`;
+    }
+    await window.api.invoke("call-horizon", ["--quota"]);
+};
+
+window.refreshHorizonQuotaSilent = async () => {
+    await window.api.invoke("call-horizon", ["--quota"]);
 };
 
 init();

@@ -105,7 +105,7 @@ export function checkAchievement(id) {
     store.globalSettings.unlockedAchievements.push(id);
 
     try {
-        window.api.security.writeJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSON(store.settingsFile, store.globalSettings);
     } catch(e) {
         console.error("checkAchievement : erreur écriture settings :", e);
     }

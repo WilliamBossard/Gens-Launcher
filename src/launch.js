@@ -30,13 +30,16 @@ function getCloudSettings() {
 
 async function performAutoBackup(inst, mode) {
     if (!inst || inst.backupMode !== mode) return;
+    if (inst._backupRunning) { sysLog(`Auto-backup ${inst.name} : déjà en cours, ignoré.`); return; }
+    inst._backupRunning = true;
+
     const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
     const savesDir = path.join(instDir, "saves");
     const backupDir = path.join(instDir, "backups");
 
-    if (!fs.existsSync(savesDir)) return;
+    if (!fs.existsSync(savesDir)) { inst._backupRunning = false; return; }
     const saves = fs.readdirSync(savesDir);
-    if (saves.length === 0) return;
+    if (saves.length === 0) { inst._backupRunning = false; return; }
 
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
@@ -63,6 +66,7 @@ async function performAutoBackup(inst, mode) {
         }
         sysLog(`Auto-backup créé : ${zipPath}`);
     } catch(e) { sysLog(`Auto-backup erreur: ${e.message}`, true); }
+    finally { inst._backupRunning = false; }
 
     window.hideLoading();
 }
@@ -213,7 +217,6 @@ export function setupLauncher() {
             document.getElementById("progress-bar").style.width = perc + "%";
             document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
             const autoStatus = document.getElementById("auto-status-text");
-            if (perc > 0) { if (window.autoBarProgress) window.autoBarProgress(perc); }
             if (autoStatus) autoStatus.innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
             window.api.send("set-taskbar-progress", perc);
 
@@ -250,7 +253,6 @@ export function setupLauncher() {
                 document.getElementById("status-text").innerText = t("msg_game_running", "Jeu en cours d'exécution...");
                 
                 const autoStatus = document.getElementById("auto-status-text");
-                if (window.autoBarProgress) window.autoBarProgress(100);
                 if (autoStatus) autoStatus.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
             }
 
@@ -304,6 +306,8 @@ window.api.on("mc-close", async (payload) => {
         window.api.send("set-taskbar-progress", -1);
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
 
+        if (window.invalidateScreenshotCache) window.invalidateScreenshotCache(instanceId);
+
         if (instanceId === store.primaryRpcInstance) {
             store.primaryRpcInstance = null;
             if (store.activeInstances.size > 0) {
@@ -321,7 +325,9 @@ window.api.on("mc-close", async (payload) => {
         
         if (closedInstIndex !== -1) {
             closedInst = store.allInstances[closedInstIndex];
-            const sessionDuration = Date.now() - (closedInst._tempSessionStart || Date.now());
+            const sessionDuration = closedInst._tempSessionStart
+                ? Date.now() - closedInst._tempSessionStart
+                : 0;
             closedInst._tempSessionStart = null;
             closedInst.playTime = (closedInst.playTime || 0) + sessionDuration;
             closedInst.lastPlayed = Date.now();
@@ -353,8 +359,6 @@ window.api.on("mc-close", async (payload) => {
                 window.api.send("show-window"); 
                 const autoStatus = document.getElementById("auto-status-text");
                 if (autoStatus) autoStatus.innerText = isHorizonEnabled ? t("msg_auto_close", "Fermeture du jeu et synchronisation...") : "Fermeture du jeu...";
-                if (isHorizonEnabled) { if (window.autoBarIndeterminate) window.autoBarIndeterminate(); }
-                else                  { if (window.autoBarReset)         window.autoBarReset(); }
             }
 
             if (closedInst) {
@@ -362,7 +366,6 @@ window.api.on("mc-close", async (payload) => {
                 if (isHorizonEnabled) {
                     const autoStatus = document.getElementById("auto-status-text");
                     if (autoStatus) autoStatus.innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
-                    if (window.autoBarIndeterminate) window.autoBarIndeterminate();
                     document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
                     
                     await window.api.invoke("call-horizon", ['--upload', instanceId]);
@@ -454,11 +457,14 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
         if (inst.jvmProfile === "aikar") {
             customArgs.push("-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
         } else if (inst.jvmProfile === "zgc") {
-            customArgs.push("-XX:+UseZGC", "-XX:+ZGenerational");
+            customArgs.push("-XX:+UseZGC");
+            if (window.getRequiredJavaVersion(inst.version) >= 21) {
+                customArgs.push("-XX:+ZGenerational");
+            }
         }
 
-        let resW = inst.resW ? parseInt(inst.resW) : 854;
-        let resH = inst.resH ? parseInt(inst.resH) : 480;
+        let resW = inst.resW ? Math.max(320, Math.min(7680, parseInt(inst.resW) || 854)) : 854;
+        let resH = inst.resH ? Math.max(240, Math.min(4320, parseInt(inst.resH) || 480)) : 480;
 
         const requiredJava = window.getRequiredJavaVersion(inst.version);
         sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
@@ -644,7 +650,6 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                         document.getElementById("status-text").innerText = `${t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${fakePerc}%`;
                         
                         const autoStatus = document.getElementById("auto-status-text");
-                        if (window.autoBarProgress) window.autoBarProgress(fakePerc);
                         if (autoStatus) autoStatus.innerText = `${t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${fakePerc}%`;
                     }, 400);
 

@@ -22,14 +22,24 @@ export function setupArchives() {
     };
 
     /**
-     * Détecte automatiquement le loader et sa version depuis un dossier d'instance.
-     * Lit les fichiers présents (fabric.mod.json, mods.toml, quilt.mod.json, etc.)
-     * pour éviter que l'utilisateur ait à renseigner le loader manuellement.
-     * @param {string} instDir - Chemin du dossier de l'instance
+     * @param {string} instDir
      * @returns {{ loader: string, loaderVersion: string }}
      */
     function detectLoaderFromFolder(instDir) {
         try {
+            const fabricJson = path.join(instDir, "fabric.mod.json");
+            if (fs.existsSync(fabricJson)) return { loader: "fabric", loaderVersion: "" };
+
+            const quiltJson = path.join(instDir, "quilt.mod.json");
+            if (fs.existsSync(quiltJson)) return { loader: "quilt", loaderVersion: "" };
+
+            const forgeToml = path.join(instDir, "META-INF", "mods.toml");
+            if (fs.existsSync(forgeToml)) {
+                const content = fs.readFileSync(forgeToml, "utf8");
+                if (content.includes("neoforge")) return { loader: "neoforge", loaderVersion: "" };
+                return { loader: "forge", loaderVersion: "" };
+            }
+
             const modsDir = path.join(instDir, "mods");
             if (fs.existsSync(modsDir)) {
                 const jars = fs.readdirSync(modsDir).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
@@ -53,18 +63,6 @@ export function setupArchives() {
                     }
                 }
             }
-            const fabricJson = path.join(instDir, "fabric.mod.json");
-            if (fs.existsSync(fabricJson)) return { loader: "fabric", loaderVersion: "" };
-
-            const quiltJson = path.join(instDir, "quilt.mod.json");
-            if (fs.existsSync(quiltJson)) return { loader: "quilt", loaderVersion: "" };
-
-            const forgeToml = path.join(instDir, "META-INF", "mods.toml");
-            if (fs.existsSync(forgeToml)) {
-                const content = fs.readFileSync(forgeToml, "utf8");
-                if (content.includes("neoforge")) return { loader: "neoforge", loaderVersion: "" };
-                return { loader: "forge", loaderVersion: "" };
-            }
         } catch (e) {
             sysLog(`[IMPORT] Détection loader échouée : ${e.message}`, true);
         }
@@ -87,14 +85,12 @@ export function setupArchives() {
 
         window.showLoading(t("msg_extract", "Extraction..."));
         await yieldUI();
+        const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
-            const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
-
             window.api.tools.extractAllTo(zipPath, tempExtractDir);
 
             const instanceJsonPath = path.join(tempExtractDir, "instance.json");
             if (!fs.existsSync(instanceJsonPath)) {
-                fs.rmSync(tempExtractDir, { recursive: true, force: true });
                 throw new Error(t("msg_err_import_invalid", "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher."));
             }
 
@@ -167,19 +163,20 @@ export function setupArchives() {
                 }
             }
 
-            fs.rmSync(tempExtractDir, { recursive: true, force: true });
-
             store.allInstances.push(instData);
-
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
+
+            if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
 
             sysLog(`[IMPORT] Instance "${finalName}" importée avec succès (${detectedLoader} ${detectedLoaderVersion}).`);
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
+        } finally {
+            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
         }
         window.hideLoading();
         window.renderUI();
@@ -211,6 +208,9 @@ export function setupArchives() {
         if (index.dependencies["fabric-loader"]) {
             loaderType = "fabric";
             loaderVer = index.dependencies["fabric-loader"];
+        } else if (index.dependencies["quilt-loader"]) {
+            loaderType = "quilt";
+            loaderVer = index.dependencies["quilt-loader"];
         } else if (index.dependencies.forge) {
             loaderType = "forge";
             loaderVer = index.dependencies.forge;
@@ -229,6 +229,7 @@ export function setupArchives() {
         const newInst = {
           name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
           ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+          jvmProfile: "none", sessionHistory: [],
           notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
           lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
@@ -348,6 +349,8 @@ store.allInstances.push(newInst);
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
         window.safeWriteJSON(store.instanceFile, store.allInstances);
 
+        if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
+
         sysLog(`Modpack ${finalName} importé avec succès.`);
         window.showToast(t("msg_install_success", "Installation réussie !"), "success");
       } catch (err) {
@@ -407,6 +410,7 @@ store.allInstances.push(newInst);
             const newInst = {
                 name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
                 ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+                jvmProfile: "none", sessionHistory: [],
                 notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
                 lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
@@ -502,6 +506,8 @@ store.allInstances.push(newInst);
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
+
+            if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
@@ -520,11 +526,20 @@ store.allInstances.push(newInst);
     window.doExport = async (type) => {
       document.getElementById('modal-export').style.display = 'none';
       const inst = store.allInstances[store.selectedInstanceIdx];
+      if (!inst) return;
+
+      if (store.activeInstances.has(inst.name)) {
+          window.showToast(t("msg_err_export_running", "Impossible d'exporter une instance en cours d'exécution."), "error");
+          return;
+      }
+
       const safeName = inst.name.replace(/[^a-z0-9]/gi, "_");
       const sourceFolder = path.join(store.instancesRoot, safeName);
       const exportDir = path.join(store.dataDir, "exports");
       if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
       
+      const EXPORT_EXCLUDED = new Set(["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups"]);
+
       if (type === "zip") {
           const zipPath = path.join(exportDir, `${safeName}.zip`);
           window.showLoading(t("msg_compress", "Compression..."));
@@ -532,12 +547,25 @@ store.allInstances.push(newInst);
 
           try {
             const zip = window.api.tools.AdmZip();
-            if (fs.existsSync(sourceFolder)) zip.addLocalFolder(sourceFolder, "files");
+            if (fs.existsSync(sourceFolder)) {
+                const entries = fs.readdirSync(sourceFolder);
+                for (const entry of entries) {
+                    if (EXPORT_EXCLUDED.has(entry)) continue;
+                    const entryPath = path.join(sourceFolder, entry);
+                    const stat = fs.statSync(entryPath);
+                    if (stat.isDirectory()) {
+                        zip.addLocalFolder(entryPath, `files/${entry}`);
+                    } else {
+                        zip.addLocalFile(entryPath, "files/");
+                    }
+                }
+            }
             zip.addTextFile("instance.json", JSON.stringify(inst, null, 2));
             await zip.writeZip(zipPath);
             shell.showItemInFolder(zipPath);
           } catch (e) {
             sysLog("Erreur Export: " + e, true);
+            window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
           }
           window.hideLoading();
       } 
@@ -556,9 +584,9 @@ store.allInstances.push(newInst);
                   let hashes = {};
                   jarFiles.forEach(f => {
                       const buf = fs.readFileSync(path.join(modsPath, f));
-                      const hash = window.api.tools.hashBuffer(buf, "sha1");
-                      const hash512 = window.api.tools.hashBuffer(buf, "sha512");
-                      hashes[hash] = { file: f, sha1: hash, sha512: hash512, size: buf.length };
+                      const sha1   = window.api.tools.hashBuffer(buf, "sha1");
+                      const sha512 = window.api.tools.hashBuffer(buf, "sha512");
+                      hashes[sha1] = { file: f, sha1, sha512, size: buf.length };
                   });
 
                   let apiData = {};
@@ -595,8 +623,9 @@ store.allInstances.push(newInst);
                   dependencies: { minecraft: inst.version }, files: filesArray
               };
 
-              if (inst.loader === "fabric") indexJson.dependencies["fabric-loader"] = inst.loaderVersion || "latest";
-              if (inst.loader === "forge") indexJson.dependencies.forge = inst.loaderVersion || "latest";
+              if (inst.loader === "fabric")   indexJson.dependencies["fabric-loader"] = inst.loaderVersion || "latest";
+              if (inst.loader === "quilt")    indexJson.dependencies["quilt-loader"]  = inst.loaderVersion || "latest";
+              if (inst.loader === "forge")    indexJson.dependencies.forge    = inst.loaderVersion || "latest";
               if (inst.loader === "neoforge") indexJson.dependencies.neoforge = inst.loaderVersion || "latest";
 
               zip.addTextFile("modrinth.index.json", JSON.stringify(indexJson, null, 2));

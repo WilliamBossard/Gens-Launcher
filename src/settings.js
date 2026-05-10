@@ -126,12 +126,18 @@ export function setupSettings() {
             }
         }
 
+        const rawAccent = document.getElementById("global-accent").value;
+        const accent = /^#[0-9a-fA-F]{3,8}$/.test(rawAccent) ? rawAccent : "#007acc";
+        const rawDim  = parseFloat(document.getElementById("global-bg-dim").value);
+        const rawBlur = parseInt(document.getElementById("global-bg-blur").value);
+        const rawOp   = parseFloat(document.getElementById("global-panel-opacity").value);
+
         store.globalSettings.theme = {
-            accent: document.getElementById("global-accent").value,
-            bg: bgPath, 
-            dim: parseFloat(document.getElementById("global-bg-dim").value),
-            blur: parseInt(document.getElementById("global-bg-blur").value),
-            panelOpacity: parseFloat(document.getElementById("global-panel-opacity").value),
+            accent,
+            bg: bgPath,
+            dim:          Math.max(0, Math.min(0.95, isNaN(rawDim)  ? 0.5 : rawDim)),
+            blur:         Math.max(0, Math.min(50,   isNaN(rawBlur) ? 5   : rawBlur)),
+            panelOpacity: Math.max(0.1, Math.min(1,  isNaN(rawOp)   ? 0.6 : rawOp)),
         };
 
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
@@ -445,9 +451,12 @@ window.refreshHorizonUI = async () => {
             if (res.success) {
                 if (key === "systemEnabled") {
                     store.horizonActive = (val === true);
+                    window.refreshHorizonUI();
+                } else if (key === "provider") {
+                    window.refreshHorizonUI();
+                } else {
+                    window.showToast(t("horizon_setting_saved", "Paramètre enregistré"), "success");
                 }
-                window.showToast(t("horizon_setting_saved", "Paramètre enregistré"), "success");
-                window.refreshHorizonUI();
             }
         };
 
@@ -562,10 +571,27 @@ window.refreshHorizonUI = async () => {
                 </select>
 
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_upload", "Envoi auto. (Upload)")}</label>
-                <select onchange="saveHorizonConfig('autoUpload', this.value)" style="width: 100%;">
+                <select onchange="saveHorizonConfig('autoUpload', this.value)" style="width: 100%; margin-bottom: 12px;">
                     <option value="true" ${hSettings.autoUpload === true || hSettings.autoUpload === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                     <option value="false" ${hSettings.autoUpload === false || hSettings.autoUpload === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                 </select>
+
+                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_retry_attempts", "Tentatives en cas d'erreur réseau")}</label>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom: 4px;">
+                    <input type="number" id="horizon-max-retries"
+                        min="0" max="10" step="1"
+                        value="${hSettings.maxRetries ?? 3}"
+                        onchange="saveHorizonConfig('maxRetries', Math.max(0, Math.min(10, parseInt(this.value) || 0)))"
+                        style="width:70px; height:28px; text-align:center; font-size:0.85rem;">
+                    <span style="font-size: 0.8rem; color: #888;">${t("horizon_retry_unit", "retry(s) max")}</span>
+                </div>
+                <div style="font-size: 0.72rem; color: #666; margin-bottom:12px;">${t("horizon_retry_hint", "0 = pas de retry · Recommandé : 3")}</div>
+            </div>
+
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+                <div id="horizon-quota-zone" style="padding: 6px 0 12px 0;">
+                    ${window._lastQuotaHtml || `<div style="color:#888; font-size:0.82rem;">${t("msg_loading", "Chargement...")}</div>`}
+                </div>
             </div>
 
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
@@ -580,6 +606,7 @@ window.refreshHorizonUI = async () => {
 
         if (isEnabled && status.linked) {
             window.api.invoke("call-horizon", ['--sync', '--list']);
+            setTimeout(() => window.refreshHorizonQuotaSilent(), 200);
         } else if (isEnabled && !status.linked) {
             const grid = document.getElementById("horizon-cloud-grid");
             const prettyProvider = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
@@ -605,14 +632,21 @@ window.runHorizonLogin = async (provider) => {
     window.runHorizon = async (action) => {
         const zone = document.getElementById("horizon-progress-zone");
         if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
-        
+
         await window.api.invoke("call-horizon", `--${action}`);
-        await window.refreshHorizonUI();
+
+        if (action === 'sync' || action === 'upload') {
+            window.api.invoke("call-horizon", ['--sync', '--list']);
+            setTimeout(() => window.refreshHorizonQuotaSilent(), 800);
+        } else {
+            await window.refreshHorizonUI();
+        }
 
         if (zone) {
             setTimeout(() => {
                 zone.style.display = "none";
-                document.getElementById("horizon-bar").style.width = "0%";
+                const bar = document.getElementById("horizon-bar");
+                if (bar) bar.style.width = "0%";
             }, 2000);
         }
     };
@@ -638,6 +672,9 @@ window.runHorizonLogin = async (provider) => {
         const modal    = document.getElementById("modal-settings");
         const tabs     = modal ? modal.querySelectorAll(".settings-tab")    : [];
         const contents = modal ? modal.querySelectorAll(".settings-content") : [];
+        const currentActive = modal ? modal.querySelector(".settings-content.active") : null;
+        if (currentActive && currentActive.id === tabId) return;
+
         tabs.forEach(t => t.classList.remove("active"));
         contents.forEach(c => c.classList.remove("active"));
         const content = document.getElementById(tabId);
