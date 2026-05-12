@@ -299,17 +299,29 @@ window.openGalleryModal = () => {
             window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."));
             await yieldUI();
             
+const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
+
             try {
+                window.api.tools.extractAllTo(zipPath, tmpExtractDir);
+                
                 if (fs.existsSync(targetWorldDir)) {
                     await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
                 }
                 
-                window.api.tools.extractAllTo(zipPath, savesDir);
+                const extractedWorld = path.join(tmpExtractDir, folderName);
+                if (fs.existsSync(extractedWorld)) {
+                    fs.renameSync(extractedWorld, targetWorldDir);
+                }
+                
+                await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
                 document.getElementById("modal-restore").style.display = "none";
                 window.openWorldsModal(); 
             } catch (e) {
+                if (fs.existsSync(tmpExtractDir)) {
+                    await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
+                }
                 window.showToast(t("msg_restore_err", "Erreur lors de la restauration : ") + e.message, "error");
             }
             window.hideLoading();

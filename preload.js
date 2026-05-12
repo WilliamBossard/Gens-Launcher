@@ -37,7 +37,7 @@ try {
 const machineID = os.hostname() + "_" + username;
 const SECRET_KEY = crypto.createHash('sha256').update(machineID).digest();
 
-function encryptData(text) {
+function obfuscateData(text) {
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv('aes-256-cbc', SECRET_KEY, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
@@ -45,7 +45,7 @@ function encryptData(text) {
     return iv.toString('hex') + ':' + encrypted;
 }
 
-function decryptData(text) {
+function deobfuscateData(text) {
     try {
         const parts = text.split(':');
         const iv = Buffer.from(parts.shift(), 'hex');
@@ -55,6 +55,10 @@ function decryptData(text) {
         return decrypted;
     } catch(e) { return null; }
 }
+
+const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress"];
+const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut"];
+const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status"];
 
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => ipcRenderer.send(channel, data),
@@ -77,7 +81,7 @@ contextBridge.exposeInMainWorld("api", {
     security: {
         writeJSON: (filePath, data) => {
             const jsonString = JSON.stringify(data, null, 2);
-            const encrypted = encryptData(jsonString);
+            const encrypted = obfuscateData(jsonString);
             fs.writeFileSync(enforceSandbox(filePath), encrypted, 'utf8');
         },
         readJSON: (filePath) => {
@@ -88,7 +92,7 @@ contextBridge.exposeInMainWorld("api", {
                 const parsed = JSON.parse(raw);
                 try {
                     const jsonString = JSON.stringify(parsed, null, 2);
-                    const encrypted = encryptData(jsonString);
+                    const encrypted = obfuscateData(jsonString);
                     fs.writeFileSync(enforceSandbox(filePath), encrypted, 'utf8');
                 } catch(e) {
                     console.error("Erreur migration chiffrement:", e);
@@ -96,7 +100,7 @@ contextBridge.exposeInMainWorld("api", {
                 return parsed;
             }
             
-            const decrypted = decryptData(raw);
+            const decrypted = deobfuscateData(raw);
             return decrypted ? JSON.parse(decrypted) : null;
         }
     },

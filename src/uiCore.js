@@ -191,6 +191,12 @@ export function setupUICore() {
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
     };
 
+    let searchTimer = null;
+    window.scheduleSearch = () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => window.renderUI(), 200);
+    };
+
     window.renderUI = () => {
         const container = document.getElementById("instances-container");
         if (!container) return;
@@ -199,7 +205,7 @@ export function setupUICore() {
         if (store.allInstances.length === 0) {
             container.innerHTML = `
             <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa; gap:15px;">
-                <div style="font-size: 4rem; opacity: 0.5;">📦</div>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                 <div style="font-size: 1.3rem; font-weight:bold; color:var(--text-light); text-align:center;">
                     ${t("msg_welcome_title", "Bienvenue sur Gens Launcher !")}
                 </div>
@@ -267,15 +273,15 @@ export function setupUICore() {
             </div>`;
 
             html += `<div class="instances-grid" style="display: ${displayStyle};">`;
-groups[g].forEach(inst => {
-    const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
-    const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-    const isPhantom = inst.version === "...";
-    const phantomClass = isPhantom ? "is-phantom" : "";
-    const isAnyRunning = store.activeInstances.size > 0;
-    const isRunning = store.activeInstances.has(inst.name);
-    const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
-    const lockedClass = isLockedByMulti ? "is-locked" : "";
+            groups[g].forEach(inst => {
+                const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
+                const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                const isPhantom = inst.version === "...";
+                const phantomClass = isPhantom ? "is-phantom" : "";
+                const isAnyRunning = store.activeInstances.size > 0;
+                const isRunning = store.activeInstances.has(inst.name);
+                const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
+                const lockedClass = isLockedByMulti ? "is-locked" : "";
 
                 const iconCacheKey = inst.icon || "";
                 if (!inst._iconCache || inst._iconCacheKey !== iconCacheKey) {
@@ -299,8 +305,15 @@ groups[g].forEach(inst => {
                     ? `<div style="position: absolute; top: -6px; right: -6px; background: #17B139; color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 10;">${t("lbl_running", "En cours")}</div>` 
                     : "";
 
+                const shortcutBadge = inst._hasDesktopShortcut
+                    ? `<div class="shortcut-badge" title="Raccourci bureau créé" style="position:absolute;bottom:-5px;right:-5px;background:var(--accent);color:#fff;padding:4px;border-radius:6px;box-shadow:0 2px 4px rgba(0,0,0,0.5);z-index:10;display:flex;align-items:center;justify-content:center;">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                       </div>`
+                    : "";
+
                 html += `
                 <div class="instance-card ${isActive} ${phantomClass} ${lockedClass}"
+                    data-index="${inst.originalIndex}"
                     style="position: relative;${isLockedByMulti ? ' opacity: 0.4; pointer-events: none;' : ''}"
                     onclick="selectInstance(${inst.originalIndex})"
                     ondblclick="handleInstanceDoubleClick(${inst.originalIndex})" 
@@ -314,9 +327,10 @@ groups[g].forEach(inst => {
                     </div>
                     
                     ${runningBadge}
+                    ${shortcutBadge}
                     <img src="${iconSrc}" class="instance-icon">
                     <div class="instance-name">${safeName}</div>
-                    <div class="instance-version">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
+                    <div class="instance-version" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center;">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
                 </div>`;
             });
             html += `</div>`;
@@ -331,7 +345,7 @@ groups[g].forEach(inst => {
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
                 .sort((a,b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
-                .slice(0, 10);
+                .slice(0, 3);
             
             window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
         }
@@ -345,10 +359,10 @@ groups[g].forEach(inst => {
         const tab = document.getElementById(tabId);
         if (tab) tab.classList.add("active");
 
-        if (tabId === "tab-mods"          && window.renderModsManager)         window.renderModsManager();
-        if (tabId === "tab-shaders"       && window.renderShadersManager)      window.renderShadersManager();
-        if (tabId === "tab-resourcepacks" && window.renderResourcePacksManager) window.renderResourcePacksManager();
-        if (tabId === "tab-servers"       && window.renderServersManager)      window.renderServersManager();
+        if (tabId === "tab-mods"         && window.renderModsManager)         window.renderModsManager();
+        if (tabId === "tab-shaders"      && window.renderShadersManager)      window.renderShadersManager();
+        if (tabId === "tab-resourcepacks"&& window.renderResourcePacksManager)window.renderResourcePacksManager();
+        if (tabId === "tab-servers"      && window.renderServersManager)      window.renderServersManager();
     };
 
     let tooltipEl = document.getElementById("global-tooltip");
@@ -499,102 +513,10 @@ groups[g].forEach(inst => {
 
     if (window.api) {
         window.api.on("trigger-auto-launch", (instName) => {
-            window._isAutoLaunch = true;
-            
-            document.body.classList.add("is-auto-launch");
-            document.getElementById("auto-launch-overlay").style.display = "flex";
-
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
-                const inst = store.allInstances[idx];
-                const acc = store.allAccounts[store.selectedAccountIdx];
-
-                document.getElementById("auto-inst-name").innerText = inst.name;
-                document.getElementById("auto-acc-name").innerText = acc ? acc.name : "...";
-
-                const versionEl = document.getElementById("auto-badge-version");
-                const loaderEl  = document.getElementById("auto-badge-loader");
-                const ramEl     = document.getElementById("auto-badge-ram");
-
-                if (versionEl) versionEl.textContent = inst.version ? `MC ${inst.version}` : "";
-                if (loaderEl) {
-                    const loaderName = inst.loader ? (inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)) : "Vanilla";
-                    loaderEl.textContent = loaderName;
-                }
-                if (ramEl) {
-                    let ram = inst.ram || store.globalSettings.defaultRam || 4096;
-                    if (ram < 128) ram = ram * 1024;
-                    const ramStr = ram >= 1024 ? (ram / 1024).toFixed(ram % 1024 === 0 ? 0 : 1) + " Go" : ram + " Mo";
-                    ramEl.textContent = ramStr + " RAM";
-                }
-                
-                const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-                let iconSrc = inst.icon || "";
-                if (iconSrc === "") {
-                    if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
-                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png").replace(/\\/g, "/"));
-                    } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
-                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
-                    } else {
-                        iconSrc = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
-                    }
-                }
-                document.getElementById("auto-icon").src = iconSrc;
-
                 window.selectInstance(idx);
-
-                function waitForLaunchBtn(callback, timeout = 5000) {
-                    const btn = document.getElementById('launch-btn');
-                    if (btn) { callback(btn); return; }
-                    const start = Date.now();
-                    const observer = new MutationObserver(() => {
-                        const b = document.getElementById('launch-btn');
-                        if (b) { observer.disconnect(); callback(b); }
-                        else if (Date.now() - start > timeout) { observer.disconnect(); }
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                }
-
-                waitForLaunchBtn((btn) => {
-                    setTimeout(() => btn.click(), 150);
-                });
-
-            } else {
-                const overlay = document.getElementById("auto-launch-overlay");
-                const statusEl = document.getElementById("auto-status-text");
-                const iconEl = document.getElementById("auto-icon");
-
-                if (iconEl) iconEl.style.opacity = "0.3";
-                if (statusEl) {
-                    statusEl.style.color = "#f87171";
-                    statusEl.innerText = store.currentLangObj?.["msg_auto_launch_not_found"]
-                        || `Instance "${instName}" introuvable. Raccourci obsolète ?`;
-                }
-
-                const nameEl = document.getElementById("auto-inst-name");
-                if (nameEl) nameEl.innerText = instName;
-
-                if (overlay) {
-                    const backBtn = document.createElement("button");
-                    backBtn.className = "btn-secondary";
-                    backBtn.style.cssText = "margin-top:20px; padding:8px 20px; font-size:0.9rem;";
-                    backBtn.innerText = store.currentLangObj?.["btn_back_to_launcher"] || "Ouvrir le launcher";
-                    backBtn.onclick = () => {
-                        document.body.classList.remove("is-auto-launch");
-                        overlay.style.display = "none";
-                        window._isAutoLaunch = false;
-                        if (window.renderUI) window.renderUI();
-                    };
-                    overlay.appendChild(backBtn);
-                }
-
-                setTimeout(() => {
-                    document.body.classList.remove("is-auto-launch");
-                    const o = document.getElementById("auto-launch-overlay");
-                    if (o) o.style.display = "none";
-                    window._isAutoLaunch = false;
-                    if (window.renderUI) window.renderUI();
-                }, 5000);
+                setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
             }
         });
     }
@@ -619,6 +541,29 @@ groups[g].forEach(inst => {
         if (cloudSync)    cloudSync.style.display    = cloudDisplay;
         if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
 
+        const createShortcutItem = document.getElementById("ctx-create-shortcut");
+        const deleteShortcutItem = document.getElementById("ctx-delete-shortcut");
+        
+        if (inst) {
+            let hasShortcut = inst._hasDesktopShortcut === true;
+            
+            if (createShortcutItem) createShortcutItem.style.display = hasShortcut ? "none" : "flex";
+            if (deleteShortcutItem) deleteShortcutItem.style.display = hasShortcut ? "flex" : "none";
+            if (hasShortcut) {
+                const safeShortcutName = inst.name.replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
+                window.api.invoke("check-shortcut-exists", { safeName: safeShortcutName }).then(exists => {
+                    if (exists === false && inst._hasDesktopShortcut === true) {
+                        inst._hasDesktopShortcut = false;
+                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                        
+                        if (createShortcutItem) createShortcutItem.style.display = "flex";
+                        if (deleteShortcutItem) deleteShortcutItem.style.display = "none";
+                        window.renderUI(); 
+                    }
+                });
+            }
+        }
+
         menu.style.display = "flex";
 
         let x = e.clientX;
@@ -630,58 +575,102 @@ groups[g].forEach(inst => {
         menu.style.top  = y + "px";
     };
 
-    document.addEventListener("click", () => {
+document.addEventListener("click", () => {
         const menu = document.getElementById("custom-context-menu");
+        const menuCloud = document.getElementById("cloud-only-context-menu");
         if (menu) menu.style.display = "none";
+        if (menuCloud) menuCloud.style.display = "none";
     });
 
     window.ctxLaunch = () => { document.getElementById("launch-btn").click(); };
     window.ctxFolder = () => { if(window.openDir) window.openDir(''); };
     window.ctxEdit   = () => { if(window.openEditModal) window.openEditModal(); };
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
-}
 
-window.ctxShortcut = async () => {
-    const inst = store.allInstances[window.ctxTargetIdx];
-    if (!inst) return;
-    document.getElementById("custom-context-menu").style.display = "none";
+    async function getOrGenerateIconPath(inst) {
+        if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
+            return inst.icon; 
+        }
+        
+        const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        const pngPath = window.api.path.join(instFolder, "icon.png");
 
-    if (window.api.platform === 'darwin') {
-        window.showToast(t("msg_shortcut_macos", "Les raccourcis .command sont créés sur le bureau (double-clic pour lancer)."), "info");
+        if (window.api.fs.existsSync(pngPath)) {
+            return "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
+        }
+
+        const svgData = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+        
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = 256; 
+                canvas.height = 256;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, 256, 256);
+                const base64Png = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+                try {
+                    const buffer = Uint8Array.from(atob(base64Png), c => c.charCodeAt(0));
+                    window.api.fs.writeFileSync(pngPath, buffer);
+                    resolve("file:///" + encodeURI(pngPath.replace(/\\/g, "/")));
+                } catch(e) { resolve(null); }
+            };
+            img.onerror = () => resolve(null);
+            img.src = svgData;
+        });
     }
 
-    const res = await window.api.invoke("create-desktop-shortcut", {
-        instanceName: inst.name,
-        iconPath: inst.icon
-    });
-
-    if (res.success) {
-        if (res.updated) {
+    window.ctxUpdateShortcut = async () => {
+        const inst = store.allInstances[window.ctxTargetIdx];
+        if (!inst) return;
+        document.getElementById("custom-context-menu").style.display = "none";
+        
+        const iconPath = await getOrGenerateIconPath(inst);
+        const res = await window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: iconPath });
+        
+        if (res?.success) {
+            inst._hasDesktopShortcut = true;
             window.showToast(t("msg_shortcut_updated", "Raccourci mis à jour sur le bureau !"), "success");
         } else {
-            window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
+            window.showToast(t("msg_shortcut_err", "Erreur lors de la mise à jour du raccourci."), "error");
         }
-    } else if (res.reason === 'unsupported_platform') {
-        window.showToast(t("msg_shortcut_unsupported", "Raccourcis non supportés sur cette plateforme."), "info");
-    } else {
-        window.showToast(t("msg_shortcut_err", "Erreur lors de la création du raccourci."), "error");
-    }
-};
+    };
 
-window.showLoading = (text, percent = null) => {
-    document.getElementById("loading-text").innerText = text;
-    const pctEl = document.getElementById("loading-percent");
-    if (pctEl) pctEl.innerText = percent !== null ? percent + "%" : "";
-    document.getElementById("loading-overlay").style.display = "flex";
+    window.ctxShortcut = async () => {
+        const inst = store.allInstances[window.ctxTargetIdx];
+        if (!inst) return;
+        document.getElementById("custom-context-menu").style.display = "none";
 
-    const autoStatus = document.getElementById("auto-status-text");
-    if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-};
+        const iconPath = await getOrGenerateIconPath(inst); 
+        const res = await window.api.invoke("create-desktop-shortcut", {
+            instanceName: inst.name,
+            iconPath: iconPath
+        });
 
-window.updateLoadingPercent = (percent, text = null) => {
-    const pctEl = document.getElementById("loading-percent");
-    if (percent !== null && pctEl) pctEl.innerText = percent + "%";
-    if (text !== null) document.getElementById("loading-text").innerText = text;
-    const autoStatus = document.getElementById("auto-status-text");
-    if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-};
+        if (res?.success) {
+            inst._hasDesktopShortcut = true;
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
+            window.renderUI();
+        } else {
+            window.showToast(t("msg_shortcut_err", "Erreur lors de la création du raccourci."), "error");
+        }
+    };
+
+    window.ctxDeleteShortcut = async () => {
+        const inst = store.allInstances[window.ctxTargetIdx];
+        if (!inst) return;
+        
+        document.getElementById("custom-context-menu").style.display = "none";
+        
+        const res = await window.api.invoke("delete-desktop-shortcut", { instanceName: inst.name });
+        
+        if (res?.success) {
+            inst._hasDesktopShortcut = false;
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.showToast(t("msg_shortcut_deleted", "Raccourci supprimé du bureau."), "success");
+            window.renderUI();
+        }
+    };
+}

@@ -183,14 +183,7 @@ mainWindow.webContents.on('did-finish-load', () => {
     };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
 
-    let autoDl = false;
-    try {
-        const settingsPath = path.join(safeDataDir, "settings.json");
-        const sets = readSettingsMainProc(settingsPath);
-        autoDl = !!sets.autoDownloadUpdates;
-    } catch(e) {
-        mainLog("Impossible de lire autoDownloadUpdates, valeur par défaut : false");
-    }
+let autoDl = false; 
     autoUpdater.autoDownload = autoDl;
 
     setTimeout(() => {
@@ -395,15 +388,42 @@ function sendStillRunningInstances() {
 }
 
 ipcMain.handle("force-stop-game", async (_, instanceId) => {
-    const clientData = activeMinecraftClients.get(instanceId);
-    if (clientData?.process) {
-        clientData.process.kill("SIGKILL");
-        activeMinecraftClients.delete(instanceId);
-        saveRunningInstances(activeMinecraftClients);
-        mainLog(`Jeu [${instanceId}] arrêté de force.`);
-        return { success: true };
+    return new Promise((resolve) => {
+        const clientData = activeMinecraftClients.get(instanceId);
+        if (clientData && clientData.process) {
+            clientData.process.kill("SIGKILL");
+            activeMinecraftClients.delete(instanceId);
+            saveRunningInstances(activeMinecraftClients);
+            mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
+            
+            if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
+            
+            resolve({ success: true });
+        } else { resolve({ success: false }); }
+    });
+});
+
+ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
+    try {
+        const desktopPath = app.getPath("desktop");
+        const safeName = String(instanceName).replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
+        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
+        const targetFile = `${safeName}.${ext}`.toLowerCase();
+        
+        if (fs.existsSync(desktopPath)) {
+            const files = fs.readdirSync(desktopPath);
+            for (let file of files) {
+                if (file.toLowerCase() === targetFile) {
+                    const fullPath = path.join(desktopPath, file);
+                    await shell.trashItem(fullPath);
+                    return { success: true };
+                }
+            }
+        }
+        return { success: false, reason: 'not_found' };
+    } catch (e) {
+        return { success: false, reason: e.message };
     }
-    return { success: false };
 });
 
 ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath }) => {
@@ -442,8 +462,8 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                         header.writeUInt16LE(1, 2);  
                         header.writeUInt16LE(1, 4);  
                         header.writeUInt8(0, 6);     
-                        header.writeUInt8(0, 7);    
-                        header.writeUInt8(0, 8);     
+                        header.writeUInt8(0, 7);     
+                        header.writeUInt8(0, 8);    
                         header.writeUInt8(0, 9);     
                         header.writeUInt16LE(1, 10); 
                         header.writeUInt16LE(32, 12);
@@ -519,28 +539,42 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
     }
 });
 
-ipcMain.on("launch-game", (event, opts) => {
-    if (!opts?.authorization || !opts?.version || !opts?.root || !opts?.instanceId) {
-        mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 });
-        return;
+ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
+    try {
+        const desktopPath = app.getPath("desktop");
+        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
+        const shortcutPath = path.join(desktopPath, `${safeName}.${ext}`);
+        
+        const exists = fs.existsSync(shortcutPath);
+        
+        return exists;
+    } catch (e) {
+        return false;
     }
+});
+
+ipcMain.on("launch-game", (event, opts) => {
+    if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); return; }
+    
+    if (activeMinecraftClients.has(opts.instanceId)) return; 
+    
     const instanceId = opts.instanceId;
     const launcher = new Client();
 
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
-    launcher.on("close", (e) => {
-        activeMinecraftClients.delete(instanceId);
-        saveRunningInstances(activeMinecraftClients);
-        mainWindow?.webContents.send("mc-close", { instanceId, code: e });
-    });
 
-    launcher.launch(opts).then((process) => {
+launcher.launch(opts).then((process) => {
         activeMinecraftClients.set(instanceId, { process, launcher });
         saveRunningInstances(activeMinecraftClients);
+process.on("close", (code) => {
+            activeMinecraftClients.delete(instanceId);
+            saveRunningInstances(activeMinecraftClients);
+            mainWindow?.webContents.send("mc-close", { instanceId, code: code });
+        });
+
     }).catch(e => mainLog("Erreur Lancement: " + e));
 });
-
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
@@ -622,13 +656,27 @@ ipcMain.handle("login-microsoft", async () => {
 
 ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
     try {
-        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) return { success: false, error: "Identifiant de session invalide." };
+        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+            return { success: false, error: "Identifiant de session invalide." };
+        }
         const cacheDir = path.join(safeDataDir, "msa-cache");
-        const flow = new Authflow(sessionLabel, cacheDir, { flow: "live", authTitle: Titles.MinecraftNintendoSwitch, deviceType: "Nintendo", deviceVersion: "0.0.0" });
+        
+        const flow = new Authflow(sessionLabel, cacheDir, {
+            flow: "live",
+            authTitle: Titles.MinecraftNintendoSwitch,
+            deviceType: "Nintendo",
+            deviceVersion: "0.0.0",
+        }, (deviceInfo) => {
+            throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
+        });
+
         const response = await flow.getMinecraftJavaToken({ fetchProfile: false });
-        mainLog(`Token rafraîchi pour : ${sessionLabel}`);
+        mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
         return { success: true, access_token: response.token };
-    } catch(err) { mainLog("Erreur refresh token : " + err.message); return { success: false, error: err.message }; }
+    } catch(err) {
+        mainLog("Erreur refresh token (Reconnexion requise) : " + err.message);
+        return { success: false, error: err.message };
+    }
 });
 
 ipcMain.on("delete-msa-cache", (_, sessionLabel) => {
@@ -699,34 +747,31 @@ const discordClientId = "1490353507218227301";
 let rpc = null;
 let rpcReady = false;
 let rpcReconnectTimer = null;
-let rpcReconnectDelay = 15_000;
-const RPC_MAX_DELAY = 5 * 60 * 1000;
+let rpcRetries = 0;
 
 function connectRPC() {
     if (rpcReconnectTimer) { clearTimeout(rpcReconnectTimer); rpcReconnectTimer = null; }
+    if (rpcRetries > 20) {
+        mainLog("Discord RPC abandonné après 20 tentatives.");
+        return;
+    }
+    
     rpc = new DiscordRPC.Client({ transport: "ipc" });
-
     rpc.on("ready", () => {
         rpcReady = true;
-        rpcReconnectDelay = 15_000; 
+        rpcRetries = 0;
         mainLog("Discord RPC connecté.");
     });
-
     rpc.on("disconnected", () => {
         rpcReady = false;
-        mainLog(`Discord RPC déconnecté, reconnexion dans ${rpcReconnectDelay / 1000}s...`);
-        rpcReconnectTimer = setTimeout(() => {
-            rpcReconnectDelay = Math.min(rpcReconnectDelay * 2, RPC_MAX_DELAY);
-            connectRPC();
-        }, rpcReconnectDelay);
+        rpcRetries++;
+        mainLog("Discord RPC déconnecté, tentative de reconnexion dans 15s...");
+        rpcReconnectTimer = setTimeout(connectRPC, 15000);
     });
-
     rpc.login({ clientId: discordClientId }).catch(() => {
         rpcReady = false;
-        rpcReconnectTimer = setTimeout(() => {
-            rpcReconnectDelay = Math.min(rpcReconnectDelay * 2, RPC_MAX_DELAY);
-            connectRPC();
-        }, rpcReconnectDelay);
+        rpcRetries++;
+        rpcReconnectTimer = setTimeout(connectRPC, 15000);
     });
 }
 

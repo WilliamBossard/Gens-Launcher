@@ -374,13 +374,17 @@ function setupMods() {
             }
         }
 
-        if (!isDependency) {
+if (!isDependency) {
           statusText.innerText = "";
           sysLog(`[MODS] Mod installé avec succès depuis le catalogue.`);
           window.showToast(t("msg_install_success", "Installation réussie !"), "success");
           if (projType === "mod" && window.renderModsManager) window.renderModsManager();
           if (projType === "shader" && window.renderShadersManager) window.renderShadersManager();
           if (projType === "resourcepack" && window.renderResourcePacksManager) window.renderResourcePacksManager();
+          const activeBtns = document.querySelectorAll(`button[data-project-id="${projectId}"]`);
+          activeBtns.forEach(b => {
+              b.outerHTML = `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`;
+          });
         }
       } catch (e) {
         sysLog("Erreur catalog install: " + e, true);
@@ -698,9 +702,23 @@ function setupMods() {
         let done = 0;
         const failed = [];
 
-        const queue = [...modsToDownload];
-        const concurrencyLimit = 10;
+const queue = [...modsToDownload];
+        const totalModsCount = queue.length;
         
+        let concurrencyLimit = 10; 
+        let delayMs = 50;
+        
+        if (totalModsCount > 150) {
+            concurrencyLimit = 3;  
+            delayMs = 250;
+        } else if (totalModsCount > 80) {
+            concurrencyLimit = 5;  
+            delayMs = 150;
+        } else if (totalModsCount > 30) {
+            concurrencyLimit = 8;  
+            delayMs = 100;
+        }
+
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
             while (queue.length > 0) {
                 const mod = queue.shift();
@@ -759,7 +777,7 @@ fs.writeFileSync(destPath, new Uint8Array(buffer));
                 let pct = Math.round((done / total) * 100);
                 window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
                 
-                await new Promise(resolve => setTimeout(resolve, 50));
+                await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         });
 

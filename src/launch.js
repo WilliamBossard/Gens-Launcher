@@ -13,19 +13,19 @@ function t(key, fallback) {
 
 let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
-let windowHidden = false;
+const hiddenInstances = new Set();
 
-function getCloudSettings() {
+async function getCloudSettings() {
     try {
-        const setPath = path.join(window.api.appData, "GensLauncher", "bin", "horizon_settings.json");
-        if (!fs.existsSync(setPath)) return { systemEnabled: false, autoSync: false, autoUpload: false };
-        const parsed = JSON.parse(fs.readFileSync(setPath, 'utf8'));
+        const hSettings = await window.api.invoke("get-horizon-settings");
         return {
-            systemEnabled: parsed.systemEnabled === true || parsed.systemEnabled === "true",
-            autoSync: parsed.autoSync === true || parsed.autoSync === "true",
-            autoUpload: parsed.autoUpload === true || parsed.autoUpload === "true"
+            systemEnabled: (hSettings.systemEnabled === true || hSettings.systemEnabled === "true"),
+            autoSync: (hSettings.autoSync === true || hSettings.autoSync === "true"),
+            autoUpload: (hSettings.autoUpload === true || hSettings.autoUpload === "true")
         };
-    } catch(e) { return { systemEnabled: false, autoSync: false, autoUpload: false }; }
+    } catch (e) {
+        return { systemEnabled: false, autoSync: false, autoUpload: false };
+    }
 }
 
 async function performAutoBackup(inst, mode) {
@@ -187,14 +187,21 @@ export function setupLauncher() {
                 }
             }
 
-            if (!suspectedMod) {
+if (!suspectedMod) {
                 const logPath = path.join(instDir, "logs", "latest.log");
                 if (fs.existsSync(logPath)) {
-                    const logData = fs.readFileSync(logPath, 'utf8');
-                    const errMatch = logData.match(/Failed to load mod\s+([^\s\n]+)/i)
-                        || logData.match(/Could not find required mod:\s+([^\s\n]+)\s+requires/i)
-                        || logData.match(/Errors were found!\s+-\s+Mod\s+([^\s\n]+)/i);
-                    if (errMatch) suspectedMod = errMatch[1].replace(/['"]/g, '').trim();
+                    const stats = fs.statSync(logPath);
+                    const MAX_READ = 50 * 1024;
+                    const startPos = Math.max(0, stats.size - MAX_READ);
+                    
+                    const fd = fs.openSync(logPath, 'r');
+                    const buffer = Buffer.alloc(Math.min(stats.size, MAX_READ));
+                    fs.readSync(fd, buffer, 0, buffer.length, startPos);
+                    fs.closeSync(fd);
+                    
+                    const logData = buffer.toString('utf8');
+                    const errMatch = logData.match(/Failed to load mod (.*?)\n/i) || logData.match(/Could not find required mod: (.*?) requires/i);
+                    if (errMatch) suspectedMod = errMatch[1].trim();
                 }
             }
         } catch(e) {
@@ -238,9 +245,9 @@ export function setupLauncher() {
 
         sysLog(`GAME [${instanceId}]: ` + dStr);
 
-        if ((store.globalSettings.launcherVisibility === "hide" || window._isAutoLaunch) && !windowHidden) {
+if (store.globalSettings.launcherVisibility === "hide" && !hiddenInstances.has(instanceId)) {
             ipcRenderer.send("hide-window");
-            windowHidden = true;
+            hiddenInstances.add(instanceId);
         }
 
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
@@ -303,10 +310,13 @@ window.api.on("mc-close", async (payload) => {
         const code = payload.code;
 
         store.activeInstances.delete(instanceId);
-        window.api.send("set-taskbar-progress", -1);
+        window.setUIState();
+        if (window.renderUI) window.renderUI();
+
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
 
-        if (window.invalidateScreenshotCache) window.invalidateScreenshotCache(instanceId);
+        let closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
+        let closedInst = null;
 
         if (instanceId === store.primaryRpcInstance) {
             store.primaryRpcInstance = null;
@@ -316,74 +326,87 @@ window.api.on("mc-close", async (payload) => {
                 if (nextInst) updateRPC(nextInst, t("discord_in_menu", "Dans les menus"));
             } else {
                 store.sessionStartTime = 0;
-                updateRPC();
+                updateRPC(); 
             }
         }
 
-        const closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
-        let closedInst = null;
-        
         if (closedInstIndex !== -1) {
             closedInst = store.allInstances[closedInstIndex];
-            const sessionDuration = closedInst._tempSessionStart
-                ? Date.now() - closedInst._tempSessionStart
-                : 0;
-            closedInst._tempSessionStart = null;
+            
+            const sessionDuration = Date.now() - (closedInst._tempSessionStart || Date.now());
+            closedInst._tempSessionStart = null; 
             closedInst.playTime = (closedInst.playTime || 0) + sessionDuration;
             closedInst.lastPlayed = Date.now();
 
             if (!closedInst.sessionHistory) closedInst.sessionHistory = [];
             const d = new Date();
-            const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const today = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
             const existing = closedInst.sessionHistory.find(s => s.date === today);
             if (existing) existing.ms += sessionDuration;
             else closedInst.sessionHistory.push({ date: today, ms: sessionDuration });
             closedInst.sessionHistory = closedInst.sessionHistory.slice(-30);
 
+            try {
+                const instDir = path.join(store.instancesRoot, closedInst.name.replace(/[^a-z0-9]/gi, "_"));
+                const datPath = path.join(instDir, "servers.dat");
+                if (fs.existsSync(datPath)) {
+                    const { parsed } = await window.api.nbt.parse(fs.readFileSync(datPath));
+                    const serverList = parsed?.value?.servers?.value?.value || [];
+                    const ips = serverList
+                        .map(s => s?.ip?.value)
+                        .filter(ip => typeof ip === "string" && ip.trim() !== "");
+                    closedInst.servers = [...new Set(ips)];
+                }
+            } catch(e) {
+                sysLog("Erreur relecture servers.dat après fermeture : " + e.message, true);
+            }
+
             window.safeWriteJSON(store.instanceFile, store.allInstances);
-            
+
             if (store.selectedInstanceIdx === closedInstIndex) {
+                const logOutput = document.getElementById("log-output");
+                if (logOutput) {
+                    logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
+                }
+                
                 document.getElementById("status-text").innerText = t("status_ready", "Prêt");
                 document.getElementById("progress-bar").style.width = "0%";
-                window.selectInstance(store.selectedInstanceIdx);
+                window.selectInstance(store.selectedInstanceIdx); 
             }
         }
 
-        try {
-            const horizonStatus = await window.api.invoke("check-horizon-status");
-            const cloudPrefs = getCloudSettings();
-            
-            const isHorizonEnabled = horizonStatus.installed && cloudPrefs.systemEnabled && closedInst && !closedInst.disableHorizon && cloudPrefs.autoUpload;
+if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility === "hide") {
+            ipcRenderer.send("show-window");
+            hiddenInstances.clear();
+        }
 
-            if (window._isAutoLaunch) {
-                window.api.send("show-window"); 
-                const autoStatus = document.getElementById("auto-status-text");
-                if (autoStatus) autoStatus.innerText = isHorizonEnabled ? t("msg_auto_close", "Fermeture du jeu et synchronisation...") : "Fermeture du jeu...";
+        if (code !== 0 && closedInstIndex !== -1 && store.selectedInstanceIdx === closedInstIndex) {
+            document.getElementById("console-container").style.display = "block";
+            const culprit = await window.analyzeCrash(instanceId);
+            if (culprit) {
+               const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
+                if (action) { window.openEditModal('tab-mods'); }
+} else {
+               await window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
             }
+        }
 
-            if (closedInst) {
-                await performAutoBackup(closedInst, "on_close");
-                if (isHorizonEnabled) {
-                    const autoStatus = document.getElementById("auto-status-text");
-                    if (autoStatus) autoStatus.innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
+        if (closedInst) {
+            await performAutoBackup(closedInst, "on_close");
+
+            const horizonStatus = await window.api.invoke("check-horizon-status");
+            const cloudPrefs = await getCloudSettings();
+
+            if (horizonStatus.installed && cloudPrefs.systemEnabled) {
+                if (closedInst.disableHorizon) {
+                    sysLog(`[HORIZON] Upload ignoré pour "${instanceId}" (désactivé dans les paramètres de l'instance).`);
+                } else if (cloudPrefs.autoUpload) {
+                    sysLog(`[HORIZON] Upload Cloud après fermeture de "${instanceId}"...`);
                     document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
-                    
                     await window.api.invoke("call-horizon", ['--upload', instanceId]);
-                    
+                    sysLog(`[HORIZON] Upload terminé pour "${instanceId}".`);
                     document.getElementById("status-text").innerText = t("status_ready", "Prêt");
                 }
-            }
-        } catch (error) {
-            sysLog("Erreur fermeture/synchro : " + error.message, true);
-        } finally {
-            if (window._isAutoLaunch) {
-                setTimeout(() => { window.close(); }, 1200);
-            } else {
-                if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility === "hide") {
-                    window.api.send("show-window");
-                }
-                window.setUIState();
-                if (window.renderUI) window.renderUI();
             }
         }
     });
@@ -416,7 +439,7 @@ window.api.on("mc-close", async (payload) => {
         await performAutoBackup(inst, "on_launch");
 
         const horizonStatus = await window.api.invoke("check-horizon-status");
-        const cloudPrefs = getCloudSettings();
+        const cloudPrefs = await getCloudSettings();
 
 if (horizonStatus.installed && cloudPrefs.systemEnabled) {
             if (inst.disableHorizon) {
@@ -437,7 +460,7 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
         document.getElementById("console-container").style.display = "block";
         logOutput.innerHTML = "";
         sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
-        logOutput.innerHTML += `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`;
+        logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`);
 
         const destOpt = path.join(instancePath, "options.txt");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
@@ -509,31 +532,75 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                         changed = true;
                     }
                 }
-                if (changed) fs.writeFileSync(datPath, window.api.nbt.write(parsed));
+                if (changed) {
+    const tmpPath = datPath + ".tmp";
+    fs.writeFileSync(tmpPath, window.api.nbt.write(parsed));
+    fs.renameSync(tmpPath, datPath);
+}
             } catch(e) { sysLog("Erreur de sync serveur: " + e, true); }
         }
 
-        let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}" };
+let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}" };
 
         if (acc.type === "microsoft" && acc.mclcAuth) {
             document.getElementById("status-text").innerText = t("msg_check_ms_session", "Vérification de la session Microsoft...");
+            let sessionValid = false;
             try {
                 const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
                 if (refreshRes.success && refreshRes.access_token) {
                     acc.mclcAuth.access_token = refreshRes.access_token;
                     window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
-                } else {
-                    window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter."), "error");
-                    document.getElementById("status-text").innerText = t("status_ready", "Prêt");
-                    window.setUIState();
-                    return;
+                    sessionValid = true;
                 }
-            } catch(e) {
-                window.showToast(t("msg_session_expired", "Session expirée. Veuillez vous reconnecter."), "error");
+            } catch(e) { sysLog("Erreur refresh token: " + e.message, true); }
+
+            if (!sessionValid) {
+                window.showToast(t("msg_session_expired", "Session expirée. Reconnexion requise..."), "info");
+                
+                window._msLoginSessionActive = true; 
+const msModal = document.getElementById("modal-ms-device");
+                if (msModal) {
+                    document.getElementById("ms-device-code-display").innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "Génération du code...")}</span>`;
+                    document.getElementById("ms-device-status").innerText = t("msg_conn_ms", "Connexion...");
+                    msModal.style.display = "flex";
+                }
+                try {
+                    const result = await ipcRenderer.invoke("login-microsoft");
+                    if (result.success) {
+                        acc.mclcAuth = result.auth;
+                        acc.name = result.auth.name;
+                        acc.uuid = result.auth.uuid;
+                        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                        
+                        if(window.renderAccountManager) window.renderAccountManager();
+                        if(window.updateAccountDropdown) window.updateAccountDropdown(); 
+                        
+                        window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
+                        sessionValid = true;
+                    } else if (result.cancelled) {
+                        window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
+                    } else {
+                        let errMsg = result.error || "";
+                        if (result.errorCode === "ERR_AUTH_RUNNING") errMsg = t("msg_err_auth_running", "Une connexion Microsoft est déjà en cours.");
+                        else if (result.errorCode === "ERR_NO_MC_TOKEN") errMsg = t("msg_err_no_mc_token", "Jeton Minecraft introuvable.");
+                        else if (result.errorCode === "ERR_NO_MC_PROFILE") errMsg = t("msg_err_no_mc_profile", "Aucun profil Minecraft trouvé.");
+                        window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
+                    }
+                } catch(e) {
+                    window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
+                } finally {
+                    window._msLoginSessionActive = false;
+                    const modal = document.getElementById("modal-ms-device");
+                    if (modal) modal.style.display = "none";
+                }
+            }
+
+            if (!sessionValid) {
                 document.getElementById("status-text").innerText = t("status_ready", "Prêt");
                 window.setUIState();
                 return;
             }
+
             authObj = acc.mclcAuth;
         }
 
@@ -632,14 +699,21 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                         if (shaRes.ok) expectedSha1 = (await shaRes.text()).trim().toLowerCase().split(/\s/)[0];
                     } catch(e) { sysLog("Hash SHA1 non disponible : " + e.message, true); }
 
-                    sysLog(`Téléchargement de l'installeur : ${downloadUrl}`);
-                    let res = await fetch(downloadUrl);
-                    if (!res.ok && inst.loader === "forge") {
-                        sysLog("Lien officiel échoué, essai miroir...");
-                        downloadUrl = `https://bmclapi2.bangbang93.com/forge/download?mcversion=${inst.version}&version=${inst.loaderVersion}&category=installer&format=jar`;
-                        res = await fetch(downloadUrl);
+                    sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
+                    const dlController = new AbortController();
+                    const dlTimeout = setTimeout(() => dlController.abort(), 60000);
+                    let res;
+                    try {
+                        res = await fetch(downloadUrl, { signal: dlController.signal });
+                        if (!res.ok && inst.loader === "forge") {
+                            sysLog("Lien officiel échoué, essai du miroir secondaire...");
+                            downloadUrl = `https://bmclapi2.bangbang93.com/forge/download?mcversion=${inst.version}&version=${inst.loaderVersion}&category=installer&format=jar`;
+                            res = await fetch(downloadUrl, { signal: dlController.signal });
+                        }
+                    } finally {
+                        clearTimeout(dlTimeout);
                     }
-                    if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (HTTP ${res.status})`);
+                    if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
 
                     let fakePerc = 0;
                      const fakeProgress = setInterval(() => {

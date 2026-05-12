@@ -334,7 +334,9 @@ export function setupSettings() {
                 sysLog(`Avertissement : hash SHA256 non disponible, vérification ignorée pour Java ${version}.`, true);
             }
 
-            fs.writeFileSync(archivePath, fileBytes);
+            const tmpArchivePath = archivePath + ".tmp";
+            fs.writeFileSync(tmpArchivePath, fileBytes);
+            fs.renameSync(tmpArchivePath, archivePath);
             
             window.showLoading(t("msg_extract_java"));
             await yieldUI();

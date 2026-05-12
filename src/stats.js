@@ -103,10 +103,9 @@ export function setupStats() {
         for (const inst of store.allInstances) {
             try {
                 const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
-                
                 if (!fs.existsSync(savesDir)) continue;
 
-                const worlds = fs.readdirSync(savesDir);
+                const worlds = await fs.promises.readdir(savesDir);
                 
                 for (const world of worlds) {
                     try {
@@ -114,22 +113,18 @@ export function setupStats() {
                         const moddedStatsDir = path.join(savesDir, world, "players", "stats");
                         
                         let statsDirToUse = null;
-
-                        if (fs.existsSync(vanillaStatsDir)) {
-                            statsDirToUse = vanillaStatsDir;
-                        } else if (fs.existsSync(moddedStatsDir)) {
-                            statsDirToUse = moddedStatsDir;
-                        }
+                        if (fs.existsSync(vanillaStatsDir)) statsDirToUse = vanillaStatsDir;
+                        else if (fs.existsSync(moddedStatsDir)) statsDirToUse = moddedStatsDir;
 
                         if (!statsDirToUse) continue;
 
-                        const statFiles = fs.readdirSync(statsDirToUse);
+                        const statFiles = await fs.promises.readdir(statsDirToUse);
                         
                         for (const file of statFiles) {
                             if (!file.endsWith(".json")) continue;
                             
                             try {
-                                const rawData = fs.readFileSync(path.join(statsDirToUse, file), "utf8");
+                                const rawData = await fs.promises.readFile(path.join(statsDirToUse, file), "utf8");
                                 const data = JSON.parse(rawData);
                                 const custom = data.stats?.["minecraft:custom"] || {};
                                 
@@ -151,17 +146,11 @@ export function setupStats() {
                                 
                                 totalWalkCm += (walk + sprint + crouch + swim + fly + elytra + boat + horse + minec);
 
-                            } catch(e) { 
-                                console.error(`[Stats] Erreur lecture fichier ${file}:`, e); 
-                            }
+                            } catch(e) {} 
                         }
-                    } catch(e) {
-                         console.error(`[Stats] Erreur lecture monde ${world}:`, e);
-                    }
+                    } catch(e) {}
                 }
-            } catch(e) {
-                console.error(`[Stats] Erreur lecture instance ${inst.name}:`, e);
-            }
+            } catch(e) {}
         }
         
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };

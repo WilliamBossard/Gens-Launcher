@@ -336,7 +336,12 @@
     background: #1e1e1e; 
     z-index: 9999999; 
     flex-direction: column; 
-    align-items: center; 
+    align-items: center;
+
+@keyframes autoIconPulse {
+    0%, 100% { opacity: 0.12; transform: scale(1); }
+    50%       { opacity: 0.28; transform: scale(1.08); }
+} 
     justify-content: center; 
     padding: 30px; 
     -webkit-app-region: drag; 
@@ -1214,6 +1219,7 @@
             background: rgba(255, 255, 85, 0.05); 
         }
 
+        
         .adv-card.locked:hover {
             transform: translateY(-2px);
             opacity: 0.6; 
@@ -1315,7 +1321,9 @@
             
             <button class="tool-btn" onclick="openGlobalSettings()" style="position: relative;">
                 <span data-i18n="toolbar_settings">Paramètres Globaux</span>
+                <!-- Pastille MAJ launcher -->
                 <span id="settings-update-badge" style="display:none; position: absolute; top: 2px; right: 2px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f87171;"></span>
+                <!-- Pastille MAJ Horizon (positionnée légèrement décalée pour ne pas superposer) -->
                 <span id="horizon-update-badge" style="display:none; position: absolute; top: 2px; right: 14px; background:#f48a21; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f48a21;" data-i18n-title="horizon_update_available"></span>
             </button>
             
@@ -1333,7 +1341,7 @@
     <div class="workspace">
         <div class="main-area">
             <div class="search-bar-container">
-                <input type="text" id="search-bar" data-i18n="search_inst" placeholder="Rechercher une instance..." style="width: 250px;" oninput="renderUI()">
+                <input type="text" id="search-bar" data-i18n="search_inst" placeholder="Rechercher une instance..." style="width: 250px;" oninput="scheduleSearch()">
                 <select id="sort-dropdown" class="tool-select" style="width: 200px;" onchange="renderUI()">
                     <option value="name" data-i18n="sort_name">Trier par Nom</option>
                     <option value="lastPlayed" data-i18n="sort_last">Dernière utilisation</option>
@@ -2190,13 +2198,15 @@
     </div>
 <div id="custom-context-menu" class="context-menu">
         <div class="context-menu-item" onclick="ctxLaunch()" data-i18n="ctx_launch">Lancer</div>
-        <div class="context-menu-item" onclick="ctxShortcut()" data-i18n="ctx_create_shortcut">Créer un raccourci bureau</div>
         <div class="context-menu-divider" id="ctx-cloud-divider"></div>
         <div class="context-menu-item" id="ctx-cloud-import" onclick="ctxSyncCloud()" data-i18n="ctx_cloud_import">Importer du Cloud</div>
         <div class="context-menu-item" id="ctx-cloud-upload" onclick="ctxUploadCloud()" data-i18n="ctx_cloud_upload">Envoyer sur le Cloud</div>
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" onclick="ctxFolder()" data-i18n="ctx_open_folder">Ouvrir le dossier</div>
         <div class="context-menu-item" onclick="ctxEdit()" data-i18n="ctx_edit">Modifier</div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" id="ctx-create-shortcut" onclick="ctxShortcut()" data-i18n="ctx_create_shortcut">Créer raccourci bureau</div>
+        <div class="context-menu-item" id="ctx-delete-shortcut" onclick="ctxDeleteShortcut()" data-i18n="ctx_delete_shortcut" style="display:none; color:#f87171;">Supprimer le raccourci</div>
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" onclick="ctxDelete()" style="color:#f87171;" data-i18n="btn_delete">Supprimer</div>
     </div>
@@ -2208,22 +2218,51 @@
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud" style="color:#f87171;">Supprimer du Cloud</div>
     </div>
-<div id="auto-launch-overlay" style="display: none; position: fixed; inset: 0; background: #1a1a1a; z-index: 9999999; flex-direction: column; align-items: center; justify-content: center; padding: 28px 32px; border: 1px solid var(--border); -webkit-app-region: drag; gap: 0;">
-    <img id="auto-icon" src="" style="width: 84px; height: 84px; border-radius: 14px; margin-bottom: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.6); -webkit-app-region: no-drag; object-fit: cover; flex-shrink: 0;">
-    <div id="auto-inst-name" style="font-size: 1.35rem; font-weight: 700; color: var(--text-light); margin-bottom: 16px; text-align: center; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
-    <div id="auto-badges" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; -webkit-app-region: no-drag;">
-        <span id="auto-badge-version" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 4px 12px; font-size: 0.78rem; color: #bbb; white-space: nowrap;"></span>
-        <span id="auto-badge-loader"  style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 4px 12px; font-size: 0.78rem; color: #bbb; white-space: nowrap;"></span>
-        <span id="auto-badge-ram"     style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 4px 12px; font-size: 0.78rem; color: #bbb; white-space: nowrap;"></span>
-    </div>
-    <div style="width: 240px; height: 1px; background: rgba(255,255,255,0.07); margin-bottom: 16px; flex-shrink: 0;"></div>
-    <div style="font-size: 0.85rem; color: #777; margin-bottom: 16px; text-align: center;">
-        <span data-i18n="lbl_auto_session">Session de :</span>
-        <span id="auto-acc-name" style="color: var(--accent); font-weight: 600; margin-left: 5px;"></span>
-    </div>
+<div id="auto-launch-overlay" style="display: none; position: fixed; inset: 0; z-index: 9999999; flex-direction: column; align-items: center; justify-content: center; padding: 28px 32px; -webkit-app-region: drag; gap: 0; overflow: hidden;">
 
-    <div id="auto-status-text" style="font-size: 0.78rem; color: #666; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 5px 18px; text-align: center; -webkit-app-region: no-drag; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" data-i18n="msg_auto_init">Initialisation...</div>
+    <div id="auto-bg-screenshot" style="position:absolute;inset:0;background-size:cover;background-position:center;filter:blur(18px) brightness(0.25);transform:scale(1.08);transition:opacity 0.6s;opacity:0;pointer-events:none;"></div>
+    <div style="position:absolute;inset:0;background:#1a1a1a;z-index:-1;"></div>
 
+    <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;">
+
+        <div id="auto-crash-banner" style="display:none;width:100%;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.35);border-radius:10px;padding:8px 14px;margin-bottom:14px;font-size:0.78rem;color:#f87171;text-align:center;-webkit-app-region:no-drag;cursor:pointer;" onclick="window.openLastCrashReport()">
+            ⚠ <span data-i18n="msg_last_crash">Dernier lancement : crash détecté</span> — <span style="text-decoration:underline;" data-i18n="lbl_see_report">Voir le rapport</span>
+        </div>
+
+        <div style="position:relative;margin-bottom:14px;-webkit-app-region:no-drag;">
+            <div id="auto-icon-glow" style="position:absolute;inset:-8px;border-radius:22px;background:var(--accent,#007acc);opacity:0.15;filter:blur(12px);animation:autoIconPulse 2s ease-in-out infinite;"></div>
+            <img id="auto-icon" src="" style="width:84px;height:84px;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,0.6);object-fit:cover;flex-shrink:0;position:relative;">
+        </div>
+
+        <div id="auto-inst-name" style="font-size:1.35rem;font-weight:700;color:var(--text-light,#fff);margin-bottom:14px;text-align:center;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+
+        <div id="auto-badges" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:14px;-webkit-app-region:no-drag;">
+            <span id="auto-badge-version" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:4px 12px;font-size:0.78rem;color:#bbb;white-space:nowrap;"></span>
+            <span id="auto-badge-loader"  style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:4px 12px;font-size:0.78rem;color:#bbb;white-space:nowrap;"></span>
+            <span id="auto-badge-ram"     style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:4px 12px;font-size:0.78rem;color:#bbb;white-space:nowrap;"></span>
+            <span id="auto-badge-playtime" style="display:none;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:4px 12px;font-size:0.78rem;color:#bbb;white-space:nowrap;"></span>
+        </div>
+
+        <div style="width:240px;height:1px;background:rgba(255,255,255,0.07);margin-bottom:14px;flex-shrink:0;"></div>
+
+        <div style="font-size:0.85rem;color:#777;margin-bottom:14px;text-align:center;">
+            <span data-i18n="lbl_auto_session">Session de :</span>
+            <span id="auto-acc-name" style="color:var(--accent,#007acc);font-weight:600;margin-left:5px;"></span>
+        </div>
+
+        <div style="width:260px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;margin-bottom:10px;overflow:hidden;flex-shrink:0;">
+            <div id="auto-progress-bar" style="height:100%;width:0%;background:var(--accent,#007acc);border-radius:2px;transition:width 0.3s ease;"></div>
+        </div>
+
+        <div id="auto-status-text" style="font-size:0.78rem;color:#666;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:5px 18px;text-align:center;-webkit-app-region:no-drag;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:14px;" data-i18n="msg_auto_init">Initialisation...</div>
+
+        <button id="auto-cancel-btn" class="btn-secondary" style="display:none;height:28px;padding:0 18px;font-size:0.8rem;-webkit-app-region:no-drag;" onclick="window.cancelAutoLaunch()">
+            <span data-i18n="btn_cancel">Annuler</span>
+        </button>
+
+        <div id="auto-not-found-zone" style="display:none;text-align:center;margin-top:8px;-webkit-app-region:no-drag;"></div>
+
+    </div>
 </div>
     <script type="module" src="renderer.js"></script>
     

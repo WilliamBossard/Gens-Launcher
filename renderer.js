@@ -753,14 +753,14 @@ window.ctxRestoreCloud = async () => {
             loaderVersion: dLoaderVer, 
             ram: store.globalSettings.defaultRam.toString(),
             javaPath: "", jvmArgs: "", jvmProfile: "none", 
-            notes: "Ancienne sauvegarde Cloud auto-détectée.",
+            notes: t("msg_old_cloud_backup", "Ancienne sauvegarde Cloud auto-détectée."),
             icon: "", resW: "", resH: "", playTime: 0, lastPlayed: 0, 
             sessionHistory: [], group: t("lbl_group_general", "Général"), servers: [], backupMode: "none", backupLimit: 5
         };
         
         try { window.api.fs.writeFileSync(jsonPath, JSON.stringify(store.allInstances[idx], null, 2)); } catch(e){}
         
-        window.showToast(`Ancienne sauvegarde : Version auto-détectée en ${dVer} (${dLoader}).`, "info");
+        window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
 
     window.safeWriteJSON(store.instanceFile, store.allInstances);

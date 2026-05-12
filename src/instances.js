@@ -40,6 +40,7 @@ export function invalidateScreenshotCache(instName) {
 
 export function setupInstances() {
 
+
     async function fetchLoaderVersions(loader, mcVer) {
         if (loader === "fabric") {
             const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
@@ -393,7 +394,7 @@ export function setupInstances() {
     window.saveEdit = () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const newName = document.getElementById("edit-name").value.trim();
-
+        const oldInstName = inst.name; 
         if (!newName) {
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
             return;
@@ -517,6 +518,44 @@ export function setupInstances() {
 
         try { fs.writeFileSync(path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
 
+        if (iconWasChanged && inst._hasDesktopShortcut) {
+            window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: inst.icon })
+                .then(res => { if (res?.success) window.showToast(t("msg_shortcut_updated", "Raccourci bureau mis à jour !"), "success"); })
+                .catch(() => {});
+        }
+
+        if (oldInstName && oldInstName !== inst.name && inst._hasDesktopShortcut) {
+            window.showCustomConfirm(
+                (t("msg_rename_shortcut_confirm", "L'instance a été renommée. Mettre à jour le raccourci bureau ?"))
+            ).then(async confirmed => {
+                if (confirmed) {
+                    await window.api.invoke("delete-desktop-shortcut", { instanceName: oldInstName });
+                    
+                    let iconPathToUse = inst.icon;
+                    if (!iconPathToUse || iconPathToUse.startsWith("data:image/svg+xml")) {
+                        const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                        const pngPath = window.api.path.join(instFolder, "icon.png");
+                        if (window.api.fs.existsSync(pngPath)) {
+                            iconPathToUse = "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
+                        }
+                    }
+
+                    const res = await window.api.invoke("create-desktop-shortcut", { 
+                        instanceName: inst.name, 
+                        iconPath: iconPathToUse 
+                    });
+                    
+                    if (res?.success) {
+                        window.showToast(t("msg_shortcut_updated", "Raccourci bureau mis à jour !"), "success");
+                    }
+                } else {
+                    inst._hasDesktopShortcut = false;
+                    window.safeWriteJSON(store.instanceFile, store.allInstances);
+                    window.renderUI();
+                }
+            });
+        }
+
         window.renderUI();
         if (iconWasChanged && window.checkAchievement) window.checkAchievement("artist");
         window.closeEditModal();
@@ -546,7 +585,16 @@ export function setupInstances() {
         try {
             const oldPath = path.join(store.instancesRoot, oldInst.name.replace(/[^a-z0-9]/gi, "_"));
             const newPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
-            if (fs.existsSync(oldPath)) await fs.promises.cp(oldPath, newPath, { recursive: true });
+            if (fs.existsSync(oldPath)) {
+                await fs.promises.cp(oldPath, newPath, { recursive: true });
+            }
+            
+            const safeOldName = oldInst.name.replace(/[^a-z0-9]/gi, "_");
+            const safeNewName = inst.name.replace(/[^a-z0-9]/gi, "_");
+            if (inst.icon && inst.icon.includes(safeOldName)) {
+                inst.icon = inst.icon.replace(safeOldName, safeNewName);
+            }
+
             store.allInstances.push(inst);
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
@@ -589,6 +637,11 @@ export function setupInstances() {
             }
 
             invalidateScreenshotCache(inst.name);
+
+            if (inst._hasDesktopShortcut) {
+                window.api.invoke("delete-desktop-shortcut", { instanceName: inst.name })
+                    .catch(() => {});
+            }
 
             sysLog(`[INSTANCE] Instance "${inst.name}" supprimée localement.`);
             store.allInstances.splice(store.selectedInstanceIdx, 1);

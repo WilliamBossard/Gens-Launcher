@@ -281,7 +281,9 @@ function getModWarnings(inst) {
                 }
             };
 
-            fs.writeFileSync(datPath, window.api.nbt.write(nbtRoot));
+            const tmpPath = datPath + ".tmp";
+fs.writeFileSync(tmpPath, window.api.nbt.write(nbtRoot));
+fs.renameSync(tmpPath, datPath);
         } catch(e) {
             sysLog("Erreur sync servers.dat : " + (e.message || e), true);
         }

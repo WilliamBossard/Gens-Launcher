@@ -3,7 +3,8 @@ import { store } from "./store.js";
 const ipcRenderer = window.api;
 const shell = window.api.shell;
 const clipboard = window.api.clipboard;
-const fs = window.api.fs;
+
+let isLoginSessionActive = false;
 
 function t(key, fallback) {
   return store.currentLangObj[key] || fallback;
@@ -13,22 +14,10 @@ let _msDeviceVerificationUri = "";
 let _msDeviceUserCode = "";
 let _msDeviceFinalizeHintTimer = null;
 
-function applyMsDeviceModalI18n() {
-  const titleEl = document.querySelector("#modal-ms-device .modal-header");
-  if (titleEl) titleEl.textContent = t("ms_device_title", "Connexion Microsoft");
-  const copyBtn = document.getElementById("ms-device-btn-copy");
-  if (copyBtn) copyBtn.textContent = t("ms_device_copy", "Copier le code");
-  const openBtn = document.getElementById("ms-device-btn-open");
-  if (openBtn) openBtn.textContent = t("ms_device_open", "Ouvrir la page Microsoft");
-  const cancelBtn = document.getElementById("ms-device-btn-cancel");
-  if (cancelBtn) cancelBtn.textContent = t("ms_device_cancel", "Annuler");
-}
-
 function openMicrosoftDeviceModal(data) {
   _msDeviceVerificationUri = data.verification_uri || data.verificationUri || "https://microsoft.com/link";
   _msDeviceUserCode = data.user_code || data.userCode || "";
   
-  applyMsDeviceModalI18n();
   const helpEl = document.getElementById("ms-device-help");
   if (helpEl) helpEl.textContent = t("ms_device_help", "Copie le code ci-dessous, ouvre la page Microsoft, puis saisis le code quand le site le demande.");
   
@@ -68,10 +57,10 @@ function closeMicrosoftDeviceModal() {
 
 export function setupAuth() {
     
-    ipcRenderer.on("microsoft-device-code", (eventOrData, possibleData) => {
+ipcRenderer.on("microsoft-device-code", (eventOrData, possibleData) => {
       const data = (eventOrData && eventOrData.user_code) ? eventOrData : possibleData;
       
-      if (!window._msLoginSessionActive) return;
+      if (!isLoginSessionActive) return;
       openMicrosoftDeviceModal(data || eventOrData);
     });
 
@@ -98,14 +87,21 @@ export function setupAuth() {
       closeMicrosoftDeviceModal();
     };
 
-    window.loginMicrosoft = async () => {
+window.loginMicrosoft = async () => {
       const btn = document.getElementById("btn-ms-login");
       if (!btn) return;
       
       const originalText = btn.innerText;
       btn.innerText = t("msg_conn_ms", "Connexion...");
       btn.disabled = true;
-      window._msLoginSessionActive = true;
+      isLoginSessionActive = true;
+
+const msModal = document.getElementById("modal-ms-device");
+      if (msModal) {
+          document.getElementById("ms-device-code-display").innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "⏳ Génération du code...")}</span>`;
+          document.getElementById("ms-device-status").innerText = t("msg_conn_ms", "Connexion...");
+          msModal.style.display = "flex";
+      }
 
       try {
         const result = await ipcRenderer.invoke("login-microsoft");
@@ -143,10 +139,10 @@ if (result.success) {
           }
           if(window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
         }
-      } catch (e) {
+} catch (e) {
         if (window.showToast) window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
       } finally {
-        window._msLoginSessionActive = false;
+        isLoginSessionActive = false;
         closeMicrosoftDeviceModal();
         btn.innerText = originalText;
         btn.disabled = false;

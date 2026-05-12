@@ -319,7 +319,9 @@ export function setupArchives() {
                                 }
                             }
 
-                            fs.writeFileSync(modPath, fileBytes);
+                            const tmpPath = modPath + ".tmp";
+                            fs.writeFileSync(tmpPath, fileBytes);
+                            fs.renameSync(tmpPath, modPath);
                         }
                     } catch (e) {
                         sysLog(`Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`, true);
@@ -483,7 +485,10 @@ const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring
                             
                             if (modRes.ok) {
                                 const buffer = await modRes.arrayBuffer();
-                                fs.writeFileSync(path.join(modsDir, fileName), new Uint8Array(buffer));
+                                const finalPath = path.join(modsDir, fileName);
+                                const tmpPath = finalPath + ".tmp";
+                                fs.writeFileSync(tmpPath, new Uint8Array(buffer));
+                                fs.renameSync(tmpPath, finalPath);
                             }
                         }
                     } catch (e) {

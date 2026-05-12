@@ -2,7 +2,6 @@ import { store } from "./store.js";
 
 const ipcRenderer = window.api;
 const path = window.api.path;
-const fs = window.api.fs;
 
 function t(key, fallback) {
   return store.currentLangObj[key] || fallback;

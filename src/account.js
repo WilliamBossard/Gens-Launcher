@@ -1,8 +1,5 @@
 import { store } from "./store.js";
 
-const fs = window.api.fs;
-const path = window.api.path;
-
 function t(key, fallback) {
     return store.currentLangObj[key] || fallback;
 }
@@ -72,9 +69,10 @@ export function setupAccountUI() {
                         const imgEl = document.getElementById(`acc-img-${i}`);
                         if (imgEl) imgEl.src = b64;
                     }
-                });
+});
             }
-            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32`;
+            if (!acc._cacheBuster) acc._cacheBuster = Date.now();
+            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${acc._cacheBuster}`;
 
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
