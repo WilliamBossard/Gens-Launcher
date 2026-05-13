@@ -4,10 +4,6 @@ import { sysLog, yieldUI } from "./utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export function setupSettings() {
     let _javaScanDone = false;  
 
@@ -158,7 +154,7 @@ export function setupSettings() {
         }
         if (idx === "") return;
         const inst = store.allInstances[idx];
-        const sourceOpt = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "options.txt");
+        const sourceOpt = path.join(store.instancesRoot, window.safeDir(inst.name), "options.txt");
         if (fs.existsSync(sourceOpt)) {
             fs.copyFileSync(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
@@ -182,7 +178,7 @@ export function setupSettings() {
         if (idx === "") return;
         const inst = store.allInstances[parseInt(idx)];
         if (!inst) return;
-        const sourceDat = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "servers.dat");
+        const sourceDat = path.join(store.instancesRoot, window.safeDir(inst.name), "servers.dat");
         if (fs.existsSync(sourceDat)) {
             fs.copyFileSync(sourceDat, path.join(store.dataDir, "default_servers.dat"));
             store.globalSettings.defaultServersInstance = inst.name;
@@ -267,7 +263,7 @@ export function setupSettings() {
                 for (let f of files) {
                     const full = path.join(dir, f);
                     const s = fs.statSync(full);
-                    if (s.isDirectory) findJava(full, depth + 1);  
+                    if (s.isDirectory()) findJava(full, depth + 1); 
                     else if (f.toLowerCase() === javaExeName) {
                         let opt = document.createElement("option");
                         opt.value = full;
@@ -358,7 +354,7 @@ export function setupSettings() {
                 for (let f of fs.readdirSync(dir)) {
                     const full = path.join(dir, f);
                     const stat = fs.statSync(full);
-                    if (stat.isDirectory) { const r = findExe(full); if (r) return r; }
+                    if (stat.isDirectory()) { const r = findExe(full); if (r) return r; }
                     else if (f.toLowerCase() === javaExe) return full;
                 }
             }

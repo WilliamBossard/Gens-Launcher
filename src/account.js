@@ -1,9 +1,5 @@
 import { store } from "./store.js";
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export function setupAccountUI() {
     
     async function fetchSkinBase64(playerName) {
@@ -71,8 +67,8 @@ export function setupAccountUI() {
                     }
 });
             }
-            if (!acc._cacheBuster) acc._cacheBuster = Date.now();
-            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${acc._cacheBuster}`;
+            const cacheBuster = acc._cacheBuster || Date.now();
+            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${cacheBuster}`;
 
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">

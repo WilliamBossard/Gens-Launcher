@@ -5,10 +5,6 @@ import { ACHIEVEMENTS } from "./achievements.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export function setupStats() { 
     const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
 
@@ -67,7 +63,7 @@ export function setupStats() {
         await checkDir(path.join(store.dataDir, "exports"), f => true);
 
         for (const inst of store.allInstances) {
-            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             await checkDir(path.join(instDir, "crash-reports"), f => true);
             await checkDir(path.join(instDir, "logs"), f => f.endsWith(".log.gz") || (f.endsWith(".log") && f !== "latest.log"));
         }
@@ -102,7 +98,7 @@ export function setupStats() {
 
         for (const inst of store.allInstances) {
             try {
-                const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+                const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
                 if (!fs.existsSync(savesDir)) continue;
 
                 const worlds = await fs.promises.readdir(savesDir);
@@ -182,14 +178,13 @@ window.openStatsModal = async () => {
             }
         };
         
-        renderAchievements(); 
 
         const diskEl = document.getElementById("dashboard-disk");
         const cacheEl = document.getElementById("dashboard-cache-size");
         const DISK_CACHE_TTL = 5 * 60 * 1000;
         if (diskEl) {
-            if (window._diskSizeCache && (Date.now() - window._diskSizeCache.ts) < DISK_CACHE_TTL) {
-                diskEl.innerText = `${window._diskSizeCache.value} ${t("lbl_gb", "Go")}`;
+            if (store._diskSizeCache && (Date.now() - store._diskSizeCache.ts) < DISK_CACHE_TTL) {
+                diskEl.innerText = `${store._diskSizeCache.value} ${t("lbl_gb", "Go")}`;
             } else {
                 diskEl.innerText = t("msg_calc", "Calcul...");
             }
@@ -211,7 +206,7 @@ window.openStatsModal = async () => {
                     if (s.ms > longestSessionMs) longestSessionMs = s.ms;
                 }
 
-                const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+                const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
                 if (fs.existsSync(modsPath)) {
                     const files = fs.readdirSync(modsPath);
                     totalMods += files.filter((f) => f.endsWith(".jar") || f.endsWith(".jar.disabled")).length;
@@ -291,11 +286,11 @@ window.openStatsModal = async () => {
         }
 
         try {
-            const cacheStale = !window._diskSizeCache || (Date.now() - window._diskSizeCache.ts) >= DISK_CACHE_TTL;
+            const cacheStale = !store._diskSizeCache || (Date.now() - store._diskSizeCache.ts) >= DISK_CACHE_TTL;
             if (cacheStale) {
                 const totalBytes = await getFolderSizeAsync(store.dataDir);
                 const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
-                window._diskSizeCache = { value: totalGB, ts: Date.now() };
+                store._diskSizeCache = { value: totalGB, ts: Date.now() };
                 if (diskEl && document.getElementById("modal-stats").style.display === "flex") {
                     diskEl.innerText = `${totalGB} ${t("lbl_gb", "Go")}`;
                 }

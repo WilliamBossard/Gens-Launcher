@@ -5,10 +5,6 @@ const fs = window.api.fs;
 const path = window.api.path;
 const shell = window.api.shell;
 
-function t(key, fallback) {
-  return store.currentLangObj[key] || fallback;
-}
-
 export function setupArchives() {
     window.handleImport = async (input) => {
         const file = input.files[0];
@@ -145,7 +141,7 @@ export function setupArchives() {
                 backupMode:    ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
                 backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
             };
-            const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
             const filesDir = path.join(tempExtractDir, "files");
@@ -234,7 +230,7 @@ export function setupArchives() {
           lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
 
-        const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
+        const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
         zip.getEntries().forEach((entry) => {
@@ -417,7 +413,7 @@ store.allInstances.push(newInst);
                 lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
 
-            const instDir = path.join(store.instancesRoot, finalName.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
             const overridesDir = manifest.overrides || "overrides";
@@ -538,7 +534,7 @@ store.allInstances.push(newInst);
           return;
       }
 
-      const safeName = inst.name.replace(/[^a-z0-9]/gi, "_");
+      const safeName = window.safeDir(inst.name);
       const sourceFolder = path.join(store.instancesRoot, safeName);
       const exportDir = path.join(store.dataDir, "exports");
       if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });

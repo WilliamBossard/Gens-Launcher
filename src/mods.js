@@ -4,10 +4,6 @@ import { sysLog } from "./utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function t(key, fallback) {
-  return store.currentLangObj[key] || fallback;
-}
-
 function sanitizeFilename(filename) {
     const base = filename.split(/[\\/]/).pop() || "file";
     return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
@@ -61,7 +57,7 @@ function setupMods() {
       if (store.selectedInstanceIdx !== null && type !== "modpack") {
           const inst = store.allInstances[store.selectedInstanceIdx];
           let targetFolder = type === "shader" ? "shaderpacks" : (type === "resourcepack" ? "resourcepacks" : "mods");
-          const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
+          const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
           if (fs.existsSync(destPath)) {
               installedItems = fs.readdirSync(destPath).map(f => f.toLowerCase());
           }
@@ -272,7 +268,7 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
 
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
+            const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
             if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
             const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
@@ -354,14 +350,29 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
 
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const destPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), targetFolder);
+            const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
             if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
 
             if (!fs.existsSync(filePath)) {
-              const buffer = await (await fetch(downloadUrl)).arrayBuffer();
-              fs.writeFileSync(filePath, new Uint8Array(buffer));
+              const dlRes = await fetch(downloadUrl);
+const buffer = await dlRes.arrayBuffer();
+const fileBytes = new Uint8Array(buffer);
+
+if (fileData.hashes && fileData.hashes.length > 0) {
+    const sha1Obj = fileData.hashes.find(h => h.algo === 1);
+    if (sha1Obj) {
+        const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+        if (dlHash !== sha1Obj.value) {
+            sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${fileData.fileName} (attendu: ${sha1Obj.value}, reçu: ${dlHash})`, true);
+            if (!isDependency) statusText.innerText = t("msg_err_hash", "Fichier corrompu ou modifié !");
+            if (window.showToast) window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !"), "error");
+            return;
+        }
+    }
+}
+fs.writeFileSync(filePath, fileBytes);
             }
 
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {
@@ -525,10 +536,10 @@ if (!isDependency) {
                     ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
                     : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
 
-                const iconHtml = mod.icon_url
-                    ? `<img src="${mod.icon_url}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
-                    : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
-
+const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? window.escapeHTML(mod.icon_url) : "";
+const iconHtml = safeIconUrl
+    ? `<img src="${safeIconUrl}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
+    : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
                 const card = document.createElement("div");
                 card.className = "catalog-card";
                 card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
@@ -640,14 +651,14 @@ if (!isDependency) {
             return;
         }
 
-        const safeFolderName = packName.replace(/[^a-z0-9]/gi, "_");
+        const safeFolderName = window.safeDir(packName);
         if (!safeFolderName || safeFolderName === "_") {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
             return;
         }
 
-        if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
+        if (store.allInstances.some(i => window.safeDir(i.name) === safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_builder_name_taken", "Une instance avec ce nom existe déjà."), "error");
             return;

@@ -61,17 +61,20 @@ const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizo
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status"];
 
 contextBridge.exposeInMainWorld("api", {
-    send: (channel, data) => ipcRenderer.send(channel, data),
-    invoke: (channel, data) => ipcRenderer.invoke(channel, data),
-    on: (channel, func) => {
-        if (_ipcListeners[channel]) {
-            ipcRenderer.removeListener(channel, _ipcListeners[channel]);
-        }
-        const wrapper = (_event, ...args) => func(...args);
-        
-        _ipcListeners[channel] = wrapper;
-        ipcRenderer.on(channel, wrapper);
-    },
+    send: (channel, data) => {
+    if (validSendChannels.includes(channel)) ipcRenderer.send(channel, data);
+},
+invoke: (channel, data) => {
+    if (validInvokeChannels.includes(channel)) return ipcRenderer.invoke(channel, data);
+    return Promise.reject(new Error("Canal non autorisé"));
+},
+on: (channel, func) => {
+    if (validReceiveChannels.includes(channel)) {
+        const subscription = (event, ...args) => func(...args);
+        ipcRenderer.on(channel, subscription);
+        return () => ipcRenderer.removeListener(channel, subscription);
+    }
+},
 
     nbt: {
         parse: async (arr) => await nbt.parse(Buffer.from(arr)),
@@ -138,6 +141,7 @@ contextBridge.exposeInMainWorld("api", {
                     return e ? z.readAsText(e) : null;
                 },
                 getEntries: () => z.getEntries().map(e => ({ entryName: e.entryName, isDirectory: e.isDirectory })),
+                addLocalFile: (src, dest) => z.addLocalFile(src, dest),
                 readFile: (name) => new Uint8Array(z.readFile(name)),
                 addLocalFolder: (src, dest) => z.addLocalFolder(src, dest),
                 addTextFile: (name, text) => z.addFile(name, Buffer.from(text, "utf8")),
@@ -159,16 +163,13 @@ contextBridge.exposeInMainWorld("api", {
         existsSync: (p) => fs.existsSync(p),
         readFileSync: (p, enc) => fs.readFileSync(p, enc),
         readdirSync: (p) => fs.readdirSync(p),
-        statSync: (p) => {
-            const s = fs.statSync(p);
-            return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
-        },
+        statSync: (p) => fs.statSync(p),
 
-        writeFileSync: (p, data, enc) => fs.writeFileSync(enforceSandbox(p), data, enc),
-        appendFileSync: (p, data) => fs.appendFileSync(enforceSandbox(p), data),
+        
+        writeFileSync: (p, d) => fs.writeFileSync(enforceSandbox(p), d),
         mkdirSync: (p, opts) => fs.mkdirSync(enforceSandbox(p), opts),
+        renameSync: (oldP, newP) => fs.renameSync(enforceSandbox(oldP), enforceSandbox(newP)),
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
-        renameSync: (p, n) => fs.renameSync(enforceSandbox(p), enforceSandbox(n)),
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
         copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
 

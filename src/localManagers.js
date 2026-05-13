@@ -4,16 +4,12 @@ import { yieldUI, sysLog } from "./utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export function setupLocalManagers() {
     function safeAttrJson(value) {
         return JSON.stringify(value).replace(/'/g, "&#39;");
     }
 function getModWarnings(inst) {
-        const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
         let reqs = {};
         if (!fs.existsSync(modsPath)) return {};
@@ -75,7 +71,7 @@ function getModWarnings(inst) {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         
-        const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
         
         const files = await fs.promises.readdir(modsPath);
@@ -129,7 +125,7 @@ function getModWarnings(inst) {
 
     window.toggleMod = (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         fs.renameSync(
             path.join(modsPath, filename),
             path.join(modsPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
@@ -140,7 +136,7 @@ function getModWarnings(inst) {
     window.deleteMod = async (filename) => {
       if (await window.showCustomConfirm(t("msg_delete_confirm", "Voulez-vous vraiment supprimer ce fichier ?") + "\n(" + filename + ")", true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+            const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
             try {
                 const filePath = path.join(modsPath, filename);
                 if (fs.existsSync(filePath)) {
@@ -158,7 +154,7 @@ function getModWarnings(inst) {
         const listDiv = document.getElementById("shaders-list");
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "shaderpacks");
+        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
         let shadersHtml = "";
         fs.readdirSync(targetPath).forEach((file) => {
@@ -183,7 +179,7 @@ function getModWarnings(inst) {
 
     window.toggleShader = (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "shaderpacks");
+        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
         fs.renameSync(
             path.join(targetPath, filename),
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
@@ -194,7 +190,7 @@ function getModWarnings(inst) {
     window.deleteShader = async (filename) => {
         if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce shader ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "shaderpacks", filename);
+            const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks", filename);
             try {
                 if (fs.existsSync(targetPath)) {
                     fs.unlinkSync(targetPath);
@@ -209,7 +205,7 @@ function getModWarnings(inst) {
         const listDiv = document.getElementById("resourcepacks-list");
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "resourcepacks");
+        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
         let rpHtml = "";
         fs.readdirSync(targetPath).forEach((file) => {
@@ -234,7 +230,7 @@ function getModWarnings(inst) {
 
     window.toggleResourcePack = (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "resourcepacks");
+        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
         fs.renameSync(
             path.join(targetPath, filename),
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
@@ -245,7 +241,7 @@ function getModWarnings(inst) {
     window.deleteResourcePack = async (filename) => {
         if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce pack ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const targetPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "resourcepacks", filename);
+            const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks", filename);
             try {
                 if (fs.existsSync(targetPath)) {
                     fs.unlinkSync(targetPath);
@@ -258,7 +254,7 @@ function getModWarnings(inst) {
 
     async function syncServersDat(inst) {
         try {
-            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (!fs.existsSync(instDir)) return;
             const datPath = path.join(instDir, "servers.dat");
 
@@ -344,7 +340,7 @@ fs.renameSync(tmpPath, datPath);
      */
     async function syncServersDatToStore(inst) {
         try {
-            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const datPath = path.join(instDir, "servers.dat");
             if (!fs.existsSync(datPath)) return false;
 
@@ -478,7 +474,7 @@ fs.renameSync(tmpPath, datPath);
     window.checkModUpdates = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         if (!fs.existsSync(modsPath)) return;
         
         const files = fs.readdirSync(modsPath).filter((f) => f.endsWith(".jar"));
@@ -572,7 +568,7 @@ fs.renameSync(tmpPath, datPath);
 
     async function executeModUpdates() {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         
         let updatedCount = 0;
         const total = pendingUpdates.length;

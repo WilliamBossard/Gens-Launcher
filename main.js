@@ -564,10 +564,10 @@ ipcMain.on("launch-game", (event, opts) => {
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
 
-launcher.launch(opts).then((process) => {
-        activeMinecraftClients.set(instanceId, { process, launcher });
+launcher.launch(opts).then((mcProcess) => {
+        activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
         saveRunningInstances(activeMinecraftClients);
-process.on("close", (code) => {
+mcProcess.on("close", (code) => {
             activeMinecraftClients.delete(instanceId);
             saveRunningInstances(activeMinecraftClients);
             mainWindow?.webContents.send("mc-close", { instanceId, code: code });

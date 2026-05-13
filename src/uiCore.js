@@ -1,15 +1,10 @@
+// NOTE : Les comptes (accounts.json) sont chiffrés en AES (api.security). Les paramètres (settings.json, instances.json) sont stockés en clair (safeWriteJSON).
 import { store } from "./store.js";
 
 const fs = window.api.fs;
 const path = window.api.path;
 const shell = window.api.shell;
 const clipboard = window.api.clipboard;
-
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
-const GENERAL_ALIASES = new Set(["", "Général", "General", "général", "general"]);
 
 export function setupUICore() {
 
@@ -232,10 +227,12 @@ export function setupUICore() {
 
         const defaultGroup = t("lbl_group_general", "Général");
 
-        const groups = {};
+const groups = {};
         filtered.forEach(inst => {
             let g = inst.group;
-            if (!g || GENERAL_ALIASES.has(g.trim())) g = defaultGroup;
+            if (!g || g.trim() === "" || g.toLowerCase() === "général" || g.toLowerCase() === "general") {
+                g = defaultGroup;
+            }
             
             if (!groups[g]) groups[g] = [];
             groups[g].push(inst);
@@ -275,7 +272,7 @@ export function setupUICore() {
             html += `<div class="instances-grid" style="display: ${displayStyle};">`;
             groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
-                const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
                 const isPhantom = inst.version === "...";
                 const phantomClass = isPhantom ? "is-phantom" : "";
                 const isAnyRunning = store.activeInstances.size > 0;
@@ -468,7 +465,7 @@ export function setupUICore() {
         }
 
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
         let added = 0;
 
         for (const file of files) {
@@ -592,7 +589,7 @@ document.addEventListener("click", () => {
             return inst.icon; 
         }
         
-        const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
         const pngPath = window.api.path.join(instFolder, "icon.png");
 
         if (window.api.fs.existsSync(pngPath)) {

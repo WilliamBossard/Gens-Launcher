@@ -6,10 +6,6 @@ const clipboard = window.api.clipboard;
 
 let isLoginSessionActive = false;
 
-function t(key, fallback) {
-  return store.currentLangObj[key] || fallback;
-}
-
 let _msDeviceVerificationUri = "";
 let _msDeviceUserCode = "";
 let _msDeviceFinalizeHintTimer = null;

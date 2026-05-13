@@ -1,11 +1,8 @@
 import { store } from "./store.js";
 
 const ipcRenderer = window.api;
+const fs = window.api.fs;
 const path = window.api.path;
-
-function t(key, fallback) {
-  return store.currentLangObj[key] || fallback;
-}
 
 function initRPC() {
     updateRPC();
@@ -23,7 +20,7 @@ function updateRPC(inst, customState) {
         if (inst) {
             let modSuffix = "";
             if (inst.loader !== "vanilla") {
-                const modsPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "mods");
+                const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
                 if (fs.existsSync(modsPath)) {
                     const modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar")).length;
                     if (modCount > 0) modSuffix = ` (${modCount} mods)`;

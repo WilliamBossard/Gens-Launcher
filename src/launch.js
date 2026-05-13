@@ -7,10 +7,6 @@ const fs = window.api.fs;
 const path = window.api.path;
 const os = window.api.os;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
 const hiddenInstances = new Set();
@@ -33,7 +29,7 @@ async function performAutoBackup(inst, mode) {
     if (inst._backupRunning) { sysLog(`Auto-backup ${inst.name} : déjà en cours, ignoré.`); return; }
     inst._backupRunning = true;
 
-    const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+    const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
     const savesDir = path.join(instDir, "saves");
     const backupDir = path.join(instDir, "backups");
 
@@ -72,7 +68,7 @@ async function performAutoBackup(inst, mode) {
 }
 
 window.updateLiveStats = () => {
-    if (windowHidden) return;
+    if (document.hidden) return;
 
     const total = os.totalmem();
     const free = os.freemem();
@@ -154,7 +150,7 @@ export function setupLauncher() {
     };
 
     window.analyzeCrash = async (instanceName) => {
-        const instDir = path.join(store.instancesRoot, instanceName.replace(/[^a-z0-9]/gi, "_"));
+        const instDir = path.join(store.instancesRoot, window.safeDir(instanceName));
         const crashDir = path.join(instDir, "crash-reports");
         let suspectedMod = null;
 
@@ -347,7 +343,7 @@ window.api.on("mc-close", async (payload) => {
             closedInst.sessionHistory = closedInst.sessionHistory.slice(-30);
 
             try {
-                const instDir = path.join(store.instancesRoot, closedInst.name.replace(/[^a-z0-9]/gi, "_"));
+                const instDir = path.join(store.instancesRoot, window.safeDir(closedInst.name));
                 const datPath = path.join(instDir, "servers.dat");
                 if (fs.existsSync(datPath)) {
                     const { parsed } = await window.api.nbt.parse(fs.readFileSync(datPath));
@@ -433,7 +429,7 @@ if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility 
 
         const acc = store.allAccounts[store.selectedAccountIdx];
         if (!acc) return;
-        const instancePath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        const instancePath = path.join(store.instancesRoot, window.safeDir(inst.name));
         const logOutput = document.getElementById("log-output");
 
         await performAutoBackup(inst, "on_launch");

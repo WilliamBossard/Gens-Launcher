@@ -26,10 +26,6 @@ initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang
 setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupHorizonSettings(); setupStats();
 setupLocalManagers(); setupInstances(); setupUICore();
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 ipcRenderer.on("update-msg", (data) => {
     const text = (data.key && store.currentLangObj[data.key]) ? store.currentLangObj[data.key] : data.text;
     window.showToast(text, data.type);

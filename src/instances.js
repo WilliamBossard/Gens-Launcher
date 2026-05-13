@@ -7,15 +7,11 @@ const path = window.api.path;
 const os = window.api.os;
 const shell = window.api.shell;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 const _screenshotCache = new Map();
 const SCREENSHOT_CACHE_TTL = 30000; 
 
 function getCachedScreenshot(inst) {
-    const safeDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
+    const safeDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
     const cached = _screenshotCache.get(inst.name);
 
     if (cached && cached.dir === safeDir && (Date.now() - cached.ts) < SCREENSHOT_CACHE_TTL) {
@@ -326,7 +322,7 @@ export function setupInstances() {
             return;
         }
 
-        const safeFolderName = name.replace(/[^a-z0-9]/gi, "_");
+        const safeFolderName = window.safeDir(name);
 
         if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
@@ -334,7 +330,7 @@ export function setupInstances() {
             return;
         }
 
-        if (store.allInstances.some(i => i.name.replace(/[^a-z0-9]/gi, "_") === safeFolderName)) {
+        if (store.allInstances.some(i => window.safeDir(i.name) === safeFolderName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
             return;
@@ -406,15 +402,15 @@ export function setupInstances() {
         }
 
         if (newName !== inst.name) {
-            const safeOldName = inst.name.replace(/[^a-z0-9]/gi, "_");
-            const safeNewName = newName.replace(/[^a-z0-9]/gi, "_");
+            const safeOldName = window.safeDir(inst.name);
+            const safeNewName = window.safeDir(newName);
 
             if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeNewName)) {
                 window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
                 return;
             }
 
-            if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && i.name.replace(/[^a-z0-9]/gi, "_") === safeNewName)) {
+            if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && window.safeDir(i.name) === safeNewName)) {
                 window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
                 return;
             }
@@ -480,7 +476,7 @@ export function setupInstances() {
                 inst.loaderVersion = "";
             } else {
                 if (newVersion !== inst.version || newLoader !== inst.loader || newLoaderVer !== inst.loaderVersion) {
-                    const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                    const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
                     ["versions", "libraries"].forEach(dir => {
                         const dirPath = path.join(instFolder, dir);
                         if (fs.existsSync(dirPath)) { try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) {} }
@@ -499,7 +495,7 @@ export function setupInstances() {
         const iconWasChanged = !!store.pendingIconPath;
 
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
-            const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (!fs.existsSync(instFolder)) fs.mkdirSync(instFolder, { recursive: true });
             const ext = path.extname(store.pendingIconPath);
             const newIconPath = path.join(instFolder, "icon" + ext);
@@ -516,7 +512,7 @@ export function setupInstances() {
         window.safeWriteJSON(store.instanceFile, store.allInstances);
         window.selectInstance(store.selectedInstanceIdx);
 
-        try { fs.writeFileSync(path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+        try { fs.writeFileSync(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
 
         if (iconWasChanged && inst._hasDesktopShortcut) {
             window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: inst.icon })
@@ -533,7 +529,7 @@ export function setupInstances() {
                     
                     let iconPathToUse = inst.icon;
                     if (!iconPathToUse || iconPathToUse.startsWith("data:image/svg+xml")) {
-                        const instFolder = window.api.path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+                        const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
                         const pngPath = window.api.path.join(instFolder, "icon.png");
                         if (window.api.fs.existsSync(pngPath)) {
                             iconPathToUse = "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
@@ -562,7 +558,7 @@ export function setupInstances() {
     };
 
     window.openDir = (f) => {
-        const dir = path.join(store.instancesRoot, store.allInstances[store.selectedInstanceIdx].name.replace(/[^a-z0-9]/gi, "_"), f);
+        const dir = path.join(store.instancesRoot, window.safeDir(store.allInstances[store.selectedInstanceIdx].name), f);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         shell.openPath(dir);
     };
@@ -583,14 +579,14 @@ export function setupInstances() {
         window.showLoading(t("msg_copy", "Copie en cours..."));
         await yieldUI();
         try {
-            const oldPath = path.join(store.instancesRoot, oldInst.name.replace(/[^a-z0-9]/gi, "_"));
-            const newPath = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const oldPath = path.join(store.instancesRoot, window.safeDir(oldInst.name));
+            const newPath = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (fs.existsSync(oldPath)) {
                 await fs.promises.cp(oldPath, newPath, { recursive: true });
             }
             
-            const safeOldName = oldInst.name.replace(/[^a-z0-9]/gi, "_");
-            const safeNewName = inst.name.replace(/[^a-z0-9]/gi, "_");
+            const safeOldName = window.safeDir(oldInst.name);
+            const safeNewName = window.safeDir(inst.name);
             if (inst.icon && inst.icon.includes(safeOldName)) {
                 inst.icon = inst.icon.replace(safeOldName, safeNewName);
             }
@@ -628,7 +624,7 @@ export function setupInstances() {
                 }
             } catch(e) { console.error("Erreur check cloud:", e); }
 
-            const instFolder = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
             try {
                 if (fs.existsSync(instFolder)) await fs.promises.rm(instFolder, { recursive: true, force: true });
             } catch(e) {

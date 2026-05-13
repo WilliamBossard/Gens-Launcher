@@ -1,9 +1,5 @@
 import { store } from "./store.js";
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export const ACHIEVEMENTS = [
     {
         id: "first_launch",

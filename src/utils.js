@@ -4,10 +4,6 @@ const fs    = window.api.fs;
 const path  = window.api.path;
 const shell = window.api.shell;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 window.pathToFileUrl = (p) => {
     const normalized = p.replace(/\\/g, "/");
     const prefix = normalized.startsWith("/") ? "file://" : "file:///";
@@ -138,6 +134,16 @@ window.updateLoadingPercent = (percent, text = null) => {
 window.hideLoading = () => {
     document.getElementById("loading-overlay").style.display = "none";
 };
+
+window.t = function(key, fallback) {
+    return store.currentLangObj[key] || fallback;
+};
+
+window.safeDir = function(name) {
+    if (!name) return "";
+    return name.replace(/[^a-z0-9]/gi, "_");
+};
+
 
 const yieldUI = () => new Promise((resolve) => setTimeout(resolve, 50));
 

@@ -4,10 +4,6 @@ import { yieldUI } from "./utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function t(key, fallback) {
-    return store.currentLangObj[key] || fallback;
-}
-
 export function setupWorldsAndGallery() {
     function getMinecraftSavesDir() {
         const platform = window.api.platform;
@@ -56,7 +52,7 @@ export function setupWorldsAndGallery() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const mcDir = path.join(getMinecraftSavesDir(), folderName);
-        const targetDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves", folderName);
+        const targetDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", folderName);
 
         window.showLoading(t("msg_copy", "Copie en cours..."));
         await yieldUI();
@@ -75,7 +71,7 @@ export function setupWorldsAndGallery() {
     window.openWorldsModal = async () => {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+        const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
         const listDiv = document.getElementById("worlds-list");
 
         listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_loading", "Chargement...")}</div>`;
@@ -140,7 +136,7 @@ export function setupWorldsAndGallery() {
 
     window.copySingleWorld = async (folderName) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+        const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
         const src = path.join(savesDir, folderName);
 
         let destName = folderName + t("lbl_copy_suffix", " - Copie");
@@ -166,7 +162,7 @@ export function setupWorldsAndGallery() {
     window.deleteSingleWorld = async (folderName) => {
         if (await window.showCustomConfirm(t("msg_delete_world_confirm", "Voulez-vous vraiment supprimer ce monde définitivement ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const savesDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "saves");
+            const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
             const src = path.join(savesDir, folderName);
             window.showLoading(t("msg_deleting", "Suppression en cours..."));
             await yieldUI();
@@ -183,7 +179,7 @@ export function setupWorldsAndGallery() {
 
     window.backupSingleWorld = async (folderName) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+        const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
         const savesDir = path.join(instDir, "saves");
         const backupDir = path.join(instDir, "backups");
         const src = path.join(savesDir, folderName);
@@ -208,7 +204,7 @@ export function setupWorldsAndGallery() {
 window.openGalleryModal = () => {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const screensDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
+        const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
         const grid = document.getElementById("gallery-grid");
         grid.innerHTML = "";
 
@@ -241,7 +237,7 @@ window.openGalleryModal = () => {
 
     window.openRestoreModal = (folderName) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const backupDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "backups");
+        const backupDir = path.join(store.instancesRoot, window.safeDir(inst.name), "backups");
         const listDiv = document.getElementById("restore-list");
         
         document.getElementById("restore-world-name").innerText = folderName;
@@ -290,7 +286,7 @@ window.openGalleryModal = () => {
         
         if (await window.showCustomConfirm(confirmMsg, true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const instDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"));
+            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const savesDir = path.join(instDir, "saves");
             const backupDir = path.join(instDir, "backups");
             const targetWorldDir = path.join(savesDir, folderName);
@@ -331,7 +327,7 @@ const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
 window.deleteScreenshot = async (filename) => {
         if (await window.showCustomConfirm(t("msg_del_screen_confirm", "Voulez-vous vraiment supprimer cette capture d'écran ?"), true)) {
             const inst = store.allInstances[store.selectedInstanceIdx];
-            const screensDir = path.join(store.instancesRoot, inst.name.replace(/[^a-z0-9]/gi, "_"), "screenshots");
+            const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
             const filePath = path.join(screensDir, filename);
             try {
                 if (fs.existsSync(filePath)) {

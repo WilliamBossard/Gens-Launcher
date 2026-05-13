@@ -1,3 +1,4 @@
+// NOTE : Les comptes (accounts.json) sont chiffrés en AES (api.security). Les paramètres (settings.json, instances.json) sont stockés en clair (safeWriteJSON).
 const path = window.api.path;
 const dataDir = path.join(window.api.appData, "GensLauncher");
 
@@ -9,6 +10,7 @@ export const store = {
     instanceFile: path.join(dataDir, "instances.json"),
     accountFile: path.join(dataDir, "accounts.json"),
     settingsFile: path.join(dataDir, "settings.json"),
+    _diskSizeCache: null,
 
     allInstances: [],
     allAccounts: [],
