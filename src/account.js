@@ -1,12 +1,59 @@
 import { store } from "./store.js";
 
+let _accountSaveTimer = null;
+function scheduleSaveAccounts() {
+    if (_accountSaveTimer) clearTimeout(_accountSaveTimer);
+    _accountSaveTimer = setTimeout(() => {
+        _accountSaveTimer = null;
+        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+    }, 300);
+}
+
 export function setupAccountUI() {
-    
-    async function fetchSkinBase64(playerName) {
+    const skinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'skin-cache.json');
+    let _skinCache = null;
+
+    function getSkinCache() {
+        if (_skinCache !== null) return _skinCache;
         try {
-            const safeName = encodeURIComponent(playerName);
-            const res = await fetch(`https://mc-heads.net/avatar/${safeName}/32`);
+            const raw = window.api.fs.readFileSync(skinCacheFile, 'utf8');
+            _skinCache = JSON.parse(raw);
+        } catch(e) { _skinCache = {}; }
+        return _skinCache;
+    }
+
+    function saveSkin(name, b64) {
+        const cache = getSkinCache();
+        cache[name] = b64;
+        window.safeWriteJSON(skinCacheFile, cache);
+    }
+
+    function getCachedSkin(name) {
+        return getSkinCache()[name] || null;
+    }
+
+    (function migrateSkins() {
+        let changed = false;
+        store.allAccounts.forEach(acc => {
+            if (acc.skinBase64) {
+                saveSkin(acc.name, acc.skinBase64);
+                delete acc.skinBase64;
+                changed = true;
+            }
+        });
+        if (changed) {
+            window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+        }
+    })();
+    
+async function fetchSkinBase64(acc) {
+        try {
+            const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
+            const url = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
+                
+            const res = await fetch(url);
             if (!res.ok) return null;
+            
             const blob = await res.blob();
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -55,20 +102,23 @@ export function setupAccountUI() {
             const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
 
-            if (!acc.skinBase64 && !acc._fetchingSkin && window.navigator.onLine) {
+const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
+            const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
+            
+            const cachedSkin = getCachedSkin(acc.name);
+            const imgSrc = cachedSkin || fallbackUrl;
+
+            if (!cachedSkin && !acc._fetchingSkin && window.navigator.onLine) {
                 acc._fetchingSkin = true;
-                fetchSkinBase64(acc.name).then(b64 => {
+                fetchSkinBase64(acc).then(b64 => {
                     acc._fetchingSkin = false;
                     if (b64) {
-                        acc.skinBase64 = b64;
-                        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                        saveSkin(acc.name, b64);
                         const imgEl = document.getElementById(`acc-img-${i}`);
                         if (imgEl) imgEl.src = b64;
                     }
-});
+                });
             }
-            const cacheBuster = acc._cacheBuster || Date.now();
-            const imgSrc = acc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(acc.name)}/32?t=${cacheBuster}`;
 
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
@@ -193,23 +243,26 @@ export function setupAccountUI() {
             dropdown.appendChild(opt);
         });
         
-        if (skinImg && store.selectedAccountIdx !== null) {
+if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
+            const id = (activeAcc.type === "microsoft" && activeAcc.uuid) ? activeAcc.uuid : activeAcc.name;
+            const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
+
+            const activeSkin = getCachedSkin(activeAcc.name);
             
-            if (!activeAcc.skinBase64 && !activeAcc._fetchingSkin && window.navigator.onLine) {
+            if (!activeSkin && !activeAcc._fetchingSkin && window.navigator.onLine) {
                 activeAcc._fetchingSkin = true;
-                fetchSkinBase64(activeAcc.name).then(b64 => {
+                fetchSkinBase64(activeAcc).then(b64 => {
                     activeAcc._fetchingSkin = false;
                     if (b64) {
-                        activeAcc.skinBase64 = b64;
-                        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                        saveSkin(activeAcc.name, b64);
                         skinImg.src = b64;
                     }
                 });
             }
-            skinImg.src = activeAcc.skinBase64 || `https://mc-heads.net/avatar/${encodeURIComponent(activeAcc.name)}/32`;
+            skinImg.src = activeSkin || fallbackUrl;
             skinImg.style.display = "block";
-        } else if (skinImg) {
+        }else if (skinImg) {
             skinImg.style.display = "none";
         }
         if (window.updateLaunchButton) window.updateLaunchButton();
@@ -228,26 +281,6 @@ export function setupAccountUI() {
     };
 
     let fullscreenSkinViewer = null;
-
-    async function getMojangCapeUrl(uuid) {
-        try {
-            const cleanUuid = uuid.replace(/-/g, "");
-            const res = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${cleanUuid}`);
-            if (!res.ok) return null;
-            
-            const data = await res.json();
-            const texturesProp = data.properties.find(p => p.name === "textures");
-            if (!texturesProp) return null;
-            
-            const texturesJson = JSON.parse(atob(texturesProp.value));
-            if (texturesJson.textures && texturesJson.textures.CAPE) {
-                return texturesJson.textures.CAPE.url;
-            }
-        } catch (e) {
-            console.error("Erreur récupération cape Mojang :", e);
-        }
-        return null;
-    }
 
     window.openSkinModal = () => {
         if (store.uiSelectedAccRow === null) return;
@@ -276,41 +309,68 @@ export function setupAccountUI() {
         canvas.style.transition = "opacity 0.2s ease";
         canvas.style.opacity = "0";
 
-        const skinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}`;
+        const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : null;
 
-        if (!fullscreenSkinViewer) {
-            fullscreenSkinViewer = new skinview3d.SkinViewer({
-                canvas: canvas,
-                width: 200,
-                height: 300,
-                skin: skinUrl
-            });
-            fullscreenSkinViewer.controls.enableRotate = true;
-            fullscreenSkinViewer.controls.enableZoom = true;
-            fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
-            
-            setTimeout(() => { canvas.style.opacity = "1"; }, 150);
-        } else {
-            if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
-
-            fullscreenSkinViewer.loadSkin(skinUrl).then(() => {
-                canvas.style.opacity = "1";
-            });
+        async function loadSkinFromMojang(uuid) {
+            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`);
+            if (!profileRes.ok) throw new Error("profile not found");
+            const profile = await profileRes.json();
+            const encoded = profile.properties?.find(p => p.name === "textures")?.value;
+            if (!encoded) throw new Error("no textures");
+            const textures = JSON.parse(atob(encoded)).textures;
+            const skinObj = textures?.SKIN;
+            const capeObj = textures?.CAPE;
+            return { skinUrl: skinObj?.url || null, capeUrl: capeObj?.url || null };
         }
-        
-        if (acc.type === "microsoft" && acc.uuid) {
-            getMojangCapeUrl(acc.uuid).then(mojangCapeUrl => {
-                if (mojangCapeUrl) {
-                    fullscreenSkinViewer.loadCape(mojangCapeUrl);
-                } else {
-                    fullscreenSkinViewer.loadCape(`https://s.optifine.net/capes/${encodeURIComponent(acc.name)}.png`).catch(() => {
-                        fullscreenSkinViewer.loadCape(null);
-                    });
+
+        const STEVE_URL = "https://assets.mojang.com/SkinTemplates/steve.png";
+
+        async function applyTextures() {
+            let skinUrl = STEVE_URL;
+            let capeUrl = null;
+
+            if (id) {
+                try {
+                    const data = await loadSkinFromMojang(id);
+                    if (data.skinUrl) skinUrl = data.skinUrl;
+                    capeUrl = data.capeUrl;
+                } catch(e) {
                 }
-            });
-        } else {
-            fullscreenSkinViewer.loadCape(null);
+            }
+
+            if (!fullscreenSkinViewer) {
+                fullscreenSkinViewer = new skinview3d.SkinViewer({
+                    canvas: canvas,
+                    width: 200,
+                    height: 300,
+                });
+                fullscreenSkinViewer.controls.enableRotate = true;
+                fullscreenSkinViewer.controls.enableZoom = true;
+                fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
+            } else {
+                if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
+            }
+
+            try {
+                await fullscreenSkinViewer.loadSkin(skinUrl);
+            } catch(e) {
+                try { await fullscreenSkinViewer.loadSkin(STEVE_URL); } catch(_) {}
+            }
+
+            try {
+                if (capeUrl) {
+                    await fullscreenSkinViewer.loadCape(capeUrl);
+                } else {
+                    await fullscreenSkinViewer.loadCape(null);
+                }
+            } catch(_) {
+                try { fullscreenSkinViewer.loadCape(null); } catch(_) {}
+            }
+
+            canvas.style.opacity = "1";
         }
+
+        applyTextures();
     };
 
     window.closeSkinModal = () => {
@@ -335,12 +395,13 @@ export function setupAccountUI() {
         input.value = ""; 
     };
 
-    window.exportSkin = async () => {
+window.exportSkin = async () => {
         if (store.uiSelectedAccRow === null) return;
         const acc = store.allAccounts[store.uiSelectedAccRow];
         
         try {
-            const res = await fetch(`https://minotar.net/skin/${encodeURIComponent(acc.name)}`);
+            const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : encodeURIComponent(acc.name);
+            const res = await fetch(`https://api.mineatar.io/skin/${id}`);
             if (!res.ok) throw new Error("Impossible de récupérer le skin");
             
             const blob = await res.blob();

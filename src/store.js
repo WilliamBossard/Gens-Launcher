@@ -10,8 +10,6 @@ export const store = {
     instanceFile: path.join(dataDir, "instances.json"),
     accountFile: path.join(dataDir, "accounts.json"),
     settingsFile: path.join(dataDir, "settings.json"),
-    _diskSizeCache: null,
-
     allInstances: [],
     allAccounts: [],
     rawVersions: [],

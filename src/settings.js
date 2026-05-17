@@ -229,7 +229,7 @@ export function setupSettings() {
         return `${name} (${source})`;
     };
 
-    window.scanJavaVersions = (targetSelectId = null, silent = false, forceRescan = true) => {
+    window.scanJavaVersions = async (targetSelectId = null, silent = false, forceRescan = true) => {
         if (!silent) document.getElementById("status-text").innerText = t("msg_search_java");
         const selectId = targetSelectId || (document.getElementById("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
         const selectEl = document.getElementById(selectId);
@@ -256,29 +256,40 @@ export function setupSettings() {
         let found = 0;
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
 
-        function findJava(dir, depth = 0) {
+        async function findJavaAsync(dir, depth = 0) {
             if (depth > 3) return;
             try {
-                const files = fs.readdirSync(dir);
-                for (let f of files) {
-                    const full = path.join(dir, f);
-                    const s = fs.statSync(full);
-                    if (s.isDirectory()) findJava(full, depth + 1); 
-                    else if (f.toLowerCase() === javaExeName) {
-                        let opt = document.createElement("option");
-                        opt.value = full;
-                        opt.innerText = window.getFriendlyJavaName(full);
-                        selectEl.appendChild(opt);
-                        found++;
-                    }
+                const entries = await window.api.fs.promises.readdir(dir);
+                for (const entryName of entries) {
+                    const full = path.join(dir, entryName);
+                    try {
+                        const stats = await window.api.fs.promises.stat(full);
+                        if (stats.isDirectory) {
+                            await findJavaAsync(full, depth + 1);
+                        } else if (entryName.toLowerCase() === javaExeName) {
+                            let opt = document.createElement("option");
+                            opt.value = full;
+                            opt.innerText = window.getFriendlyJavaName(full);
+                            selectEl.appendChild(opt);
+                            found++;
+                        }
+                    } catch(errStat) {}
                 }
             } catch(e) {}
         }
 
-        basePaths.forEach(bp => { if (fs.existsSync(bp)) findJava(bp); });
+        const searchPromises = basePaths.map(async (bp) => {
+            if (window.api.fs.existsSync(bp)) {
+                await findJavaAsync(bp);
+            }
+        });
+
+        await Promise.all(searchPromises);
+
         selectEl.value = savedValue || selectEl.value;
         _javaScanDone = true;
         if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
+        document.getElementById("status-text").innerText = t("status_ready", "Prêt");
     };
 
     window.downloadJavaAuto = async (version = 21) => {

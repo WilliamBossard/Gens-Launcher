@@ -7,7 +7,6 @@ import { setupLauncher } from "./src/launch.js";
 import { setupArchives } from "./src/archives.js";
 import { setupLang } from "./src/lang.js";
 import { setupAccountUI } from "./src/account.js";
-import { setupWorldsAndGallery } from "./src/worlds.js";
 import { setupSettings, setupHorizonSettings } from "./src/settings.js";
 import { setupStats } from "./src/stats.js";
 import { setupLocalManagers } from "./src/localManagers.js";
@@ -21,10 +20,29 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
 const path = window.api.path;
-
-initRPC(); setupAuth(); setupMods(); setupLauncher(); setupArchives(); setupLang();
-setupAccountUI(); setupWorldsAndGallery(); setupSettings(); setupHorizonSettings(); setupStats();
-setupLocalManagers(); setupInstances(); setupUICore();
+const _setupFunctions = [
+    ["initRPC",              initRPC],
+    ["setupAuth",            setupAuth],
+    ["setupMods",            setupMods],
+    ["setupLauncher",        setupLauncher],
+    ["setupArchives",        setupArchives],
+    ["setupLang",            setupLang],
+    ["setupAccountUI",       setupAccountUI],
+    ["setupSettings",        setupSettings],
+    ["setupHorizonSettings", setupHorizonSettings],
+    ["setupStats",           setupStats],
+    ["setupLocalManagers",   setupLocalManagers],
+    ["setupInstances",       setupInstances],
+    ["setupUICore",          setupUICore],
+];
+for (const [name, fn] of _setupFunctions) {
+    try {
+        fn();
+    } catch (e) {
+        console.error(`[Init] Erreur dans ${name} :`, e);
+        if (window.showToast) window.showToast(`Erreur d'initialisation : ${name}`, "error");
+    }
+}
 
 ipcRenderer.on("update-msg", (data) => {
     const text = (data.key && store.currentLangObj[data.key]) ? store.currentLangObj[data.key] : data.text;
@@ -211,29 +229,34 @@ window.checkServerStatus = async () => {
             let iconHtml = safeIcon ? `<img src="${safeIcon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
             let motdHtml = "Serveur Minecraft";
-            if (data.motd && data.motd.html) {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = data.motd.html;
-                const clean = document.createElement('div');
-                function processNode(src, dest) {
-                    for (const child of src.childNodes) {
-                        if (child.nodeType === Node.TEXT_NODE) dest.appendChild(document.createTextNode(child.textContent));
-                        else if (child.nodeType === Node.ELEMENT_NODE) {
-                            if (child.tagName === 'BR') dest.appendChild(document.createElement('br'));
-                            else if (child.tagName === 'SPAN') {
-                                const span = document.createElement('span');
-                                const rawStyle = child.getAttribute('style') || '';
-                                const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
-                                if (safeStyle) span.setAttribute('style', safeStyle);
-                                processNode(child, span);
-                                dest.appendChild(span);
-                            } else processNode(child, dest);
-                        }
-                    }
+if (data.motd && data.motd.html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(data.motd.html, 'text/html');
+    const clean = document.createElement('div');
+    
+    function processNode(src, dest) {
+        for (const child of src.childNodes) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                dest.appendChild(document.createTextNode(child.textContent));
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+                if (child.tagName === 'BR') {
+                    dest.appendChild(document.createElement('br'));
+                } else if (child.tagName === 'SPAN') {
+                    const span = document.createElement('span');
+                    const rawStyle = child.getAttribute('style') || '';
+                    const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
+                    if (safeStyle) span.setAttribute('style', safeStyle);
+                    processNode(child, span);
+                    dest.appendChild(span);
+                } else {
+                    processNode(child, dest);
                 }
-                processNode(tempDiv, clean);
-                motdHtml = clean.innerHTML;
             }
+        }
+    }
+    processNode(doc.body, clean);
+    motdHtml = clean.innerHTML;
+}
             
             banner.innerHTML = `
             ${iconHtml}
@@ -800,7 +823,7 @@ document.addEventListener("click", () => {
 async function checkHorizonUpdateAtStartup() {
     try {
         const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const isWin = navigator.userAgent.toLowerCase().includes("win");
+        const isWin = window.api.platform === 'win32';
         const exeName = isWin ? "Horizon.exe" : "Horizon";
         const exePath = window.api.path.join(binPath, exeName);
         const setPath = window.api.path.join(binPath, "horizon_settings.json");

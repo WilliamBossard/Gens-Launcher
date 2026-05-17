@@ -4,7 +4,6 @@ import { updateRPC } from "./discord.js";
 
 const fs = window.api.fs;
 const path = window.api.path;
-const os = window.api.os;
 const shell = window.api.shell;
 
 const _screenshotCache = new Map();
@@ -165,6 +164,10 @@ export function setupInstances() {
         } else if (window.applyTheme) {
             window.applyTheme();
         }
+
+    const logOutput = document.getElementById("log-output");
+    if (logOutput) logOutput.innerHTML = "";
+    if (typeof _logLineCount !== 'undefined') _logLineCount = 0;
 
         window.renderUI();
         if (!store.isGameRunning) updateRPC();
@@ -521,6 +524,7 @@ export function setupInstances() {
         }
 
         if (oldInstName && oldInstName !== inst.name && inst._hasDesktopShortcut) {
+            window.closeEditModal();
             window.showCustomConfirm(
                 (t("msg_rename_shortcut_confirm", "L'instance a été renommée. Mettre à jour le raccourci bureau ?"))
             ).then(async confirmed => {
@@ -550,6 +554,9 @@ export function setupInstances() {
                     window.renderUI();
                 }
             });
+            window.renderUI();
+            if (iconWasChanged && window.checkAchievement) window.checkAchievement("artist");
+            return;
         }
 
         window.renderUI();
@@ -570,7 +577,7 @@ export function setupInstances() {
         const inst = JSON.parse(JSON.stringify(oldInst));
         let newName = inst.name + t("lbl_copy_suffix", " - Copie");
         let copyCounter = 2;
-        while (store.allInstances.some(i => i.name === newName))
+        while (store.allInstances.some(i => window.safeDir(i.name) === window.safeDir(newName)))
             newName = inst.name + t("lbl_copy_suffix", " - Copie") + ` (${copyCounter++})`;
         inst.name = newName;
         inst.playTime = 0;

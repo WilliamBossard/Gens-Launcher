@@ -298,16 +298,17 @@ window.openGalleryModal = () => {
 const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
 
             try {
-                window.api.tools.extractAllTo(zipPath, tmpExtractDir);
+window.api.tools.extractAllTo(zipPath, tmpExtractDir);
                 
-                if (fs.existsSync(targetWorldDir)) {
-                    await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
-                }
-                
-                const extractedWorld = path.join(tmpExtractDir, folderName);
-                if (fs.existsSync(extractedWorld)) {
-                    fs.renameSync(extractedWorld, targetWorldDir);
-                }
+const extractedWorld = path.join(tmpExtractDir, folderName);
+if (!fs.existsSync(extractedWorld)) {
+    throw new Error("L'archive ne contient pas le monde attendu.");
+}
+
+if (fs.existsSync(targetWorldDir)) {
+    await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
+}
+fs.renameSync(extractedWorld, targetWorldDir);
                 
                 await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 

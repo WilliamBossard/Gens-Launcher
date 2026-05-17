@@ -291,7 +291,7 @@ function setupMods() {
                   return;
                 }
               }
-              fs.writeFileSync(filePath, new Uint8Array(buffer));
+              await fs.promises.writeFile(filePath, new Uint8Array(buffer));
             }
 
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {
@@ -372,7 +372,7 @@ if (fileData.hashes && fileData.hashes.length > 0) {
         }
     }
 }
-fs.writeFileSync(filePath, fileBytes);
+await fs.promises.writeFile(filePath, fileBytes);
             }
 
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {
@@ -502,7 +502,10 @@ if (!isDependency) {
             const sortIndex = query ? "relevance" : "downloads";
             const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
 
-            const res = await fetch(url, { signal });
+            await fetch(url, { 
+    signal, 
+    headers: { 'User-Agent': 'WilliamBossard/Gens-Launcher/1.6.1' } 
+});
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
 
@@ -777,7 +780,7 @@ const queue = [...modsToDownload];
                         }
                     }
 
-fs.writeFileSync(destPath, new Uint8Array(buffer));
+await fs.promises.writeFile(destPath, new Uint8Array(buffer));
 
                 } catch (e) {
                     sysLog(`Erreur DL ${mod.name}: ` + e, true);

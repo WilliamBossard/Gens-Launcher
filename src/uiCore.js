@@ -512,6 +512,48 @@ const groups = {};
         window.api.on("trigger-auto-launch", (instName) => {
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
+                window._isAutoLaunch = true;
+                const overlay = document.getElementById("auto-launch-overlay");
+                if (overlay) overlay.style.display = "flex";
+
+                const inst = store.allInstances[idx];
+
+                const iconEl = document.getElementById("auto-icon");
+                if (iconEl) {
+                    const iconSrc = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons["vanilla"];
+                    iconEl.src = iconSrc;
+                }
+
+                const bgEl = document.getElementById("auto-bg-screenshot");
+                if (bgEl && inst.icon) {
+                    bgEl.style.backgroundImage = `url('${inst.icon}')`;
+                    bgEl.style.opacity = "1";
+                }
+
+                const nameEl = document.getElementById("auto-inst-name");
+                if (nameEl) nameEl.textContent = inst.name;
+
+                const badgeVersion = document.getElementById("auto-badge-version");
+                const badgeLoader  = document.getElementById("auto-badge-loader");
+                const badgeRam     = document.getElementById("auto-badge-ram");
+                if (badgeVersion) badgeVersion.textContent = inst.version || "";
+                if (badgeLoader)  badgeLoader.textContent  = inst.loader  || "vanilla";
+                if (badgeRam) {
+                    let ram = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
+                    if (ram > 0 && ram < 8) ram = ram * 1024;
+                    badgeRam.textContent = ram >= 1024 ? (ram / 1024).toFixed(1) + " Go" : ram + " Mo";
+                }
+
+                const accNameEl = document.getElementById("auto-acc-name");
+                if (accNameEl) {
+                    const acc = store.allAccounts[store.selectedAccountIdx];
+                    accNameEl.textContent = acc ? acc.name : "";
+                }
+
+                requestAnimationFrame(() => {
+                    window.api.send("overlay-ready");
+                });
+
                 window.selectInstance(idx);
                 setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
             }

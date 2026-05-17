@@ -144,7 +144,12 @@ window.safeDir = function(name) {
     return name.replace(/[^a-z0-9]/gi, "_");
 };
 
-
-const yieldUI = () => new Promise((resolve) => setTimeout(resolve, 50));
+const yieldUI = () => new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => resolve());
+    } else {
+        setTimeout(resolve, 0);
+    }
+});
 
 export { sysLog, yieldUI };

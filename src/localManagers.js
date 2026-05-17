@@ -464,8 +464,12 @@ fs.renameSync(tmpPath, datPath);
             }
         };
 
-        const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
-        await Promise.allSettled(servers.map((ip, i) => pingOne(ip, i)));
+const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
+        for (let i = 0; i < servers.length; i++) {
+            if (signal.aborted) break;
+            pingOne(servers[i], i);
+            await new Promise(r => setTimeout(r, 200)); 
+        }
         clearTimeout(timeoutId);
     };
 

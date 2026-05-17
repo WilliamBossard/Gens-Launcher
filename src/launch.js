@@ -10,6 +10,7 @@ const os = window.api.os;
 let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
 const hiddenInstances = new Set();
+let _logLineCount = 0;
 
 async function getCloudSettings() {
     try {
@@ -130,7 +131,7 @@ export function setupLauncher() {
         if (isAnyRunning && !monitorInterval) {
             document.getElementById("live-stats").style.display = "block";
             lastCpuTimes = os.cpus().map(c => c.times);
-            monitorInterval = setInterval(window.updateLiveStats, 1500);
+            monitorInterval = setInterval(window.updateLiveStats, 2000);
         } else if (!isAnyRunning && monitorInterval) {
             clearInterval(monitorInterval);
             monitorInterval = null;
@@ -186,16 +187,11 @@ export function setupLauncher() {
 if (!suspectedMod) {
                 const logPath = path.join(instDir, "logs", "latest.log");
                 if (fs.existsSync(logPath)) {
-                    const stats = fs.statSync(logPath);
                     const MAX_READ = 50 * 1024;
-                    const startPos = Math.max(0, stats.size - MAX_READ);
-                    
-                    const fd = fs.openSync(logPath, 'r');
-                    const buffer = Buffer.alloc(Math.min(stats.size, MAX_READ));
-                    fs.readSync(fd, buffer, 0, buffer.length, startPos);
-                    fs.closeSync(fd);
-                    
-                    const logData = buffer.toString('utf8');
+                    const full = fs.readFileSync(logPath, 'utf8');
+                    const logData = full.length > MAX_READ
+                        ? full.slice(full.length - MAX_READ)
+                        : full;
                     const errMatch = logData.match(/Failed to load mod (.*?)\n/i) || logData.match(/Could not find required mod: (.*?) requires/i);
                     if (errMatch) suspectedMod = errMatch[1].trim();
                 }
@@ -212,6 +208,26 @@ if (!suspectedMod) {
     let menuTimers = {};
     let currentServerIPs = {};
 
+    window.api.on("horizon-status", (data) => {
+        if (!window._isAutoLaunch) return;
+        if (data.type !== "PROGRESS") return;
+        const val = Math.round(data.value || 0);
+        const autoBar = document.getElementById("auto-progress-bar");
+        if (autoBar) autoBar.style.width = val + "%";
+        const autoStatus = document.getElementById("auto-status-text");
+        if (autoStatus) {
+            const stepLabels = {
+                COMPRESSING:   t("msg_compress",       "Compression..."),
+                UPLOADING:     t("msg_cloud_up",        "Sauvegarde sur le Cloud..."),
+                CHECKING:      t("msg_checking",        "Vérification..."),
+                EXTRACTING:    t("msg_extract",         "Extraction..."),
+                APPLYING_DELTA:t("msg_applying_delta",  "Mise à jour des fichiers..."),
+            };
+            const label = stepLabels[data.step] || data.step || "";
+            autoStatus.textContent = val > 0 ? `${label} ${val}%` : label;
+        }
+    });
+
     window.api.on("mc-progress", (payload) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (inst && payload.instanceId === inst.name) {
@@ -221,6 +237,8 @@ if (!suspectedMod) {
             document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
             const autoStatus = document.getElementById("auto-status-text");
             if (autoStatus) autoStatus.innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+            const autoBar = document.getElementById("auto-progress-bar");
+            if (autoBar) autoBar.style.width = perc + "%";
             window.api.send("set-taskbar-progress", perc);
 
             if (perc % 10 === 0 && perc !== lastLogPerc) {
@@ -241,9 +259,15 @@ if (!suspectedMod) {
 
         sysLog(`GAME [${instanceId}]: ` + dStr);
 
-if (store.globalSettings.launcherVisibility === "hide" && !hiddenInstances.has(instanceId)) {
-            ipcRenderer.send("hide-window");
+        if (!hiddenInstances.has(instanceId)) {
             hiddenInstances.add(instanceId);
+            if (window._isAutoLaunch) {
+                const overlay = document.getElementById("auto-launch-overlay");
+                if (overlay) overlay.style.display = "none";
+                ipcRenderer.send("hide-window");
+            } else if (store.globalSettings.launcherVisibility === "hide") {
+                ipcRenderer.send("hide-window");
+            }
         }
 
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
@@ -251,10 +275,10 @@ if (store.globalSettings.launcherVisibility === "hide" && !hiddenInstances.has(i
             const pBar = document.getElementById("progress-bar");
             if (pBar && pBar.style.width !== "0%") {
                 pBar.style.width = "0%";
+                const autoBar = document.getElementById("auto-progress-bar");
+                if (autoBar) autoBar.style.width = "0%";
                 window.api.send("set-taskbar-progress", -1);
-                
                 document.getElementById("status-text").innerText = t("msg_game_running", "Jeu en cours d'exécution...");
-                
                 const autoStatus = document.getElementById("auto-status-text");
                 if (autoStatus) autoStatus.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
             }
@@ -266,7 +290,8 @@ if (store.globalSettings.launcherVisibility === "hide" && !hiddenInstances.has(i
 
             const isAtBottom = logOutput.scrollHeight - logOutput.clientHeight <= logOutput.scrollTop + 50;
             logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
-            while (logOutput.childElementCount > 500) logOutput.removeChild(logOutput.firstChild);
+            _logLineCount++;
+            if (_logLineCount > 500) { logOutput.removeChild(logOutput.firstChild); _logLineCount--; }
 
             const filter = document.getElementById("console-filter")?.value.toLowerCase() ?? "";
             if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
@@ -306,10 +331,20 @@ window.api.on("mc-close", async (payload) => {
         const code = payload.code;
 
         store.activeInstances.delete(instanceId);
+        if (menuTimers[instanceId]) { clearTimeout(menuTimers[instanceId]); delete menuTimers[instanceId]; }
+        delete currentServerIPs[instanceId];
         window.setUIState();
         if (window.renderUI) window.renderUI();
 
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
+
+        const isLastInstance = store.activeInstances.size === 0;
+        const isAutoClose    = window._isAutoLaunch && isLastInstance;
+
+        function setAutoStatus(text) {
+            const el = document.getElementById("auto-status-text");
+            if (el) el.textContent = text;
+        }
 
         let closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
         let closedInst = null;
@@ -359,31 +394,41 @@ window.api.on("mc-close", async (payload) => {
 
             window.safeWriteJSON(store.instanceFile, store.allInstances);
 
-            if (store.selectedInstanceIdx === closedInstIndex) {
+            if (!isAutoClose && store.selectedInstanceIdx === closedInstIndex) {
                 const logOutput = document.getElementById("log-output");
                 if (logOutput) {
                     logOutput.insertAdjacentHTML("beforeend", `<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
                 }
-                
                 document.getElementById("status-text").innerText = t("status_ready", "Prêt");
                 document.getElementById("progress-bar").style.width = "0%";
                 window.selectInstance(store.selectedInstanceIdx); 
             }
         }
 
-if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility === "hide") {
+        if (!isAutoClose && isLastInstance && store.globalSettings.launcherVisibility === "hide") {
             ipcRenderer.send("show-window");
             hiddenInstances.clear();
         }
 
-        if (code !== 0 && closedInstIndex !== -1 && store.selectedInstanceIdx === closedInstIndex) {
-            document.getElementById("console-container").style.display = "block";
-            const culprit = await window.analyzeCrash(instanceId);
-            if (culprit) {
-               const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
-                if (action) { window.openEditModal('tab-mods'); }
-} else {
-               await window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
+        if (code !== 0 && closedInstIndex !== -1) {
+            if (isAutoClose) {
+                if (isAutoClose) setAutoStatus(t("msg_crash_generic", "Le jeu a planté (code {code}).").replace("{code}", code));
+                const culprit = await window.analyzeCrash(instanceId);
+                if (culprit) setAutoStatus(`⚠ Crash détecté : ${culprit}`);
+            } else if (store.selectedInstanceIdx === closedInstIndex) {
+                document.getElementById("console-container").style.display = "block";
+                const culprit = await window.analyzeCrash(instanceId);
+                if (culprit) {
+                    const action = await window.showCustomConfirm(t("msg_crash_prompt", "Le jeu a planté ! \n\nL'analyseur a détecté que [ {mod} ] est responsable.\nVoulez-vous le désactiver ?").replace("{mod}", culprit));
+                    if (action) { window.openEditModal('tab-mods'); }
+                } else {
+                    await window.showCustomConfirm(t("msg_crash_generic", "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.").replace("{code}", code));
+                }
+            } else {
+                window.showToast(
+                    t("msg_crash_bg", `L'instance "${instanceId}" a planté (code ${code}).`).replace("{name}", instanceId).replace("{code}", code),
+                    "error"
+                );
             }
         }
 
@@ -398,25 +443,35 @@ if (store.activeInstances.size === 0 && store.globalSettings.launcherVisibility 
                     sysLog(`[HORIZON] Upload ignoré pour "${instanceId}" (désactivé dans les paramètres de l'instance).`);
                 } else if (cloudPrefs.autoUpload) {
                     sysLog(`[HORIZON] Upload Cloud après fermeture de "${instanceId}"...`);
-                    document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
+                    if (isAutoClose) {
+                        const overlay = document.getElementById("auto-launch-overlay");
+                        if (overlay) overlay.style.display = "flex";
+                        ipcRenderer.send("show-window");
+                        setAutoStatus(t("msg_cloud_up", "Sauvegarde sur le Cloud..."));
+                        const autoBar = document.getElementById("auto-progress-bar");
+                        if (autoBar) autoBar.style.width = "0%";
+                    } else {
+                        document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
+                    }
                     await window.api.invoke("call-horizon", ['--upload', instanceId]);
                     sysLog(`[HORIZON] Upload terminé pour "${instanceId}".`);
-                    document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                    if (!isAutoClose) {
+                        document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                    }
                 }
             }
+        }
+
+        if (isAutoClose) {
+            window._isAutoLaunch = false;
+            setAutoStatus(t("msg_auto_closing", "Fermeture..."));
+            setTimeout(() => { window.close(); }, 800);
         }
     });
 
     document.getElementById("launch-btn").addEventListener("click", async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
-
-        if (window.checkAchievement) {
-            window.checkAchievement("first_launch");
-            const ramToVerify = inst.ram || store.globalSettings.defaultRam;
-            if (ramToVerify > 8192) window.checkAchievement("war_machine");
-            const hour = new Date().getHours();
-            if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
-        }
+        if (!inst) return;
 
         if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
             try {
@@ -455,6 +510,7 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
 
         document.getElementById("console-container").style.display = "block";
         logOutput.innerHTML = "";
+        _logLineCount = 0;
         sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
         logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:#007acc">[SYSTEM] ${t("msg_launching", "Lancement de ")}${window.escapeHTML(inst.name)}...</div>`);
 
@@ -465,7 +521,7 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
         }
 
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
-        if (ramMB < 128) ramMB = ramMB * 1024;
+        if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
         ramMB = Math.max(1024, ramMB);
 
         const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
@@ -777,6 +833,14 @@ const msModal = document.getElementById("modal-ms-device");
         inst._tempSessionStart = Date.now();
         store.sessionStartTime = Date.now();
         updateRPC(inst);
+
+        if (window.checkAchievement) {
+            window.checkAchievement("first_launch");
+            const ramToVerify = inst.ram || store.globalSettings.defaultRam;
+            if (ramToVerify > 8192) window.checkAchievement("war_machine");
+            const hour = new Date().getHours();
+            if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
+        }
 
         sysLog("Démarrage du processus MCLC...");
         window.api.send("launch-game", opts);

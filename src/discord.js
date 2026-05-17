@@ -4,10 +4,6 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
 
-function initRPC() {
-    updateRPC();
-}
-
 function updateRPC(inst, customState) {
     if (store.globalSettings.disableRPC) {
         ipcRenderer.send("update-discord", "clear");
@@ -64,5 +60,7 @@ function clearRPC() {
 
 window.updateRPC = updateRPC;
 window.clearRPC  = clearRPC;
+
+const initRPC = updateRPC;
 
 export { initRPC, updateRPC, clearRPC };

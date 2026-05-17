@@ -9,6 +9,8 @@ const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
+const { safeStorage } = require('electron');
+
 
 if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
@@ -32,7 +34,8 @@ function parseAutoLaunchArg(argv) {
     return arg.slice(prefix.length).replace(/^["']|["']$/g, '');
 }
 
-const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net"];
+const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net", "sessionserver.mojang.com", "assets.mojang.com"];
+const SKIN_HOSTS   = ["mc-heads.net", "crafatar.com", "mineatar.io", "s.optifine.net"];
 
 let mainWindow;
 let tray = null;
@@ -131,13 +134,50 @@ function createWindow() {
     mainLog(`Fenêtre créée avec l'icône : ${iconPath}`);
 }
 
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit(); 
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        if (mainWindow) {
+            const instName = parseAutoLaunchArg(commandLine);
+            if (instName) {
+                let shown = false;
+                const showOnce = () => {
+                    if (shown) return;
+                    shown = true;
+                    ipcMain.removeListener("overlay-ready", showOnce);
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        if (mainWindow.isMinimized()) mainWindow.restore();
+                        mainWindow.show();
+                        mainWindow.focus();
+                    }
+                };
+                ipcMain.once("overlay-ready", showOnce);
+                setTimeout(showOnce, 500);
+                mainWindow.webContents.send("trigger-auto-launch", instName);
+            } else {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        }
+    });
+
+    app.whenReady().then(() => {
+    });
+}
+
 app.whenReady().then(() => {
     app.setAppUserModelId("com.gens.launcher");
 
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         try {
             const url = new URL(details.url);
-            if (MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h))) {
+            const isMojang = MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
+            const isSkin   = SKIN_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
+            if (isMojang || isSkin) {
                 details.requestHeaders['User-Agent'] = CHROME_UA;
                 delete details.requestHeaders['sec-ch-ua'];
                 delete details.requestHeaders['sec-ch-ua-mobile'];
@@ -183,8 +223,7 @@ mainWindow.webContents.on('did-finish-load', () => {
     };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
 
-let autoDl = false; 
-    autoUpdater.autoDownload = autoDl;
+    autoUpdater.autoDownload = false;
 
     setTimeout(() => {
         mainLog("Vérification silencieuse des mises à jour...");
@@ -196,6 +235,12 @@ let autoDl = false;
 
 function runHorizonAction(action, event = null) {
     const _lockArgs = Array.isArray(action) ? action : [action];
+    const isSafe = _lockArgs.every(arg => /^[a-zA-Z0-9_\-\.\=\/ ]+$/.test(arg));
+    if (!isSafe) {
+        mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
+        return Promise.resolve(-1);
+    }
+
     const isWriteOp = _lockArgs.some(a => a === '--sync' || a === '--upload');
 
     if (isWriteOp) {
@@ -310,9 +355,9 @@ ipcMain.handle("get-still-running", async () => sendStillRunningInstances());
 
 ipcMain.handle("check-java", async (_, javaPath) => {
     return new Promise((resolve) => {
-        const jpLower = javaPath.toLowerCase().trim();
-        const isValid = jpLower.endsWith("java") || jpLower.endsWith("java.exe") ||
-                        jpLower.endsWith("javaw") || jpLower.endsWith("javaw.exe");
+        const baseName = path.basename(javaPath).toLowerCase().trim();
+        const isValid = baseName === "java" || baseName === "java.exe" ||
+                        baseName === "javaw" || baseName === "javaw.exe";
         if (!isValid) {
             resolve({ err: { message: "Chemin Java invalide bloqué.", code: "SEC_ERR" }, stdout: "", stderr: "" });
             return;
@@ -360,30 +405,28 @@ ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
 const activeMinecraftClients = new Map();
 const runningFilePath = path.join(safeDataDir, "running.json");
 
-function loadRunningInstances() {
-    try { if (!fs.existsSync(runningFilePath)) return {}; return JSON.parse(fs.readFileSync(runningFilePath, "utf8")); }
-    catch(e) { return {}; }
-}
-
-function saveRunningInstances(map) {
-    try {
-        const obj = {};
-        map.forEach((val, key) => { if (val.process?.pid) obj[key] = val.process.pid; });
-        fs.writeFileSync(runningFilePath, JSON.stringify(obj, null, 2));
-    } catch(e) {}
-}
-
 function isProcessAlive(pid) {
     try { process.kill(pid, 0); return true; } catch(e) { return false; }
 }
 
 function sendStillRunningInstances() {
-    const saved = loadRunningInstances();
+    const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
     const stillAlive = [];
-    for (const [instanceId, pid] of Object.entries(saved)) {
-        if (isProcessAlive(pid)) stillAlive.push(instanceId);
+    if (!fs.existsSync(instancesDir)) return stillAlive;
+
+    const folders = fs.readdirSync(instancesDir);
+    for (const folder of folders) {
+        const lockFile = path.join(instancesDir, folder, "instance.lock");
+        if (fs.existsSync(lockFile)) {
+            const pid = parseInt(fs.readFileSync(lockFile, 'utf8'), 10);
+            try {
+                process.kill(pid, 0); 
+                stillAlive.push(folder);
+            } catch (e) {
+                fs.unlinkSync(lockFile); 
+            }
+        }
     }
-    if (stillAlive.length === 0) { try { fs.writeFileSync(runningFilePath, "{}"); } catch(e) {} }
     return stillAlive;
 }
 
@@ -453,8 +496,17 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         if (process.platform === 'win32') {
             if (localIconPath && localIconPath.toLowerCase().endsWith('.png') && fs.existsSync(localIconPath)) {
                 try {
-                    const pngData = fs.readFileSync(localIconPath);
-                    if (pngData.toString('hex', 0, 8) === '89504e470d0a1a0a') {
+                    let isPng = false;
+                    try {
+                        const fd = fs.openSync(localIconPath, 'r');
+                        const magic = Buffer.alloc(8);
+                        fs.readSync(fd, magic, 0, 8, 0);
+                        fs.closeSync(fd);
+                        isPng = magic.toString('hex') === '89504e470d0a1a0a';
+                    } catch(magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
+
+                    if (isPng) {
+                        const pngData = fs.readFileSync(localIconPath);
                         const icoPath = path.join(instFolder, "icon_win.ico");
                         
                         const header = Buffer.alloc(22);
@@ -565,15 +617,22 @@ ipcMain.on("launch-game", (event, opts) => {
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
 
 launcher.launch(opts).then((mcProcess) => {
+        const lockFile = path.join(opts.root, "instance.lock");
+        fs.writeFileSync(lockFile, mcProcess.pid.toString(), 'utf8'); 
+
         activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
-        saveRunningInstances(activeMinecraftClients);
-mcProcess.on("close", (code) => {
+        
+        mcProcess.on("close", (code) => {
+            if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile); 
+
             activeMinecraftClients.delete(instanceId);
-            saveRunningInstances(activeMinecraftClients);
             mainWindow?.webContents.send("mc-close", { instanceId, code: code });
         });
 
-    }).catch(e => mainLog("Erreur Lancement: " + e));
+    }).catch(e => {
+        mainLog("Erreur Lancement: " + e);
+        mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
+    });
 });
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -755,7 +814,13 @@ function connectRPC() {
         mainLog("Discord RPC abandonné après 20 tentatives.");
         return;
     }
-    
+
+    if (rpc) {
+        rpc.removeAllListeners();
+        rpc.destroy().catch(() => {});
+        rpc = null;
+    }
+
     rpc = new DiscordRPC.Client({ transport: "ipc" });
     rpc.on("ready", () => {
         rpcReady = true;
@@ -781,6 +846,30 @@ ipcMain.on("update-discord", (event, data) => {
     if (!rpcReady || !rpc) return;
     if (data === "clear") { rpc.clearActivity().catch(() => {}); return; }
     rpc.setActivity(data).catch(() => {});
+});
+
+ipcMain.on('encrypt-string-sync', (event, text) => {
+    if (safeStorage.isEncryptionAvailable()) {
+        event.returnValue = 'safeStorage:' + safeStorage.encryptString(text).toString('hex');
+    } else {
+        event.returnValue = 'b64:' + Buffer.from(text).toString('base64');
+    }
+});
+
+ipcMain.on('decrypt-string-sync', (event, hexText) => {
+    try {
+        if (hexText.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
+            event.returnValue = safeStorage.decryptString(Buffer.from(hexText.split(':')[1], 'hex'));
+            return;
+        }
+        if (hexText.startsWith('b64:')) {
+            event.returnValue = Buffer.from(hexText.split(':')[1], 'base64').toString('utf8');
+            return;
+        }
+    } catch (e) {
+        mainLog("Erreur de déchiffrement : " + e.message);
+    }
+    event.returnValue = null;
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

@@ -53,11 +53,9 @@ function closeMicrosoftDeviceModal() {
 
 export function setupAuth() {
     
-ipcRenderer.on("microsoft-device-code", (eventOrData, possibleData) => {
-      const data = (eventOrData && eventOrData.user_code) ? eventOrData : possibleData;
-      
-      if (!isLoginSessionActive) return;
-      openMicrosoftDeviceModal(data || eventOrData);
+ipcRenderer.on("microsoft-device-code", (data) => {
+      if (!isLoginSessionActive && !window._msLoginSessionActive) return;
+      openMicrosoftDeviceModal(data);
     });
 
     window.copyMsDeviceCode = () => {

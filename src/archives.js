@@ -248,10 +248,10 @@ export function setupArchives() {
           if (isOverride) {
             const resolvedTarget = path.resolve(targetPath);
             const resolvedInstDir = path.resolve(instDir);
-            if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + "/") && !resolvedTarget.startsWith(resolvedInstDir + "\\")) {
-                console.error("Tentative de Zip Slip ignorée dans le MrPack :", entry.entryName);
-                return; 
-            }
+            if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + path.sep)) {
+    console.error("Tentative de Zip Slip bloquée :", entry.entryName);
+    return; 
+}
 
             if (entry.isDirectory) {
               if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
@@ -423,10 +423,10 @@ store.allInstances.push(newInst);
                     
                     const resolvedTarget = path.resolve(targetPath);
                     const resolvedInstDir = path.resolve(instDir);
-                    if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + "/") && !resolvedTarget.startsWith(resolvedInstDir + "\\")) {
-                        console.error("Tentative de Zip Slip bloquée dans CurseForge :", entry.entryName);
-                        return; 
-                    }
+if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + path.sep)) {
+    console.error("Tentative de Zip Slip bloquée :", entry.entryName);
+    return; 
+}
 
                     if (entry.isDirectory) {
                         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });

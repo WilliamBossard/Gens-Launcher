@@ -7,7 +7,6 @@ const AdmZip = require("adm-zip");
 const crypto = require("crypto"); 
 
 const _appPaths = ipcRenderer.sendSync("get-paths-sync");
-const _ipcListeners = {};
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 
 function enforceSandbox(p) {
@@ -56,7 +55,7 @@ function deobfuscateData(text) {
     } catch(e) { return null; }
 }
 
-const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress"];
+const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
 const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut"];
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status"];
 
@@ -84,33 +83,42 @@ on: (channel, func) => {
     security: {
         writeJSON: (filePath, data) => {
             const jsonString = JSON.stringify(data, null, 2);
-            const encrypted = obfuscateData(jsonString);
+            const encrypted = ipcRenderer.sendSync('encrypt-string-sync', jsonString);
             fs.writeFileSync(enforceSandbox(filePath), encrypted, 'utf8');
         },
         readJSON: (filePath) => {
-            if (!fs.existsSync(filePath)) return null;
-            const raw = fs.readFileSync(filePath, 'utf8');
+            const safePath = enforceSandbox(filePath);
+            if (!fs.existsSync(safePath)) return null;
+            const raw = fs.readFileSync(safePath, 'utf8');
             
             if (raw.startsWith('{') || raw.startsWith('[')) {
                 const parsed = JSON.parse(raw);
                 try {
-                    const jsonString = JSON.stringify(parsed, null, 2);
-                    const encrypted = obfuscateData(jsonString);
-                    fs.writeFileSync(enforceSandbox(filePath), encrypted, 'utf8');
-                } catch(e) {
-                    console.error("Erreur migration chiffrement:", e);
-                }
+                    const encrypted = ipcRenderer.sendSync('encrypt-string-sync', JSON.stringify(parsed, null, 2));
+                    fs.writeFileSync(safePath, encrypted, 'utf8');
+                } catch(e) {}
                 return parsed;
             }
             
-            const decrypted = deobfuscateData(raw);
-            return decrypted ? JSON.parse(decrypted) : null;
+            const decrypted = ipcRenderer.sendSync('decrypt-string-sync', raw);
+            if (decrypted) return JSON.parse(decrypted);
+
+            const oldDecrypted = deobfuscateData(raw);
+            return oldDecrypted ? JSON.parse(oldDecrypted) : null;
         }
     },
 
     tools: {
-        hashFile: (filePath, algo) => crypto.createHash(algo).update(fs.readFileSync(filePath)).digest("hex"),
-        hashBuffer: (arr, algo) => crypto.createHash(algo).update(Buffer.from(arr)).digest("hex"),
+        hashFile: (filePath, algo) => {
+            const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
+            if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
+            return crypto.createHash(algo).update(fs.readFileSync(enforceSandbox(filePath))).digest("hex");
+        },
+        hashBuffer: (arr, algo) => {
+            const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
+            if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
+            return crypto.createHash(algo).update(Buffer.from(arr)).digest("hex");
+        },
         extractTar: (archivePath, destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
         extractAllTo: (zipPath, destDir) => {
             const z = new AdmZip(zipPath);
@@ -134,7 +142,7 @@ on: (channel, func) => {
         },
 
         AdmZip: function(zipPath) {
-            const z = zipPath ? new AdmZip(zipPath) : new AdmZip();
+            const z = zipPath ? new AdmZip(enforceSandbox(zipPath)) : new AdmZip();
             return {
                 getEntryText: (name) => {
                     const e = z.getEntry(name);
@@ -172,9 +180,14 @@ on: (channel, func) => {
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
         copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
+        appendFileSync: (p, d) => fs.appendFileSync(enforceSandbox(p), d),
+        openSync: (p, f) => fs.openSync(enforceSandbox(p), f),
+        readSync: (fd, b, o, l, pos) => fs.readSync(fd, b, o, l, pos),
+        closeSync: (fd) => fs.closeSync(fd),
 
         promises: {
             readFile: (p, enc) => fs.promises.readFile(p, enc),
+            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d), 
             readdir: (p) => fs.promises.readdir(p),
             stat: async (p) => {
                 const s = await fs.promises.stat(p);
