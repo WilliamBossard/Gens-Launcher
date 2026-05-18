@@ -179,11 +179,15 @@ app.whenReady().then(() => {
             const url = new URL(details.url);
             const isMojang = MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
             const isSkin   = SKIN_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
+            const isModrinth = url.hostname.includes("modrinth.com");
+
             if (isMojang || isSkin) {
                 details.requestHeaders['User-Agent'] = CHROME_UA;
                 delete details.requestHeaders['sec-ch-ua'];
                 delete details.requestHeaders['sec-ch-ua-mobile'];
                 delete details.requestHeaders['sec-ch-ua-platform'];
+            } else if (isModrinth) {
+                details.requestHeaders['User-Agent'] = "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)";
             }
         } catch(e) {}
         callback({ cancel: false, requestHeaders: details.requestHeaders });
@@ -380,6 +384,23 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return { success: true, data: await response.json() };
     } catch(e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle("search-modrinth", async (_, url) => {
+    try {
+        const finalUrl = url.startsWith("http") ? url : `https://${url}`;
+        
+        const response = await fetch(finalUrl, { 
+            headers: { 
+                "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)",
+                "Accept": "application/json"
+            } 
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { success: true, data: await response.json() };
+    } catch(e) { 
+        return { success: false, error: e.message }; 
+    }
 });
 
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
@@ -917,25 +938,41 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(dest);
         const archive = archiver('zip', { zlib: { level: 6 } });
-        
+
         output.on('close', () => resolve({ success: true }));
         archive.on('error', err => reject(err));
-        
+
+        archive.on('progress', (progress) => {
+            if (progress.entries.total > 0) {
+                const pct = Math.round((progress.entries.processed / progress.entries.total) * 100);
+                event.sender.send("zip-progress", { percent: pct });
+            }
+        });
+
         archive.pipe(output);
-        const excludeSet = new Set(exclude);
         
         if (fs.existsSync(src)) {
-            const items = fs.readdirSync(src);
-            for (const item of items) {
-                if (excludeSet.has(item)) continue;
-                const fullPath = path.join(src, item);
-                if (fs.statSync(fullPath).isDirectory()) {
-                    archive.directory(fullPath, (exclude.length > 0 ? `files/${item}` : item));
-                } else {
-                    archive.file(fullPath, { name: (exclude.length > 0 ? `files/${item}` : item) });
+            const excludeSet = new Set(exclude || []);
+            const addFilesRecursively = (currentDir) => {
+                const items = fs.readdirSync(currentDir);
+                for (const item of items) {
+                    const fullPath = path.join(currentDir, item);
+                    const relativePath = path.relative(src, fullPath);
+                    const rootItem = relativePath.split(/[/\\]/)[0];
+
+                    if (excludeSet.has(rootItem)) continue;
+
+                    if (fs.statSync(fullPath).isDirectory()) {
+                        addFilesRecursively(fullPath);
+                    } else {
+                        archive.file(fullPath, { name: relativePath });
+                    }
                 }
-            }
+            };
+
+            addFilesRecursively(src);
         }
+        
         archive.finalize();
     });
 });
@@ -971,8 +1008,18 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
         const resolvedTarget = path.resolve(destDir);
         yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
             if (err) return reject(err);
+            
+            let processedCount = 0;
+            const total = zipfile.entryCount; 
+
             zipfile.readEntry();
             zipfile.on("entry", (entry) => {
+                
+                processedCount++;
+                if (total > 0 && processedCount % 10 === 0 || processedCount === total) {
+                    event.sender.send("zip-progress", { percent: Math.round((processedCount / total) * 100) });
+                }
+
                 const dest = path.join(destDir, entry.fileName);
                 const resDest = path.resolve(dest);
                 if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
@@ -987,7 +1034,6 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
                         if (err) { zipfile.close(); return reject(err); }
                         const writeStream = fs.createWriteStream(dest);
                         readStream.pipe(writeStream);
-                        
                         writeStream.on("close", () => zipfile.readEntry());
                         writeStream.on("error", (wErr) => {
                             readStream.destroy();

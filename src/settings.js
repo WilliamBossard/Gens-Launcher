@@ -352,7 +352,7 @@ export function setupSettings() {
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
             
             if (platform === "windows") {
-                window.api.tools.extractAllTo(archivePath, extractDir);
+                await window.api.invoke("extract-zip", { zipPath: archivePath, destDir: extractDir }); 
             } else {
                 fs.mkdirSync(extractDir, { recursive: true });
                 const extractRes = await window.api.tools.extractTar(archivePath, extractDir);

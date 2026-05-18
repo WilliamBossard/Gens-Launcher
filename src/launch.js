@@ -454,7 +454,8 @@ window.api.on("mc-close", async (payload) => {
                     } else {
                         document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
                     }
-                    await window.api.invoke("call-horizon", ['--upload', instanceId]);
+                    window._isManualHorizon = false;
+                    await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);
                     sysLog(`[HORIZON] Upload terminé pour "${instanceId}".`);
                     if (!isAutoClose) {
                         document.getElementById("status-text").innerText = t("status_ready", "Prêt");
@@ -504,7 +505,8 @@ if (horizonStatus.installed && cloudPrefs.systemEnabled) {
                     if (autoStatus) autoStatus.innerText = t("msg_cloud_sync", "Vérification du Cloud...");
                 }
                 
-                await window.api.invoke("call-horizon", ['--sync', inst.name]);
+                window._isManualHorizon = false;
+                await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
                 sysLog(`[HORIZON] Synchronisation terminée.`);
             }
         }

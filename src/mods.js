@@ -72,8 +72,10 @@ function setupMods() {
             const sortIndex = query ? "relevance" : "downloads";
             const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
             
-            const res = await fetch(url, { signal });
-            const data = await res.json();
+            const res = await window.api.invoke("search-modrinth", url);
+            if (signal.aborted) return; 
+            if (!res.success) throw new Error(res.error);
+            const data = res.data;
 
             if (!data.hits) throw new Error("Réponse API Modrinth invalide");
 
@@ -502,12 +504,10 @@ if (!isDependency) {
             const sortIndex = query ? "relevance" : "downloads";
             const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
 
-            await fetch(url, { 
-    signal, 
-    headers: { 'User-Agent': 'WilliamBossard/Gens-Launcher/1.6.1' } 
-});
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
+            const res = await window.api.invoke("search-modrinth", url);
+            if (signal.aborted) return; 
+            if (!res.success) throw new Error(res.error);
+            const data = res.data;
 
             if (!Array.isArray(data.hits)) throw new Error("Invalid API response");
 

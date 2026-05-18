@@ -430,7 +430,7 @@ export function setupInstances() {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);
                         if (inst.icon && inst.icon.includes(safeOldName)) {
-                            inst.icon = inst.icon.replace(safeOldName, safeNewName);
+                            inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
                     }
                 } catch(err) {
@@ -604,7 +604,7 @@ export function setupInstances() {
             const safeOldName = window.safeDir(oldInst.name);
             const safeNewName = window.safeDir(inst.name);
             if (inst.icon && inst.icon.includes(safeOldName)) {
-                inst.icon = inst.icon.replace(safeOldName, safeNewName);
+                inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
             }
 
             store.allInstances.push(inst);

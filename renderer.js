@@ -13,6 +13,7 @@ import { setupLocalManagers } from "./src/localManagers.js";
 import { setupInstances } from "./src/instances.js";
 import { setupUICore } from "./src/uiCore.js";
 import { checkAchievement, ACHIEVEMENTS } from "./src/achievements.js";
+import { setupWorldsAndGallery } from "./src/worlds.js";
 window.checkAchievement = checkAchievement;
 window.ACHIEVEMENTS = ACHIEVEMENTS;
 
@@ -34,6 +35,7 @@ const _setupFunctions = [
     ["setupLocalManagers",   setupLocalManagers],
     ["setupInstances",       setupInstances],
     ["setupUICore",          setupUICore],
+    ["setupWorldsAndGallery", setupWorldsAndGallery],
 ];
 for (const [name, fn] of _setupFunctions) {
     try {
@@ -371,6 +373,7 @@ window.ctxSyncCloud = async () => {
     const inst = store.allInstances[store.selectedInstanceIdx];
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
+        window._isManualHorizon = true;
         await window.api.invoke("call-horizon", ['--sync', inst.name]);
     }
 };
@@ -379,6 +382,7 @@ window.ctxUploadCloud = async () => {
     const inst = store.allInstances[store.selectedInstanceIdx];
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
+        window._isManualHorizon = true;
         await window.api.invoke("call-horizon", ['--upload', inst.name]);
     }
 };
@@ -400,7 +404,9 @@ window.api.on("horizon-status", async (data) => {
 
         let html = "";
         data.data.forEach(instName => {
-            const isLocal = store.allInstances.some(i => i.name === instName);
+            const localInst = store.allInstances.find(i => window.safeDir(i.name) === instName || i.name === instName);
+            const isLocal = !!localInst;
+            const displayName = isLocal ? localInst.name : instName; 
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
 
@@ -416,8 +422,7 @@ window.api.on("horizon-status", async (data) => {
 
             let iconSrc = store.defaultIcons.vanilla;
             if (isLocal) {
-                const localInst  = store.allInstances.find(i => i.name === instName);
-                const instFolder = window.api.path.join(store.instancesRoot, instName.replace(/[^a-z0-9]/gi, "_"));
+                const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                 if (localInst.icon && localInst.icon !== "") {
                     iconSrc = localInst.icon;
                 } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
@@ -440,9 +445,9 @@ window.api.on("horizon-status", async (data) => {
             }
 
             html += `
-            <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(instName)}', ${isLocal})">
+            <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(displayName)}', ${isLocal})">
                 <img class="instance-icon" src="${iconSrc}" onerror="this.src='${store.defaultIcons.vanilla}'">
-                <div class="instance-name">${window.escapeHTML(instName)}</div>
+                <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
             </div>`;
@@ -488,11 +493,14 @@ window.api.on("horizon-status", async (data) => {
         const instances = (data.instances || []).sort((a, b) => b.bytes - a.bytes);
         let instRows = "";
         for (const inst of instances.slice(0, 8)) {
+            const localInst = store.allInstances.find(i => window.safeDir(i.name) === inst.name || i.name === inst.name);
+            const rowDisplayName = localInst ? localInst.name : inst.name;
+
             const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
             const deltaInfo = inst.deltaCount > 0 ? ` · ${inst.deltaCount} delta(s)` : "";
             instRows += `
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
-                    <span style="flex:1; font-size:0.78rem; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHTML(inst.name)}">${window.escapeHTML(inst.name)}</span>
+                    <span style="flex:1; font-size:0.78rem; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHTML(rowDisplayName)}">${window.escapeHTML(rowDisplayName)}</span>
                     <span style="font-size:0.72rem; color:#888; white-space:nowrap;">${fmtBytes(inst.bytes)}${deltaInfo}</span>
                     <div style="width:60px; height:6px; background:var(--border); border-radius:3px; flex-shrink:0;">
                         <div style="width:${pct}%; height:100%; background:var(--accent); border-radius:3px;"></div>
@@ -558,7 +566,7 @@ window.api.on("horizon-status", async (data) => {
     let targetCards = []; 
     cards.forEach(c => {
         const nameEl = c.querySelector('.instance-name');
-        if (nameEl && data.instance && nameEl.innerText.trim() === data.instance.trim()) {
+        if (nameEl && data.instance && (nameEl.innerText.trim() === data.instance.trim() || window.safeDir(nameEl.innerText.trim()) === data.instance.trim())) {
             targetCards.push(c); 
         }
     });
@@ -638,7 +646,12 @@ window.api.on("horizon-status", async (data) => {
             }
         }
         else if (data.errorCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
+            if (!window._isManualHorizon) return;  
             finalMsg = t("msg_not_on_cloud", "Cette instance n'existe pas sur le Cloud.");
+        }
+        else if (finalMsg.includes("introuvable localement")) {
+            if (!window._isManualHorizon) return;     
+            finalMsg = t("msg_err_local_not_found", "Instance introuvable localement.");
         }
         else if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
             const portMatch = finalMsg.match(/\d{4,5}/); 
@@ -749,7 +762,7 @@ window.ctxRestoreCloud = async () => {
         window.renderUI();
     }
 
-    const exitCode = await window.api.invoke("call-horizon", ['--sync', targetName, '--force']);
+    const exitCode = await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName), '--force']);
     
     const idx = store.allInstances.findIndex(i => i.name === targetName);
     if (idx === -1) return;
@@ -818,7 +831,7 @@ window.ctxDeleteCloudOnly = async () => {
         
         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
 
-        await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
+        await window.api.invoke("call-horizon", ['--sync', '--delete', window.safeDir(store.cloudTarget)]);
         window.api.invoke("call-horizon", ['--sync', '--list']); 
     }
 };
@@ -828,7 +841,8 @@ window.ctxSyncCloudFromMenu = async () => {
     const targetName = store.cloudTarget;
     if (!targetName) return;
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
-    await window.api.invoke("call-horizon", ['--sync', targetName]);
+    window._isManualHorizon = true;
+    await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]); 
     window.api.invoke("call-horizon", ['--sync', '--list']);
 };
 
@@ -837,7 +851,8 @@ window.ctxUploadCloudFromMenu = async () => {
     const targetName = store.cloudTarget;
     if (!targetName) return;
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
-    await window.api.invoke("call-horizon", ['--upload', targetName]);
+    window._isManualHorizon = true;
+    await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]); 
     window.api.invoke("call-horizon", ['--sync', '--list']);
 };
 

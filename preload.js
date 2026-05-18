@@ -1,3 +1,18 @@
+/**
+ * ==============================================================================
+ * GENS LAUNCHER - PRELOAD & SÉCURITÉ (BRIDGE IPC)
+ * ==============================================================================
+ * Ce fichier fait le pont entre le système (Node.js) et l'interface (HTML/JS).
+ * * DÉCISION ARCHITECTURALE (SANDBOX) :
+ * - ÉCRITURE / SUPPRESSION : Strictement limitées au dossier de l'application 
+ * via la fonction `enforceSandbox()`. Cela empêche toute altération du système.
+ * - LECTURE : Laissée libre (non-sandboxée) par nécessité métier. Le launcher 
+ * doit pouvoir scanner le PC (ex: trouver Java dans "C:\Program Files", 
+ * importer des mondes depuis "%appdata%\.minecraft", charger des fonds d'écran).
+ * ==============================================================================
+ */
+
+
 const { contextBridge, ipcRenderer, shell, clipboard, webUtils } = require("electron");
 const fs = require("fs");
 const path = require("path");
@@ -8,6 +23,11 @@ const crypto = require("crypto");
 const _appPaths = ipcRenderer.sendSync("get-paths-sync");
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 
+
+/**
+ * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
+ * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
+ */
 function enforceSandbox(p) {
     const resolved = path.resolve(p);
     if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
@@ -55,8 +75,8 @@ function deobfuscateData(text) {
 }
 
 const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
-const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip"];
-const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status"];
+const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth"];
+const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status", "zip-progress"];
 
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
@@ -130,12 +150,29 @@ on: (channel, func) => {
     },
     
     fs: {
+        // ==========================================
+        // OPÉRATIONS DE LECTURE (SANS SANDBOX)
+        // Libres pour permettre le scan de Java, l'import .minecraft, etc.
+        // ==========================================
         existsSync: (p) => fs.existsSync(p),
         readFileSync: (p, enc) => fs.readFileSync(p, enc),
         readdirSync: (p) => fs.readdirSync(p),
-        statSync: (p) => fs.statSync(p),
+        statSync: (p) => {
+         const s = fs.statSync(p);
+         return { 
+             isDirectory: s.isDirectory(), 
+             isFile: s.isFile(), 
+             size: s.size, 
+             mtime: s.mtime, 
+             birthtime: s.birthtime 
+         };
+     },
 
         
+        // ==========================================
+        // OPÉRATIONS D'ÉCRITURE/SUPPRESSION (AVEC SANDBOX)
+        // Strictement verrouillées sur le dossier de l'application
+        // ==========================================
         writeFileSync: (p, d) => fs.writeFileSync(enforceSandbox(p), d),
         mkdirSync: (p, opts) => fs.mkdirSync(enforceSandbox(p), opts),
         renameSync: (oldP, newP) => fs.renameSync(enforceSandbox(oldP), enforceSandbox(newP)),
@@ -148,13 +185,20 @@ on: (channel, func) => {
         closeSync: (fd) => fs.closeSync(fd),
 
         promises: {
+            // ==========================================
+            // Lecture (Libre)
+            // ==========================================
             readFile: (p, enc) => fs.promises.readFile(p, enc),
-            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d), 
             readdir: (p) => fs.promises.readdir(p),
             stat: async (p) => {
                 const s = await fs.promises.stat(p);
                 return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
             },
+
+            // ==========================================
+            // Écriture (Verrouillée)
+            // ==========================================
+            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d), 
             rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
             cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
             unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 

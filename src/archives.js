@@ -17,6 +17,13 @@ export function setupArchives() {
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 
+    window.api.on("zip-progress", (data) => {
+    const loadingTextEl = document.getElementById("loading-text");
+    const currentText = loadingTextEl ? loadingTextEl.innerText : "Chargement...";
+
+    window.updateLoadingPercent(data.percent, currentText);
+});
+
     /**
      * @param {string} instDir
      * @returns {{ loader: string, loaderVersion: string }}
@@ -67,7 +74,7 @@ export function setupArchives() {
 
     window.handleZipImport = async (zipPath) => {
         sysLog(`[IMPORT] Démarrage import ZIP : ${zipPath}`);
-        window.showLoading(t("msg_extract", "Extraction..."));
+        window.showLoading(t("msg_extract", "Extraction..."), 0);
         await yieldUI();
         const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
@@ -162,7 +169,7 @@ export function setupArchives() {
     };
 
     window.handleMrPackImport = async function(packPath) {
-      window.showLoading(t("msg_extract", "Extraction..."));
+      window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
 
@@ -250,7 +257,7 @@ export function setupArchives() {
                                 continue;
                             }
                         }
-                        fs.writeFileSync(modPath, fileBytes);
+                        await fs.promises.writeFile(modPath, fileBytes);
                     }
                 } catch (e) {
                     sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);
@@ -294,7 +301,7 @@ export function setupArchives() {
             return; 
         }
 
-        window.showLoading(t("msg_analyze_cf", "Analyse du Modpack CurseForge..."));
+        window.showLoading(t("msg_analyze_cf", "Analyse du Modpack CurseForge..."), 0);
         await yieldUI();
         const tempExtractDir = path.join(store.dataDir, "temp_cf_" + Date.now());
 
@@ -374,7 +381,7 @@ export function setupArchives() {
                             const modRes = await fetch(downloadUrl);
                             if (modRes.ok) {
                                 const fileBytes = new Uint8Array(await modRes.arrayBuffer());
-                                fs.writeFileSync(finalPath, fileBytes);
+                                await fs.promises.writeFile(finalPath, fileBytes);
                             }
                         }
                     } catch (e) { console.error(e); }
@@ -428,13 +435,13 @@ export function setupArchives() {
 
       if (type === "zip") {
           const zipPath = path.join(exportDir, `${safeName}.zip`);
-          window.showLoading(t("msg_compress", "Compression..."));
+          window.showLoading(t("msg_compress", "Compression..."), 0);
           await yieldUI();
 
           try {
             await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: [] });
             shell.showItemInFolder(zipPath);
-            window.showToast(t("msg_mrpack_success", "Export ZIP réussi !"), "success");
+            window.showToast(t("msg_zip_success", "Export ZIP réussi !"), "success");
           } catch (e) {
             sysLog("Erreur Export ZIP: " + e.message, true);
             window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
@@ -515,6 +522,7 @@ export function setupArchives() {
 
               fs.writeFileSync(path.join(tempExportDir, "modrinth.index.json"), JSON.stringify(indexJson, null, 2));
 
+              window.updateLoadingPercent(0, t("msg_compress", "Compression de l'archive..."));
               await window.api.invoke("compress-folder", { src: tempExportDir, dest: zipPath });
               
               shell.showItemInFolder(zipPath);

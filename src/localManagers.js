@@ -8,7 +8,8 @@ export function setupLocalManagers() {
     function safeAttrJson(value) {
         return JSON.stringify(value).replace(/'/g, "&#39;");
     }
-async function getModWarnings(inst) {
+
+    async function getModWarnings(inst) {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
         let reqs = {};
@@ -73,40 +74,36 @@ async function getModWarnings(inst) {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
         
-        const files = await fs.promises.readdir(modsPath);
+        const files = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
         const warnings = await getModWarnings(inst);
         
-        let hasMods = false;
+        let hasMods = files.length > 0;
         let htmlBuilder = ""; 
         
-        for (const f of files) {
-            try {
-                const fullPath = path.join(modsPath, f);
-                const res = await window.api.invoke("read-zip-text", { 
-                    zipPath: fullPath, 
-                    entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"] 
-                });
-                
-                if (res.success && res.text) {
-                    if (res.file.endsWith(".json")) {
-                        const json = JSON.parse(res.text);
-                        if (json.id) provided.add(json.id);
-                        if (json.provides) json.provides.forEach(p => provided.add(p));
-                        if (json.depends) reqs[f] = Object.keys(json.depends);
-                    } else if (res.file.endsWith(".toml")) {
-                        const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
-                        if (idMatch) provided.add(idMatch[1]);
-                        const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
-                        let m;
-                        while ((m = blockRegex.exec(res.text)) !== null) {
-                            if (!reqs[f]) reqs[f] = [];
-                            reqs[f].push(m[1]);
-                        }
-                    }
-                }
-            } catch(e) {}
-            await yieldUI(); 
-        }
+        files.forEach(f => {
+            const isEnabled = !f.endsWith(".disabled");
+            const displayName = window.escapeHTML(f.replace(".disabled", ""));
+            const color = isEnabled ? "var(--text-light)" : "#666";
+            const decoration = isEnabled ? "none" : "line-through";
+            const fileJson = safeAttrJson(f);
+
+            let warningHtml = "";
+            if (warnings[f] && isEnabled) {
+                warningHtml = `<div style="font-size:0.7rem; color:#f48a21; margin-top:2px;">⚠ ${t("msg_warn_deps", "Dépendance manquante potentielle : ")} ${window.escapeHTML(warnings[f].join(", "))}</div>`;
+            }
+
+            htmlBuilder += `
+            <div class="mod-item" style="flex-direction: column; align-items: flex-start;">
+                <div style="display:flex; width: 100%; justify-content: space-between; align-items: center;">
+                    <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
+                    <div style="display:flex; gap:8px; align-items: center;">
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleMod(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteMod(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                    </div>
+                </div>
+                ${warningHtml}
+            </div>`;
+        });
         
         if (hasMods) {
             modsListDiv.innerHTML = htmlBuilder;
@@ -114,7 +111,7 @@ async function getModWarnings(inst) {
             modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
         }
     };
-    
+
     window.filterLocalMods = () => {
         const filter = document.getElementById("local-mod-search").value.toLowerCase();
         const items = document.querySelectorAll("#mods-list .mod-item");

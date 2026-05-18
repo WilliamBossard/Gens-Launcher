@@ -101,13 +101,22 @@ const msModal = document.getElementById("modal-ms-device");
         const result = await ipcRenderer.invoke("login-microsoft");
 
 if (result.success) {
-          store.allAccounts.push({
-            type: "microsoft",
-            name: result.auth.name,
-            uuid: result.auth.uuid,
-            mclcAuth: result.auth,
-          });
-          store.selectedAccountIdx = store.allAccounts.length - 1;
+          const existingIdx = store.allAccounts.findIndex(a => a.uuid === result.auth.uuid);
+          
+          if (existingIdx !== -1) {
+              store.allAccounts[existingIdx].mclcAuth = result.auth;
+              store.allAccounts[existingIdx].name = result.auth.name;
+              store.selectedAccountIdx = existingIdx;
+          } else {
+              store.allAccounts.push({
+                type: "microsoft",
+                name: result.auth.name,
+                uuid: result.auth.uuid,
+                mclcAuth: result.auth,
+              });
+              store.selectedAccountIdx = store.allAccounts.length - 1;
+          }
+          
           store.uiSelectedAccRow = store.selectedAccountIdx;
           
           window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
@@ -117,7 +126,6 @@ if (result.success) {
           if(window.closeAccountModal) window.closeAccountModal();
           
           if(window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
-          
           if(window.checkAchievement) window.checkAchievement("vip");
 
         } else if (result.cancelled) {
