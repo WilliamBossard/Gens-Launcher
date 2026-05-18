@@ -67,26 +67,21 @@ export function setupArchives() {
 
     window.handleZipImport = async (zipPath) => {
         sysLog(`[IMPORT] Démarrage import ZIP : ${zipPath}`);
-        try {
-            const zipCheck = window.api.tools.AdmZip(zipPath);
-            const manifestText = zipCheck.getEntryText("manifest.json");
-
-            if (manifestText) {
-                sysLog(`[IMPORT] Manifest CurseForge détecté.`);
-                return await window.handleCurseForgeImport(zipPath, manifestText);
-            }
-        } catch (e) {
-            console.error("Vérification ZIP échouée:", e);
-        }
-
         window.showLoading(t("msg_extract", "Extraction..."));
         await yieldUI();
         const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
-            window.api.tools.extractAllTo(zipPath, tempExtractDir);
+            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
 
             const instanceJsonPath = path.join(tempExtractDir, "instance.json");
             if (!fs.existsSync(instanceJsonPath)) {
+                const manifestPath = path.join(tempExtractDir, "manifest.json");
+                if (fs.existsSync(manifestPath)) {
+                    const manifestText = fs.readFileSync(manifestPath, "utf8");
+                    sysLog(`[IMPORT] Redirection vers l'importateur CurseForge.`);
+                    window.hideLoading();
+                    return await window.handleCurseForgeImport(zipPath, manifestText);
+                }
                 throw new Error(t("msg_err_import_invalid", "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher."));
             }
 
@@ -113,10 +108,7 @@ export function setupArchives() {
                     detectedLoader        = detected.loader;
                     detectedLoaderVersion = detected.loaderVersion;
                     sysLog(`[IMPORT] Loader détecté automatiquement : ${detectedLoader} ${detectedLoaderVersion}`);
-                    window.showToast(
-                        `${t("msg_loader_detected", "Loader détecté automatiquement :")} ${detectedLoader}`,
-                        "success"
-                    );
+                    window.showToast(`${t("msg_loader_detected", "Loader détecté automatiquement :")} ${detectedLoader}`, "success");
                 }
             }
 
@@ -126,20 +118,13 @@ export function setupArchives() {
                 loader:        detectedLoader,
                 loaderVersion: detectedLoaderVersion,
                 ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),
-                javaPath:      "",
-                jvmArgs:       "",
-                jvmProfile:    "none",
+                javaPath:      "", jvmArgs: "", jvmProfile: "none",
                 notes:         String(rawData.notes || "").substring(0, 1000),
-                icon:          "",
-                resW:          String(rawData.resW || "").replace(/[^0-9]/g, ""),
-                resH:          String(rawData.resH || "").replace(/[^0-9]/g, ""),
+                icon:          "", resW: String(rawData.resW || "").replace(/[^0-9]/g, ""), resH: String(rawData.resH || "").replace(/[^0-9]/g, ""),
                 group:         String(rawData.group || "").substring(0, 64),
-                playTime:      0,
-                lastPlayed:    0,
-                sessionHistory:[],
-                servers:       [],
-                backupMode:    ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
-                backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
+                playTime: 0, lastPlayed: 0, sessionHistory: [], servers: [],
+                backupMode: ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
+                backupLimit: Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
@@ -165,55 +150,41 @@ export function setupArchives() {
             window.safeWriteJSON(store.instanceFile, store.allInstances);
 
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
-
-            sysLog(`[IMPORT] Instance "${finalName}" importée avec succès (${detectedLoader} ${detectedLoaderVersion}).`);
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         } finally {
             try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+            window.hideLoading();
+            window.renderUI();
         }
-        window.hideLoading();
-        window.renderUI();
     };
 
     window.handleMrPackImport = async function(packPath) {
       window.showLoading(t("msg_extract", "Extraction..."));
       await yieldUI();
+      const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
 
       try {
-        const zip = window.api.tools.AdmZip(packPath);
-        const indexText = zip.getEntryText("modrinth.index.json");
-        if (!indexText) {
-          window.hideLoading();
-          window.showToast(
-            t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant)."),
-            "error"
-          );
-          return;
+        await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+
+        const indexPath = path.join(tempExtractDir, "modrinth.index.json");
+        if (!fs.existsSync(indexPath)) {
+          throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant)."));
         }
 
-        const index = JSON.parse(indexText);
+        const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
         const packName = index.name || t("lbl_modpack_imported", "Modpack Importé");
         const mcVer = index.dependencies.minecraft;
 
         let loaderType = "vanilla";
         let loaderVer = "";
         
-        if (index.dependencies["fabric-loader"]) {
-            loaderType = "fabric";
-            loaderVer = index.dependencies["fabric-loader"];
-        } else if (index.dependencies["quilt-loader"]) {
-            loaderType = "quilt";
-            loaderVer = index.dependencies["quilt-loader"];
-        } else if (index.dependencies.forge) {
-            loaderType = "forge";
-            loaderVer = index.dependencies.forge;
-        } else if (index.dependencies.neoforge) {
-            loaderType = "neoforge";
-            loaderVer = index.dependencies.neoforge;
-        }
+        if (index.dependencies["fabric-loader"]) { loaderType = "fabric"; loaderVer = index.dependencies["fabric-loader"]; } 
+        else if (index.dependencies["quilt-loader"]) { loaderType = "quilt"; loaderVer = index.dependencies["quilt-loader"]; } 
+        else if (index.dependencies.forge) { loaderType = "forge"; loaderVer = index.dependencies.forge; } 
+        else if (index.dependencies.neoforge) { loaderType = "neoforge"; loaderVer = index.dependencies.neoforge; }
 
         let finalName = packName;
         let counter = 1;
@@ -233,151 +204,107 @@ export function setupArchives() {
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
-        zip.getEntries().forEach((entry) => {
-          let isOverride = false;
-          let targetPath = "";
-
-          if (entry.entryName.startsWith("overrides/") && entry.entryName !== "overrides/") {
-            targetPath = path.join(instDir, entry.entryName.substring(10));
-            isOverride = true;
-          } else if (entry.entryName.startsWith("client-overrides/") && entry.entryName !== "client-overrides/") {
-            targetPath = path.join(instDir, entry.entryName.substring(17));
-            isOverride = true;
-          }
-
-          if (isOverride) {
-            const resolvedTarget = path.resolve(targetPath);
-            const resolvedInstDir = path.resolve(instDir);
-            if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + path.sep)) {
-    console.error("Tentative de Zip Slip bloquée :", entry.entryName);
-    return; 
-}
-
-            if (entry.isDirectory) {
-              if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-            } else {
-              const dir = path.dirname(targetPath);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(targetPath, zip.readFile(entry.entryName));
+        const processOverrides = (folderName) => {
+            const srcDir = path.join(tempExtractDir, folderName);
+            if (fs.existsSync(srcDir)) {
+                const items = fs.readdirSync(srcDir);
+                for (const item of items) {
+                    const destPath = path.join(instDir, item);
+                    if (fs.existsSync(destPath)) {
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                    }
+                    fs.renameSync(path.join(srcDir, item), destPath);
+                }
             }
-          }
-        });
+        };
+        processOverrides("overrides");
+        processOverrides("client-overrides");
 
         const queue = index.files.filter(f => !(f.env && f.env.client === "unsupported"));
         const totalToDownload = queue.length;
         let downloadedCount = 0;
 
-        window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`);
-        await yieldUI();
-
-        const concurrencyLimit = 10; 
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
 
+        const concurrencyLimit = 10; 
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
             while (queue.length > 0) {
                 const modFile = queue.shift();
                 const modPath = path.join(instDir, modFile.path);
-                
-                const resolvedModPath = path.resolve(modPath);
-                if (resolvedModPath.startsWith(path.resolve(instDir) + "/") || resolvedModPath.startsWith(path.resolve(instDir) + "\\")) {
-                    const dir = path.dirname(modPath);
-                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                const dir = path.dirname(modPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-                    try {
-                        const downloadUrl = modFile.downloads[0];
-                        if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
-                            sysLog(`URL rejetée (protocole invalide) pour mrpack : ${downloadUrl}`, true);
-                            downloadedCount++;
-                            window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
-                            continue;
-                        }
-                        const dlController = new AbortController();
-                        const dlTimeout = setTimeout(() => dlController.abort(), 30000);
-                        let res;
-                        try {
-                            res = await fetch(downloadUrl, { signal: dlController.signal });
-                        } finally {
-                            clearTimeout(dlTimeout);
-                        }
-                        
-                        if (res.ok) {
-                            const buffer = await res.arrayBuffer();
-                            const fileBytes = new Uint8Array(buffer);
-
-                            if (modFile.hashes?.sha1) {
-                                const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
-                                if (dlHash !== modFile.hashes.sha1) {
-                                    sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${modFile.path} (attendu: ${modFile.hashes.sha1}, reçu: ${dlHash})`, true);
-                                    window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${path.basename(modFile.path)}`, "error");
-                                    downloadedCount++;
-                                    window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
-                                    continue;
-                                }
-                            }
-
-                            const tmpPath = modPath + ".tmp";
-                            fs.writeFileSync(tmpPath, fileBytes);
-                            fs.renameSync(tmpPath, modPath);
-                        }
-                    } catch (e) {
-                        sysLog(`Erreur téléchargement fichier modpack: ${modFile.downloads[0]} - ${e.message}`, true);
+                try {
+                    const downloadUrl = modFile.downloads[0];
+                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
+                        downloadedCount++;
+                        continue;
                     }
+                    const res = await fetch(downloadUrl);
+                    if (res.ok) {
+                        const fileBytes = new Uint8Array(await res.arrayBuffer());
+                        if (modFile.hashes?.sha1) {
+                            const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                            if (dlHash !== modFile.hashes.sha1) {
+                                downloadedCount++;
+                                continue;
+                            }
+                        }
+                        fs.writeFileSync(modPath, fileBytes);
+                    }
+                } catch (e) {
+                    sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);
                 }
-                
                 downloadedCount++;
-                let pct = Math.round((downloadedCount / totalToDownload) * 100);
-                window.updateLoadingPercent(pct, `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+                window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
 
         await Promise.all(workers);
 
-const defaultOpt = path.join(store.dataDir, "default_options.txt");
+        const defaultOpt = path.join(store.dataDir, "default_options.txt");
         const instOpt = path.join(instDir, "options.txt");
         if (fs.existsSync(defaultOpt) && !fs.existsSync(instOpt)) {
             try { fs.copyFileSync(defaultOpt, instOpt); } catch(e) {}
         }
 
-store.allInstances.push(newInst);
-        
-        const instJsonPath = path.join(instDir, "instance.json");
-        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
+        store.allInstances.push(newInst);
+        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch(e) {}
         
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
         window.safeWriteJSON(store.instanceFile, store.allInstances);
 
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
-
-        sysLog(`Modpack ${finalName} importé avec succès.`);
         window.showToast(t("msg_install_success", "Installation réussie !"), "success");
       } catch (err) {
-        sysLog("Erreur Modpack : " + err.message, true);
+        sysLog("Erreur Modpack Modrinth : " + err.message, true);
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
+      } finally {
+         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+         window.hideLoading();
+         window.renderUI();
       }
-      window.hideLoading();
-      window.renderUI();
     };
 
     window.handleCurseForgeImport = async (zipPath, manifestText) => {
         const apiKey = store.globalSettings.cfApiKey;
         if (!apiKey || apiKey.trim() === "") {
-            window.showToast(t("msg_cf_api_req", "❌ Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux."), "error");
+            window.showToast(t("msg_cf_api_req", "Import impossible : Clé API CurseForge manquante. Ajoutez-en une dans les Paramètres Globaux."), "error");
             return; 
         }
 
         window.showLoading(t("msg_analyze_cf", "Analyse du Modpack CurseForge..."));
         await yieldUI();
+        const tempExtractDir = path.join(store.dataDir, "temp_cf_" + Date.now());
 
         try {
-            const zip = window.api.tools.AdmZip(zipPath);
-            
-            if (!manifestText) {
-                manifestText = zip.getEntryText("manifest.json");
-            }
-            
-            const manifest = JSON.parse(manifestText);
+            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
 
+            if (!manifestText) {
+                manifestText = fs.readFileSync(path.join(tempExtractDir, "manifest.json"), "utf8");
+            }
+            const manifest = JSON.parse(manifestText);
             const packName = manifest.name || "CurseForge Modpack";
             const mcVer = manifest.minecraft.version;
             
@@ -386,16 +313,9 @@ store.allInstances.push(newInst);
             
             if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
                 const loaderString = manifest.minecraft.modLoaders[0].id;
-                if (loaderString.startsWith("forge-")) {
-                    loaderType = "forge";
-                    loaderVer = loaderString.replace("forge-", "");
-                } else if (loaderString.startsWith("fabric-")) {
-                    loaderType = "fabric";
-                    loaderVer = loaderString.replace("fabric-", "");
-                } else if (loaderString.startsWith("neoforge-")) {
-                    loaderType = "neoforge";
-                    loaderVer = loaderString.replace("neoforge-", "");
-                }
+                if (loaderString.startsWith("forge-")) { loaderType = "forge"; loaderVer = loaderString.replace("forge-", ""); } 
+                else if (loaderString.startsWith("fabric-")) { loaderType = "fabric"; loaderVer = loaderString.replace("fabric-", ""); } 
+                else if (loaderString.startsWith("neoforge-")) { loaderType = "neoforge"; loaderVer = loaderString.replace("neoforge-", ""); }
             }
 
             let finalName = packName;
@@ -409,34 +329,21 @@ store.allInstances.push(newInst);
                 name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
                 ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
                 jvmProfile: "none", sessionHistory: [],
-                notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-                lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+                notes: "Modpack CurseForge: " + packName, icon: "", resW: "", resH: "", playTime: 0, lastPlayed: 0,
+                group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
             };
 
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
             const overridesDir = manifest.overrides || "overrides";
-            zip.getEntries().forEach((entry) => {
-                if (entry.entryName.startsWith(`${overridesDir}/`) && entry.entryName !== `${overridesDir}/`) {
-                    const targetPath = path.join(instDir, entry.entryName.substring(overridesDir.length + 1));
-                    
-                    const resolvedTarget = path.resolve(targetPath);
-                    const resolvedInstDir = path.resolve(instDir);
-if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedInstDir + path.sep)) {
-    console.error("Tentative de Zip Slip bloquée :", entry.entryName);
-    return; 
-}
-
-                    if (entry.isDirectory) {
-                        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-                    } else {
-                        const dir = path.dirname(targetPath);
-                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                        fs.writeFileSync(targetPath, zip.readFile(entry.entryName));
-                    }
+            const srcOverrides = path.join(tempExtractDir, overridesDir);
+            if (fs.existsSync(srcOverrides)) {
+                const items = fs.readdirSync(srcOverrides);
+                for (const item of items) {
+                    fs.renameSync(path.join(srcOverrides, item), path.join(instDir, item));
                 }
-            });
+            }
 
             const filesToDownload = manifest.files;
             let downloadedCount = 0;
@@ -447,76 +354,54 @@ if (resolvedTarget !== resolvedInstDir && !resolvedTarget.startsWith(resolvedIns
 
             window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
 
-const queue = [...filesToDownload];
+            const queue = [...filesToDownload];
             const workers = Array(3).fill(null).map(async () => {
                 while (queue.length > 0) {
                     const fileInfo = queue.shift();
                     try {
                         const url = `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}/download-url`;
                         const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
-                        
                         await new Promise(r => setTimeout(r, 150));
 
                         if (res.success && res.data && res.data.data) {
                             const downloadUrl = res.data.data;
-                            if (!downloadUrl) {
-                                console.warn(`Téléchargement bloqué par l'auteur pour le mod ID: ${fileInfo.projectID}`);
-                                continue;
-                            }
-                            if (!/^https:\/\//i.test(downloadUrl)) {
-                                sysLog(`URL CurseForge rejetée (protocole invalide) : ${downloadUrl}`, true);
-                                continue;
-                            }
+                            if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) continue;
+
                             const rawFileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
-const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
-                            
-                            const dlController = new AbortController();
-                            const dlTimeout = setTimeout(() => dlController.abort(), 30000);
-                            let modRes;
-                            try {
-                                modRes = await fetch(downloadUrl, { signal: dlController.signal });
-                            } finally {
-                                clearTimeout(dlTimeout);
-                            }
-                            
+                            const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
+                            const finalPath = path.join(modsDir, fileName);
+
+                            const modRes = await fetch(downloadUrl);
                             if (modRes.ok) {
-                                const buffer = await modRes.arrayBuffer();
-                                const finalPath = path.join(modsDir, fileName);
-                                const tmpPath = finalPath + ".tmp";
-                                fs.writeFileSync(tmpPath, new Uint8Array(buffer));
-                                fs.renameSync(tmpPath, finalPath);
+                                const fileBytes = new Uint8Array(await modRes.arrayBuffer());
+                                fs.writeFileSync(finalPath, fileBytes);
                             }
                         }
-                    } catch (e) {
-                        console.error("Erreur téléchargement mod CF:", e);
-                    }
+                    } catch (e) { console.error(e); }
                     
                     downloadedCount++;
-                    let pct = Math.round((downloadedCount / total) * 100);
-                    window.updateLoadingPercent(pct, t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${downloadedCount}/${total})...`);
+                    window.updateLoadingPercent(Math.round((downloadedCount / total) * 100), t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${downloadedCount}/${total})...`);
                 }
             });
 
             await Promise.all(workers);
 
-store.allInstances.push(newInst);
-            
-            const instJsonPath = path.join(instDir, "instance.json");
-            try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
+            store.allInstances.push(newInst);
+            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch(e) {}
             
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
 
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
-            
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
+        } finally {
+            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+            window.hideLoading();
+            window.renderUI();
         }
-        
-        window.hideLoading();
-        window.renderUI();
     };
 
     window.exportInstance = () => {
@@ -539,7 +424,7 @@ store.allInstances.push(newInst);
       const exportDir = path.join(store.dataDir, "exports");
       if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
       
-      const EXPORT_EXCLUDED = new Set(["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups"]);
+      const EXPORT_EXCLUDED = ["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups"];
 
       if (type === "zip") {
           const zipPath = path.join(exportDir, `${safeName}.zip`);
@@ -547,39 +432,30 @@ store.allInstances.push(newInst);
           await yieldUI();
 
           try {
-            const zip = window.api.tools.AdmZip();
-            if (fs.existsSync(sourceFolder)) {
-                const entries = fs.readdirSync(sourceFolder);
-                for (const entry of entries) {
-                    if (EXPORT_EXCLUDED.has(entry)) continue;
-                    const entryPath = path.join(sourceFolder, entry);
-                    const stat = fs.statSync(entryPath);
-                    if (stat.isDirectory()) {
-                        zip.addLocalFolder(entryPath, `files/${entry}`);
-                    } else {
-                        zip.addLocalFile(entryPath, "files/");
-                    }
-                }
-            }
-            zip.addTextFile("instance.json", JSON.stringify(inst, null, 2));
-            await zip.writeZip(zipPath);
+            await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: [] });
             shell.showItemInFolder(zipPath);
+            window.showToast(t("msg_mrpack_success", "Export ZIP réussi !"), "success");
           } catch (e) {
-            sysLog("Erreur Export: " + e, true);
+            sysLog("Erreur Export ZIP: " + e.message, true);
             window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
           }
           window.hideLoading();
-      } 
+      }
       else if (type === "mrpack") {
           const zipPath = path.join(exportDir, `${safeName}.mrpack`);
           window.showLoading(t("msg_mrpack_analyze", "Analyse des mods et génération du .mrpack..."));
           await yieldUI();
+          
+          const tempExportDir = path.join(store.dataDir, "temp_export_mrpack_" + Date.now());
 
           try {
-              const zip = window.api.tools.AdmZip();
+              fs.mkdirSync(tempExportDir, { recursive: true });
+              const overridesDir = path.join(tempExportDir, "overrides");
+              fs.mkdirSync(overridesDir, { recursive: true });
+
               const modsPath = path.join(sourceFolder, "mods");
-              
               let filesArray = [];
+
               if (fs.existsSync(modsPath)) {
                   const jarFiles = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar"));
                   let hashes = {};
@@ -596,9 +472,7 @@ store.allInstances.push(newInst);
                           method: "POST", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ hashes: Object.keys(hashes), algorithm: "sha1" })
                       });
-                      if (res.ok) {
-                          apiData = await res.json();
-                      }
+                      if (res.ok) apiData = await res.json();
                   }
 
                   for (let hash in hashes) {
@@ -610,14 +484,24 @@ store.allInstances.push(newInst);
                               env: { client: "required", server: "required" }, downloads: [fileData.url], fileSize: hashes[hash].size
                           });
                       } else {
-                          zip.addBinaryFile(`overrides/mods/${hashes[hash].file}`, fs.readFileSync(path.join(modsPath, hashes[hash].file)));
+                          const destModDir = path.join(overridesDir, "mods");
+                          if (!fs.existsSync(destModDir)) fs.mkdirSync(destModDir, { recursive: true });
+                          fs.copyFileSync(path.join(modsPath, hashes[hash].file), path.join(destModDir, hashes[hash].file));
                       }
                   }
               }
 
-              if (fs.existsSync(path.join(sourceFolder, "config"))) zip.addLocalFolder(path.join(sourceFolder, "config"), "overrides/config");
-              if (fs.existsSync(path.join(sourceFolder, "resourcepacks"))) zip.addLocalFolder(path.join(sourceFolder, "resourcepacks"), "overrides/resourcepacks");
-              if (fs.existsSync(path.join(sourceFolder, "options.txt"))) zip.addTextFile("overrides/options.txt", fs.readFileSync(path.join(sourceFolder, "options.txt"), "utf8"));
+              if (fs.existsSync(path.join(sourceFolder, "config"))) {
+                  fs.mkdirSync(path.join(overridesDir, "config"), { recursive: true });
+                  await fs.promises.cp(path.join(sourceFolder, "config"), path.join(overridesDir, "config"), { recursive: true });
+              }
+              if (fs.existsSync(path.join(sourceFolder, "resourcepacks"))) {
+                  fs.mkdirSync(path.join(overridesDir, "resourcepacks"), { recursive: true });
+                  await fs.promises.cp(path.join(sourceFolder, "resourcepacks"), path.join(overridesDir, "resourcepacks"), { recursive: true });
+              }
+              if (fs.existsSync(path.join(sourceFolder, "options.txt"))) {
+                  fs.copyFileSync(path.join(sourceFolder, "options.txt"), path.join(overridesDir, "options.txt"));
+              }
 
               const indexJson = {
                   formatVersion: 1, game: "minecraft", versionId: "1.0.0", name: inst.name,
@@ -629,16 +513,19 @@ store.allInstances.push(newInst);
               if (inst.loader === "forge")    indexJson.dependencies.forge    = inst.loaderVersion || "latest";
               if (inst.loader === "neoforge") indexJson.dependencies.neoforge = inst.loaderVersion || "latest";
 
-              zip.addTextFile("modrinth.index.json", JSON.stringify(indexJson, null, 2));
-              await zip.writeZip(zipPath);
+              fs.writeFileSync(path.join(tempExportDir, "modrinth.index.json"), JSON.stringify(indexJson, null, 2));
+
+              await window.api.invoke("compress-folder", { src: tempExportDir, dest: zipPath });
               
               shell.showItemInFolder(zipPath);
               window.showToast(t("msg_mrpack_success", "Export .mrpack réussi !"), "success");
           } catch(e) {
-              sysLog("Erreur MrPack export: " + e, true);
+              sysLog("Erreur MrPack export: " + e.message, true);
               window.showToast(t("msg_mrpack_error", "Erreur lors de l'export .mrpack"), "error");
+          } finally {
+              try { if (fs.existsSync(tempExportDir)) fs.rmSync(tempExportDir, { recursive: true, force: true }); } catch(_) {}
+              window.hideLoading();
           }
-          window.hideLoading();
       }
     };
 }

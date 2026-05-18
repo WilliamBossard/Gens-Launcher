@@ -283,12 +283,15 @@ const groups = {};
                 const iconCacheKey = inst.icon || "";
                 if (!inst._iconCache || inst._iconCacheKey !== iconCacheKey) {
                     inst._iconCacheKey = iconCacheKey;
+                    
+                    const buster = inst._iconCacheBuster ? `?t=${inst._iconCacheBuster}` : "";
+                    
                     if (iconCacheKey !== "") {
-                        inst._iconCache = iconCacheKey;
+                        inst._iconCache = iconCacheKey.startsWith("file://") ? (iconCacheKey + buster) : iconCacheKey;
                     } else if (fs.existsSync(path.join(instFolder, "icon.png"))) {
-                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/"));
+                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
                     } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
-                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
+                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
                     } else {
                         inst._iconCache = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
                     }

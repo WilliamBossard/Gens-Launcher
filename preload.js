@@ -3,7 +3,6 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const nbt = require("prismarine-nbt");
-const AdmZip = require("adm-zip");
 const crypto = require("crypto"); 
 
 const _appPaths = ipcRenderer.sendSync("get-paths-sync");
@@ -56,7 +55,7 @@ function deobfuscateData(text) {
 }
 
 const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
-const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut"];
+const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip"];
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status"];
 
 contextBridge.exposeInMainWorld("api", {
@@ -120,43 +119,6 @@ on: (channel, func) => {
             return crypto.createHash(algo).update(Buffer.from(arr)).digest("hex");
         },
         extractTar: (archivePath, destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
-        extractAllTo: (zipPath, destDir) => {
-            const z = new AdmZip(zipPath);
-            const targetDir = enforceSandbox(destDir);
-            
-            z.getEntries().forEach(entry => {
-                const entryPath = path.resolve(targetDir, entry.entryName);
-                
-                if (!entryPath.startsWith(targetDir + path.sep) && entryPath !== targetDir) {
-                    console.error("🚨 TENTATIVE DE ZIP SLIP BLOQUÉE : L'archive contient un fichier malveillant :", entry.entryName);
-                    return; 
-                }
-                
-                if (entry.isDirectory) {
-                    fs.mkdirSync(entryPath, { recursive: true });
-                } else {
-                    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
-                    fs.writeFileSync(entryPath, z.readFile(entry.entryName));
-                }
-            });
-        },
-
-        AdmZip: function(zipPath) {
-            const z = zipPath ? new AdmZip(enforceSandbox(zipPath)) : new AdmZip();
-            return {
-                getEntryText: (name) => {
-                    const e = z.getEntry(name);
-                    return e ? z.readAsText(e) : null;
-                },
-                getEntries: () => z.getEntries().map(e => ({ entryName: e.entryName, isDirectory: e.isDirectory })),
-                addLocalFile: (src, dest) => z.addLocalFile(src, dest),
-                readFile: (name) => new Uint8Array(z.readFile(name)),
-                addLocalFolder: (src, dest) => z.addLocalFolder(src, dest),
-                addTextFile: (name, text) => z.addFile(name, Buffer.from(text, "utf8")),
-                addBinaryFile: (name, arr) => z.addFile(name, Buffer.from(arr)),
-                writeZip: (dest) => new Promise((res, rej) => z.writeZip(enforceSandbox(dest), err => err ? rej(err) : res()))
-            };
-        }
     },
 
     path: {

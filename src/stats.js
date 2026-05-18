@@ -59,7 +59,7 @@ export function setupStats() {
         };
 
         await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
-        await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip"));
+        await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip") || f.endsWith(".tar.gz"));
         await checkDir(path.join(store.dataDir, "exports"), f => true);
 
         for (const inst of store.allInstances) {

@@ -10,6 +10,8 @@ const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
 const DiscordRPC = require("discord-rpc");
 const { safeStorage } = require('electron');
+const archiver = require("archiver");
+const yauzl = require("yauzl");
 
 
 if (process.platform === 'linux') {
@@ -235,7 +237,7 @@ mainWindow.webContents.on('did-finish-load', () => {
 
 function runHorizonAction(action, event = null) {
     const _lockArgs = Array.isArray(action) ? action : [action];
-    const isSafe = _lockArgs.every(arg => /^[a-zA-Z0-9_\-\.\=\/ ]+$/.test(arg));
+    const isSafe = _lockArgs.every(arg => /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]]+$/.test(arg));
     if (!isSafe) {
         mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
         return Promise.resolve(-1);
@@ -382,18 +384,55 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
 
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
     if (process.platform === "win32" && archivePath.endsWith(".zip")) {
-        try {
-            const AdmZip = require("adm-zip");
-            const z = new AdmZip(archivePath);
-            z.getEntries().forEach(entry => {
-                const entryPath = path.resolve(destDir, entry.entryName);
-                if (!entryPath.startsWith(destDir + path.sep) && entryPath !== destDir) { mainLog("ZIP SLIP bloqué : " + entry.entryName); return; }
-                if (entry.isDirectory) fs.mkdirSync(entryPath, { recursive: true });
-                else { fs.mkdirSync(path.dirname(entryPath), { recursive: true }); fs.writeFileSync(entryPath, z.readFile(entry.entryName)); }
+        return new Promise((resolve) => {
+            const resolvedTarget = path.resolve(destDir);
+            
+            yauzl.open(archivePath, { lazyEntries: true }, (err, zipfile) => {
+                if (err) return resolve({ success: false, error: err.message });
+                
+                zipfile.readEntry();
+                
+                zipfile.on("entry", (entry) => {
+                    const dest = path.join(destDir, entry.fileName);
+                    const resDest = path.resolve(dest);
+                    
+                    if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                        mainLog("ZIP SLIP bloqué dans extract-tar : " + entry.fileName);
+                        zipfile.readEntry(); 
+                        return;
+                    }
+                    
+                    if (/\/$/.test(entry.fileName)) {
+                        fs.mkdirSync(dest, { recursive: true });
+                        zipfile.readEntry();
+                    } else {
+                        fs.mkdirSync(path.dirname(dest), { recursive: true });
+                        zipfile.openReadStream(entry, (err, readStream) => {
+                            if (err) { 
+                                zipfile.close(); 
+                                return resolve({ success: false, error: err.message }); 
+                            }
+                            
+                            const writeStream = fs.createWriteStream(dest);
+                            readStream.pipe(writeStream);
+                            
+                            writeStream.on("close", () => zipfile.readEntry());
+                            
+                            writeStream.on("error", (wErr) => {
+                                readStream.destroy();
+                                zipfile.close();
+                                resolve({ success: false, error: wErr.message });
+                            });
+                        });
+                    }
+                });
+                
+                zipfile.on("end", () => resolve({ success: true }));
+                zipfile.on("error", (zErr) => resolve({ success: false, error: zErr.message }));
             });
-            return { success: true };
-        } catch(e) { return { success: false, error: e.message }; }
+        });
     }
+    
     return new Promise((resolve) => {
         execFile("tar", ["-xzf", archivePath, "-C", destDir], (err) => {
             if (err) resolve({ success: false, error: err.message });
@@ -546,7 +585,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             const mode = alreadyExists ? 'update' : 'create';
             const options = {
                 target: process.execPath,
-                args: `--auto-launch="${safeName}"`,
+                args: `--auto-launch="${instanceName.replace(/"/g, '\\"')}"`,
                 appUserModelId: "com.gens.launcher",
                 description: `Lancer ${safeName}`,
                 icon: finalIconPath,
@@ -557,7 +596,8 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
 
         } else if (process.platform === 'linux') {
             const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-            const execLine = `"${process.execPath}" "--auto-launch=${safeName}"`;
+            const escapedInstanceName = instanceName.replace(/"/g, '\\"'); 
+            const execLine = `"${process.execPath}" "--auto-launch=${escapedInstanceName}"`; 
             const desktopFile = [
                 '[Desktop Entry]',
                 `Name=${safeName}`,
@@ -574,10 +614,11 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
 
         } else if (process.platform === 'darwin') {
             const shortcutPath = path.join(desktopPath, `${safeName}.command`);
+            const escapedInstanceName = instanceName.replace(/"/g, '\\"'); 
             const script = [
                 '#!/bin/bash',
                 `# Raccourci Gens Launcher — ${safeName}`,
-                `"${process.execPath}" "--auto-launch=${safeName}" &`,
+                `"${process.execPath}" "--auto-launch=${escapedInstanceName}" &`, 
                 ''
             ].join('\n');
             fs.writeFileSync(shortcutPath, script, { encoding: 'utf8' });
@@ -870,6 +911,95 @@ ipcMain.on('decrypt-string-sync', (event, hexText) => {
         mainLog("Erreur de déchiffrement : " + e.message);
     }
     event.returnValue = null;
+});
+
+ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
+    return new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(dest);
+        const archive = archiver('zip', { zlib: { level: 6 } });
+        
+        output.on('close', () => resolve({ success: true }));
+        archive.on('error', err => reject(err));
+        
+        archive.pipe(output);
+        const excludeSet = new Set(exclude);
+        
+        if (fs.existsSync(src)) {
+            const items = fs.readdirSync(src);
+            for (const item of items) {
+                if (excludeSet.has(item)) continue;
+                const fullPath = path.join(src, item);
+                if (fs.statSync(fullPath).isDirectory()) {
+                    archive.directory(fullPath, (exclude.length > 0 ? `files/${item}` : item));
+                } else {
+                    archive.file(fullPath, { name: (exclude.length > 0 ? `files/${item}` : item) });
+                }
+            }
+        }
+        archive.finalize();
+    });
+});
+
+ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
+    return new Promise((resolve) => {
+        const targets = new Set(entryNames);
+        yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+            if (err) return resolve({ success: false });
+            zipfile.readEntry();
+            zipfile.on("entry", (entry) => {
+                if (targets.has(entry.fileName)) {
+                    zipfile.openReadStream(entry, (err, readStream) => {
+                        if (err) { zipfile.readEntry(); return; }
+                        let data = '';
+                        readStream.on("data", chunk => data += chunk);
+                        readStream.on("end", () => {
+                            zipfile.close(); 
+                            resolve({ success: true, text: data, file: entry.fileName });
+                        });
+                    });
+                } else {
+                    zipfile.readEntry();
+                }
+            });
+            zipfile.on("end", () => resolve({ success: false }));
+        });
+    });
+});
+
+ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
+    return new Promise((resolve, reject) => {
+        const resolvedTarget = path.resolve(destDir);
+        yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+            if (err) return reject(err);
+            zipfile.readEntry();
+            zipfile.on("entry", (entry) => {
+                const dest = path.join(destDir, entry.fileName);
+                const resDest = path.resolve(dest);
+                if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                    zipfile.readEntry(); return; 
+                }
+                if (/\/$/.test(entry.fileName)) {
+                    fs.mkdirSync(dest, { recursive: true });
+                    zipfile.readEntry();
+                } else {
+                    fs.mkdirSync(path.dirname(dest), { recursive: true });
+                    zipfile.openReadStream(entry, (err, readStream) => {
+                        if (err) { zipfile.close(); return reject(err); }
+                        const writeStream = fs.createWriteStream(dest);
+                        readStream.pipe(writeStream);
+                        
+                        writeStream.on("close", () => zipfile.readEntry());
+                        writeStream.on("error", (wErr) => {
+                            readStream.destroy();
+                            zipfile.close();
+                            reject(wErr);
+                        });
+                    });
+                }
+            });
+            zipfile.on("end", () => resolve({ success: true }));
+        });
+    });
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

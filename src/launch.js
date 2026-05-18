@@ -44,11 +44,9 @@ async function performAutoBackup(inst, mode) {
     await yieldUI();
 
     try {
-        const zip = window.api.tools.AdmZip();
-        zip.addLocalFolder(savesDir, "saves");
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const zipPath = path.join(backupDir, `auto_saves_${timestamp}.zip`);
-        await zip.writeZip(zipPath);
+        await window.api.invoke("compress-folder", { src: savesDir, dest: zipPath });
 
         const limit = inst.backupLimit || 5;
         const backups = fs.readdirSync(backupDir)
@@ -188,10 +186,13 @@ if (!suspectedMod) {
                 const logPath = path.join(instDir, "logs", "latest.log");
                 if (fs.existsSync(logPath)) {
                     const MAX_READ = 50 * 1024;
-                    const full = fs.readFileSync(logPath, 'utf8');
-                    const logData = full.length > MAX_READ
-                        ? full.slice(full.length - MAX_READ)
-                        : full;
+                    const stat = fs.statSync(logPath);
+                    const readSize = Math.min(stat.size, MAX_READ);
+                    const fd = fs.openSync(logPath, 'r');
+                    const buffer = new Uint8Array(readSize);
+                    fs.readSync(fd, buffer, 0, readSize, stat.size - readSize);
+                    fs.closeSync(fd);
+                    const logData = new TextDecoder().decode(buffer);
                     const errMatch = logData.match(/Failed to load mod (.*?)\n/i) || logData.match(/Could not find required mod: (.*?) requires/i);
                     if (errMatch) suspectedMod = errMatch[1].trim();
                 }

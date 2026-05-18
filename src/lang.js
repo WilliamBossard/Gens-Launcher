@@ -580,6 +580,7 @@ const defaultFr = {
   msg_old_cloud_backup: "Ancienne sauvegarde Cloud auto-détectée.",
   msg_old_cloud_detect: "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).",
   msg_ms_generating_code: "Génération du code...",
+  msg_not_on_cloud: "Cette instance n'existe pas sur le Cloud.",
 };
 
 const defaultEn = {
@@ -1161,6 +1162,7 @@ const defaultEn = {
   msg_old_cloud_backup: "Old Cloud backup auto-detected.",
   msg_old_cloud_detect: "Old backup: Version auto-detected as {v} ({l}).",
   msg_ms_generating_code: "Generating code...",
+  msg_not_on_cloud: "This instance does not exist on the Cloud.",
 };
 
 export function setupLang() {

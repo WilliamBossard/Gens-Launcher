@@ -191,9 +191,7 @@ export function setupWorldsAndGallery() {
         window.showLoading(t("msg_backup", "Création de la sauvegarde..."));
         await yieldUI();
         try {
-            const zip = window.api.tools.AdmZip();
-            zip.addLocalFolder(src, folderName);
-            await zip.writeZip(zipPath);
+            await window.api.invoke("compress-folder", { src, dest: zipPath });
             window.showToast(t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"), "success");
         } catch (e) {
             window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
@@ -298,7 +296,7 @@ window.openGalleryModal = () => {
 const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
 
             try {
-window.api.tools.extractAllTo(zipPath, tmpExtractDir);
+await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
                 
 const extractedWorld = path.join(tmpExtractDir, folderName);
 if (!fs.existsSync(extractedWorld)) {

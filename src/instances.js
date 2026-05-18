@@ -495,7 +495,8 @@ export function setupInstances() {
             if (btnModsTab) btnModsTab.style.display = inst.loader === "vanilla" ? "none" : "block";
         }
 
-        const iconWasChanged = !!store.pendingIconPath;
+        const oldIcon = inst.icon || "";
+        let newIcon = oldIcon;
 
         if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
             const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
@@ -504,12 +505,20 @@ export function setupInstances() {
             const newIconPath = path.join(instFolder, "icon" + ext);
             try {
                 fs.copyFileSync(store.pendingIconPath, newIconPath);
-                inst.icon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
+                newIcon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
             } catch(e) {}
             store.pendingIconPath = null;
         } else {
-            const iconSrc = document.getElementById("edit-icon-preview").src;
-            if (!iconSrc.includes("svg+xml")) inst.icon = iconSrc;
+            newIcon = document.getElementById("edit-icon-preview").src;
+        }
+
+        const iconWasChanged = (oldIcon !== newIcon);
+        inst.icon = newIcon;
+
+        if (iconWasChanged) {
+            inst._iconCacheBuster = Date.now(); 
+            delete inst._iconCache;
+            delete inst._iconCacheKey;
         }
 
         window.safeWriteJSON(store.instanceFile, store.allInstances);

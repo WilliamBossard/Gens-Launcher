@@ -630,6 +630,16 @@ window.api.on("horizon-status", async (data) => {
         if (data.errorCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
+        else if (data.errorCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée")) {
+            finalMsg = t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte dans l'onglet Gérer.");
+            
+            if (window.refreshHorizonUI) {
+                window.refreshHorizonUI();
+            }
+        }
+        else if (data.errorCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
+            finalMsg = t("msg_not_on_cloud", "Cette instance n'existe pas sur le Cloud.");
+        }
         else if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
             const portMatch = finalMsg.match(/\d{4,5}/); 
             finalMsg = t("horizon_login_error_port", "Port déjà utilisé").replace("{port}", portMatch ? portMatch[0] : "");
@@ -716,9 +726,25 @@ window.ctxRestoreCloud = async () => {
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
 
     if (!store.allInstances.some(i => i.name === targetName)) {
+        let iconData = "";
+        let loader = "vanilla";
+        try {
+            const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
+            const metaPath = window.api.path.join(binPath, `meta_${targetName}.json`);
+            if (window.api.fs.existsSync(metaPath)) {
+                const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
+                iconData = meta.iconData || "";
+                loader = meta.loader || "vanilla";
+            }
+        } catch(_) {}
+
         store.allInstances.push({
-            name: targetName, version: "...", loader: "vanilla",
-            ram: store.globalSettings.defaultRam.toString(), group: t("lbl_group_general", "Général")
+            name: targetName, 
+            version: "...", 
+            loader: loader, 
+            icon: iconData, 
+            ram: store.globalSettings.defaultRam.toString(), 
+            group: t("lbl_group_general", "Général")
         });
         window.renderUI();
     }
