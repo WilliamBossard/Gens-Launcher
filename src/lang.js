@@ -581,6 +581,15 @@ const defaultFr = {
   msg_old_cloud_detect: "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).",
   msg_ms_generating_code: "Génération du code...",
   msg_not_on_cloud: "Cette instance n'existe pas sur le Cloud.",
+  java_choice_desc: "Sélectionnez le type d'environnement à installer pour votre jeu :",
+  java_jre_spec: "Version allégée (env. 40 Mo). Idéale pour le jeu de base (Vanilla) et les modpacks légers. Consomme moins d'espace disque.",
+  java_jdk_spec: "Version complète (env. 150 Mo). Recommandée pour les gros modpacks complexes (gros mods, serveurs locaux) et le développement.",
+  btn_cancel: "Annuler",
+  btn_java_delete: "Supprimer",
+  msg_delete_java_confirm: "Voulez-vous vraiment supprimer Java {version} de votre PC ?",
+  msg_deleting: "Suppression en cours...",
+  msg_java_deleted: "Java {version} a été supprimé.",
+  msg_err_delete: "Erreur lors de la suppression : "
 };
 
 const defaultEn = {
@@ -1163,6 +1172,16 @@ const defaultEn = {
   msg_old_cloud_detect: "Old backup: Version auto-detected as {v} ({l}).",
   msg_ms_generating_code: "Generating code...",
   msg_not_on_cloud: "This instance does not exist on the Cloud.",
+  java_choice_title: "Installing Java {version}",
+  java_choice_desc: "Select the type of environment to install for your game:",
+  java_jre_spec: "Lightweight version (approx. 40 MB). Ideal for the base game (Vanilla) and light modpacks. Saves disk space.",
+  java_jdk_spec: "Full version (approx. 150 MB). Recommended for heavy/complex modpacks (large mods, local servers) and development.",
+  btn_cancel: "Cancel",
+  btn_java_delete: "Delete",
+  msg_delete_java_confirm: "Are you sure you want to delete Java {version} from your PC?",
+  msg_deleting: "Deleting...",
+  msg_java_deleted: "Java {version} has been deleted.",
+  msg_err_delete: "Error deleting: ",
 };
 
 export function setupLang() {

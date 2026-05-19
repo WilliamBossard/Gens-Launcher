@@ -8,33 +8,59 @@ const path = window.api.path;
 export function setupStats() { 
     const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
 
-    async function getFolderSizeAsync(rootPath, excludeNames = EXCLUDED_DIRS) {
+    async function getCacheInfoAsync() {
+        let filesToDelete = [];
         let totalSize = 0;
-        let queue = [rootPath];
-        let loopCount = 0;
 
-        while (queue.length > 0) {
-            const currentPath = queue.shift();
+        const checkDir = async (dir, condition) => {
             try {
-                const files = await fs.promises.readdir(currentPath);
+                if (!fs.existsSync(dir)) return;
+                const files = await fs.promises.readdir(dir);
                 for (const file of files) {
-                    if (excludeNames.has(file)) continue;
-                    const fullPath = path.join(currentPath, file);
+                    const filePath = path.join(dir, file);
                     try {
-                        const stats = await fs.promises.stat(fullPath);
-                        if (stats.isDirectory) {
-                            queue.push(fullPath);
-                        } else {
+                        const stats = await fs.promises.stat(filePath);
+                        if (!stats.isDirectory && condition(file)) {
+                            filesToDelete.push(filePath);
                             totalSize += stats.size;
                         }
                     } catch (e) {}
                 }
             } catch (e) {}
+        };
 
-            loopCount++;
-            if (loopCount % 50 === 0) await new Promise(r => setTimeout(r, 0));
+        await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
+        await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip") || f.endsWith(".tar.gz"));
+        await checkDir(path.join(store.dataDir, "exports"), f => true);
+
+        const horizonFilter = f => f.endsWith(".zip") && (f.startsWith("download_base_") || f.startsWith("download_delta_") || f.startsWith("temp_") || f.startsWith("delta_"));
+        await checkDir(store.dataDir, horizonFilter); 
+        await checkDir(path.join(store.dataDir, "bin"), horizonFilter); 
+
+        for (const inst of store.allInstances) {
+            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
+            await checkDir(path.join(instDir, "crash-reports"), f => true);
+            await checkDir(path.join(instDir, "logs"), f => f.endsWith(".log.gz") || (f.endsWith(".log") && f !== "latest.log"));
         }
-        return totalSize;
+
+        try {
+            const mainDirs = await fs.promises.readdir(store.dataDir);
+            for (const d of mainDirs) {
+                if (d.startsWith("temp_")) { 
+                    const dPath = path.join(store.dataDir, d);
+                    try {
+                        const dStats = await fs.promises.stat(dPath);
+                        if (dStats.isDirectory) {
+                            filesToDelete.push(dPath);
+                            const size = await getFolderSizeAsync(dPath, new Set());
+                            totalSize += size;
+                        }
+                    } catch(e) {}
+                }
+            }
+        } catch(e) {}
+
+        return { files: filesToDelete, size: totalSize };
     }
 
    async function getCacheInfoAsync() {

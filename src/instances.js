@@ -422,15 +422,15 @@ export function setupInstances() {
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
             if (oldFolder !== newFolder) {
-                if (fs.existsSync(newFolder)) {
-                    window.showToast(t("msg_err_similar_name", "Un dossier portant ce nom existe déjà sur votre PC !"), "error");
-                    return;
-                }
+                if (fs.existsSync(newFolder)) { /* ... */ }
                 try {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);
                         if (inst.icon && inst.icon.includes(safeOldName)) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
+                        }
+                        if (store.horizonActive) {
+                            window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
                         }
                     }
                 } catch(err) {
@@ -478,7 +478,9 @@ export function setupInstances() {
                 inst.loader = "vanilla";
                 inst.loaderVersion = "";
             } else {
-                if (newVersion !== inst.version || newLoader !== inst.loader || newLoaderVer !== inst.loaderVersion) {
+                const isLoadingVer = newLoaderVer.includes("Chargement") || newLoaderVer.includes("...");
+
+                if (!isLoadingVer && (newVersion !== inst.version || newLoader !== inst.loader || newLoaderVer !== inst.loaderVersion)) {
                     const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
                     ["versions", "libraries"].forEach(dir => {
                         const dirPath = path.join(instFolder, dir);
@@ -488,7 +490,7 @@ export function setupInstances() {
                 }
                 inst.version = newVersion;
                 inst.loader  = newLoader;
-                inst.loaderVersion = newLoader === "vanilla" ? "" : newLoaderVer;
+                inst.loaderVersion = newLoader === "vanilla" ? "" : (!isLoadingVer ? newLoaderVer : inst.loaderVersion);
             }
 
             const btnModsTab = document.getElementById("tab-btn-mods");
@@ -627,15 +629,14 @@ export function setupInstances() {
             const inst = store.allInstances[store.selectedInstanceIdx];
 
             try {
-                const hStatus = await window.api.invoke("check-horizon-status");
-                const binPath = path.join(store.instancesRoot, "..", "bin");
-                const manifestPath = path.join(binPath, `manifest_${inst.name}.json`);
-                const isSyncedToCloud = fs.existsSync(manifestPath);
-                if (hStatus?.linked && isSyncedToCloud) {
-                    const confirmMsg = t("msg_also_delete_cloud", "Voulez-vous ÉGALEMENT supprimer \"{name}\" du Cloud ?").replace("{name}", inst.name);
+                const safeName = window.safeDir(inst.name);
+                
+                if (store.horizonActive) {
+                    const confirmMsg = t("msg_also_delete_cloud", `Voulez-vous ÉGALEMENT supprimer "${inst.name}" du Cloud ?`);
                     if (await window.showCustomConfirm(confirmMsg, true)) {
                         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
-                        await window.api.invoke("call-horizon", ['--sync', '--delete', inst.name]);
+                        await window.api.invoke("call-horizon", ['--sync', '--delete', safeName]);
+                        window.api.invoke("call-horizon", ['--sync', '--list']);
                     }
                 }
             } catch(e) { console.error("Erreur check cloud:", e); }

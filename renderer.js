@@ -150,7 +150,7 @@ let _newsLoaded = false;
 async function loadNews() {
     if (_newsLoaded) return;
     try {
-        const res = await fetch("https://launchercontent.mojang.com/news.json");
+        const res = await fetch("https://launchercontent.mojang.com/v2/news.json");
         if (!res.ok) throw new Error(`News HTTP ${res.status}`);
         const data = await res.json();
         const container = document.getElementById("news-container");
@@ -389,6 +389,20 @@ window.ctxUploadCloud = async () => {
 
 window.api.on("horizon-status", async (data) => {
     
+    const getRealName = (safeName) => {
+        if (!safeName) return "";
+        const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
+        if (localInst) return localInst.name;
+        try {
+            const metaPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", `meta_${safeName}.json`);
+            if (window.api.fs.existsSync(metaPath)) {
+                const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
+                if (meta.realName) return meta.realName;
+            }
+        } catch(e) {}
+        return safeName;
+    };
+    
     if (data.type === "CLOUD_LIST") {
         const grid = document.getElementById("horizon-cloud-grid");
         if (!grid) return;
@@ -406,11 +420,12 @@ window.api.on("horizon-status", async (data) => {
         data.data.forEach(instName => {
             const localInst = store.allInstances.find(i => window.safeDir(i.name) === instName || i.name === instName);
             const isLocal = !!localInst;
-            const displayName = isLocal ? localInst.name : instName; 
+            const rich = richIndex[instName]; 
+            const displayName = isLocal ? localInst.name : (rich?.realName || instName);
+
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
 
-            const rich = richIndex[instName];
             let metaLine = "";
             if (rich) {
                 const sizeMB  = rich.sizeBytes > 0 ? (rich.sizeBytes / (1024 * 1024)).toFixed(1) + " Mo" : "";
@@ -493,9 +508,7 @@ window.api.on("horizon-status", async (data) => {
         const instances = (data.instances || []).sort((a, b) => b.bytes - a.bytes);
         let instRows = "";
         for (const inst of instances.slice(0, 8)) {
-            const localInst = store.allInstances.find(i => window.safeDir(i.name) === inst.name || i.name === inst.name);
-            const rowDisplayName = localInst ? localInst.name : inst.name;
-
+            const rowDisplayName = getRealName(inst.name); 
             const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
             const deltaInfo = inst.deltaCount > 0 ? ` · ${inst.deltaCount} delta(s)` : "";
             instRows += `
@@ -572,14 +585,15 @@ window.api.on("horizon-status", async (data) => {
     });
 
     if (data.type === "PROGRESS") {
+        const realName = getRealName(data.instance); 
         if (data.step === "EXTRACTING" && data.value === 0) {
-            window.showToast(`${t("msg_extract", "Extraction...")} ${data.instance}`, "info");
+            window.showToast(`${t("msg_extract", "Extraction...")} ${realName}`, "info");
         } else if (data.step === "APPLYING_DELTA" && data.value === 0) {
-            window.showToast(`${t("msg_applying_delta", "Mise à jour des fichiers...")} ${data.instance}`, "info");
+            window.showToast(`${t("msg_applying_delta", "Mise à jour des fichiers...")} ${realName}`, "info");
         } else if (data.step === "COMPRESSING" && data.value === 0) {
-            window.showToast(`${t("msg_compress", "Compression...")} ${data.instance}`, "info");
+            window.showToast(`${t("msg_compress", "Compression...")} ${realName}`, "info");
         } else if (data.step === "UPLOADING" && data.value === 0) {
-            window.showToast(`${t("msg_cloud_up", "Sauvegarde sur le Cloud...")} ${data.instance}`, "info");
+            window.showToast(`${t("msg_cloud_up", "Sauvegarde sur le Cloud...")} ${realName}`, "info");
         }
     }
 
@@ -619,10 +633,11 @@ window.api.on("horizon-status", async (data) => {
         if (globalBar) globalBar.style.width = val + "%";
         if (globalPerc) globalPerc.innerText = val + "%";
         if (globalStep) {
-            if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${data.instance}...`;
-            else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${data.instance}...`;
-            else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${data.instance}...`;
-            else if (data.step === "UPLOADING") globalStep.innerText = `Upload ${data.instance}...`;
+            const realName = getRealName(data.instance);
+            if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${realName}...`;
+            else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${realName}...`;
+            else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${realName}...`;
+            else if (data.step === "UPLOADING") globalStep.innerText = `Upload ${realName}...`;
             else globalStep.innerText = `${t("msg_loading", "Traitement...")}...`;
         }
     } 
@@ -684,7 +699,8 @@ window.api.on("horizon-status", async (data) => {
         }
 
         if (data.type !== "INFO" || finalMsg.includes(t("horizon_login_ready", "Prêt").split('(')[0])) {
-            const prefixName = data.instance ? `${data.instance} : ` : "";
+            const realName = getRealName(data.instance);
+            const prefixName = realName ? `${realName} : ` : "";
             window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
         }
         
@@ -743,7 +759,7 @@ window.ctxRestoreCloud = async () => {
         let loader = "vanilla";
         try {
             const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-            const metaPath = window.api.path.join(binPath, `meta_${targetName}.json`);
+            const metaPath = window.api.path.join(binPath, `meta_${window.safeDir(targetName)}.json`);
             if (window.api.fs.existsSync(metaPath)) {
                 const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
                 iconData = meta.iconData || "";

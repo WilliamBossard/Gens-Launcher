@@ -7,6 +7,108 @@ const path = window.api.path;
 export function setupSettings() {
     let _javaScanDone = false;  
 
+    window.showJavaTypeModal = (version) => {
+        return new Promise((resolve) => {
+            const modal = document.createElement("div");
+            modal.id = "modal-java-choice";
+            modal.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:99999; font-family:sans-serif; color:var(--text, #fff);";
+            
+            modal.innerHTML = `
+                <div style="background: var(--bg-panel, #2d2d30); border: 1px solid var(--border, #3f3f46); border-radius: 6px; padding: 20px; width: 440px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); box-sizing: border-box;">
+                    <h3 style="margin-top:0; color:var(--text-light, #fff); font-size:1.1rem; margin-bottom:12px;">${t("java_choice_title", "Installation de Java {version}").replace("{version}", version)}</h3>
+                    <p style="font-size:0.82rem; opacity:0.8; margin-bottom:18px; line-height:1.4;">${t("java_choice_desc", "Sélectionnez le type d'environnement à installer pour votre jeu :")}</p>
+                    
+                    <div id="choice-jre" style="border: 1px solid var(--border, #3f3f46); border-radius:4px; padding:12px; margin-bottom:12px; cursor:pointer; transition: background 0.2s; box-sizing: border-box;">
+                        <strong style="color: var(--accent, #007acc); font-size:0.9rem; display:block; margin-bottom:2px;">JRE (Java Runtime Environment)</strong>
+                        <span style="font-size:0.75rem; opacity:0.75; line-height:1.3; display:block;">${t("java_jre_spec", "Version allégée (env. 40 Mo). Idéale pour le jeu de base (Vanilla) et les modpacks légers. Consomme moins d'espace disque.")}</span>
+                    </div>
+                    
+                    <div id="choice-jdk" style="border: 1px solid var(--border, #3f3f46); border-radius:4px; padding:12px; margin-bottom:20px; cursor:pointer; transition: background 0.2s; box-sizing: border-box;">
+                        <strong style="color: var(--accent, #007acc); font-size:0.9rem; display:block; margin-bottom:2px;">JDK (Java Development Kit)</strong>
+                        <span style="font-size:0.75rem; opacity:0.75; line-height:1.3; display:block;">${t("java_jdk_spec", "Version complète (env. 150 Mo). Recommandée pour les gros modpacks complexes (gros mods, serveurs locaux) et le développement.")}</span>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button id="choice-cancel" class="btn-secondary" style="height:30px; padding:0 20px; font-size:0.82rem; cursor:pointer;">${t("btn_cancel", "Annuler")}</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            const jreBox = modal.querySelector("#choice-jre");
+            const jdkBox = modal.querySelector("#choice-jdk");
+            const cancelBtn = modal.querySelector("#choice-cancel");
+            
+            jreBox.onmouseover = () => jreBox.style.backgroundColor = "rgba(255,255,255,0.04)";
+            jreBox.onmouseout = () => jreBox.style.backgroundColor = "transparent";
+            jdkBox.onmouseover = () => jdkBox.style.backgroundColor = "rgba(255,255,255,0.04)";
+            jdkBox.onmouseout = () => jdkBox.style.backgroundColor = "transparent";
+            
+            jreBox.onclick = () => { document.body.removeChild(modal); resolve("jre"); };
+            jdkBox.onclick = () => { document.body.removeChild(modal); resolve("jdk"); };
+            cancelBtn.onclick = () => { document.body.removeChild(modal); resolve(null); };
+        });
+    };
+
+    window.updateJavaButtonsDisplay = () => {
+        [25, 21, 17, 8].forEach(v => {
+            const btn = document.getElementById("btn-dl-java-" + v);
+            if (!btn) return;
+
+            const launcherJre = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
+            const launcherJdk = fs.existsSync(path.join(store.dataDir, "java", `jdk${v}`));
+            const isLauncherInstalled = launcherJre || launcherJdk;
+
+            let isSystemInstalled = false;
+            if (!isLauncherInstalled) {
+                let basePaths = [];
+                if (window.api.platform === "win32") {
+                    basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
+                } else if (window.api.platform === "linux") {
+                    basePaths = ["/usr/lib/jvm", "/usr/java", "/opt/jdk"];
+                } else if (window.api.platform === "darwin") {
+                    basePaths = ["/Library/Java/JavaVirtualMachines"];
+                }
+                for (let bp of basePaths) {
+                    if (fs.existsSync(bp)) {
+                        try {
+                            const dirs = fs.readdirSync(bp);
+                            if (dirs.some(d => d.includes(v.toString()))) isSystemInstalled = true;
+                        } catch(e) {}
+                    }
+                }
+            }
+
+            btn.onclick = null; 
+            
+            if (isLauncherInstalled) {
+                btn.setAttribute("data-i18n", "btn_java_delete"); 
+                btn.innerText = t("btn_java_delete", "Supprimer");
+                btn.style.color = "#f87171";
+                btn.style.borderColor = "#f87171";
+                btn.disabled = false;          
+                btn.style.cursor = "pointer";
+                btn.onclick = () => window.deleteJava(v);
+            } else if (isSystemInstalled) {
+                btn.setAttribute("data-i18n", "btn_java_installed"); 
+                btn.innerText = t("btn_java_installed", "Installé (Système)");
+                btn.style.color = "#17B139";
+                btn.style.borderColor = "#17B139";
+                btn.disabled = true;          
+                btn.style.cursor = "default";
+            } else {
+                btn.setAttribute("data-i18n", "btn_java_dl"); 
+                btn.innerText = t("btn_java_dl", "Télécharger");
+                btn.style.color = "";
+                btn.style.borderColor = "";
+                btn.disabled = false;          
+                btn.style.cursor = "pointer";  
+                btn.onclick = () => window.downloadJavaAuto(v);
+            }
+        });
+    };
+
 
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
@@ -44,47 +146,7 @@ export function setupSettings() {
             srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
         });
 
-        [25, 21, 17, 8].forEach(v => {
-            const btn = document.getElementById("btn-dl-java-" + v);
-            if (!btn) return;
-
-            let isInstalled = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
-            if (!isInstalled) {
-                let basePaths = [];
-                if (window.api.platform === "win32") {
-                    basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
-                } else if (window.api.platform === "linux") {
-                    basePaths = ["/usr/lib/jvm", "/usr/java"];
-                } else if (window.api.platform === "darwin") {
-                    basePaths = ["/Library/Java/JavaVirtualMachines"];
-                }
-
-                for (let bp of basePaths) {
-                    if (fs.existsSync(bp)) {
-                        try {
-                            const dirs = fs.readdirSync(bp);
-                            if (dirs.some(d => d.includes(v.toString()))) isInstalled = true;
-                        } catch(e) {}
-                    }
-                }
-            }
-
-            if (isInstalled) {
-                btn.setAttribute("data-i18n", "btn_java_installed"); 
-                btn.innerText = t("btn_java_installed", "Installé");
-                btn.style.color = "#17B139";
-                btn.style.borderColor = "#17B139";
-                btn.disabled = true;          
-                btn.style.cursor = "default"; 
-            } else {
-                btn.setAttribute("data-i18n", "btn_java_dl"); 
-                btn.innerText = t("btn_java_dl", "Télécharger");
-                btn.style.color = "";
-                btn.style.borderColor = "";
-                btn.disabled = false;          
-                btn.style.cursor = "pointer";  
-            }
-        });
+        window.updateJavaButtonsDisplay();
 
         window.switchTabGlob("tab-glob-gen");
         document.getElementById("modal-settings").style.display = "flex";
@@ -292,8 +354,42 @@ export function setupSettings() {
         document.getElementById("status-text").innerText = t("status_ready", "Prêt");
     };
 
+    window.deleteJava = async (version) => {
+        const confirmMsg = t("msg_delete_java_confirm", "Voulez-vous vraiment supprimer Java {version} de votre PC ?").replace("{version}", version);
+        if (await window.showCustomConfirm(confirmMsg, true)) { 
+            window.showLoading(t("msg_deleting", "Suppression en cours..."));
+            await yieldUI();
+            
+            try {
+                const jrePath = path.join(store.dataDir, "java", `jre${version}`);
+                const jdkPath = path.join(store.dataDir, "java", `jdk${version}`);
+                
+                if (fs.existsSync(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
+                if (fs.existsSync(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+                
+                if (store.globalSettings.defaultJavaPath && 
+                   (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
+                    store.globalSettings.defaultJavaPath = "javaw";
+                    window.safeWriteJSON(store.settingsFile, store.globalSettings);
+                }
+                
+                window.showToast(t("msg_java_deleted", "Java {version} a été supprimé.").replace("{version}", version), "success");
+                
+                window.updateJavaButtonsDisplay();
+                if (window.scanJavaVersions) window.scanJavaVersions("global-java", true, true);
+            } catch (e) {
+                window.showToast(t("msg_err_delete", "Erreur : ") + e.message, "error");
+            } finally {
+                window.hideLoading();
+            }
+        }
+    };
+
     window.downloadJavaAuto = async (version = 21) => {
-        window.showLoading(t("msg_dl_java") + ` ${version}...`);
+        const type = await window.showJavaTypeModal(version);
+        if (!type) return; 
+
+        window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
         if (!fs.existsSync(javaDir)) fs.mkdirSync(javaDir, { recursive: true });
@@ -303,8 +399,9 @@ export function setupSettings() {
             const rawArch = window.api.arch || "x64";
             const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
             const ext = (platform === "windows") ? ".zip" : ".tar.gz";
-            const archivePath = path.join(javaDir, `jre${version}${ext}`);
-            const baseParams = `${version}/ga/${platform}/${arch}/jre/hotspot/normal/eclipse`;
+            
+            const archivePath = path.join(javaDir, `${type}${version}${ext}`);
+            const baseParams = `${version}/ga/${platform}/${arch}/${type}/hotspot/normal/eclipse`;
             const url         = `https://api.adoptium.net/v3/binary/latest/${baseParams}`;
             const checksumUrl = `https://api.adoptium.net/v3/checksum/latest/${baseParams}`;
 
@@ -314,31 +411,53 @@ export function setupSettings() {
                 if (shaRes.ok) {
                     const shaText = (await shaRes.text()).trim();
                     expectedSha256 = shaText.split(/\s+/)[0].toLowerCase();
-                    sysLog(`Hash SHA256 Adoptium récupéré pour Java ${version} : ${expectedSha256}`);
                 }
-            } catch (e) {
-                sysLog(`Impossible de récupérer le hash SHA256 Adoptium : ${e.message}`, true);
-            }
+            } catch (e) {}
 
             const res = await fetch(url);
-            if (!res.ok) throw new Error("Version de Java introuvable.");
+            if (!res.ok) throw new Error(`Version de Java ${type.toUpperCase()} introuvable sur les serveurs.`);
             
-            const fileBytes = new Uint8Array(await res.arrayBuffer());
+            const contentLength = res.headers.get('content-length');
+            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+            let receivedBytes = 0;
+            const chunks = [];
+            const reader = res.body.getReader();
+
+            window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                chunks.push(value);
+                receivedBytes += value.length;
+                
+                if (totalBytes > 0) {
+                    const pct = Math.round((receivedBytes / totalBytes) * 100);
+                    const percentElement = document.getElementById("loading-percent");
+                    if (percentElement) {
+                        percentElement.innerText = pct + "%";
+                    }
+                }
+            }
+
+            const fileBytes = new Uint8Array(receivedBytes);
+            let position = 0;
+            for (const chunk of chunks) {
+                fileBytes.set(chunk, position);
+                position += chunk.length;
+            }
+
+            const percentElement = document.getElementById("loading-percent");
+            if (percentElement) percentElement.innerText = "";
 
             if (expectedSha256) {
                 window.showLoading(t("msg_verify_hash", "Vérification de l'intégrité..."));
                 await yieldUI();
                 const actualSha256 = window.api.tools.hashBuffer(fileBytes, "sha256");
                 if (actualSha256 !== expectedSha256) {
-                    throw new Error(
-                        `Échec de la vérification SHA256 du binaire Java ${version} !\n` +
-                        `Attendu : ${expectedSha256}\nObtenu  : ${actualSha256}\n` +
-                        `Le fichier pourrait être corrompu ou altéré.`
-                    );
+                    throw new Error("Échec de la vérification SHA256 du binaire Java !");
                 }
-                sysLog(`Hash SHA256 vérifié avec succès pour Java ${version}.`);
-            } else {
-                sysLog(`Avertissement : hash SHA256 non disponible, vérification ignorée pour Java ${version}.`, true);
             }
 
             const tmpArchivePath = archivePath + ".tmp";
@@ -348,7 +467,7 @@ export function setupSettings() {
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
             
-            const extractDir = path.join(javaDir, `jre${version}`);
+            const extractDir = path.join(javaDir, `${type}${version}`);
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
             
             if (platform === "windows") {
@@ -365,7 +484,7 @@ export function setupSettings() {
                 for (let f of fs.readdirSync(dir)) {
                     const full = path.join(dir, f);
                     const stat = fs.statSync(full);
-                    if (stat.isDirectory()) { const r = findExe(full); if (r) return r; }
+                    if (stat.isDirectory) { const r = findExe(full); if (r) return r; }
                     else if (f.toLowerCase() === javaExe) return full;
                 }
             }
@@ -375,14 +494,18 @@ export function setupSettings() {
                 if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
                 store.globalSettings.defaultJavaPath = exePath;
                 window.safeWriteJSON(store.settingsFile, store.globalSettings);
-                _javaScanDone = false; 
                 window.showToast(t("msg_java_installed_success"), "success");
+                window.updateJavaButtonsDisplay();
+                if (window.scanJavaVersions) {
+                    window.scanJavaVersions("global-java", true, true).then(() => {
+                        const javaSelect = document.getElementById("global-java");
+                        if (javaSelect) javaSelect.value = exePath;
+                    });
+                }
                 return exePath;
             }
             throw new Error("Exécutable Java introuvable.");
         } catch (e) {
-            const archivePath = path.join(store.dataDir, "java", `jre${version}${window.api.platform === "win32" ? ".zip" : ".tar.gz"}`);
-            try { if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath); } catch(_) {}
             window.showToast(t("msg_err_java") + " : " + e.message, "error");
             return null;
         } finally { window.hideLoading(); }
