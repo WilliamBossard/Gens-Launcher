@@ -166,9 +166,6 @@ if (!gotTheLock) {
             }
         }
     });
-
-    app.whenReady().then(() => {
-    });
 }
 
 app.whenReady().then(() => {
@@ -273,17 +270,24 @@ function runHorizonAction(action, event = null) {
 
         const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir });
         let settled = false;
+        let killTimer;
 
-        const killTimer = setTimeout(() => {
-            if (!settled) {
-                settled = true;
-                mainLog(`[Horizon] TIMEOUT après 5 min — forçage de l'arrêt.`);
-                try { horizon.kill("SIGTERM"); } catch(_) {}
-                resolve(-1);
-            }
-        }, 5 * 60 * 1000);
+        const resetTimeout = () => {
+            if (killTimer) clearTimeout(killTimer);
+            killTimer = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    mainLog(`[Horizon] TIMEOUT d'inactivité — forçage de l'arrêt.`);
+                    try { horizon.kill("SIGTERM"); } catch(_) {}
+                    resolve(-1);
+                }
+            }, 3 * 60 * 1000); 
+        };
+        
+        resetTimeout(); 
 
         horizon.stdout.on('data', (data) => {
+            resetTimeout(); 
             const lines = data.toString().split('\n');
             for (const line of lines) {
                 if (!line.trim()) continue;
@@ -388,19 +392,17 @@ ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
 
 ipcMain.handle("search-modrinth", async (_, url) => {
     try {
-        const finalUrl = url.startsWith("http") ? url : `https://${url}`;
-        
-        const response = await fetch(finalUrl, { 
-            headers: { 
-                "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)",
-                "Accept": "application/json"
-            } 
+        const finalUrl = new URL(url.startsWith("http") ? url : `https://${url}`);
+        if (finalUrl.hostname !== "api.modrinth.com") {
+            mainLog(`SÉCURITÉ : Domaine Modrinth rejeté : ${finalUrl.hostname}`);
+            return { success: false, error: "Domaine non autorisé." };
+        }
+        const response = await fetch(finalUrl.toString(), { 
+            headers: { "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)", "Accept": "application/json" } 
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return { success: true, data: await response.json() };
-    } catch(e) { 
-        return { success: false, error: e.message }; 
-    }
+    } catch(e) { return { success: false, error: e.message }; }
 });
 
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
@@ -490,6 +492,18 @@ function sendStillRunningInstances() {
     return stillAlive;
 }
 
+function saveRunningInstances(clientsMap) {
+    const running = {};
+    for (const [id, data] of clientsMap) {
+        running[id] = { pid: data.process.pid };
+    }
+    try {
+        fs.writeFileSync(runningFilePath, JSON.stringify(running, null, 2));
+    } catch (e) {
+        mainLog("Erreur sauvegarde running.json : " + e.message);
+    }
+}
+
 ipcMain.handle("force-stop-game", async (_, instanceId) => {
     return new Promise((resolve) => {
         const clientData = activeMinecraftClients.get(instanceId);
@@ -534,7 +548,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         const desktopPath = app.getPath("desktop");
         const safeName = sanitizeShortcutName(instanceName);
         const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
-        const instFolder = path.join(instancesDir, instanceName.replace(/[^a-z0-9]/gi, "_"));
+        const instFolder = path.join(instancesDir, instanceName.replace(/[^a-z0-9]/gi, "_").toLowerCase());
 
         let localIconPath = null;
         
@@ -654,17 +668,11 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
 });
 
 ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
-    try {
-        const desktopPath = app.getPath("desktop");
-        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
-        const shortcutPath = path.join(desktopPath, `${safeName}.${ext}`);
-        
-        const exists = fs.existsSync(shortcutPath);
-        
-        return exists;
-    } catch (e) {
-        return false;
-    }
+    const desktopPath = app.getPath("desktop");
+    const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
+    const safe = sanitizeShortcutName(safeName); 
+    const shortcutPath = path.join(desktopPath, `${safe}.${ext}`);
+    return fs.existsSync(shortcutPath);
 });
 
 ipcMain.on("launch-game", (event, opts) => {
@@ -914,7 +922,11 @@ ipcMain.on('encrypt-string-sync', (event, text) => {
     if (safeStorage.isEncryptionAvailable()) {
         event.returnValue = 'safeStorage:' + safeStorage.encryptString(text).toString('hex');
     } else {
-        event.returnValue = 'b64:' + Buffer.from(text).toString('base64');
+        const key = _getMainProcSecretKey();
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+        let enc = cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
+        event.returnValue = 'aes:' + iv.toString('hex') + ':' + enc;
     }
 });
 
@@ -922,6 +934,15 @@ ipcMain.on('decrypt-string-sync', (event, hexText) => {
     try {
         if (hexText.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
             event.returnValue = safeStorage.decryptString(Buffer.from(hexText.split(':')[1], 'hex'));
+            return;
+        }
+        if (hexText.startsWith('aes:')) {
+            const key = _getMainProcSecretKey();
+            const parts = hexText.split(':');
+            const iv = Buffer.from(parts[1], 'hex');
+            const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+            let dec = decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
+            event.returnValue = dec;
             return;
         }
         if (hexText.startsWith('b64:')) {
@@ -941,6 +962,7 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
 
         output.on('close', () => resolve({ success: true }));
         archive.on('error', err => reject(err));
+        output.on('error', (err) => { archive.destroy(); reject(err); });
 
         archive.on('progress', (progress) => {
             if (progress.entries.total > 0) {

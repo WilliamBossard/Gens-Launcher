@@ -1,6 +1,8 @@
 import { store } from "./store.js";
 import { sysLog, yieldUI } from "./utils.js";
 import { updateRPC } from "./discord.js";
+import { _logLineCount } from "./launch.js";
+import { resetLogLineCount } from "./launch.js";
 
 const fs = window.api.fs;
 const path = window.api.path;
@@ -167,7 +169,7 @@ export function setupInstances() {
 
     const logOutput = document.getElementById("log-output");
     if (logOutput) logOutput.innerHTML = "";
-    if (typeof _logLineCount !== 'undefined') _logLineCount = 0;
+    if (typeof _logLineCount !== 'undefined') resetLogLineCount();
 
         window.renderUI();
         if (!store.isGameRunning) updateRPC();

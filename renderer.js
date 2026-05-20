@@ -642,6 +642,23 @@ window.api.on("horizon-status", async (data) => {
         }
     } 
     else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
+
+        if (data.type === "ERROR" && data.hasRollback) {
+            setTimeout(async () => {
+                const msg = t("horizon_rollback_prompt", "La mise à jour a échoué.\n\nVoulez-vous restaurer instantanément la version précédente de cette instance ?\n\n⚠️ Cette action remplacera les fichiers actuels par la sauvegarde automatique.");
+                
+                const wantsRollback = await window.showCustomConfirm(msg, true); 
+                
+                if (wantsRollback) {
+                    window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."), 0);
+                    
+                    await window.api.invoke("call-horizon", ['--rollback', data.instance]);
+                    
+                    window.hideLoading();
+                    if (window.renderUI) window.renderUI();
+                }
+            }, 500);
+        }
         
         targetCards.forEach(targetCard => {
             const circleContainer = targetCard.querySelector('.progress-circle-container');
@@ -703,7 +720,7 @@ window.api.on("horizon-status", async (data) => {
             const prefixName = realName ? `${realName} : ` : "";
             window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
         }
-        
+
         if (data.type === "SUCCESS" && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
             window.api.invoke("call-horizon", ['--sync', '--list']); 
             if (data.mode === "FULL" || data.mode === "SMART" || data.mode === "REPACK") {
@@ -711,7 +728,7 @@ window.api.on("horizon-status", async (data) => {
             }
         }
     }
-});
+}); 
 
 window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();
@@ -843,10 +860,11 @@ window.ctxRestoreCloud = async () => {
 
 window.ctxDeleteCloudOnly = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
-    if (await window.showCustomConfirm(t("msg_also_delete_cloud", "Supprimer définitivement du Cloud ?").replace("{name}", store.cloudTarget), true)) {
-        
-        window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
+    const baseMsg = t("msg_also_delete_cloud", "Voulez-vous supprimer définitivement \"{name}\" du Cloud ?");
+    const finalMsg = baseMsg.replace("{name}", store.cloudTarget);
 
+    if (await window.showCustomConfirm(finalMsg, true)) {
+        window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
         await window.api.invoke("call-horizon", ['--sync', '--delete', window.safeDir(store.cloudTarget)]);
         window.api.invoke("call-horizon", ['--sync', '--list']); 
     }

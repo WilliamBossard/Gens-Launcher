@@ -21,19 +21,17 @@ export function setupUICore() {
                     try {
                         parsed = JSON.parse(settingsContent);
                     } catch(_) {
-                        try {
-                            parsed = window.api.security.readJSON(store.settingsFile);
-                            if (parsed) {
-                                window.safeWriteJSON(store.settingsFile, parsed);
-                                console.log("Settings migrés du format chiffré vers le format clair.");
-                            }
-                        } catch(e2) {
-                            console.error("Erreur déchiffrement settings:", e2);
+                        parsed = window.api.security.readJSON(store.settingsFile);
+                        if (parsed) {
+                            window.safeWriteJSON(store.settingsFile, parsed);
+                            console.log("Settings migrés vers format clair.");
                         }
                     }
                     if (parsed) store.globalSettings = { ...store.globalSettings, ...parsed };
                 }
-            } catch (e) { console.error("Erreur lecture settings:", e); }
+            } catch (e) { 
+                console.error("Erreur critique lecture settings:", e);
+            }
         }
 
         if (fs.existsSync(store.instanceFile)) {
@@ -45,7 +43,7 @@ export function setupUICore() {
                     store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
                     
                     if (store.allInstances.length !== initialCount) {
-                        fs.writeFileSync(store.instanceFile, JSON.stringify(store.allInstances, null, 2), "utf8");
+                        window.safeWriteJSON(store.instanceFile, store.allInstances);
                         console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
                     }
                 }

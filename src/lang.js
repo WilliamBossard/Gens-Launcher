@@ -589,7 +589,8 @@ const defaultFr = {
   msg_delete_java_confirm: "Voulez-vous vraiment supprimer Java {version} de votre PC ?",
   msg_deleting: "Suppression en cours...",
   msg_java_deleted: "Java {version} a été supprimé.",
-  msg_err_delete: "Erreur lors de la suppression : "
+  msg_err_delete: "Erreur lors de la suppression : ",
+  horizon_rollback_prompt: "La mise à jour a échoué.\n\nVoulez-vous restaurer instantanément la version précédente de cette instance ?\n\n⚠️ Cette action annulera les modifications et remplacera les fichiers actuels par la sauvegarde automatique créée juste avant le téléchargement.",
 };
 
 const defaultEn = {
@@ -1182,6 +1183,7 @@ const defaultEn = {
   msg_deleting: "Deleting...",
   msg_java_deleted: "Java {version} has been deleted.",
   msg_err_delete: "Error deleting: ",
+  horizon_rollback_prompt: "The update failed.\n\nDo you want to instantly restore the previous version of this instance?\n\n⚠️ This action will undo the changes and replace the current files with the automatic backup created just before the download.",
 };
 
 export function setupLang() {

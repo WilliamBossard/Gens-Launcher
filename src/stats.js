@@ -8,61 +8,6 @@ const path = window.api.path;
 export function setupStats() { 
     const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
 
-    async function getCacheInfoAsync() {
-        let filesToDelete = [];
-        let totalSize = 0;
-
-        const checkDir = async (dir, condition) => {
-            try {
-                if (!fs.existsSync(dir)) return;
-                const files = await fs.promises.readdir(dir);
-                for (const file of files) {
-                    const filePath = path.join(dir, file);
-                    try {
-                        const stats = await fs.promises.stat(filePath);
-                        if (!stats.isDirectory && condition(file)) {
-                            filesToDelete.push(filePath);
-                            totalSize += stats.size;
-                        }
-                    } catch (e) {}
-                }
-            } catch (e) {}
-        };
-
-        await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
-        await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip") || f.endsWith(".tar.gz"));
-        await checkDir(path.join(store.dataDir, "exports"), f => true);
-
-        const horizonFilter = f => f.endsWith(".zip") && (f.startsWith("download_base_") || f.startsWith("download_delta_") || f.startsWith("temp_") || f.startsWith("delta_"));
-        await checkDir(store.dataDir, horizonFilter); 
-        await checkDir(path.join(store.dataDir, "bin"), horizonFilter); 
-
-        for (const inst of store.allInstances) {
-            const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
-            await checkDir(path.join(instDir, "crash-reports"), f => true);
-            await checkDir(path.join(instDir, "logs"), f => f.endsWith(".log.gz") || (f.endsWith(".log") && f !== "latest.log"));
-        }
-
-        try {
-            const mainDirs = await fs.promises.readdir(store.dataDir);
-            for (const d of mainDirs) {
-                if (d.startsWith("temp_")) { 
-                    const dPath = path.join(store.dataDir, d);
-                    try {
-                        const dStats = await fs.promises.stat(dPath);
-                        if (dStats.isDirectory) {
-                            filesToDelete.push(dPath);
-                            const size = await getFolderSizeAsync(dPath, new Set());
-                            totalSize += size;
-                        }
-                    } catch(e) {}
-                }
-            }
-        } catch(e) {}
-
-        return { files: filesToDelete, size: totalSize };
-    }
-
    async function getCacheInfoAsync() {
         let filesToDelete = [];
         let totalSize = 0;
@@ -177,6 +122,25 @@ export function setupStats() {
         
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
     }
+
+async function getFolderSizeAsync(dir, visited = new Set()) {
+    let size = 0;
+    try {
+        const files = await fs.promises.readdir(dir);
+        for (const file of files) {
+            const filePath = path.join(dir, file);
+            try {
+                const stats = await fs.promises.stat(filePath);
+                if (stats.isDirectory()) {
+                    size += await getFolderSizeAsync(filePath, visited);
+                } else {
+                    size += stats.size;
+                }
+            } catch (e) {}
+        }
+    } catch (e) {}
+    return size;
+}
 
 window.openStatsModal = async () => {
         document.getElementById("modal-stats").style.display = "flex";

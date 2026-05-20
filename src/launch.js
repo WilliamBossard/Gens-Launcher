@@ -10,7 +10,11 @@ const os = window.api.os;
 let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
 const hiddenInstances = new Set();
-let _logLineCount = 0;
+export let _logLineCount = 0;
+
+export function resetLogLineCount() {
+    _logLineCount = 0;
+}
 
 async function getCloudSettings() {
     try {

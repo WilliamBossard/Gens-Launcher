@@ -764,10 +764,15 @@ const queue = [...modsToDownload];
                     }
 
                     const safeFilename = sanitizeFilename(fileObj.filename);
-                    const targetDir = dirs[mod.type] || dirs["mod"];
-                    const destPath = path.join(targetDir, safeFilename);
+                    const dlController = new AbortController();
+                    const dlTimeout = setTimeout(() => dlController.abort(), 30000);
+                    let dlRes;
+                    try {
+                        dlRes = await fetch(fileObj.url, { signal: dlController.signal });
+                    } finally {
+                        clearTimeout(dlTimeout);
+                    }
 
-                    const dlRes = await fetch(fileObj.url);
                     if (!dlRes.ok) throw new Error(`DL HTTP ${dlRes.status}`);
                     const buffer = await dlRes.arrayBuffer();
 
