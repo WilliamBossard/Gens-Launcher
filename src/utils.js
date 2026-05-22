@@ -139,9 +139,29 @@ window.t = function(key, fallback) {
     return store.currentLangObj[key] || fallback;
 };
 
+/**
+ * DÉCISION : une instance a deux identifiants —
+ * - inst.name : affichage, IPC jeu, logs
+ * - safeDir(inst.name) : dossier disque, Horizon, locks
+ */
 window.safeDir = function(name) {
     if (!name) return "";
     return name.replace(/[^a-z0-9]/gi, "_");
+};
+
+window.resolveInstanceFolder = function(nameOrFolder) {
+    const slug = window.safeDir(nameOrFolder);
+    const inst = store.allInstances.find(
+        i => i.name === nameOrFolder || window.safeDir(i.name) === slug
+    );
+    return inst ? window.safeDir(inst.name) : slug;
+};
+
+window.resolveInstanceName = function(nameOrFolder) {
+    const inst = store.allInstances.find(
+        i => i.name === nameOrFolder || window.safeDir(i.name) === window.safeDir(nameOrFolder)
+    );
+    return inst ? inst.name : nameOrFolder;
 };
 
 const yieldUI = () => new Promise((resolve) => {

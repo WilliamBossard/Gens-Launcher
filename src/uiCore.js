@@ -38,13 +38,26 @@ export function setupUICore() {
             try {
                 const content = fs.readFileSync(store.instanceFile, "utf8");
                 if (content) {
-                    let loadedInstances = JSON.parse(content);                   
-                    const initialCount = loadedInstances.length;
-                    store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
+                    let loadedInstances = null;
                     
-                    if (store.allInstances.length !== initialCount) {
-                        window.safeWriteJSON(store.instanceFile, store.allInstances);
-                        console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
+                    try {
+                        loadedInstances = JSON.parse(content);
+                    } catch (e) {
+                        loadedInstances = window.api.security.readJSON(store.instanceFile);
+                        if (loadedInstances) {
+                            window.safeWriteJSON(store.instanceFile, loadedInstances);
+                            console.log("Fichier instances.json déchiffré et remis en clair.");
+                        }
+                    }
+
+                    if (loadedInstances) {
+                        const initialCount = loadedInstances.length;
+                        store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
+                        
+                        if (store.allInstances.length !== initialCount) {
+                            window.safeWriteJSON(store.instanceFile, store.allInstances);
+                            console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
+                        }
                     }
                 }
             } catch (e) { console.error("Erreur lecture instances:", e); }
@@ -77,7 +90,8 @@ export function setupUICore() {
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
         }
 
-        store.horizonActive = store.globalSettings.systemEnabled === true;
+        // DÉCISION : horizonActive vient de horizon_settings.json (bin), pas de settings.json du launcher.
+        // checkHorizonUpdateAtStartup() met à jour ce flag après lecture du binaire Horizon.
     };
 
     let _restorePollInterval = null;
@@ -89,12 +103,16 @@ export function setupUICore() {
             const stillRunning = await window.api.invoke("get-still-running");
             if (!stillRunning || stillRunning.length === 0) return;
 
-            stillRunning.forEach(instanceId => store.activeInstances.add(instanceId));
+            stillRunning.forEach(rawId => {
+                const displayName = window.resolveInstanceName(rawId);
+                store.activeInstances.add(displayName);
+            });
             if (window.setUIState) window.setUIState();
             if (window.renderUI)   window.renderUI();
 
-            stillRunning.forEach(instanceId => {
-                const inst = store.allInstances.find(i => i.name === instanceId);
+            stillRunning.forEach(rawId => {
+                const displayName = window.resolveInstanceName(rawId);
+                const inst = store.allInstances.find(i => i.name === displayName);
                 if (inst && !inst._tempSessionStart) inst._tempSessionStart = Date.now();
             });
 
@@ -105,7 +123,13 @@ export function setupUICore() {
 
                     let changed = false;
                     for (const instanceId of [...store.activeInstances]) {
-                        if (aliveSet.has(instanceId)) continue; 
+                        const folderSlug = window.resolveInstanceFolder(instanceId);
+                        const stillUp = alive.some(id =>
+                            id === instanceId ||
+                            window.resolveInstanceName(id) === instanceId ||
+                            window.safeDir(id) === folderSlug
+                        );
+                        if (stillUp) continue;
 
                         store.activeInstances.delete(instanceId);
                         changed = true;

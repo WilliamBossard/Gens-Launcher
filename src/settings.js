@@ -559,6 +559,15 @@ window.refreshHorizonUI = async () => {
             } catch(e) {}
         }
 
+        if (!window._lastQuotaHtml) {
+            try {
+                const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
+                if (window.api.fs.existsSync(quotaCachePath)) {
+                    window._lastQuotaHtml = window.api.fs.readFileSync(quotaCachePath, "utf8");
+                }
+            } catch(e) {}
+        }
+
         const status = await window.api.invoke("check-horizon-status");
 
         if (!status.installed) {
@@ -608,8 +617,11 @@ window.refreshHorizonUI = async () => {
         let linkBtnHTML = "";
         if (status.linked) {
             linkBtnHTML = `
-                <div style="display: flex; align-items: center; justify-content: center; height: 28px; background: rgba(23, 177, 57, 0.1); padding: 0 12px; border-radius: 4px; border: 1px solid #17B139; flex-shrink: 0; box-sizing: border-box; margin-left: auto;">
-                    <span style="color: #17B139; font-weight: bold; font-size: 0.85rem; white-space: nowrap;">✔ ${t("horizon_linked", "Compte Associé")}</span>
+                <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;"> 
+                    </div>
+                    <button class="btn-secondary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; color: #f87171; border-color: #f87171; flex-shrink: 0;" onclick="disconnectHorizon()">
+                        ${t("btn_horizon_disconnect", "Déconnecter")}
+                    </button>
                 </div>
             `;
         } else {
@@ -619,6 +631,34 @@ window.refreshHorizonUI = async () => {
                 </button>
             `;
         }
+
+
+        window.disconnectHorizon = async () => {
+            const confirmMsg = t("msg_disconnect_horizon", "Voulez-vous vraiment déconnecter votre compte Cloud ?\n\n(Le jeton d'accès sera supprimé de votre PC).");
+            
+            if (await window.showCustomConfirm(confirmMsg, true)) {
+                try {
+                    const provider = currentProvider || "google";
+                    const binPath = window.api.path.join(store.dataDir, "bin");
+                    
+                    const tokenPath = window.api.path.join(binPath, `token_${provider}.json`);
+                    const legacyPath = window.api.path.join(binPath, "token.json");
+                    
+                    if (window.api.fs.existsSync(tokenPath)) {
+                        window.api.fs.unlinkSync(tokenPath);
+                    }
+                    if (provider === "google" && window.api.fs.existsSync(legacyPath)) {
+                        window.api.fs.unlinkSync(legacyPath);
+                    }
+                    
+                    window.showToast(t("horizon_disconnected_success", "Compte Cloud déconnecté avec succès."), "success");
+                    
+                    await window.refreshHorizonUI();
+                } catch(e) {
+                    window.showToast("Erreur lors de la déconnexion : " + e.message, "error");
+                }
+            }
+        };
 
         const updateBtnHTML = (status.needsUpdate && !status.offline)
             ? `<button class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;" onclick="handleHorizonInstall()">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
@@ -737,8 +777,11 @@ window.refreshHorizonUI = async () => {
         container.innerHTML = html;
 
         if (isEnabled && status.linked) {
-            window.api.invoke("call-horizon", ['--sync', '--list']);
-            setTimeout(() => window.refreshHorizonQuotaSilent(), 200);
+            if (window.horizonScheduleCloudRefresh) {
+                window.horizonScheduleCloudRefresh({ refreshQuota: true });
+            } else {
+                window.api.invoke("call-horizon", ['--sync', '--list']);
+            }
         } else if (isEnabled && !status.linked) {
             const grid = document.getElementById("horizon-cloud-grid");
             const prettyProvider = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
@@ -768,8 +811,9 @@ window.runHorizonLogin = async (provider) => {
         await window.api.invoke("call-horizon", `--${action}`);
 
         if (action === 'sync' || action === 'upload') {
-            window.api.invoke("call-horizon", ['--sync', '--list']);
-            setTimeout(() => window.refreshHorizonQuotaSilent(), 800);
+            if (window.horizonScheduleCloudRefresh) {
+                await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+            }
         } else {
             await window.refreshHorizonUI();
         }

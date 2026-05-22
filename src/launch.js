@@ -16,6 +16,9 @@ export function resetLogLineCount() {
     _logLineCount = 0;
 }
 
+let logBuffer = [];
+let logTimer = null;
+
 async function getCloudSettings() {
     try {
         const hSettings = await window.api.invoke("get-horizon-settings");
@@ -213,25 +216,7 @@ if (!suspectedMod) {
     let menuTimers = {};
     let currentServerIPs = {};
 
-    window.api.on("horizon-status", (data) => {
-        if (!window._isAutoLaunch) return;
-        if (data.type !== "PROGRESS") return;
-        const val = Math.round(data.value || 0);
-        const autoBar = document.getElementById("auto-progress-bar");
-        if (autoBar) autoBar.style.width = val + "%";
-        const autoStatus = document.getElementById("auto-status-text");
-        if (autoStatus) {
-            const stepLabels = {
-                COMPRESSING:   t("msg_compress",       "Compression..."),
-                UPLOADING:     t("msg_cloud_up",        "Sauvegarde sur le Cloud..."),
-                CHECKING:      t("msg_checking",        "Vérification..."),
-                EXTRACTING:    t("msg_extract",         "Extraction..."),
-                APPLYING_DELTA:t("msg_applying_delta",  "Mise à jour des fichiers..."),
-            };
-            const label = stepLabels[data.step] || data.step || "";
-            autoStatus.textContent = val > 0 ? `${label} ${val}%` : label;
-        }
-    });
+    // DÉCISION : un seul abonnement horizon-status (renderer.js) — évite barres/toasts doublés.
 
     window.api.on("mc-progress", (payload) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
@@ -294,14 +279,28 @@ if (!suspectedMod) {
             if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171";
 
             const isAtBottom = logOutput.scrollHeight - logOutput.clientHeight <= logOutput.scrollTop + 50;
-            logOutput.insertAdjacentHTML("beforeend", `<div class="log-line" style="color:${color}">[GAME] ${window.escapeHTML(dStr)}</div>`);
-            _logLineCount++;
-            if (_logLineCount > 500) { logOutput.removeChild(logOutput.firstChild); _logLineCount--; }
-
             const filter = document.getElementById("console-filter")?.value.toLowerCase() ?? "";
-            if (filter && !dStr.toLowerCase().includes(filter)) logOutput.lastElementChild.style.display = "none";
+            const isHidden = filter && !dStr.toLowerCase().includes(filter) ? 'style="display:none;"' : '';
+            
+            logBuffer.push(`<div class="log-line" style="color:${color}" ${isHidden}>[GAME] ${window.escapeHTML(dStr)}</div>`);
+            _logLineCount++;
 
-            if (isAtBottom) logOutput.scrollTop = logOutput.scrollHeight;
+            if (!logTimer) {
+                logTimer = setTimeout(() => {
+                    if (logBuffer.length > 0) {
+                        logOutput.insertAdjacentHTML("beforeend", logBuffer.join(""));
+                        logBuffer = [];
+                        
+                        while (_logLineCount > 500 && logOutput.firstChild) { 
+                            logOutput.removeChild(logOutput.firstChild); 
+                            _logLineCount--; 
+                        }
+                        
+                        if (isAtBottom) logOutput.scrollTop = logOutput.scrollHeight;
+                    }
+                    logTimer = null;
+                }, 150);
+            }
         }
 
         try {
@@ -417,7 +416,7 @@ window.api.on("mc-close", async (payload) => {
 
         if (code !== 0 && closedInstIndex !== -1) {
             if (isAutoClose) {
-                if (isAutoClose) setAutoStatus(t("msg_crash_generic", "Le jeu a planté (code {code}).").replace("{code}", code));
+                setAutoStatus(t("msg_crash_generic", "Le jeu a planté (code {code}).").replace("{code}", code));
                 const culprit = await window.analyzeCrash(instanceId);
                 if (culprit) setAutoStatus(`⚠ Crash détecté : ${culprit}`);
             } else if (store.selectedInstanceIdx === closedInstIndex) {

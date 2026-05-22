@@ -309,8 +309,9 @@ async function checkCloudAtStartup() {
 
         const status = await window.api.invoke("check-horizon-status");
         if (status.installed && !status.offline) {
-            const checkResult = await window.api.invoke("call-horizon", "--check");
-            if (checkResult && checkResult.status === "UPDATE_AVAILABLE") {
+            const checkResult = await window.api.invoke("call-horizon", ["--check"]);
+            const payload = checkResult?.lastJson || checkResult;
+            if (payload && (payload.status === "UPDATE_AVAILABLE" || (payload.type === "CHECK_RESULT" && payload.status === "UPDATE_AVAILABLE"))) {
                 window.showToast(t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
             }
         }
@@ -344,7 +345,7 @@ async function init() {
 
     loadNews();
     checkCloudAtStartup();
-    checkHorizonUpdateAtStartup();
+    setTimeout(() => checkHorizonUpdateAtStartup(), 0);
     window.checkServerStatus();
 
     window._serverStatusInterval = setInterval(() => {
@@ -374,7 +375,7 @@ window.ctxSyncCloud = async () => {
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
-        await window.api.invoke("call-horizon", ['--sync', inst.name]);
+        await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
     }
 };
 
@@ -383,7 +384,7 @@ window.ctxUploadCloud = async () => {
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
-        await window.api.invoke("call-horizon", ['--upload', inst.name]);
+        await window.api.invoke("call-horizon", ['--upload', window.safeDir(inst.name)]);
     }
 };
 
@@ -403,6 +404,13 @@ window.api.on("horizon-status", async (data) => {
         return safeName;
     };
     
+    if (data.type === "CHECK_RESULT") {
+        if (data.status === "UPDATE_AVAILABLE") {
+            window.showToast(t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
+        }
+        return;
+    }
+
     if (data.type === "CLOUD_LIST") {
         const grid = document.getElementById("horizon-cloud-grid");
         if (!grid) return;
@@ -489,6 +497,15 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
 
+    /**
+     * ==============================================================================
+     * REFONTES DE SÉCURITÉ / ROBUSTESSE - CACHE DU QUOTA CLOUD
+     * ==============================================================================
+     * DECISION ARCHITECTURALE : Implémentation d'un système de persistance locale
+     * pour le quota Cloud d'Horizon. Évite les appels réseau bloquants au démarrage.
+     * MOTIF DE PRODUCTION : Supprime le freeze visuel "Chargement..." dans l'onglet settings.
+     * ==============================================================================
+     */
     if (data.type === "QUOTA") {
         const el = document.getElementById("horizon-quota-zone");
         if (!el) return;
@@ -555,7 +572,10 @@ window.api.on("horizon-status", async (data) => {
             </button>`;
 
         window._lastQuotaHtml = el.innerHTML;
-
+        try {
+            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
+            window.api.fs.writeFileSync(quotaCachePath, el.innerHTML, "utf8");
+        } catch(e) {}
         return;
     }
 
@@ -616,6 +636,8 @@ window.api.on("horizon-status", async (data) => {
         });
 
         if (window._isAutoLaunch) {
+            const autoBar = document.getElementById("auto-progress-bar");
+            if (autoBar) autoBar.style.width = val + "%";
             const autoStatus = document.getElementById("auto-status-text");
             if (autoStatus) {
                 let stepText = t("msg_loading", "Traitement...");
@@ -668,6 +690,7 @@ window.api.on("horizon-status", async (data) => {
         let finalMsg = data.message || "";
 
         if (data.errorCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
+            if (!window._isManualHorizon) return;
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
         else if (data.errorCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée")) {
@@ -721,11 +744,11 @@ window.api.on("horizon-status", async (data) => {
             window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
         }
 
-        if (data.type === "SUCCESS" && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
-            window.api.invoke("call-horizon", ['--sync', '--list']); 
-            if (data.mode === "FULL" || data.mode === "SMART" || data.mode === "REPACK") {
-                setTimeout(() => window.refreshHorizonQuotaSilent(), 800);
-            }
+        if (data.type === "SUCCESS" && !window._isManualHorizon
+            && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
+            const refreshQuota = data.mode === "FULL" || data.mode === "SMART" || data.mode === "REPACK"
+                || data.base !== undefined || data.deltas !== undefined;
+            window.horizonScheduleCloudRefresh({ refreshQuota });
         }
     }
 }); 
@@ -764,12 +787,20 @@ window.openCloudContextMenu = (e, instName, isLocal) => {
     menu.style.top  = y + "px";
 };
 
+/**
+     * ==============================================================================
+     * REFONTES DE SÉCURITÉ / ROBUSTESSE - RESTAURATION AVEC CARTE PHANTOME
+     * ==============================================================================
+     * DECISION ARCHITECTURALE : Génération immédiate d'une carte d'instance asynchrone 
+     * flaggée 'is-phantom' pour matérialiser visuellement la reconstruction sur le disque.
+     * MOTIF DE PRODUCTION : Évite la confusion de l'utilisateur et gère la progression par canal.
+     * ==============================================================================
+     */
 window.ctxRestoreCloud = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
-    if (window.closeGlobalSettings) window.closeGlobalSettings(); 
-    
+    if (window.closeGlobalSettings) window.closeGlobalSettings();
+
     const targetName = store.cloudTarget;
-    window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
 
     if (!store.allInstances.some(i => i.name === targetName)) {
         let iconData = "";
@@ -782,32 +813,38 @@ window.ctxRestoreCloud = async () => {
                 iconData = meta.iconData || "";
                 loader = meta.loader || "vanilla";
             }
-        } catch(_) {}
+        } catch (_) {}
 
         store.allInstances.push({
-            name: targetName, 
+            name: targetName,
             version: "...", 
-            loader: loader, 
-            icon: iconData, 
-            ram: store.globalSettings.defaultRam.toString(), 
+            loader: loader,
+            icon: iconData,
+            ram: store.globalSettings.defaultRam.toString(),
             group: t("lbl_group_general", "Général")
         });
-        window.renderUI();
+        window.renderUI(); 
     }
 
-    const exitCode = await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName), '--force']);
-    
-    const idx = store.allInstances.findIndex(i => i.name === targetName);
-    if (idx === -1) return;
+    window._isManualHorizon = true;
+    const syncResult = await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName), '--force']);
+    window._isManualHorizon = false;
 
-    if (exitCode !== 0) {
-        store.allInstances.splice(idx, 1);
+    if (window.horizonOpFailed(syncResult)) {
+        const idx = store.allInstances.findIndex(i => i.name === targetName && i.version === "...");
+        if (idx !== -1) store.allInstances.splice(idx, 1); 
         window.renderUI();
-        window.showToast("Erreur lors de la restauration du Cloud.", "error");
+        const errMsg = syncResult?.lastJson?.message || "Erreur lors de la restauration du Cloud.";
+        window.showToast(errMsg, "error");
         return;
     }
 
-    const instFolder = window.api.path.join(store.instancesRoot, targetName.replace(/[^a-z0-9]/gi, "_"));
+    const idx = store.allInstances.findIndex(i => i.name === targetName);
+    if (idx === -1) return;
+
+    await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+
+    const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(targetName));
     const jsonPath = window.api.path.join(instFolder, "instance.json");
     
     let realInst = null;
@@ -850,23 +887,25 @@ window.ctxRestoreCloud = async () => {
         };
         
         try { window.api.fs.writeFileSync(jsonPath, JSON.stringify(store.allInstances[idx], null, 2)); } catch(e){}
-        
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
-
+    // RÈGLE DE SAUVEGARDE STRICTE :
+    // - instances.json et settings.json -> TOUJOURS EN CLAIR via safeWriteJSON
+    // - accounts.json -> TOUJOURS CHIFFRÉ via api.security.writeJSON
     window.safeWriteJSON(store.instanceFile, store.allInstances);
     window.renderUI(); 
 };
 
 window.ctxDeleteCloudOnly = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
+    
     const baseMsg = t("msg_also_delete_cloud", "Voulez-vous supprimer définitivement \"{name}\" du Cloud ?");
     const finalMsg = baseMsg.replace("{name}", store.cloudTarget);
 
     if (await window.showCustomConfirm(finalMsg, true)) {
         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
-        await window.api.invoke("call-horizon", ['--sync', '--delete', window.safeDir(store.cloudTarget)]);
-        window.api.invoke("call-horizon", ['--sync', '--list']); 
+        await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
+        await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     }
 };
 
@@ -877,7 +916,7 @@ window.ctxSyncCloudFromMenu = async () => {
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]); 
-    window.api.invoke("call-horizon", ['--sync', '--list']);
+    await window.horizonScheduleCloudRefresh({ refreshQuota: true });
 };
 
 window.ctxUploadCloudFromMenu = async () => {
@@ -887,7 +926,7 @@ window.ctxUploadCloudFromMenu = async () => {
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]); 
-    window.api.invoke("call-horizon", ['--sync', '--list']);
+    await window.horizonScheduleCloudRefresh({ refreshQuota: true });
 };
 
 document.addEventListener("click", () => {
@@ -921,8 +960,6 @@ async function checkHorizonUpdateAtStartup() {
         console.error("[Horizon] Erreur fatale de détection :", e);
         store.horizonActive = false;
     }
-
-    await new Promise(r => setTimeout(r, 4000));
 
     try {
         const status = await window.api.invoke("check-horizon-status");
@@ -960,14 +997,45 @@ window.clearHorizonUpdateBadges = () => {
     if (tabBadge) tabBadge.style.display = "none";
 };
 
+window.horizonOpFailed = (result) => {
+    if (result == null) return true;
+    if (typeof result === "number") return result !== 0;
+    if (result.exitCode !== 0) return true;
+    if (result.lastJson?.type === "ERROR") return true;
+    return false;
+};
+
+/** Rafraîchit la grille cloud + quota après la fin de l'opération en cours (file d'attente main). */
+window.horizonScheduleCloudRefresh = async (opts = {}) => {
+    const { refreshQuota = false } = opts;
+    try {
+        await window.api.invoke("call-horizon", ["--sync", "--list"]);
+        if (refreshQuota) await window.refreshHorizonQuotaSilent();
+    } catch (e) {
+        console.error("[Horizon] Rafraîchissement cloud:", e);
+    }
+};
+
 window.refreshHorizonQuota = async () => {
     const el = document.getElementById("horizon-quota-zone");
     if (!el) return;
+    
+    if (!window._lastQuotaHtml) {
+        try {
+            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
+            if (window.api.fs.existsSync(quotaCachePath)) {
+                window._lastQuotaHtml = window.api.fs.readFileSync(quotaCachePath, "utf8");
+            }
+        } catch(_) {}
+    }
+
     if (!window._lastQuotaHtml) {
         el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">
             <span style="display:inline-block; animation:spin 1s linear infinite; margin-right:6px;">⟳</span>
             ${store.currentLangObj?.["msg_loading"] || "Chargement..."}
         </div>`;
+    } else {
+        el.innerHTML = window._lastQuotaHtml; 
     }
     await window.api.invoke("call-horizon", ["--quota"]);
 };

@@ -591,6 +591,9 @@ const defaultFr = {
   msg_java_deleted: "Java {version} a été supprimé.",
   msg_err_delete: "Erreur lors de la suppression : ",
   horizon_rollback_prompt: "La mise à jour a échoué.\n\nVoulez-vous restaurer instantanément la version précédente de cette instance ?\n\n⚠️ Cette action annulera les modifications et remplacera les fichiers actuels par la sauvegarde automatique créée juste avant le téléchargement.",
+  btn_horizon_disconnect: "Déconnecter",
+  msg_disconnect_horizon: "Voulez-vous vraiment déconnecter votre compte Cloud ?\n\n(Le jeton d'accès sera supprimé de votre PC).",
+  horizon_disconnected_success: "Compte Cloud déconnecté avec succès.",
 };
 
 const defaultEn = {
@@ -1184,6 +1187,9 @@ const defaultEn = {
   msg_java_deleted: "Java {version} has been deleted.",
   msg_err_delete: "Error deleting: ",
   horizon_rollback_prompt: "The update failed.\n\nDo you want to instantly restore the previous version of this instance?\n\n⚠️ This action will undo the changes and replace the current files with the automatic backup created just before the download.",
+  btn_horizon_disconnect: "Disconnect",
+  msg_disconnect_horizon: "Are you sure you want to disconnect your Cloud account?\n\n(The access token will be removed from your PC).",
+  horizon_disconnected_success: "Cloud account disconnected successfully.",
 };
 
 export function setupLang() {

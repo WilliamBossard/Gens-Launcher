@@ -60,6 +60,26 @@ if (!fs.existsSync(horizonBinDir)) {
     fs.mkdirSync(horizonBinDir, { recursive: true });
 }
 
+/**
+ * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
+ * tournent dans le main process — on re-valide ici les chemins sensibles.
+ */
+function assertPathUnderSandbox(p) {
+    const resolved = path.resolve(p);
+    if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
+        throw new Error('Chemin hors du sandbox GensLauncher');
+    }
+    return resolved;
+}
+
+function mainSafeDir(name) {
+    return String(name || '').replace(/[^a-z0-9]/gi, '_');
+}
+
+function mainResolveInstanceFolder(nameOrFolder) {
+    return mainSafeDir(nameOrFolder);
+}
+
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
     fs.appendFileSync(logPath, line);
@@ -67,11 +87,19 @@ function mainLog(msg) {
 }
 
 function _getMainProcSecretKey() {
-    let username = "default";
-    try { username = os.userInfo().username; } catch(e) {
-        username = process.env.USER || process.env.LOGNAME || "linux_user";
+    const secretPath = path.join(app.getPath("appData"), "GensLauncher", ".secret_key");
+    let secret;
+    try {
+        if (fs.existsSync(secretPath)) {
+            secret = fs.readFileSync(secretPath, 'utf8').trim();
+        } else {
+            secret = crypto.randomUUID();
+            fs.writeFileSync(secretPath, secret, 'utf8');
+        }
+    } catch(e) {
+        secret = os.hostname() + "_" + (os.userInfo().username || "user");
     }
-    return crypto.createHash('sha256').update(os.hostname() + "_" + username).digest();
+    return crypto.createHash('sha256').update(secret).digest();
 }
 
 function decryptSettingsMainProc(text) {
@@ -236,15 +264,25 @@ mainWindow.webContents.on('did-finish-load', () => {
     }, 3000);
 });
 
-function runHorizonAction(action, event = null) {
+let _horizonQueue = Promise.resolve();
+
+/** Opérations lecture seule : pas de pré-vérification du verrou horizon.lock */
+function isHorizonWriteOp(args) {
+    if (args.includes('--upload') || args.includes('--rollback')) return true;
+    if (args.includes('--sync') && args.includes('--delete')) return true;
+    if (args.includes('--sync') && !args.includes('--list')) return true;
+    return false;
+}
+
+function _runHorizonActionImpl(action, event = null) {
     const _lockArgs = Array.isArray(action) ? action : [action];
     const isSafe = _lockArgs.every(arg => /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]]+$/.test(arg));
     if (!isSafe) {
         mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
-        return Promise.resolve(-1);
+        return Promise.resolve({ exitCode: -1, lastJson: null });
     }
 
-    const isWriteOp = _lockArgs.some(a => a === '--sync' || a === '--upload');
+    const isWriteOp = isHorizonWriteOp(_lockArgs);
 
     if (isWriteOp) {
         const lockFile = path.join(horizonBinDir, 'horizon.lock');
@@ -252,17 +290,32 @@ function runHorizonAction(action, event = null) {
             const rawPid = (() => { try { return parseInt(fs.readFileSync(lockFile, 'utf8').trim(), 10); } catch(_) { return NaN; } })();
             if (!isNaN(rawPid)) {
                 let alive = false;
-                try { process.kill(rawPid, 0); alive = true; } catch(_) {}
+                try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
+                    if (killErr.code === 'EPERM') {
+                        try {
+                            const age = Date.now() - fs.statSync(lockFile).mtimeMs;
+                            if (age > 30 * 60 * 1000) {
+                                fs.unlinkSync(lockFile);
+                            } else {
+                                alive = true;
+                            }
+                        } catch (_) {
+                            try { fs.unlinkSync(lockFile); } catch (_) {}
+                        }
+                    }
+                }
                 if (alive) {
                     const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
                     if (event) event.sender.send('horizon-status', msg);
-                    return Promise.resolve(-1);
+                    return Promise.resolve({ exitCode: -1, lastJson: msg });
                 } else {
                     try { fs.unlinkSync(lockFile); } catch(_) {}
                 }
             }
         }
     }
+
+    const timeoutMs = isWriteOp ? 45 * 60 * 1000 : 3 * 60 * 1000;
 
     return new Promise((resolve) => {
         const args = Array.isArray(action) ? action : [action];
@@ -271,6 +324,23 @@ function runHorizonAction(action, event = null) {
         const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir });
         let settled = false;
         let killTimer;
+        let stdoutBuf = '';
+        let lastJson = null;
+
+        const finish = (exitCode) => {
+            if (stdoutBuf.trim()) {
+                for (const line of stdoutBuf.split('\n')) {
+                    if (!line.trim()) continue;
+                    try {
+                        const json = JSON.parse(line);
+                        lastJson = json;
+                        if (event) event.sender.send('horizon-status', json);
+                    } catch (_) {}
+                }
+                stdoutBuf = '';
+            }
+            resolve({ exitCode, lastJson });
+        };
 
         const resetTimeout = () => {
             if (killTimer) clearTimeout(killTimer);
@@ -279,20 +349,23 @@ function runHorizonAction(action, event = null) {
                     settled = true;
                     mainLog(`[Horizon] TIMEOUT d'inactivité — forçage de l'arrêt.`);
                     try { horizon.kill("SIGTERM"); } catch(_) {}
-                    resolve(-1);
+                    finish(-1);
                 }
-            }, 3 * 60 * 1000); 
+            }, timeoutMs);
         };
-        
-        resetTimeout(); 
+
+        resetTimeout();
 
         horizon.stdout.on('data', (data) => {
-            resetTimeout(); 
-            const lines = data.toString().split('\n');
+            resetTimeout();
+            stdoutBuf += data.toString();
+            const lines = stdoutBuf.split('\n');
+            stdoutBuf = lines.pop() || '';
             for (const line of lines) {
                 if (!line.trim()) continue;
                 try {
                     const json = JSON.parse(line);
+                    lastJson = json;
                     if (event) event.sender.send('horizon-status', json);
                     mainLog(`[Horizon Output] ${line}`);
                 } catch(e) {
@@ -304,13 +377,19 @@ function runHorizonAction(action, event = null) {
         horizon.stderr.on('data', (data) => { mainLog(`[Horizon Error] ${data.toString().trim()}`); });
 
         horizon.on('close', (code) => {
-            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Terminé (code ${code})`); resolve(code); }
+            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Terminé (code ${code})`); finish(code ?? -1); }
         });
 
         horizon.on('error', (err) => {
-            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Erreur spawn : ${err.message}`); resolve(-1); }
+            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Erreur spawn : ${err.message}`); finish(-1); }
         });
     });
+}
+
+function runHorizonAction(action, event = null) {
+    const job = _horizonQueue.then(() => _runHorizonActionImpl(action, event));
+    _horizonQueue = job.catch(() => {});
+    return job;
 }
 
 ipcMain.on("restart_app", () => {
@@ -406,6 +485,8 @@ ipcMain.handle("search-modrinth", async (_, url) => {
 });
 
 ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
+    archivePath = assertPathUnderSandbox(archivePath);
+    destDir = assertPathUnderSandbox(destDir);
     if (process.platform === "win32" && archivePath.endsWith(".zip")) {
         return new Promise((resolve) => {
             const resolvedTarget = path.resolve(destDir);
@@ -472,7 +553,7 @@ function isProcessAlive(pid) {
 }
 
 function sendStillRunningInstances() {
-    const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
+    const instancesDir = path.join(safeDataDir, "instances");
     const stillAlive = [];
     if (!fs.existsSync(instancesDir)) return stillAlive;
 
@@ -482,10 +563,18 @@ function sendStillRunningInstances() {
         if (fs.existsSync(lockFile)) {
             const pid = parseInt(fs.readFileSync(lockFile, 'utf8'), 10);
             try {
-                process.kill(pid, 0); 
-                stillAlive.push(folder);
+                process.kill(pid, 0);
+                let instanceId = folder;
+                const jsonPath = path.join(instancesDir, folder, "instance.json");
+                if (fs.existsSync(jsonPath)) {
+                    try {
+                        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                        if (data.name) instanceId = data.name;
+                    } catch (_) {}
+                }
+                stillAlive.push(instanceId);
             } catch (e) {
-                fs.unlinkSync(lockFile); 
+                fs.unlinkSync(lockFile);
             }
         }
     }
@@ -512,11 +601,26 @@ ipcMain.handle("force-stop-game", async (_, instanceId) => {
             activeMinecraftClients.delete(instanceId);
             saveRunningInstances(activeMinecraftClients);
             mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
-            
             if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
-            
-            resolve({ success: true });
-        } else { resolve({ success: false }); }
+            return resolve({ success: true });
+        }
+
+        const folder = mainResolveInstanceFolder(instanceId);
+        const lockFile = path.join(safeDataDir, "instances", folder, "instance.lock");
+        if (fs.existsSync(lockFile)) {
+            const pid = parseInt(fs.readFileSync(lockFile, 'utf8'), 10);
+            try {
+                process.kill(pid, 'SIGKILL');
+                mainLog(`Jeu [${instanceId}] arrêté via instance.lock (PID ${pid}).`);
+            } catch (e) {
+                mainLog(`force-stop: PID ${pid} déjà mort pour [${instanceId}]`);
+            }
+            try { fs.unlinkSync(lockFile); } catch (_) {}
+            if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
+            return resolve({ success: true });
+        }
+
+        resolve({ success: false });
     });
 });
 
@@ -677,8 +781,12 @@ ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
 
 ipcMain.on("launch-game", (event, opts) => {
     if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { mainWindow?.webContents.send("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); return; }
-    
-    if (activeMinecraftClients.has(opts.instanceId)) return; 
+
+    if (activeMinecraftClients.has(opts.instanceId)) {
+        mainLog(`launch-game: instance déjà en cours [${opts.instanceId}]`);
+        event.sender.send("launch-game-rejected", { instanceId: opts.instanceId, reason: "ALREADY_RUNNING" });
+        return;
+    }
     
     const instanceId = opts.instanceId;
     const launcher = new Client();
@@ -832,7 +940,14 @@ ipcMain.handle("save-horizon-settings", async (event, settings) => {
         const ALLOWED_KEYS = ["systemEnabled", "syncMode", "autoSync", "autoUpload", "provider", "deltaCleanupThreshold", "maxRetries", "retryBaseDelay"];
         const safe = Object.fromEntries(Object.entries(settings).filter(([k]) => ALLOWED_KEYS.includes(k)));
         const settingsPath = path.join(horizonBinDir, "horizon_settings.json");
-        fs.writeFileSync(settingsPath, JSON.stringify(safe, null, 2));
+        let existing = {};
+        if (fs.existsSync(settingsPath)) {
+            try { existing = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch (_) {}
+        }
+        const merged = { ...existing, ...safe };
+        const tmp = settingsPath + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(merged, null, 2));
+        fs.renameSync(tmp, settingsPath);
         return { success: true };
     }
     catch(e) { return { success: false, error: e.message }; }
@@ -956,6 +1071,8 @@ ipcMain.on('decrypt-string-sync', (event, hexText) => {
 });
 
 ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
+    src = assertPathUnderSandbox(src);
+    dest = assertPathUnderSandbox(dest);
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(dest);
         const archive = archiver('zip', { zlib: { level: 6 } });
@@ -1000,6 +1117,7 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
 });
 
 ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
+    zipPath = assertPathUnderSandbox(zipPath);
     return new Promise((resolve) => {
         const targets = new Set(entryNames);
         yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
@@ -1026,6 +1144,8 @@ ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
 });
 
 ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
+    zipPath = assertPathUnderSandbox(zipPath);
+    destDir = assertPathUnderSandbox(destDir);
     return new Promise((resolve, reject) => {
         const resolvedTarget = path.resolve(destDir);
         yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {

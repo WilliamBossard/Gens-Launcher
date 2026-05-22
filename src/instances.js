@@ -392,7 +392,7 @@ export function setupInstances() {
         window.closeInstanceModal();
     };
 
-    window.saveEdit = () => {
+    window.saveEdit = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const newName = document.getElementById("edit-name").value.trim();
         const oldInstName = inst.name; 
@@ -432,7 +432,32 @@ export function setupInstances() {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
                         if (store.horizonActive) {
-                            window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
+                            await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
+                            if (safeNewName !== safeOldName) {
+                                await window.api.invoke("call-horizon", ['--upload', safeNewName]);
+                                const binDir = path.join(store.dataDir, "bin");
+                                const syncPath = path.join(binDir, "last_sync.json");
+                                if (fs.existsSync(syncPath)) {
+                                    try {
+                                        const syncState = JSON.parse(fs.readFileSync(syncPath, "utf8"));
+                                        if (syncState[safeOldName] !== undefined) {
+                                            syncState[safeNewName] = syncState[safeOldName];
+                                            delete syncState[safeOldName];
+                                            window.safeWriteJSON(syncPath, syncState);
+                                        }
+                                    } catch (_) {}
+                                }
+                                for (const prefix of ["meta_", "manifest_"]) {
+                                    const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
+                                    const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
+                                    try {
+                                        if (fs.existsSync(oldCache)) {
+                                            if (fs.existsSync(newCache)) fs.unlinkSync(newCache);
+                                            fs.renameSync(oldCache, newCache);
+                                        }
+                                    } catch (_) {}
+                                }
+                            }
                         }
                     }
                 } catch(err) {
@@ -622,46 +647,35 @@ export function setupInstances() {
     };
 
     window.deleteInstance = async () => {
-        const instToDelete = store.allInstances[store.selectedInstanceIdx];
-        if (instToDelete && store.activeInstances.has(instToDelete.name)) {
+        if (store.selectedInstanceIdx === null) return;
+        
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        if (inst && store.activeInstances.has(inst.name)) {
             window.showToast(t("msg_err_delete_running", "Impossible de supprimer une instance en cours d'exécution."), "error");
             return;
         }
-        if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
-            const inst = store.allInstances[store.selectedInstanceIdx];
 
+        if (await window.showCustomConfirm(t("msg_delete_inst", "Supprimer l'instance localement ?"), true)) {
+            const safeName = window.safeDir(inst.name);
+            const instName = inst.name;
+            const instIdx = store.selectedInstanceIdx;
+            const hasShortcut = inst._hasDesktopShortcut;
+
+            let deleteCloudToo = false;
             try {
-                const safeName = window.safeDir(inst.name);
-                
                 if (store.horizonActive) {
-                    const confirmMsg = t("msg_also_delete_cloud", `Voulez-vous ÉGALEMENT supprimer "${inst.name}" du Cloud ?`);
-                    if (await window.showCustomConfirm(confirmMsg, true)) {
-                        window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
-                        await window.api.invoke("call-horizon", ['--sync', '--delete', safeName]);
-                        window.api.invoke("call-horizon", ['--sync', '--list']);
+                    const binDir = path.join(store.dataDir, "bin");
+                    const metaPath = path.join(binDir, `meta_${safeName}.json`);
+                    if (fs.existsSync(metaPath)) {
+                        const confirmMsg = t("msg_also_delete_cloud", 'Voulez-vous ÉGALEMENT supprimer "{name}" du Cloud ?').replace("{name}", instName);
+                        deleteCloudToo = await window.showCustomConfirm(confirmMsg, true);
                     }
                 }
-            } catch(e) { console.error("Erreur check cloud:", e); }
+            } catch(e) { console.error("Erreur vérification métadonnées cloud:", e); }
 
-            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
-            try {
-                if (fs.existsSync(instFolder)) await fs.promises.rm(instFolder, { recursive: true, force: true });
-            } catch(e) {
-                window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?"), "error");
-                return;
-            }
-
-            invalidateScreenshotCache(inst.name);
-
-            if (inst._hasDesktopShortcut) {
-                window.api.invoke("delete-desktop-shortcut", { instanceName: inst.name })
-                    .catch(() => {});
-            }
-
-            sysLog(`[INSTANCE] Instance "${inst.name}" supprimée localement.`);
-            store.allInstances.splice(store.selectedInstanceIdx, 1);
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            store.allInstances.splice(instIdx, 1);
             store.selectedInstanceIdx = null;
+            
             document.getElementById("panel-stats").style.display = "none";
             document.getElementById("action-panel").style.opacity = "0.4";
             document.getElementById("action-panel").style.pointerEvents = "none";
@@ -669,6 +683,42 @@ export function setupInstances() {
 
             if (window.applyTheme) window.applyTheme();
             window.renderUI();
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
+
+            if (deleteCloudToo) {
+                try {
+                    window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
+                    await window.api.invoke("call-horizon", ['--sync', '--delete', safeName]);
+                    if (window.horizonScheduleCloudRefresh) {
+                        await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+                    }
+                } catch(cloudErr) {
+                    sysLog(`[CLOUD] Échec de la suppression Cloud pour ${instName}: ${cloudErr.message}`, true);
+                    window.showToast("Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée.", "code");
+                }
+            }
+
+            const instFolder = path.join(store.instancesRoot, safeName);
+            try {
+                if (fs.existsSync(instFolder)) {
+                    await fs.promises.rm(instFolder, { recursive: true, force: true });
+                }
+
+                invalidateScreenshotCache(instName);
+
+                if (hasShortcut) {
+                    window.api.invoke("delete-desktop-shortcut", { instanceName: instName }).catch(() => {});
+                }
+
+                sysLog(`[INSTANCE] Instance "${instName}" et ses fichiers ont été supprimés avec succès.`);
+            } catch(localErr) {
+                sysLog(`[FALLBACK] Impossible de supprimer le dossier de ${instName}: ${localErr.message}`, true);
+                window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier complet. Le dossier est peut-être verrouillé."), "error");
+                
+                store.allInstances.splice(instIdx, 0, inst);
+                window.safeWriteJSON(store.instanceFile, store.allInstances);
+                window.renderUI();
+            }
         }
     };
 

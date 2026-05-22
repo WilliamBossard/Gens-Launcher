@@ -28,13 +28,29 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
  * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
  * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
  */
+function enforceReadSandbox(p) {
+    const resolved = path.resolve(p);
+    
+    const isInDataDir = resolved.startsWith(safeDataDir + path.sep) || resolved === safeDataDir;
+    const isMinecraftDir = resolved.includes('.minecraft') || resolved.includes('minecraft');
+    const isJavaDir = /java|jdk|jre|jvm/i.test(resolved);
+    const isTempDir = resolved.startsWith(os.tmpdir());
+    const isMedia = /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(resolved);
+
+    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isMedia) {
+        console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
+        throw new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
+    }
+    return resolved;
+}
+
 function enforceSandbox(p) {
     const resolved = path.resolve(p);
     if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
-        console.error(`SÉCURITÉ : Tentative d'écriture bloquée vers ${resolved}`);
-        throw new Error("Accès refusé par le système de sécurité du Launcher.");
+        console.error(`SÉCURITÉ : Écriture hors-périmètre bloquée vers ${resolved}`);
+        throw new Error("Accès en écriture refusé par le système de sécurité du Launcher.");
     }
-    return resolved; 
+    return resolved;
 }
 
 function safeExternalUrl(url) {
@@ -45,15 +61,23 @@ function safeExternalUrl(url) {
     return url;
 }
 
-let username = "default";
-try {
-    username = os.userInfo().username;
-} catch (e) {
-    username = process.env.USER || process.env.LOGNAME || "linux_user";
+function _getPreloadSecretKey() {
+    const secretPath = path.join(_appPaths.appData, "GensLauncher", ".secret_key");
+    let secret;
+    try {
+        if (fs.existsSync(secretPath)) {
+            secret = fs.readFileSync(secretPath, 'utf8').trim();
+        } else {
+            secret = crypto.randomUUID();
+            fs.writeFileSync(secretPath, secret, 'utf8');
+        }
+    } catch(e) {
+        secret = os.hostname() + "_" + (os.userInfo().username || "user");
+    }
+    return crypto.createHash('sha256').update(secret).digest();
 }
 
-const machineID = os.hostname() + "_" + username;
-const SECRET_KEY = crypto.createHash('sha256').update(machineID).digest();
+const SECRET_KEY = _getPreloadSecretKey();
 
 function obfuscateData(text) {
     const iv = crypto.randomBytes(16);
@@ -110,20 +134,39 @@ on: (channel, func) => {
             if (!fs.existsSync(safePath)) return null;
             const raw = fs.readFileSync(safePath, 'utf8');
             
-            if (raw.startsWith('{') || raw.startsWith('[')) {
-                const parsed = JSON.parse(raw);
-                try {
-                    const encrypted = ipcRenderer.sendSync('encrypt-string-sync', JSON.stringify(parsed, null, 2));
-                    fs.writeFileSync(safePath, encrypted, 'utf8');
-                } catch(e) {}
-                return parsed;
-            }
-            
-            const decrypted = ipcRenderer.sendSync('decrypt-string-sync', raw);
-            if (decrypted) return JSON.parse(decrypted);
+            let parsedData = null;
+            let needsMigration = false;
 
-            const oldDecrypted = deobfuscateData(raw);
-            return oldDecrypted ? JSON.parse(oldDecrypted) : null;
+            if (raw.startsWith('{') || raw.startsWith('[')) {
+                parsedData = JSON.parse(raw);
+                needsMigration = true;
+            } else {
+                const decryptedNew = ipcRenderer.sendSync('decrypt-string-sync', raw);
+                if (decryptedNew) {
+                    parsedData = JSON.parse(decryptedNew);
+                    if (raw.startsWith('aes:')) {
+                        needsMigration = true;
+                    }
+                } else {
+                    const decryptedOld = deobfuscateData(raw);
+                    if (decryptedOld) {
+                        parsedData = JSON.parse(decryptedOld);
+                        needsMigration = true;
+                    }
+                }
+            }
+
+            if (parsedData && needsMigration) {
+                try {
+                    const encrypted = ipcRenderer.sendSync('encrypt-string-sync', JSON.stringify(parsedData, null, 2));
+                    fs.writeFileSync(safePath, encrypted, 'utf8');
+                    console.log(`[Sécurité] Fichier migré vers le nouveau format de chiffrement : ${safePath}`);
+                } catch(e) {
+                    console.error("Échec de la migration du chiffrement :", e);
+                }
+            }
+
+            return parsedData;
         }
     },
 
@@ -151,22 +194,15 @@ on: (channel, func) => {
     
     fs: {
         // ==========================================
-        // OPÉRATIONS DE LECTURE (SANS SANDBOX)
-        // Libres pour permettre le scan de Java, l'import .minecraft, etc.
+        // OPÉRATIONS DE LECTURE (AVEC SANDBOX DE LECTURE)
         // ==========================================
-        existsSync: (p) => fs.existsSync(p),
-        readFileSync: (p, enc) => fs.readFileSync(p, enc),
-        readdirSync: (p) => fs.readdirSync(p),
+        existsSync: (p) => fs.existsSync(p), 
+        readFileSync: (p, enc) => fs.readFileSync(enforceReadSandbox(p), enc),
+        readdirSync: (p) => fs.readdirSync(enforceReadSandbox(p)),
         statSync: (p) => {
-         const s = fs.statSync(p);
-         return { 
-             isDirectory: s.isDirectory(), 
-             isFile: s.isFile(), 
-             size: s.size, 
-             mtime: s.mtime, 
-             birthtime: s.birthtime 
-         };
-     },
+            const s = fs.statSync(enforceReadSandbox(p));
+            return { isDirectory: s.isDirectory(), isFile: s.isFile(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
+        },
 
         
         // ==========================================
@@ -186,12 +222,12 @@ on: (channel, func) => {
 
         promises: {
             // ==========================================
-            // Lecture (Libre)
+            // Lecture (Avec Sandbox de lecture)
             // ==========================================
-            readFile: (p, enc) => fs.promises.readFile(p, enc),
-            readdir: (p) => fs.promises.readdir(p),
+            readFile: (p, enc) => fs.promises.readFile(enforceReadSandbox(p), enc),
+            readdir: (p) => fs.promises.readdir(enforceReadSandbox(p)),
             stat: async (p) => {
-                const s = await fs.promises.stat(p);
+                const s = await fs.promises.stat(enforceReadSandbox(p));
                 return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
             },
 
