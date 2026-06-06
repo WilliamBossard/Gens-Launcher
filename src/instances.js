@@ -1,7 +1,6 @@
 import { store } from "./store.js";
 import { sysLog, yieldUI } from "./utils.js";
 import { updateRPC } from "./discord.js";
-import { _logLineCount } from "./launch.js";
 import { resetLogLineCount } from "./launch.js";
 
 const fs = window.api.fs;
@@ -134,6 +133,7 @@ export function setupInstances() {
     };
 
     window.selectInstance = (i) => {
+        const isNewInstance = store.selectedInstanceIdx !== i;
         store.selectedInstanceIdx = i;
         const inst = store.allInstances[i];
         document.getElementById("action-panel").style.opacity = "1";
@@ -167,9 +167,11 @@ export function setupInstances() {
             window.applyTheme();
         }
 
-    const logOutput = document.getElementById("log-output");
-    if (logOutput) logOutput.innerHTML = "";
-    if (typeof _logLineCount !== 'undefined') resetLogLineCount();
+        if (isNewInstance) {
+            const logOutput = document.getElementById("log-output");
+            if (logOutput) logOutput.innerHTML = "";
+            if (typeof resetLogLineCount === 'function') resetLogLineCount();
+        }
 
         window.renderUI();
         if (!store.isGameRunning) updateRPC();
@@ -424,7 +426,10 @@ export function setupInstances() {
             const newFolder = path.join(store.instancesRoot, safeNewName);
 
             if (oldFolder !== newFolder) {
-                if (fs.existsSync(newFolder)) { /* ... */ }
+                if (fs.existsSync(newFolder)) {
+                    window.showToast(t("msg_err_folder_exists", "Un dossier portant ce nom existe déjà sur le disque. Renommage annulé."), "error");
+                    return;
+                }
                 try {
                     if (fs.existsSync(oldFolder)) {
                         fs.renameSync(oldFolder, newFolder);

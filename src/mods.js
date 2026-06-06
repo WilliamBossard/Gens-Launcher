@@ -785,7 +785,8 @@ const queue = [...modsToDownload];
                         }
                     }
 
-await fs.promises.writeFile(destPath, new Uint8Array(buffer));
+                    const destPath = path.join(dirs[mod.type], safeFilename);
+                    await fs.promises.writeFile(destPath, new Uint8Array(buffer));
 
                 } catch (e) {
                     sysLog(`Erreur DL ${mod.name}: ` + e, true);

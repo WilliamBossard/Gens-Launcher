@@ -145,6 +145,19 @@ window.applyTheme = function() {
     else document.body.classList.remove("no-transparency");
 };
 
+window.copyCrashLog = () => {
+    if (window._currentCrashLog) {
+        navigator.clipboard.writeText(window._currentCrashLog).then(() => {
+            window.showToast(t("msg_logs_copied", "Logs copiés dans le presse-papier !"), "success");
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            window.showToast("Erreur lors de la copie.", "error");
+        });
+    } else {
+        window.showToast("Aucun log à copier.", "error");
+    }
+};
+
 let _newsLoaded = false;
 
 async function loadNews() {
@@ -174,9 +187,10 @@ async function loadNews() {
             const safeTitle = window.escapeHTML(news.title);
             const safeCategory = window.escapeHTML(news.category);
             const safeLink = window.escapeHTML(link);
+            const safeImgUrl = window.escapeHTML(imgUrl);
             html += `
             <div class="news-card" onclick="openSystemPath(this.getAttribute('data-link'))" data-link="${safeLink}">
-                <img src="${imgUrl}" class="news-img">
+                <img src="${safeImgUrl}" class="news-img">
                 <div class="news-content">
                     <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
                     <div style="font-size: 0.7rem; color: var(--accent);">${safeCategory}</div>
@@ -228,7 +242,7 @@ window.checkServerStatus = async () => {
         
         if (data.online) {
             const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
-            let iconHtml = safeIcon ? `<img src="${safeIcon}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
+            let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
             
             let motdHtml = "Serveur Minecraft";
 if (data.motd && data.motd.html) {
@@ -375,7 +389,11 @@ window.ctxSyncCloud = async () => {
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
-        await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+        try {
+            await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+        } finally {
+            window._isManualHorizon = false;
+        }
     }
 };
 
@@ -384,7 +402,11 @@ window.ctxUploadCloud = async () => {
     if(inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
-        await window.api.invoke("call-horizon", ['--upload', window.safeDir(inst.name)]);
+        try {
+            await window.api.invoke("call-horizon", ['--upload', window.safeDir(inst.name)]);
+        } finally {
+            window._isManualHorizon = false;
+        }
     }
 };
 
@@ -437,9 +459,10 @@ window.api.on("horizon-status", async (data) => {
             let metaLine = "";
             if (rich) {
                 const sizeMB  = rich.sizeBytes > 0 ? (rich.sizeBytes / (1024 * 1024)).toFixed(1) + " Mo" : "";
-                const deltas  = rich.deltaCount > 0 ? `${rich.deltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
+                const safeRichDeltaCount = parseInt(rich.deltaCount, 10) || 0;
+                const deltas  = safeRichDeltaCount > 0 ? `${safeRichDeltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
                 const dateStr = rich.lastBackup ? new Date(rich.lastBackup).toLocaleDateString() : "";
-                const deltaColor = rich.deltaCount >= 8 ? "#f48a21" : "#666";
+                const deltaColor = safeRichDeltaCount >= 8 ? "#f48a21" : "#666";
                 metaLine = `<div style="font-size:0.65rem; color:${deltaColor}; margin-top:2px;">${deltas}${sizeMB ? " · " + sizeMB : ""}${dateStr ? " · " + dateStr : ""}</div>`;
             }
 
@@ -467,9 +490,10 @@ window.api.on("horizon-status", async (data) => {
                 }
             }
 
+            const safeIconSrc = window.escapeHTML(iconSrc);
             html += `
             <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(displayName)}', ${isLocal})">
-                <img class="instance-icon" src="${iconSrc}" onerror="this.src='${store.defaultIcons.vanilla}'">
+                <img class="instance-icon" src="${safeIconSrc}" onerror="this.src='${store.defaultIcons.vanilla}'">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
@@ -480,8 +504,10 @@ window.api.on("horizon-status", async (data) => {
         grid.innerHTML = html;
 
         try {
-            const cachePath = window.api.path.join(store.dataDir, "horizon_cloud_cache.html");
-            window.api.fs.writeFileSync(cachePath, html, "utf8");
+            const cachePath = window.api.path.join(store.dataDir, "horizon_cloud_cache.json");
+            window.api.fs.writeFileSync(cachePath, JSON.stringify(data), "utf8");
+            const htmlCachePath = window.api.path.join(store.dataDir, "horizon_cloud_html_cache.txt");
+            window.api.fs.writeFileSync(htmlCachePath, html, "utf8");
         } catch(e) {}
 
         return;
@@ -527,7 +553,8 @@ window.api.on("horizon-status", async (data) => {
         for (const inst of instances.slice(0, 8)) {
             const rowDisplayName = getRealName(inst.name); 
             const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
-            const deltaInfo = inst.deltaCount > 0 ? ` · ${inst.deltaCount} delta(s)` : "";
+            const safeInstDeltaCount = parseInt(inst.deltaCount, 10) || 0;
+            const deltaInfo = safeInstDeltaCount > 0 ? ` · ${safeInstDeltaCount} delta(s)` : "";
             instRows += `
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
                     <span style="flex:1; font-size:0.78rem; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHTML(rowDisplayName)}">${window.escapeHTML(rowDisplayName)}</span>
@@ -573,8 +600,10 @@ window.api.on("horizon-status", async (data) => {
 
         window._lastQuotaHtml = el.innerHTML;
         try {
-            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
-            window.api.fs.writeFileSync(quotaCachePath, el.innerHTML, "utf8");
+            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.json");
+            window.api.fs.writeFileSync(quotaCachePath, JSON.stringify(data), "utf8");
+            const quotaHtmlCachePath = window.api.path.join(store.dataDir, "horizon_quota_html_cache.txt");
+            window.api.fs.writeFileSync(quotaHtmlCachePath, el.innerHTML, "utf8");
         } catch(e) {}
         return;
     }
@@ -915,8 +944,12 @@ window.ctxSyncCloudFromMenu = async () => {
     if (!targetName) return;
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
-    await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]); 
-    await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+    try {
+        await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]); 
+        await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+    } finally {
+        window._isManualHorizon = false;
+    }
 };
 
 window.ctxUploadCloudFromMenu = async () => {
@@ -925,8 +958,12 @@ window.ctxUploadCloudFromMenu = async () => {
     if (!targetName) return;
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
-    await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]); 
-    await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+    try {
+        await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]); 
+        await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+    } finally {
+        window._isManualHorizon = false;
+    }
 };
 
 document.addEventListener("click", () => {
@@ -1022,9 +1059,12 @@ window.refreshHorizonQuota = async () => {
     
     if (!window._lastQuotaHtml) {
         try {
-            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
+            const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.json");
             if (window.api.fs.existsSync(quotaCachePath)) {
-                window._lastQuotaHtml = window.api.fs.readFileSync(quotaCachePath, "utf8");
+                const cached = JSON.parse(window.api.fs.readFileSync(quotaCachePath, "utf8"));
+                if (cached && cached.type === "QUOTA") {
+                    window.api.on && setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
+                }
             }
         } catch(_) {}
     }
@@ -1035,7 +1075,7 @@ window.refreshHorizonQuota = async () => {
             ${store.currentLangObj?.["msg_loading"] || "Chargement..."}
         </div>`;
     } else {
-        el.innerHTML = window._lastQuotaHtml; 
+        el.innerHTML = window._lastQuotaHtml;
     }
     await window.api.invoke("call-horizon", ["--quota"]);
 };

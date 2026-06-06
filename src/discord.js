@@ -4,7 +4,23 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
 
-function updateRPC(inst, customState) {
+async function _getModCount(inst) {
+    if (inst.loader === "vanilla") return 0;
+    if (inst._modCountCache !== undefined) return inst._modCountCache;
+    try {
+        const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
+        if (!fs.existsSync(modsPath)) { inst._modCountCache = 0; return 0; }
+        const files = await fs.promises.readdir(modsPath);
+        inst._modCountCache = files.filter(f => f.endsWith(".jar")).length;
+    } catch (e) {
+        inst._modCountCache = 0;
+    }
+    return inst._modCountCache;
+}
+
+window.invalidateModCountCache = (inst) => { if (inst) delete inst._modCountCache; };
+
+async function updateRPC(inst, customState) {
     if (store.globalSettings.disableRPC) {
         ipcRenderer.send("update-discord", "clear");
         return; 
@@ -14,16 +30,9 @@ function updateRPC(inst, customState) {
         let activity = {};
         
         if (inst) {
-            let modSuffix = "";
-            if (inst.loader !== "vanilla") {
-                const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-                if (fs.existsSync(modsPath)) {
-                    const modCount = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar")).length;
-                    if (modCount > 0) modSuffix = ` (${modCount} mods)`;
-                }
-            }
-
-            let stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix;
+            const modCount = await _getModCount(inst);
+            const modSuffix = modCount > 0 ? ` (${modCount} mods)` : "";
+            const stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix;
 
             activity = {
                 details: inst.name,

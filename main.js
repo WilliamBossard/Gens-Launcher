@@ -48,6 +48,12 @@ if (!fs.existsSync(safeDataDir)) {
     fs.mkdirSync(safeDataDir, { recursive: true });
 }
 const logPath = path.join(safeDataDir, "main-process.log");
+const oldLogPath = path.join(safeDataDir, "main-process.old.log");
+try {
+    if (fs.existsSync(logPath)) {
+        fs.copyFileSync(logPath, oldLogPath);
+    }
+} catch (e) {}
 fs.writeFileSync(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
 
 const horizonBinDir = path.join(safeDataDir, "bin");
@@ -72,6 +78,16 @@ function assertPathUnderSandbox(p) {
     return resolved;
 }
 
+/**
+ * Envoie un message IPC au renderer en vérifiant que la fenêtre n'est pas détruite.
+ * Évite les exceptions "Object has been destroyed" lors d'opérations longues (Horizon, zip...).
+ */
+function safeSend(event, channel, payload) {
+    if (event && !event.sender.isDestroyed()) {
+        event.sender.send(channel, payload);
+    }
+}
+
 function mainSafeDir(name) {
     return String(name || '').replace(/[^a-z0-9]/gi, '_');
 }
@@ -86,7 +102,10 @@ function mainLog(msg) {
     console.log(msg);
 }
 
+let _cachedMainSecretKey = null;
+
 function _getMainProcSecretKey() {
+    if (_cachedMainSecretKey) return _cachedMainSecretKey;
     const secretPath = path.join(app.getPath("appData"), "GensLauncher", ".secret_key");
     let secret;
     try {
@@ -99,27 +118,30 @@ function _getMainProcSecretKey() {
     } catch(e) {
         secret = os.hostname() + "_" + (os.userInfo().username || "user");
     }
-    return crypto.createHash('sha256').update(secret).digest();
+    _cachedMainSecretKey = crypto.createHash('sha256').update(secret).digest();
+    return _cachedMainSecretKey;
 }
 
 function decryptSettingsMainProc(text) {
     try {
+        if (text.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
+            return safeStorage.decryptString(Buffer.from(text.split(':')[1], 'hex'));
+        }
+        if (text.startsWith('aes:')) {
+            const key = _getMainProcSecretKey();
+            const parts = text.split(':');
+            const iv = Buffer.from(parts[1], 'hex');
+            const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+            return decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
+        }
         const key = _getMainProcSecretKey();
         const parts = text.split(':');
         const iv = Buffer.from(parts.shift(), 'hex');
         const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        let decrypted = decipher.update(parts.join(':'), 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        return decrypted;
+        return decipher.update(parts.join(':'), 'hex', 'utf8') + decipher.final('utf8');
     } catch(e) { return null; }
 }
 
-/**
- * Lit settings.json en gérant les deux formats :
- *  - JSON clair  (anciens fichiers non encore migrés)
- *  - JSON chiffré (format courant écrit par security.writeJSON)
- * Retourne {} silencieusement en cas d'erreur pour ne pas bloquer le démarrage.
- */
 function readSettingsMainProc(settingsPath) {
     if (!fs.existsSync(settingsPath)) return {};
     try {
@@ -177,14 +199,15 @@ if (!gotTheLock) {
                 const showOnce = () => {
                     if (shown) return;
                     shown = true;
-                    ipcMain.removeListener("overlay-ready", showOnce);
+                    ipcMain.removeListener("overlay-ready", wrappedShowOnce);
                     if (mainWindow && !mainWindow.isDestroyed()) {
                         if (mainWindow.isMinimized()) mainWindow.restore();
                         mainWindow.show();
                         mainWindow.focus();
                     }
                 };
-                ipcMain.once("overlay-ready", showOnce);
+                const wrappedShowOnce = () => showOnce();
+                ipcMain.once("overlay-ready", wrappedShowOnce);
                 setTimeout(showOnce, 500);
                 mainWindow.webContents.send("trigger-auto-launch", instName);
             } else {
@@ -276,7 +299,10 @@ function isHorizonWriteOp(args) {
 
 function _runHorizonActionImpl(action, event = null) {
     const _lockArgs = Array.isArray(action) ? action : [action];
-    const isSafe = _lockArgs.every(arg => /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]]+$/.test(arg));
+    const isSafe = _lockArgs.every(arg =>
+        /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]]+$/.test(arg) &&
+        !arg.includes('..')   
+    );
     if (!isSafe) {
         mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
         return Promise.resolve({ exitCode: -1, lastJson: null });
@@ -306,7 +332,7 @@ function _runHorizonActionImpl(action, event = null) {
                 }
                 if (alive) {
                     const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
-                    if (event) event.sender.send('horizon-status', msg);
+                    safeSend(event, 'horizon-status', msg);
                     return Promise.resolve({ exitCode: -1, lastJson: msg });
                 } else {
                     try { fs.unlinkSync(lockFile); } catch(_) {}
@@ -334,7 +360,7 @@ function _runHorizonActionImpl(action, event = null) {
                     try {
                         const json = JSON.parse(line);
                         lastJson = json;
-                        if (event) event.sender.send('horizon-status', json);
+                        safeSend(event, 'horizon-status', json);
                     } catch (_) {}
                 }
                 stdoutBuf = '';
@@ -366,7 +392,7 @@ function _runHorizonActionImpl(action, event = null) {
                 try {
                     const json = JSON.parse(line);
                     lastJson = json;
-                    if (event) event.sender.send('horizon-status', json);
+                    safeSend(event, 'horizon-status', json);
                     mainLog(`[Horizon Output] ${line}`);
                 } catch(e) {
                     mainLog(`[Horizon Raw] ${line}`);
@@ -459,13 +485,29 @@ ipcMain.handle("check-java", async (_, javaPath) => {
 
 ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
     try {
-        if (!url || !/^https:\/\/api\.curseforge\.com\//i.test(url)) {
+        let finalUrl;
+        try { finalUrl = new URL(url); } catch(e) { throw new Error("URL invalide."); }
+        if (finalUrl.hostname !== "api.curseforge.com") {
             mainLog(`SÉCURITÉ : URL CurseForge rejetée : ${url}`);
             return { success: false, errorCode: "ERR_URL_REJECTED", error: "URL non autorisée." };
         }
-        const response = await fetch(url, { headers: { "x-api-key": apiKey, "Accept": "application/json" } });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return { success: true, data: await response.json() };
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        try {
+            const response = await fetch(url, { 
+                headers: { "x-api-key": apiKey, "Accept": "application/json" },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return { success: true, data: await response.json() };
+        } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            if (fetchErr.name === 'AbortError') throw new Error("timeout");
+            throw fetchErr;
+        }
     } catch(e) { return { success: false, error: e.message }; }
 });
 
@@ -476,11 +518,23 @@ ipcMain.handle("search-modrinth", async (_, url) => {
             mainLog(`SÉCURITÉ : Domaine Modrinth rejeté : ${finalUrl.hostname}`);
             return { success: false, error: "Domaine non autorisé." };
         }
-        const response = await fetch(finalUrl.toString(), { 
-            headers: { "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)", "Accept": "application/json" } 
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return { success: true, data: await response.json() };
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        try {
+            const response = await fetch(finalUrl.toString(), { 
+                headers: { "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)", "Accept": "application/json" },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return { success: true, data: await response.json() };
+        } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            if (fetchErr.name === 'AbortError') throw new Error("timeout");
+            throw fetchErr;
+        }
     } catch(e) { return { success: false, error: e.message }; }
 });
 
@@ -546,7 +600,6 @@ ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
 });
 
 const activeMinecraftClients = new Map();
-const runningFilePath = path.join(safeDataDir, "running.json");
 
 function isProcessAlive(pid) {
     try { process.kill(pid, 0); return true; } catch(e) { return false; }
@@ -581,25 +634,12 @@ function sendStillRunningInstances() {
     return stillAlive;
 }
 
-function saveRunningInstances(clientsMap) {
-    const running = {};
-    for (const [id, data] of clientsMap) {
-        running[id] = { pid: data.process.pid };
-    }
-    try {
-        fs.writeFileSync(runningFilePath, JSON.stringify(running, null, 2));
-    } catch (e) {
-        mainLog("Erreur sauvegarde running.json : " + e.message);
-    }
-}
-
 ipcMain.handle("force-stop-game", async (_, instanceId) => {
     return new Promise((resolve) => {
         const clientData = activeMinecraftClients.get(instanceId);
         if (clientData && clientData.process) {
             clientData.process.kill("SIGKILL");
             activeMinecraftClients.delete(instanceId);
-            saveRunningInstances(activeMinecraftClients);
             mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
             if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
             return resolve({ success: true });
@@ -652,7 +692,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         const desktopPath = app.getPath("desktop");
         const safeName = sanitizeShortcutName(instanceName);
         const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
-        const instFolder = path.join(instancesDir, instanceName.replace(/[^a-z0-9]/gi, "_").toLowerCase());
+        const instFolder = path.join(instancesDir, mainSafeDir(instanceName));
 
         let localIconPath = null;
         
@@ -784,7 +824,7 @@ ipcMain.on("launch-game", (event, opts) => {
 
     if (activeMinecraftClients.has(opts.instanceId)) {
         mainLog(`launch-game: instance déjà en cours [${opts.instanceId}]`);
-        event.sender.send("launch-game-rejected", { instanceId: opts.instanceId, reason: "ALREADY_RUNNING" });
+        safeSend(event, "launch-game-rejected", { instanceId: opts.instanceId, reason: "ALREADY_RUNNING" });
         return;
     }
     
@@ -793,15 +833,21 @@ ipcMain.on("launch-game", (event, opts) => {
 
     launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
     launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
+    launcher.on("debug", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
 
-launcher.launch(opts).then((mcProcess) => {
+    launcher.launch(opts).then((mcProcess) => {
         const lockFile = path.join(opts.root, "instance.lock");
-        fs.writeFileSync(lockFile, mcProcess.pid.toString(), 'utf8'); 
+
+        if (mcProcess.pid) {
+            fs.writeFileSync(lockFile, mcProcess.pid.toString(), 'utf8');
+        } else {
+            mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
+        }
 
         activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
-        
+
         mcProcess.on("close", (code) => {
-            if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile); 
+            if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
 
             activeMinecraftClients.delete(instanceId);
             mainWindow?.webContents.send("mc-close", { instanceId, code: code });
@@ -809,9 +855,11 @@ launcher.launch(opts).then((mcProcess) => {
 
     }).catch(e => {
         mainLog("Erreur Lancement: " + e);
+        mainWindow?.webContents.send("mc-data", { instanceId, data: "Erreur critique de la JVM : " + e.toString() });
         mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
     });
 });
+
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
@@ -883,11 +931,39 @@ ipcMain.handle("login-microsoft", async () => {
     } catch(err) {
         if (loginMicrosoftUserCancelled || (err instanceof URIError && /cancel/i.test(String(err.message || "")))) { mainLog("Connexion Microsoft annulée."); return { success: false, cancelled: true }; }
         const msg = err?.message ? err.message : String(err);
-        mainLog("Erreur Auth : " + msg);
+                        mainLog("Erreur Auth : " + msg);
         return { success: false, error: msg };
     } finally {
         activeMicrosoftAuthFlow = null;
         isAuthRunning = false;
+    }
+});
+
+ipcMain.handle("upload-mojang-skin", async (_, { accessToken, skinPath, variant }) => {
+    try {
+        const fileBuffer = fs.readFileSync(skinPath);
+        const fileBlob = new Blob([fileBuffer], { type: "image/png" });
+
+        const formData = new FormData();
+        formData.append("variant", variant || "classic");
+        formData.append("file", fileBlob, "skin.png");
+
+        const res = await fetch("https://api.minecraftservices.com/minecraft/profile/skins", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${accessToken}`
+            },
+            body: formData
+        });
+
+        if (res.ok) {
+            return { success: true };
+        } else {
+            const errText = await res.text();
+            return { success: false, error: `Erreur HTTP ${res.status}: ${errText}` };
+        }
+    } catch (e) {
+        return { success: false, error: e.message };
     }
 });
 
@@ -980,7 +1056,26 @@ ipcMain.handle('install-horizon', async () => {
         const asset = res.data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || res.data.assets.find(a => !path.extname(a.name));
         if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
         const response = await axios({ url: asset.browser_download_url, method: 'GET', responseType: 'arraybuffer' });
-        fs.writeFileSync(horizonExePath, Buffer.from(response.data));
+        const binaryBuffer = Buffer.from(response.data);
+        const sha256Asset = res.data.assets.find(a => a.name === asset.name + ".sha256");
+        if (sha256Asset) {
+            try {
+                const hashRes = await axios({ url: sha256Asset.browser_download_url, method: 'GET', responseType: 'text' });
+                const expected = hashRes.data.trim().split(/\s/)[0].toLowerCase();
+                const actual = crypto.createHash('sha256').update(binaryBuffer).digest('hex');
+                if (actual !== expected) {
+                    throw new Error(`Vérification SHA256 du binaire Horizon échouée.\nAttendu : ${expected}\nObtenu  : ${actual}`);
+                }
+                mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${res.data.tag_name}.`);
+            } catch(hashErr) {
+                if (hashErr.message.includes("SHA256")) throw hashErr;
+                mainLog(`[Horizon] Avertissement : fichier .sha256 introuvable ou illisible — ${hashErr.message}`);
+            }
+        } else {
+            mainLog(`[Horizon] Avertissement : aucun fichier .sha256 disponible pour cette release — intégrité non vérifiée.`);
+        }
+
+        fs.writeFileSync(horizonExePath, binaryBuffer);
         if (!isWin) fs.chmodSync(horizonExePath, 0o755);
         fs.writeFileSync(horizonVersionPath, JSON.stringify({ version: res.data.tag_name }));
         return { success: true, version: res.data.tag_name };
@@ -1073,45 +1168,61 @@ ipcMain.on('decrypt-string-sync', (event, hexText) => {
 ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
     src = assertPathUnderSandbox(src);
     dest = assertPathUnderSandbox(dest);
-    return new Promise((resolve, reject) => {
+    const excludeSet = new Set(exclude || []);
+    async function collectFiles(currentDir) {
+        const items = fs.readdirSync(currentDir);
+        const collected = [];
+        for (const item of items) {
+            const fullPath = path.join(currentDir, item);
+            const relativePath = path.relative(src, fullPath);
+            const rootItem = relativePath.split(/[/\\]/)[0];
+            if (excludeSet.has(rootItem)) continue;
+            if (fs.statSync(fullPath).isDirectory()) {
+                await new Promise(r => setImmediate(r));
+                const sub = await collectFiles(fullPath);
+                collected.push(...sub);
+            } else {
+                collected.push({ fullPath, relativePath });
+            }
+        }
+        return collected;
+    }
+
+    let filesToArchive = [];
+    try {
+        if (fs.existsSync(src)) filesToArchive = await collectFiles(src);
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+
+    return new Promise((resolve) => {
         const output = fs.createWriteStream(dest);
         const archive = archiver('zip', { zlib: { level: 6 } });
 
         output.on('close', () => resolve({ success: true }));
-        archive.on('error', err => reject(err));
-        output.on('error', (err) => { archive.destroy(); reject(err); });
+        archive.on('error', (err) => {
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch(_) {}
+            resolve({ success: false, error: err.message });
+        });
+        output.on('error', (err) => {
+            archive.destroy();
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch(_) {}
+            resolve({ success: false, error: err.message });
+        });
 
         archive.on('progress', (progress) => {
             if (progress.entries.total > 0) {
                 const pct = Math.round((progress.entries.processed / progress.entries.total) * 100);
-                event.sender.send("zip-progress", { percent: pct });
+                safeSend(event, "zip-progress", { percent: pct });
             }
         });
 
         archive.pipe(output);
-        
-        if (fs.existsSync(src)) {
-            const excludeSet = new Set(exclude || []);
-            const addFilesRecursively = (currentDir) => {
-                const items = fs.readdirSync(currentDir);
-                for (const item of items) {
-                    const fullPath = path.join(currentDir, item);
-                    const relativePath = path.relative(src, fullPath);
-                    const rootItem = relativePath.split(/[/\\]/)[0];
 
-                    if (excludeSet.has(rootItem)) continue;
-
-                    if (fs.statSync(fullPath).isDirectory()) {
-                        addFilesRecursively(fullPath);
-                    } else {
-                        archive.file(fullPath, { name: relativePath });
-                    }
-                }
-            };
-
-            addFilesRecursively(src);
+        for (const { fullPath, relativePath } of filesToArchive) {
+            archive.file(fullPath, { name: relativePath });
         }
-        
+
         archive.finalize();
     });
 });
@@ -1139,6 +1250,10 @@ ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
                 }
             });
             zipfile.on("end", () => resolve({ success: false }));
+            zipfile.on("error", (zErr) => {
+                mainLog(`[read-zip-text] Erreur zipfile : ${zErr.message}`);
+                resolve({ success: false });
+            });
         });
     });
 });
@@ -1159,7 +1274,7 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
                 
                 processedCount++;
                 if (total > 0 && processedCount % 10 === 0 || processedCount === total) {
-                    event.sender.send("zip-progress", { percent: Math.round((processedCount / total) * 100) });
+                    safeSend(event, "zip-progress", { percent: Math.round((processedCount / total) * 100) });
                 }
 
                 const dest = path.join(destDir, entry.fileName);
@@ -1186,6 +1301,10 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
                 }
             });
             zipfile.on("end", () => resolve({ success: true }));
+            zipfile.on("error", (zErr) => {
+                mainLog(`[extract-zip] Erreur zipfile : ${zErr.message}`);
+                resolve({ success: false, error: zErr.message });
+            });
         });
     });
 });

@@ -17,6 +17,221 @@ export function setupArchives() {
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 
+    window.handleUpdateModpack = async (input) => {
+        const file = input.files[0];
+        if (!file) return;
+        const p = (typeof file === "string") ? file : window.api.getFilePath(file);
+        input.value = "";
+
+        if (store.selectedInstanceIdx === null) return;
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        
+        if (store.activeInstances && store.activeInstances.has(inst.name)) {
+            window.showToast("Impossible de mettre à jour une instance en cours d'exécution.", "error");
+            return;
+        }
+
+        if (!await window.showCustomConfirm(t("msg_update_modpack_warn", "Attention: Les mods actuels..."), true)) {
+            return;
+        }
+
+        if (p.endsWith('.mrpack')) await window.doMrPackUpdate(p, inst);
+        else if (p.endsWith('.zip')) await window.doCurseForgeUpdate(p, inst);
+        else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
+    };
+
+    window.doMrPackUpdate = async function(packPath, inst) {
+      window.showLoading(t("msg_extract", "Extraction..."), 0);
+      await yieldUI();
+      const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
+      const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
+
+      try {
+        await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+
+        const indexPath = path.join(tempExtractDir, "modrinth.index.json");
+        if (!fs.existsSync(indexPath)) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
+
+        const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+        
+        inst.version = index.dependencies.minecraft;
+        if (index.dependencies["fabric-loader"]) { inst.loader = "fabric"; inst.loaderVersion = index.dependencies["fabric-loader"]; } 
+        else if (index.dependencies["quilt-loader"]) { inst.loader = "quilt"; inst.loaderVersion = index.dependencies["quilt-loader"]; } 
+        else if (index.dependencies.forge) { inst.loader = "forge"; inst.loaderVersion = index.dependencies.forge; } 
+        else if (index.dependencies.neoforge) { inst.loader = "neoforge"; inst.loaderVersion = index.dependencies.neoforge; }
+        else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
+
+        const modsDir = path.join(instDir, "mods");
+        if (fs.existsSync(modsDir)) {
+            try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch(_) {}
+        }
+        fs.mkdirSync(modsDir, { recursive: true });
+
+        const processOverrides = (folderName) => {
+            const srcDir = path.join(tempExtractDir, folderName);
+            if (fs.existsSync(srcDir)) {
+                const items = fs.readdirSync(srcDir);
+                for (const item of items) {
+                    if (item === "saves" || item === "resourcepacks") continue;
+                    const destPath = path.join(instDir, item);
+                    if (fs.existsSync(destPath)) {
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                    }
+                    fs.renameSync(path.join(srcDir, item), destPath);
+                }
+            }
+        };
+        processOverrides("overrides");
+        processOverrides("client-overrides");
+
+        const queue = index.files.filter(f => !(f.env && f.env.client === "unsupported"));
+        const totalToDownload = queue.length;
+        let downloadedCount = 0;
+
+        window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
+
+        const concurrencyLimit = 10; 
+        const workers = Array(concurrencyLimit).fill(null).map(async () => {
+            while (queue.length > 0) {
+                const modFile = queue.shift();
+                const modPath = path.join(instDir, modFile.path);
+                const _resolvedMod = path.resolve(modPath);
+                const _resolvedInst = path.resolve(instDir);
+                const _ps = _resolvedInst.includes('/') ? '/' : '\\';
+                if (!_resolvedMod.startsWith(_resolvedInst + _ps) && _resolvedMod !== _resolvedInst) {
+                    downloadedCount++;
+                    continue;
+                }
+                const dir = path.dirname(modPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+                try {
+                    const downloadUrl = modFile.downloads[0];
+                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) { downloadedCount++; continue; }
+                    const res = await fetch(downloadUrl);
+                    if (res.ok) {
+                        const fileBytes = new Uint8Array(await res.arrayBuffer());
+                        await fs.promises.writeFile(modPath, fileBytes);
+                    }
+                } catch (e) {}
+                downloadedCount++;
+                window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+            }
+        });
+
+        await Promise.all(workers);
+
+        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        
+        window.showToast("Modpack mis à jour avec succès !", "success");
+      } catch (err) {
+        window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
+      } finally {
+         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+         window.hideLoading();
+         window.renderUI();
+      }
+    };
+
+    window.doCurseForgeUpdate = async (zipPath, inst) => {
+        const apiKey = store.globalSettings.cfApiKey;
+        if (!apiKey || apiKey.trim() === "") {
+            window.showToast(t("msg_cf_api_req", "Clé API CurseForge manquante."), "error");
+            return; 
+        }
+
+        window.showLoading(t("msg_analyze_cf", "Analyse du Modpack CurseForge..."), 0);
+        await yieldUI();
+        const tempExtractDir = path.join(store.dataDir, "temp_cf_" + Date.now());
+        const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
+
+        try {
+            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+
+            const manifestText = fs.readFileSync(path.join(tempExtractDir, "manifest.json"), "utf8");
+            const manifest = JSON.parse(manifestText);
+            
+            inst.version = manifest.minecraft.version;
+            if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
+                const loaderString = manifest.minecraft.modLoaders[0].id;
+                if (loaderString.startsWith("forge-")) { inst.loader = "forge"; inst.loaderVersion = loaderString.replace("forge-", ""); } 
+                else if (loaderString.startsWith("fabric-")) { inst.loader = "fabric"; inst.loaderVersion = loaderString.replace("fabric-", ""); } 
+                else if (loaderString.startsWith("neoforge-")) { inst.loader = "neoforge"; inst.loaderVersion = loaderString.replace("neoforge-", ""); }
+                else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
+            }
+
+            const modsDir = path.join(instDir, "mods");
+            if (fs.existsSync(modsDir)) {
+                try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch(_) {}
+            }
+            fs.mkdirSync(modsDir, { recursive: true });
+
+            const overridesDir = manifest.overrides || "overrides";
+            const srcOverrides = path.join(tempExtractDir, overridesDir);
+            if (fs.existsSync(srcOverrides)) {
+                const items = fs.readdirSync(srcOverrides);
+                for (const item of items) {
+                    if (item === "saves" || item === "resourcepacks") continue;
+                    const destPath = path.join(instDir, item);
+                    if (fs.existsSync(destPath)) {
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                    }
+                    fs.renameSync(path.join(srcOverrides, item), destPath);
+                }
+            }
+
+            const filesToDownload = manifest.files;
+            let downloadedCount = 0;
+            const total = filesToDownload.length;
+            
+            window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
+
+            const queue = [...filesToDownload];
+            const workers = Array(3).fill(null).map(async () => {
+                while (queue.length > 0) {
+                    const fileInfo = queue.shift();
+                    try {
+                        const url = `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}/download-url`;
+                        const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+                        await new Promise(r => setTimeout(r, 150));
+
+                        if (res.success && res.data && res.data.data) {
+                            const downloadUrl = res.data.data;
+                            if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) continue;
+
+                            const rawFileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
+                            const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
+                            const finalPath = path.join(modsDir, fileName);
+
+                            const modRes = await fetch(downloadUrl);
+                            if (modRes.ok) {
+                                const fileBytes = new Uint8Array(await modRes.arrayBuffer());
+                                await fs.promises.writeFile(finalPath, fileBytes);
+                            }
+                        }
+                    } catch (e) {}
+                    
+                    downloadedCount++;
+                    window.updateLoadingPercent(Math.round((downloadedCount / total) * 100), t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${downloadedCount}/${total})...`);
+                }
+            });
+
+            await Promise.all(workers);
+
+            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            
+            window.showToast("Modpack mis à jour avec succès !", "success");
+        } catch (err) {
+            window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
+        } finally {
+            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+            window.hideLoading();
+            window.renderUI();
+        }
+    };
+
     window.api.on("zip-progress", (data) => {
     const loadingTextEl = document.getElementById("loading-text");
     const currentText = loadingTextEl ? loadingTextEl.innerText : "Chargement...";
@@ -238,6 +453,14 @@ export function setupArchives() {
             while (queue.length > 0) {
                 const modFile = queue.shift();
                 const modPath = path.join(instDir, modFile.path);
+                const _resolvedMod = path.resolve(modPath);
+                const _resolvedInst = path.resolve(instDir);
+                const _ps = _resolvedInst.includes('/') ? '/' : '\\';
+                if (!_resolvedMod.startsWith(_resolvedInst + _ps) && _resolvedMod !== _resolvedInst) {
+                    sysLog(`SECURITE : Path traversal bloque dans mrpack : ${modFile.path}`, true);
+                    downloadedCount++;
+                    continue;
+                }
                 const dir = path.dirname(modPath);
                 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 

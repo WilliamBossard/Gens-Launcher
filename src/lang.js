@@ -224,7 +224,7 @@ const defaultFr = {
   modal_skin_title: "Visionneuse 3D de Skin",
   btn_test_skin: "Tester un Skin (Aperçu)",
   btn_export_skin: "Exporter le Skin actuel",
-  btn_change_mojang: "Changer sur Minecraft.net",
+  btn_upload_mojang: "Envoyer vers Mojang",
   tip_skin_3d: "Astuce : Cliquez et glissez pour pivoter. Molette pour zoomer.",
   btn_dl_shaders: "Télécharger de nouveaux shaders",
   btn_dl_rps: "Télécharger de nouveaux packs",
@@ -304,6 +304,11 @@ const defaultFr = {
   msg_login_success: "Connexion réussie !",
   msg_skin_exported: "Skin exporté avec succès !",
   msg_err_skin_export: "Erreur lors de l'exportation du skin.",
+  msg_skin_uploading: "Envoi vers Mojang en cours...",
+  msg_skin_uploaded: "Skin mis à jour avec succès sur Mojang !",
+  msg_err_skin_upload: "Erreur d'envoi: ",
+  btn_update_modpack: "Mettre à jour le modpack",
+  msg_update_modpack_warn: "Attention: Les mods actuels et les fichiers de configuration de l'instance vont être remplacés par ceux de l'archive (vos mondes et resourcepacks seront conservés). Voulez-vous continuer ?",
   msg_err_reserved_name: "Ce nom est invalide car réservé par le système.",
   msg_err_similar_name: "Une instance avec un nom similaire (même dossier) existe déjà !",
   msg_err_create_folder: "Erreur système : Impossible de créer le dossier.",
@@ -393,6 +398,15 @@ const defaultFr = {
   btn_icon_gallery: "Galerie",
   lbl_java_auto: "Téléchargeur automatique de Java",
   txt_java_auto_desc: "Installez rapidement la version dont vous avez besoin si une instance refuse de se lancer. Le chemin sera automatiquement configuré.",
+  modal_export_skin: "Options d'exportation de Skin",
+  
+  modal_crash_title: "💥 Rapport de Crash",
+  lbl_crash_cause: "Cause Probable",
+  lbl_crash_action: "Action Recommandée",
+  lbl_crash_log_excerpt: "Extrait du log :",
+  btn_copy_log: "Copier le Log",
+  
+  cause_unknown: "Raison inconnue",
   modal_export: "Options d'exportation",
   msg_err_del_running: "Impossible de supprimer le dossier. Le jeu est-il toujours en cours d'exécution ?",
   msg_crash_generic: "Le jeu a planté avec le code erreur {code}.\nConsultez la console pour voir les détails.",
@@ -594,6 +608,29 @@ const defaultFr = {
   btn_horizon_disconnect: "Déconnecter",
   msg_disconnect_horizon: "Voulez-vous vraiment déconnecter votre compte Cloud ?\n\n(Le jeton d'accès sera supprimé de votre PC).",
   horizon_disconnected_success: "Compte Cloud déconnecté avec succès.",
+  crash_mem_meta_cause: "Manque de mémoire (Metaspace)",
+  crash_mem_meta_action: "Le jeu manque d'espace pour charger le code des mods. Augmentez la RAM ou utilisez un argument JVM (ex: -XX:MaxMetaspaceSize=512M).",
+  crash_mem_heap_cause: "Manque de RAM (Heap Space)",
+  crash_mem_heap_action: "Le jeu manque de mémoire vive. Augmentez la RAM allouée dans les paramètres de l'instance.",
+  crash_java_ver_cause: "Version de Java incompatible",
+  crash_java_ver_exact: "Un mod requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.",
+  crash_java_ver_fabric: "Fabric requiert Java {needed} ou plus. Modifiez la version de Java dans les paramètres de l'instance.",
+  crash_java_ver_action: "Le mod requiert une version plus récente de Java. Modifiez la version de Java dans les paramètres.",
+  crash_java_mod_cause: "Incompatibilité Java / Modules bloqués",
+  crash_java_mod_action: "Vous essayez probablement d'utiliser une version récente de Java (17+) sur une ancienne version de Minecraft (1.12, 1.8). Utilisez Java 8 pour les anciennes versions.",
+  crash_gl_cause: "Erreur Graphique (OpenGL non supporté)",
+  crash_gl_action: "Vos pilotes graphiques sont obsolètes ou non installés. Veuillez les mettre à jour, ou votre carte graphique est trop ancienne pour cette version de Minecraft.",
+  crash_driver_cause: "Crash Graphique / Driver (Access Violation)",
+  crash_driver_action: "Mettez à jour vos pilotes graphiques. Si le problème persiste, désactivez les mods d'optimisation graphique.",
+  crash_net_cause: "Erreur de réseau / Fichier corrompu",
+  crash_net_action: "Vérifiez votre connexion internet, le pare-feu ou l'antivirus qui pourrait bloquer le jeu.",
+  crash_dep_cause: "Dépendance de mod manquante",
+  crash_dep_action: "Un mod requiert un autre mod pour fonctionner. Lisez l'extrait pour savoir quel mod télécharger et l'ajouter via le gestionnaire de mods.",
+  crash_mod_cause: "Mod défaillant : {mod}",
+  crash_mod_action: "Essayez de désactiver ou de mettre à jour le mod \"{mod}\" dans le gestionnaire de mods.",
+  crash_gen_java_cause: "Erreur Java générique",
+  crash_gen_java_action: "Désactivez vos mods récents un par un pour trouver le coupable.",
+  action_unknown: "Aucune action spécifique recommandée. Vérifiez les logs complets.",
 };
 
 const defaultEn = {
@@ -815,9 +852,9 @@ const defaultEn = {
   lbl_skin_cape: "Skin & Cape",
   lbl_active_acc: "Active",
   modal_skin_title: "3D Skin Viewer",
-  btn_test_skin: "Test a Skin (Preview)",
+  btn_test_skin: "Load Local Skin",
   btn_export_skin: "Export current Skin",
-  btn_change_mojang: "Change on Minecraft.net",
+  btn_upload_mojang: "Upload to Mojang",
   tip_skin_3d: "Tip: Click and drag to rotate. Scroll to zoom.",
   btn_dl_shaders: "Download new shaders",
   btn_dl_rps: "Download new packs",
@@ -987,6 +1024,15 @@ const defaultEn = {
   btn_icon_gallery: "Gallery",
   lbl_java_auto: "Automatic Java Downloader",
   txt_java_auto_desc: "Quickly install the version you need if an instance refuses to launch. The path will be configured automatically.",
+  modal_export_skin: "Skin Export Options",
+
+  modal_crash_title: "💥 Crash Report",
+  lbl_crash_cause: "Probable Cause",
+  lbl_crash_action: "Recommended Action",
+  lbl_crash_log_excerpt: "Log Excerpt:",
+  btn_copy_log: "Copy Log",
+  
+  cause_unknown: "Unknown reason",
   modal_export: "Export Options",
   msg_err_del_running: "Cannot delete the folder. Is the game still running?",
   msg_crash_generic: "The game crashed with error code {code}.\nCheck the console for more details.",
@@ -1165,8 +1211,6 @@ const defaultEn = {
   msg_rename_shortcut_confirm: "The instance was renamed. Update the desktop shortcut?",
   msg_last_crash: "Last launch: crash detected",
   lbl_see_report: "See report",
-  lbl_auto_session: "Session for:",
-  msg_auto_init: "Initializing...",
   lbl_auto_session: "Session of:",
   msg_auto_init: "Initializing...",
   msg_auto_close: "Closing game and syncing...",
@@ -1190,6 +1234,29 @@ const defaultEn = {
   btn_horizon_disconnect: "Disconnect",
   msg_disconnect_horizon: "Are you sure you want to disconnect your Cloud account?\n\n(The access token will be removed from your PC).",
   horizon_disconnected_success: "Cloud account disconnected successfully.",
+  crash_mem_meta_cause: "Out of Memory (Metaspace)",
+  crash_mem_meta_action: "The game ran out of space to load mod code. Allocate more RAM or use a JVM argument (e.g., -XX:MaxMetaspaceSize=512M).",
+  crash_mem_heap_cause: "Out of RAM (Heap Space)",
+  crash_mem_heap_action: "The game ran out of RAM. Allocate more RAM in the instance settings.",
+  crash_java_ver_cause: "Incompatible Java Version",
+  crash_java_ver_exact: "A mod requires Java {needed} but you are using Java {current}. Change the Java version in the instance settings.",
+  crash_java_ver_fabric: "Fabric requires Java {needed} or newer. Change the Java version in the instance settings.",
+  crash_java_ver_action: "A mod requires a newer version of Java. Change the Java version in the instance settings.",
+  crash_java_mod_cause: "Java Incompatibility / Blocked Modules",
+  crash_java_mod_action: "You are probably trying to use a recent version of Java (17+) on an old version of Minecraft (1.12, 1.8). Use Java 8 for older versions.",
+  crash_gl_cause: "Graphics Error (OpenGL not supported)",
+  crash_gl_action: "Your graphics drivers are outdated or missing. Please update them, or your graphics card is too old for this version of Minecraft.",
+  crash_driver_cause: "Graphics Crash / Driver (Access Violation)",
+  crash_driver_action: "Update your graphics drivers. If the problem persists, disable optimization mods.",
+  crash_net_cause: "Network Error / Corrupted File",
+  crash_net_action: "Check your internet connection, firewall, or antivirus which might be blocking the game.",
+  crash_dep_cause: "Missing Mod Dependency",
+  crash_dep_action: "A mod requires another mod to work. Read the log excerpt to find out which mod to download and add it via the Mods Manager.",
+  crash_mod_cause: "Faulty Mod: {mod}",
+  crash_mod_action: "Try disabling or updating the mod \"{mod}\" in the Mods Manager.",
+  crash_gen_java_cause: "Generic Java Error",
+  crash_gen_java_action: "Disable your recent mods one by one to find the culprit.",
+  action_unknown: "No specific action recommended. Check the full logs.",
 };
 
 export function setupLang() {
@@ -1199,13 +1266,16 @@ export function setupLang() {
             try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) {}
         }
         
-        const merged = Object.assign({}, current, defaultObj);
+        const merged = Object.assign({}, defaultObj, current);
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
 
-        fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
+        const mergedJson = JSON.stringify(merged, null, 2);
+        if (JSON.stringify(current, null, 2) !== mergedJson) {
+            fs.writeFileSync(filePath, mergedJson);
+        }
     }
 
     syncLangFile(path.join(store.langDir, "fr.json"), defaultFr);

@@ -18,7 +18,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const nbt = require("prismarine-nbt");
-const crypto = require("crypto"); 
+const crypto = require("crypto");
 
 const _appPaths = ipcRenderer.sendSync("get-paths-sync");
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
@@ -28,14 +28,19 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
  * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
  * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
  */
+const javaExactRegex = /\bjava(?:$|[-_ \d])/i;
+const jvmDistrosRegex = /\b(jdk|jre|jvm|adoptium|temurin|corretto|zulu|graalvm|semeru|liberica|dragonwell)/i;
+const mediaRegex = /\.(png|jpe?g|gif|webp|bmp|ico)$/i;
+
 function enforceReadSandbox(p) {
     const resolved = path.resolve(p);
-    
+
     const isInDataDir = resolved.startsWith(safeDataDir + path.sep) || resolved === safeDataDir;
-    const isMinecraftDir = resolved.includes('.minecraft') || resolved.includes('minecraft');
-    const isJavaDir = /java|jdk|jre|jvm/i.test(resolved);
+    const pathParts = resolved.split(path.sep);
+    const isMinecraftDir = pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep);
+    const isJavaDir = pathParts.some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
     const isTempDir = resolved.startsWith(os.tmpdir());
-    const isMedia = /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(resolved);
+    const isMedia = mediaRegex.test(resolved);
 
     if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isMedia) {
         console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
@@ -71,21 +76,13 @@ function _getPreloadSecretKey() {
             secret = crypto.randomUUID();
             fs.writeFileSync(secretPath, secret, 'utf8');
         }
-    } catch(e) {
+    } catch (e) {
         secret = os.hostname() + "_" + (os.userInfo().username || "user");
     }
     return crypto.createHash('sha256').update(secret).digest();
 }
 
 const SECRET_KEY = _getPreloadSecretKey();
-
-function obfuscateData(text) {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', SECRET_KEY, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-}
 
 function deobfuscateData(text) {
     try {
@@ -95,28 +92,28 @@ function deobfuscateData(text) {
         let decrypted = decipher.update(parts.join(':'), 'hex', 'utf8');
         decrypted += decipher.final('utf8');
         return decrypted;
-    } catch(e) { return null; }
+    } catch (e) { return null; }
 }
 
 const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
-const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth"];
-const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status", "zip-progress"]; 
+const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin"];
+const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected"];
 
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
-    if (validSendChannels.includes(channel)) ipcRenderer.send(channel, data);
-},
-invoke: (channel, data) => {
-    if (validInvokeChannels.includes(channel)) return ipcRenderer.invoke(channel, data);
-    return Promise.reject(new Error("Canal non autorisé"));
-},
-on: (channel, func) => {
-    if (validReceiveChannels.includes(channel)) {
-        const subscription = (event, ...args) => func(...args);
-        ipcRenderer.on(channel, subscription);
-        return () => ipcRenderer.removeListener(channel, subscription);
-    }
-},
+        if (validSendChannels.includes(channel)) ipcRenderer.send(channel, data);
+    },
+    invoke: (channel, data) => {
+        if (validInvokeChannels.includes(channel)) return ipcRenderer.invoke(channel, data);
+        return Promise.reject(new Error("Canal non autorisé"));
+    },
+    on: (channel, func) => {
+        if (validReceiveChannels.includes(channel)) {
+            const subscription = (event, ...args) => func(...args);
+            ipcRenderer.on(channel, subscription);
+            return () => ipcRenderer.removeListener(channel, subscription);
+        }
+    },
 
     nbt: {
         parse: async (arr) => await nbt.parse(Buffer.from(arr)),
@@ -133,7 +130,7 @@ on: (channel, func) => {
             const safePath = enforceSandbox(filePath);
             if (!fs.existsSync(safePath)) return null;
             const raw = fs.readFileSync(safePath, 'utf8');
-            
+
             let parsedData = null;
             let needsMigration = false;
 
@@ -161,7 +158,7 @@ on: (channel, func) => {
                     const encrypted = ipcRenderer.sendSync('encrypt-string-sync', JSON.stringify(parsedData, null, 2));
                     fs.writeFileSync(safePath, encrypted, 'utf8');
                     console.log(`[Sécurité] Fichier migré vers le nouveau format de chiffrement : ${safePath}`);
-                } catch(e) {
+                } catch (e) {
                     console.error("Échec de la migration du chiffrement :", e);
                 }
             }
@@ -191,12 +188,15 @@ on: (channel, func) => {
         dirname: (p) => path.dirname(p),
         basename: (p, ext) => path.basename(p, ext),
     },
-    
+
     fs: {
         // ==========================================
         // OPÉRATIONS DE LECTURE (AVEC SANDBOX DE LECTURE)
         // ==========================================
-        existsSync: (p) => fs.existsSync(p), 
+        existsSync: (p) => {
+            try { enforceReadSandbox(p); } catch (_) { return false; }
+            return fs.existsSync(p);
+        },
         readFileSync: (p, enc) => fs.readFileSync(enforceReadSandbox(p), enc),
         readdirSync: (p) => fs.readdirSync(enforceReadSandbox(p)),
         statSync: (p) => {
@@ -204,7 +204,7 @@ on: (channel, func) => {
             return { isDirectory: s.isDirectory(), isFile: s.isFile(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
         },
 
-        
+
         // ==========================================
         // OPÉRATIONS D'ÉCRITURE/SUPPRESSION (AVEC SANDBOX)
         // Strictement verrouillées sur le dossier de l'application
@@ -234,14 +234,14 @@ on: (channel, func) => {
             // ==========================================
             // Écriture (Verrouillée)
             // ==========================================
-            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d), 
-            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts), 
-            cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o), 
-            unlink: (p) => fs.promises.unlink(enforceSandbox(p)), 
+            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d),
+            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts),
+            cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o),
+            unlink: (p) => fs.promises.unlink(enforceSandbox(p)),
             chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode)
         }
     },
-    
+
     os: {
         totalmem: () => os.totalmem(),
         freemem: () => os.freemem(),
@@ -249,21 +249,21 @@ on: (channel, func) => {
         hostname: () => os.hostname(),
         userInfo: () => os.userInfo()
     },
-    
+
     shell: {
         openExternal: (url) => shell.openExternal(safeExternalUrl(url)),
         openPath: (p) => shell.openPath(enforceSandbox(p)),
         showItemInFolder: (p) => shell.showItemInFolder(enforceSandbox(p))
     },
-    
+
     clipboard: {
         writeText: (text) => clipboard.writeText(text)
     },
-    
+
     appData: _appPaths.appData,
     platform: _appPaths.platform,
     arch: _appPaths.arch,
     version: _appPaths.version,
-    
+
     getFilePath: (file) => webUtils.getPathForFile(file),
 });

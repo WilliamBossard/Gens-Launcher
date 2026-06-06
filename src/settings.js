@@ -134,17 +134,31 @@ export function setupSettings() {
 
         const optSelect = document.getElementById("global-options-source");
         optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
-        store.allInstances.forEach((inst, i) => {
-            const isSelected = (inst.name === store.globalSettings.defaultOptionsInstance) ? "selected" : "";
-            optSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
-        });
+        {
+            const frag = document.createDocumentFragment();
+            store.allInstances.forEach((inst, i) => {
+                const opt = document.createElement("option");
+                opt.value = i;
+                opt.textContent = inst.name;
+                if (inst.name === store.globalSettings.defaultOptionsInstance) opt.selected = true;
+                frag.appendChild(opt);
+            });
+            optSelect.appendChild(frag);
+        }
 
         const srvSelect = document.getElementById("global-servers-source");
         srvSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
-        store.allInstances.forEach((inst, i) => {
-            const isSelected = (inst.name === store.globalSettings.defaultServersInstance) ? "selected" : "";
-            srvSelect.innerHTML += `<option value="${i}" ${isSelected}>${window.escapeHTML(inst.name)}</option>`;
-        });
+        {
+            const frag = document.createDocumentFragment();
+            store.allInstances.forEach((inst, i) => {
+                const opt = document.createElement("option");
+                opt.value = i;
+                opt.textContent = inst.name;
+                if (inst.name === store.globalSettings.defaultServersInstance) opt.selected = true;
+                frag.appendChild(opt);
+            });
+            srvSelect.appendChild(frag);
+        }
 
         window.updateJavaButtonsDisplay();
 
@@ -393,7 +407,6 @@ export function setupSettings() {
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
         if (!fs.existsSync(javaDir)) fs.mkdirSync(javaDir, { recursive: true });
-
         try {
             const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
             const rawArch = window.api.arch || "x64";
@@ -480,13 +493,15 @@ export function setupSettings() {
             fs.unlinkSync(archivePath);
 
             const javaExe = (platform === "windows") ? "javaw.exe" : "java";
-            function findExe(dir) {
+            function findExe(dir, depth = 0) {
+                if (depth > 8) return null; 
                 for (let f of fs.readdirSync(dir)) {
                     const full = path.join(dir, f);
                     const stat = fs.statSync(full);
-                    if (stat.isDirectory) { const r = findExe(full); if (r) return r; }
+                    if (stat.isDirectory) { const r = findExe(full, depth + 1); if (r) return r; }
                     else if (f.toLowerCase() === javaExe) return full;
                 }
+                return null;
             }
             
             const exePath = findExe(extractDir);
@@ -549,21 +564,20 @@ export function setupHorizonSettings() {
 window.refreshHorizonUI = async () => {
         const container = document.getElementById("horizon-container");
         if (!container) return;
-
         if (!window._lastCloudGridHtml) {
             try {
-                const cachePath = window.api.path.join(store.dataDir, "horizon_cloud_cache.html");
-                if (window.api.fs.existsSync(cachePath)) {
-                    window._lastCloudGridHtml = window.api.fs.readFileSync(cachePath, "utf8");
+                const htmlCachePath = window.api.path.join(store.dataDir, "horizon_cloud_html_cache.txt");
+                if (window.api.fs.existsSync(htmlCachePath)) {
+                    window._lastCloudGridHtml = window.api.fs.readFileSync(htmlCachePath, "utf8");
                 }
             } catch(e) {}
         }
 
         if (!window._lastQuotaHtml) {
             try {
-                const quotaCachePath = window.api.path.join(store.dataDir, "horizon_quota_cache.html");
-                if (window.api.fs.existsSync(quotaCachePath)) {
-                    window._lastQuotaHtml = window.api.fs.readFileSync(quotaCachePath, "utf8");
+                const quotaHtmlCachePath = window.api.path.join(store.dataDir, "horizon_quota_html_cache.txt");
+                if (window.api.fs.existsSync(quotaHtmlCachePath)) {
+                    window._lastQuotaHtml = window.api.fs.readFileSync(quotaHtmlCachePath, "utf8");
                 }
             } catch(e) {}
         }
@@ -798,6 +812,11 @@ window.refreshHorizonUI = async () => {
     };
 
 window.runHorizonLogin = async (provider) => {
+        const ALLOWED_PROVIDERS = ['google', 'dropbox', 'onedrive'];
+        if (!ALLOWED_PROVIDERS.includes(provider)) {
+            if (window.showToast) window.showToast(t("msg_err_provider", "Fournisseur Cloud invalide."), "error");
+            return;
+        }
         window.showToast(t("msg_opening_browser_login", "Ouverture du navigateur pour connexion..."), "info");
         
         await window.api.invoke("call-horizon", ['--login', `--provider=${provider}`]);
@@ -805,6 +824,11 @@ window.runHorizonLogin = async (provider) => {
     };
     
     window.runHorizon = async (action) => {
+        const ALLOWED_HORIZON_ACTIONS = ['sync', 'upload', 'list', 'quota', 'rollback'];
+        if (!ALLOWED_HORIZON_ACTIONS.includes(action)) {
+            console.error(`[Horizon] Action non autorisee : ${action}`);
+            return;
+        }
         const zone = document.getElementById("horizon-progress-zone");
         if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
 

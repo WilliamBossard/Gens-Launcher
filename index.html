@@ -1398,6 +1398,8 @@
             <button class="action-btn" id="btn-delete" onclick="deleteInstance()" style="color: #f87171;" data-i18n="btn_delete">Supprimer</button>
             <button class="action-btn" id="btn-copy" onclick="copyInstance()" data-i18n="btn_copy">Copier l'instance</button>
             <button class="action-btn" id="btn-export" onclick="exportInstance()" data-i18n="btn_export">Exporter l'instance</button>
+            <button class="action-btn" id="btn-update-modpack" onclick="document.getElementById('update-modpack-input').click()" data-i18n="btn_update_modpack">Mettre à jour le modpack</button>
+            <input type="file" id="update-modpack-input" accept=".zip,.mrpack" style="display: none;" onchange="handleUpdateModpack(this)">
         </div>
     </div>
 
@@ -2096,7 +2098,16 @@
                     
                     <div id="skin-divider" class="acc-divider" style="height: 1px; background: var(--border); margin: 5px 0;"></div>
                     
-                    <button class="btn-microsoft" id="btn-link-ms-skin" onclick="openSystemPath('https://www.minecraft.net/fr-fr/msaprofile/mygames/editionsminecraftjava/skin')" data-i18n="btn_change_mojang">Changer sur Minecraft.net</button>
+                    <div id="btn-link-ms-skin" style="display: none; width: 100%;">
+                        <div style="display:flex; gap: 10px;">
+                            <select id="skin-variant-select" class="tool-select" style="flex: 1;" onchange="updateSkinVariantPreview(this)">
+                                <option value="classic">Classique</option>
+                                <option value="slim">Fin (Alex)</option>
+                            </select>
+                            <button class="btn-microsoft" onclick="document.getElementById('skin-mojang-input').click()" data-i18n="btn_upload_mojang" style="flex: 2;">Envoyer vers Mojang</button>
+                        </div>
+                        <input type="file" id="skin-mojang-input" accept=".png" style="display: none;" onchange="uploadSkinToMojang(this)">
+                    </div>
                     
                     <div style="font-size: 0.75rem; color: #aaa; text-align: center; margin-top: 10px;" data-i18n="tip_skin_3d">
                         💡 Astuce : Cliquez et glissez pour faire pivoter le personnage. Utilisez la molette pour zoomer.
@@ -2127,6 +2138,34 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-crash" class="modal" style="z-index: 5000;">
+        <div class="modal-card" style="width: 500px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+            <div class="modal-header" style="background: rgba(248, 113, 113, 0.2); border-bottom: 1px solid rgba(248, 113, 113, 0.5); color: #fca5a5;">
+                <span data-i18n="modal_crash_title">💥 Rapport de Crash</span>
+            </div>
+            <div class="modal-body" style="padding: 20px; overflow-y: auto;">
+                <div style="font-size: 1rem; color: var(--text-light); margin-bottom: 15px;" id="crash-summary">Le jeu s'est arrêté de manière inattendue.</div>
+                
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+                    <div style="font-size: 0.8rem; color: #aaa; text-transform: uppercase; margin-bottom: 5px;" data-i18n="lbl_crash_cause">Cause Probable</div>
+                    <div id="crash-cause" style="font-weight: bold; color: #fca5a5; font-size: 1rem;">Analyse en cours...</div>
+                </div>
+
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+                    <div style="font-size: 0.8rem; color: #aaa; text-transform: uppercase; margin-bottom: 5px;" data-i18n="lbl_crash_action">Action Recommandée</div>
+                    <div id="crash-action" style="color: var(--text-main); font-size: 0.95rem;">Veuillez patienter...</div>
+                </div>
+
+                <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 5px;" data-i18n="lbl_crash_log_excerpt">Extrait du log :</div>
+                <div id="crash-log-excerpt" style="background: #111; color: #f87171; font-family: monospace; font-size: 0.75rem; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; max-height: 150px; overflow-y: auto; border: 1px solid #333;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="btn-copy-crash-log" style="background: var(--bg-hover);" onclick="copyCrashLog()" data-i18n="btn_copy_log">Copier le Log</button>
+                <button class="btn-secondary" onclick="document.getElementById('modal-crash').style.display='none'" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>

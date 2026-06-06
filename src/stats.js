@@ -131,8 +131,11 @@ async function getFolderSizeAsync(dir, visited = new Set()) {
             const filePath = path.join(dir, file);
             try {
                 const stats = await fs.promises.stat(filePath);
-                if (stats.isDirectory()) {
-                    size += await getFolderSizeAsync(filePath, visited);
+                if (stats.isDirectory) {
+                    if (!visited.has(filePath)) {
+                        visited.add(filePath);
+                        size += await getFolderSizeAsync(filePath, visited);
+                    }
                 } else {
                     size += stats.size;
                 }
