@@ -308,12 +308,12 @@ const groups = {};
                     
                     const buster = inst._iconCacheBuster ? `?t=${inst._iconCacheBuster}` : "";
                     
-                    if (iconCacheKey !== "") {
-                        inst._iconCache = iconCacheKey.startsWith("file://") ? (iconCacheKey + buster) : iconCacheKey;
-                    } else if (fs.existsSync(path.join(instFolder, "icon.png"))) {
+                    if (fs.existsSync(path.join(instFolder, "icon.png"))) {
                         inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
                     } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
                         inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
+                    } else if (iconCacheKey !== "") {
+                        inst._iconCache = iconCacheKey.startsWith("file://") ? (iconCacheKey + buster) : iconCacheKey;
                     } else {
                         inst._iconCache = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
                     }
@@ -538,6 +538,7 @@ const groups = {};
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
                 window._isAutoLaunch = true;
+                document.body.classList.add("is-auto-launch");
                 const overlay = document.getElementById("auto-launch-overlay");
                 if (overlay) overlay.style.display = "flex";
 
@@ -609,14 +610,14 @@ const groups = {};
         const deleteShortcutItem = document.getElementById("ctx-delete-shortcut");
         
         if (inst) {
-            let hasShortcut = inst._hasDesktopShortcut === true;
+            let hasShortcut = !!inst._hasDesktopShortcut;
             
             if (createShortcutItem) createShortcutItem.style.display = hasShortcut ? "none" : "flex";
             if (deleteShortcutItem) deleteShortcutItem.style.display = hasShortcut ? "flex" : "none";
             if (hasShortcut) {
                 const safeShortcutName = inst.name.replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
                 window.api.invoke("check-shortcut-exists", { safeName: safeShortcutName }).then(exists => {
-                    if (exists === false && inst._hasDesktopShortcut === true) {
+                    if (exists === false && !!inst._hasDesktopShortcut) {
                         inst._hasDesktopShortcut = false;
                         window.safeWriteJSON(store.instanceFile, store.allInstances);
                         
@@ -652,15 +653,15 @@ document.addEventListener("click", () => {
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
 
     async function getOrGenerateIconPath(inst) {
-        if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
-            return inst.icon; 
-        }
-        
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
         const pngPath = window.api.path.join(instFolder, "icon.png");
 
         if (window.api.fs.existsSync(pngPath)) {
             return "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
+        }
+
+        if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
+            return inst.icon; 
         }
 
         const svgData = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;

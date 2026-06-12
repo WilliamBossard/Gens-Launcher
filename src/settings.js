@@ -6,6 +6,7 @@ const path = window.api.path;
 
 export function setupSettings() {
     let _javaScanDone = false;  
+    let _javaScanInProgress = false;
 
     window.showJavaTypeModal = (version) => {
         return new Promise((resolve) => {
@@ -306,6 +307,9 @@ export function setupSettings() {
     };
 
     window.scanJavaVersions = async (targetSelectId = null, silent = false, forceRescan = true) => {
+        if (_javaScanInProgress) return;
+        _javaScanInProgress = true;
+        
         if (!silent) document.getElementById("status-text").innerText = t("msg_search_java");
         const selectId = targetSelectId || (document.getElementById("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
         const selectEl = document.getElementById(selectId);
@@ -313,6 +317,7 @@ export function setupSettings() {
 
         if (silent && !forceRescan && _javaScanDone && selectEl.options.length > 1) {
             selectEl.value = savedValue || selectEl.value;
+            _javaScanInProgress = false;
             return;
         }
         
@@ -364,6 +369,7 @@ export function setupSettings() {
 
         selectEl.value = savedValue || selectEl.value;
         _javaScanDone = true;
+        _javaScanInProgress = false;
         if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
         document.getElementById("status-text").innerText = t("status_ready", "Prêt");
     };

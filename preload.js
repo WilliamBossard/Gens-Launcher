@@ -214,7 +214,7 @@ contextBridge.exposeInMainWorld("api", {
         renameSync: (oldP, newP) => fs.renameSync(enforceSandbox(oldP), enforceSandbox(newP)),
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
-        copyFileSync: (src, dest) => fs.copyFileSync(src, enforceSandbox(dest)),
+        copyFileSync: (src, dest) => fs.copyFileSync(enforceReadSandbox(src), enforceSandbox(dest)),
         appendFileSync: (p, d) => fs.appendFileSync(enforceSandbox(p), d),
         openSync: (p, f) => fs.openSync(enforceSandbox(p), f),
         readSync: (fd, b, o, l, pos) => fs.readSync(fd, b, o, l, pos),

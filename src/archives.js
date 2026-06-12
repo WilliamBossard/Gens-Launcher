@@ -383,7 +383,7 @@ export function setupArchives() {
         }
     };
 
-    window.handleMrPackImport = async function(packPath) {
+    window.handleMrPackImport = async function(packPath, projectId = null) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
@@ -422,6 +422,7 @@ export function setupArchives() {
           notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
           lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
         };
+        if (projectId) newInst.modrinthId = projectId;
 
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });

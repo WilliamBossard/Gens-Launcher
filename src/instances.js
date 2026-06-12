@@ -141,6 +141,14 @@ export function setupInstances() {
         document.getElementById("panel-title").innerText = inst.name;
         document.getElementById("btn-mods").style.display = inst.loader === "vanilla" ? "none" : "block";
         document.getElementById("panel-stats").style.display = "block";
+        
+        const updateBtn = document.getElementById("btn-update-modpack");
+        if (updateBtn) {
+            updateBtn.style.display = inst.modrinthId ? "inline-block" : "none";
+            if (inst.modrinthId && isNewInstance && window.checkModpackUpdate) {
+                window.checkModpackUpdate(inst);
+            }
+        }
 
         const h = Math.floor((inst.playTime || 0) / 3600000);
         const m = Math.floor(((inst.playTime || 0) % 3600000) / 60000);

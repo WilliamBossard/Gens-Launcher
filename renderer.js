@@ -57,6 +57,8 @@ ipcRenderer.on("update-available-prompt", async (info) => {
     store.pendingLauncherUpdate = info;
     const badge = document.getElementById("settings-update-badge");
     if (badge) badge.style.display = "block";
+    const tabBadge = document.getElementById("updates-tab-badge");
+    if (tabBadge) tabBadge.style.display = "block";
     if (window.renderUpdateTab) window.renderUpdateTab();
 
     if (store.globalSettings.autoDownloadUpdates) {
@@ -163,7 +165,10 @@ let _newsLoaded = false;
 async function loadNews() {
     if (_newsLoaded) return;
     try {
-        const res = await fetch("https://launchercontent.mojang.com/v2/news.json");
+        const newsController = new AbortController();
+        const newsTimeout = setTimeout(() => newsController.abort(), 8000);
+        const res = await fetch("https://launchercontent.mojang.com/v2/news.json", { signal: newsController.signal });
+        clearTimeout(newsTimeout);
         if (!res.ok) throw new Error(`News HTTP ${res.status}`);
         const data = await res.json();
         const container = document.getElementById("news-container");
@@ -236,7 +241,10 @@ window.checkServerStatus = async () => {
     }
 
     try {
-        const res = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(ip)}`);
+        const serverController = new AbortController();
+        const serverTimeout = setTimeout(() => serverController.abort(), 8000);
+        const res = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(ip)}`, { signal: serverController.signal });
+        clearTimeout(serverTimeout);
         if (!res.ok) throw new Error(`mcstatus HTTP ${res.status}`);
         const data = await res.json();
         

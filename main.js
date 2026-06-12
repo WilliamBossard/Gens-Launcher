@@ -96,9 +96,10 @@ function mainResolveInstanceFolder(nameOrFolder) {
     return mainSafeDir(nameOrFolder);
 }
 
+const _logStream = fs.createWriteStream(logPath, { flags: 'a' });
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-    fs.appendFileSync(logPath, line);
+    if (_logStream.writable) _logStream.write(line);
     console.log(msg);
 }
 
@@ -125,7 +126,7 @@ function _getMainProcSecretKey() {
 function decryptSettingsMainProc(text) {
     try {
         if (text.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
-            return safeStorage.decryptString(Buffer.from(text.split(':')[1], 'hex'));
+            return safeStorage.decryptString(Buffer.from(text.slice('safeStorage:'.length), 'hex'));
         }
         if (text.startsWith('aes:')) {
             const key = _getMainProcSecretKey();
@@ -208,7 +209,7 @@ if (!gotTheLock) {
                 };
                 const wrappedShowOnce = () => showOnce();
                 ipcMain.once("overlay-ready", wrappedShowOnce);
-                setTimeout(showOnce, 500);
+                setTimeout(showOnce, 2500);
                 mainWindow.webContents.send("trigger-auto-launch", instName);
             } else {
                 if (mainWindow.isMinimized()) mainWindow.restore();
@@ -235,7 +236,7 @@ app.whenReady().then(() => {
                 delete details.requestHeaders['sec-ch-ua-mobile'];
                 delete details.requestHeaders['sec-ch-ua-platform'];
             } else if (isModrinth) {
-                details.requestHeaders['User-Agent'] = "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)";
+                details.requestHeaders['User-Agent'] = `WilliamBossard/Gens-Launcher/${app.getVersion()} (wbossard@free.fr)`;
             }
         } catch(e) {}
         callback({ cancel: false, requestHeaders: details.requestHeaders });
@@ -243,15 +244,31 @@ app.whenReady().then(() => {
 
     createWindow();
 
-mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.once('ready-to-show', () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        const instName = parseAutoLaunchArg(process.argv);
+        if (!instName) {
+            mainWindow.show();
+        }
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
         const instName = parseAutoLaunchArg(process.argv);
         if (instName) {
+            let shown = false;
+            const showOnce = () => {
+                if (shown) return;
+                shown = true;
+                ipcMain.removeListener("overlay-ready", wrappedShowOnce);
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            };
+            const wrappedShowOnce = () => showOnce();
+            ipcMain.once("overlay-ready", wrappedShowOnce);
+            setTimeout(showOnce, 2500); // Wait up to 2.5s for renderer to process IPC
             mainWindow.webContents.send("trigger-auto-launch", instName);
-            setTimeout(() => {
-                if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-            }, 500);
-        } else {
-            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
         }
     });
 
@@ -312,31 +329,30 @@ function _runHorizonActionImpl(action, event = null) {
 
     if (isWriteOp) {
         const lockFile = path.join(horizonBinDir, 'horizon.lock');
-        if (fs.existsSync(lockFile)) {
-            const rawPid = (() => { try { return parseInt(fs.readFileSync(lockFile, 'utf8').trim(), 10); } catch(_) { return NaN; } })();
-            if (!isNaN(rawPid)) {
-                let alive = false;
-                try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
-                    if (killErr.code === 'EPERM') {
-                        try {
-                            const age = Date.now() - fs.statSync(lockFile).mtimeMs;
-                            if (age > 30 * 60 * 1000) {
-                                fs.unlinkSync(lockFile);
-                            } else {
-                                alive = true;
-                            }
-                        } catch (_) {
-                            try { fs.unlinkSync(lockFile); } catch (_) {}
+        let rawPid = NaN;
+        try { rawPid = parseInt(fs.readFileSync(lockFile, 'utf8').trim(), 10); } catch(_) { /* no lock file */ }
+        if (!isNaN(rawPid)) {
+            let alive = false;
+            try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
+                if (killErr.code === 'EPERM') {
+                    try {
+                        const age = Date.now() - fs.statSync(lockFile).mtimeMs;
+                        if (age > 30 * 60 * 1000) {
+                            fs.unlinkSync(lockFile);
+                        } else {
+                            alive = true;
                         }
+                    } catch (_) {
+                        try { fs.unlinkSync(lockFile); } catch (_) {}
                     }
                 }
-                if (alive) {
-                    const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
-                    safeSend(event, 'horizon-status', msg);
-                    return Promise.resolve({ exitCode: -1, lastJson: msg });
-                } else {
-                    try { fs.unlinkSync(lockFile); } catch(_) {}
-                }
+            }
+            if (alive) {
+                const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
+                safeSend(event, 'horizon-status', msg);
+                return Promise.resolve({ exitCode: -1, lastJson: msg });
+            } else {
+                try { fs.unlinkSync(lockFile); } catch(_) {}
             }
         }
     }
@@ -354,6 +370,9 @@ function _runHorizonActionImpl(action, event = null) {
         let lastJson = null;
 
         const finish = (exitCode) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(killTimer);
             if (stdoutBuf.trim()) {
                 for (const line of stdoutBuf.split('\n')) {
                     if (!line.trim()) continue;
@@ -372,7 +391,6 @@ function _runHorizonActionImpl(action, event = null) {
             if (killTimer) clearTimeout(killTimer);
             killTimer = setTimeout(() => {
                 if (!settled) {
-                    settled = true;
                     mainLog(`[Horizon] TIMEOUT d'inactivité — forçage de l'arrêt.`);
                     try { horizon.kill("SIGTERM"); } catch(_) {}
                     finish(-1);
@@ -403,11 +421,11 @@ function _runHorizonActionImpl(action, event = null) {
         horizon.stderr.on('data', (data) => { mainLog(`[Horizon Error] ${data.toString().trim()}`); });
 
         horizon.on('close', (code) => {
-            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Terminé (code ${code})`); finish(code ?? -1); }
+            if (!settled) { clearTimeout(killTimer); mainLog(`[Horizon] Terminé (code ${code})`); finish(code ?? -1); }
         });
 
         horizon.on('error', (err) => {
-            if (!settled) { settled = true; clearTimeout(killTimer); mainLog(`[Horizon] Erreur spawn : ${err.message}`); finish(-1); }
+            if (!settled) { clearTimeout(killTimer); mainLog(`[Horizon] Erreur spawn : ${err.message}`); finish(-1); }
         });
     });
 }
@@ -524,7 +542,7 @@ ipcMain.handle("search-modrinth", async (_, url) => {
         
         try {
             const response = await fetch(finalUrl.toString(), { 
-                headers: { "User-Agent": "WilliamBossard/Gens-Launcher/1.6.0 (wbossard@free.fr)", "Accept": "application/json" },
+                headers: { "User-Agent": `WilliamBossard/Gens-Launcher/${app.getVersion()} (wbossard@free.fr)`, "Accept": "application/json" },
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -775,7 +793,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
 
         } else if (process.platform === 'linux') {
             const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-            const escapedInstanceName = instanceName.replace(/"/g, '\\"'); 
+            const escapedInstanceName = sanitizeShortcutName(instanceName); 
             const execLine = `"${process.execPath}" "--auto-launch=${escapedInstanceName}"`; 
             const desktopFile = [
                 '[Desktop Entry]',
@@ -789,11 +807,22 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             ].join('\n');
             fs.writeFileSync(shortcutPath, desktopFile, { encoding: 'utf8' });
             fs.chmodSync(shortcutPath, 0o755);
+            
+            try {
+                const appsDir = path.join(app.getPath("home"), ".local", "share", "applications");
+                if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+                const appsPath = path.join(appsDir, `genslauncher-${safeName}.desktop`);
+                fs.writeFileSync(appsPath, desktopFile, { encoding: 'utf8' });
+                fs.chmodSync(appsPath, 0o755);
+            } catch (err) {
+                mainLog("Erreur création raccourci applications Linux : " + err.message);
+            }
+
             return { success: true, updated: alreadyExists };
 
         } else if (process.platform === 'darwin') {
             const shortcutPath = path.join(desktopPath, `${safeName}.command`);
-            const escapedInstanceName = instanceName.replace(/"/g, '\\"'); 
+            const escapedInstanceName = sanitizeShortcutName(instanceName); 
             const script = [
                 '#!/bin/bash',
                 `# Raccourci Gens Launcher — ${safeName}`,
@@ -1261,10 +1290,10 @@ ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
 ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
     zipPath = assertPathUnderSandbox(zipPath);
     destDir = assertPathUnderSandbox(destDir);
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const resolvedTarget = path.resolve(destDir);
         yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-            if (err) return reject(err);
+            if (err) return resolve({ success: false, error: err.message });
             
             let processedCount = 0;
             const total = zipfile.entryCount; 
@@ -1288,14 +1317,14 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
                 } else {
                     fs.mkdirSync(path.dirname(dest), { recursive: true });
                     zipfile.openReadStream(entry, (err, readStream) => {
-                        if (err) { zipfile.close(); return reject(err); }
+                        if (err) { zipfile.close(); return resolve({ success: false, error: err.message }); }
                         const writeStream = fs.createWriteStream(dest);
                         readStream.pipe(writeStream);
                         writeStream.on("close", () => zipfile.readEntry());
                         writeStream.on("error", (wErr) => {
                             readStream.destroy();
                             zipfile.close();
-                            reject(wErr);
+                            resolve({ success: false, error: wErr.message });
                         });
                     });
                 }
@@ -1309,4 +1338,5 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
     });
 });
 
+app.on('before-quit', () => { try { _logStream.end(); } catch (_) {} });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

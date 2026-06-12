@@ -260,7 +260,7 @@ function setupMods() {
 
               statusText.innerText = t("msg_install_mp", "Installation du modpack...");
               window.closeCatalogModal();
-              await window.handleMrPackImport(tempPath);
+              await window.handleMrPackImport(tempPath, projectId);
               fs.unlinkSync(tempPath);
               return;
             }
@@ -823,6 +823,48 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             sysLog(`[MODS] Modpack créé avec succès (builder).`);
             window.showToast(t("msg_builder_success", "Modpack créé avec succès !"), "success");
             window.checkAchievement("modder");
+        }
+    };
+    window.checkModpackUpdate = async (inst) => {
+        if (!inst || !inst.modrinthId) return;
+        try {
+            const url = `https://api.modrinth.com/v2/project/${encodeURIComponent(inst.modrinthId)}/version?game_versions=${encodeURIComponent('["' + inst.version + '"]')}&loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`;
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const versions = await res.json();
+            if (versions.length > 0) {
+                const latest = versions[0];
+                const updateBtn = document.getElementById("btn-update-modpack");
+                if (updateBtn && latest.files && latest.files.length > 0) {
+                    const mrpackFile = latest.files.find((f) => f.filename.endsWith(".mrpack")) || latest.files[0];
+                    updateBtn.style.background = "#f48a21"; 
+                    updateBtn.style.color = "#fff";
+                    updateBtn.innerHTML = `Mettre à jour (${latest.version_number})`;
+                    updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId);
+                }
+            }
+        } catch (e) {
+            sysLog("Erreur vérification MAJ modpack: " + e.message, true);
+        }
+    };
+
+    window.performModpackUpdate = async (url, filename, projectId) => {
+        try {
+            window.showLoading(t("msg_dl_mp", "Téléchargement de la mise à jour..."), 0);
+            const safeTempName = sanitizeFilename(filename || "modpack.mrpack");
+            const tempPath = path.join(store.dataDir, safeTempName);
+            const dlRes = await fetch(url);
+            if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
+            const buffer = await dlRes.arrayBuffer();
+            fs.writeFileSync(tempPath, new Uint8Array(buffer));
+
+            window.showLoading(t("msg_install_mp", "Installation..."), 0);
+            await window.handleMrPackImport(tempPath, projectId);
+            fs.unlinkSync(tempPath);
+            window.showToast("Mise à jour du Modpack terminée !", "success");
+        } catch(e) {
+            window.hideLoading();
+            window.showToast("Erreur de mise à jour: " + e.message, "error");
         }
     };
 }

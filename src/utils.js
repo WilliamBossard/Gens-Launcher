@@ -73,7 +73,15 @@ window.safeWriteJSON = (filePath, data) => {
     }
 };
 
+let _lastToastMsg = "";
+let _lastToastTime = 0;
+
 window.showToast = (msg, type = "info") => {
+    const now = Date.now();
+    if (msg === _lastToastMsg && (now - _lastToastTime < 1500)) return;
+    _lastToastMsg = msg;
+    _lastToastTime = now;
+
     const container = document.getElementById("toast-container");
     if (!container) return;
     const toast = document.createElement("div");

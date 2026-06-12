@@ -73,32 +73,7 @@ async function performAutoBackup(inst, mode) {
     window.hideLoading();
 }
 
-window.updateLiveStats = () => {
-    if (document.hidden) return;
 
-    const total = os.totalmem();
-    const free = os.freemem();
-    const used = total - free;
-    const ramPerc = Math.round((used / total) * 100);
-
-    document.getElementById("live-ram").innerText = `${ramPerc}%`;
-    document.getElementById("live-ram-bar").style.width = `${ramPerc}%`;
-    document.getElementById("live-ram-bar").style.background = ramPerc > 85 ? "#f87171" : "var(--accent)";
-
-    let current = os.cpus().map(c => c.times);
-    let idle = 0, cpuTotal = 0;
-    for (let i = 0; i < current.length; i++) {
-        const t1 = lastCpuTimes[i], t2 = current[i];
-        idle += (t2.idle - t1.idle);
-        cpuTotal += (t2.user + t2.nice + t2.sys + t2.idle + t2.irq) - (t1.user + t1.nice + t1.sys + t1.idle + t1.irq);
-    }
-    lastCpuTimes = current;
-
-    const cpuPerc = cpuTotal === 0 ? 0 : Math.round((1 - (idle / cpuTotal)) * 100);
-    document.getElementById("live-cpu").innerText = `${cpuPerc}%`;
-    document.getElementById("live-cpu-bar").style.width = `${cpuPerc}%`;
-    document.getElementById("live-cpu-bar").style.background = cpuPerc > 85 ? "#f87171" : "#17B139";
-};
 
 export function setupLauncher() {
 
@@ -132,16 +107,6 @@ export function setupLauncher() {
         store.isGameRunning = isAnyRunning;
 
         window.updateLaunchButton();
-
-        if (isAnyRunning && !monitorInterval) {
-            document.getElementById("live-stats").style.display = "block";
-            lastCpuTimes = os.cpus().map(c => c.times);
-            monitorInterval = setInterval(window.updateLiveStats, 2000);
-        } else if (!isAnyRunning && monitorInterval) {
-            clearInterval(monitorInterval);
-            monitorInterval = null;
-            document.getElementById("live-stats").style.display = "none";
-        }
     };
 
     window.getRequiredJavaVersion = (mcVersion) => {
@@ -225,7 +190,7 @@ export function setupLauncher() {
                     if (reqVer >= 65) needed = "21"; else if (reqVer >= 61) needed = "17"; else if (reqVer >= 55) needed = "11"; else needed = "8";
                     if (curVer >= 65) current = "21"; else if (curVer >= 61) current = "17"; else if (curVer >= 55) current = "11"; else current = "8";
                 }
-                result.action = classVerMatch 
+                result.action = classVerMatch
                     ? t("crash_java_ver_exact", "Un mod requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
                     : t("crash_java_ver_action", "Le mod requiert une version plus récente de Java. Modifiez la version de Java dans les paramètres.");
                 result.logExcerpt = combinedLog.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || "UnsupportedClassVersionError détecté";
@@ -399,25 +364,23 @@ export function setupLauncher() {
             if (dStr.includes("WARN")) color = "#ffaa00";
             if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171";
 
-            const isAtBottom = logOutput.scrollHeight - logOutput.clientHeight <= logOutput.scrollTop + 50;
             const filter = document.getElementById("console-filter")?.value.toLowerCase() ?? "";
             const isHidden = filter && !dStr.toLowerCase().includes(filter) ? 'style="display:none;"' : '';
 
             logBuffer.push(`<div class="log-line" style="color:${color}" ${isHidden}>[GAME] ${window.escapeHTML(dStr)}</div>`);
-            _logLineCount++;
 
             if (!logTimer) {
                 logTimer = setTimeout(() => {
                     if (logBuffer.length > 0) {
+                        const atBottom = logOutput.scrollHeight - logOutput.clientHeight <= logOutput.scrollTop + 50;
                         logOutput.insertAdjacentHTML("beforeend", logBuffer.join(""));
                         logBuffer = [];
 
-                        while (_logLineCount > 500 && logOutput.firstChild) {
+                        while (logOutput.children.length > 500 && logOutput.firstChild) {
                             logOutput.removeChild(logOutput.firstChild);
-                            _logLineCount--;
                         }
 
-                        if (isAtBottom) logOutput.scrollTop = logOutput.scrollHeight;
+                        if (atBottom) logOutput.scrollTop = logOutput.scrollHeight;
                     }
                     logTimer = null;
                 }, 150);
@@ -597,6 +560,7 @@ export function setupLauncher() {
 
         if (isAutoClose) {
             window._isAutoLaunch = false;
+            document.body.classList.remove("is-auto-launch");
             setAutoStatus(t("msg_auto_closing", "Fermeture..."));
             setTimeout(() => { window.close(); }, 800);
         }
@@ -625,7 +589,7 @@ export function setupLauncher() {
         const horizonStatus = await window.api.invoke("check-horizon-status");
         const cloudPrefs = await getCloudSettings();
 
-        if (horizonStatus.installed && cloudPrefs.systemEnabled) {
+        if (horizonStatus.installed && horizonStatus.linked && cloudPrefs.systemEnabled) {
             if (inst.disableHorizon) {
                 sysLog(`[HORIZON] Sync ignorée pour "${inst.name}" (désactivée).`);
             } else if (cloudPrefs.autoSync) {
