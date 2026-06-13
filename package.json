@@ -62,7 +62,7 @@
         "deb"
       ],
       "category": "Game",
-      "icon": "assets/icon.png",
+      "icon": "assets/icon-512.png",
       "artifactName": "GensLauncher-${version}-${arch}.${ext}",
       "executableArgs": [
         "--no-sandbox",
