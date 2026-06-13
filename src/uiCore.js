@@ -306,6 +306,7 @@ const groups = {};
                 const primaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
                 const secondaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
                 const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                const fallbackSafe = fallbackIcon.replace(/'/g, "\\'");
                 
                 const customIcon = inst.icon ? (inst.icon.startsWith("file://") ? inst.icon + buster : inst.icon) : "";
                 
@@ -314,10 +315,20 @@ const groups = {};
                 
                 if (customIcon) {
                     iconSrc = customIcon;
-                    onErrorStr = `if(this.src!=='${fallbackIcon}') this.src='${fallbackIcon}';`;
+                    onErrorStr = `if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';`;
                 } else {
-                    iconSrc = primaryIcon;
-                    onErrorStr = `if(this.src!=='${secondaryIcon}') this.src='${secondaryIcon}'; else if(this.src!=='${fallbackIcon}') this.src='${fallbackIcon}';`;
+                    const pngPath = path.join(instFolder, "icon.png");
+                    const jpgPath = path.join(instFolder, "icon.jpg");
+                    if (window.api.fs.existsSync(pngPath)) {
+                        iconSrc = primaryIcon;
+                        onErrorStr = `if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';`;
+                    } else if (window.api.fs.existsSync(jpgPath)) {
+                        iconSrc = secondaryIcon;
+                        onErrorStr = `if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';`;
+                    } else {
+                        iconSrc = fallbackIcon;
+                        onErrorStr = "";
+                    }
                 }
 
                 const safeName = window.escapeHTML(inst.name);
@@ -583,6 +594,17 @@ const groups = {};
                 setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
             }
         });
+        
+        window.abortAutoLaunch = () => {
+            if (window._isAutoLaunch) {
+                window._isAutoLaunch = false;
+                document.body.classList.remove("is-auto-launch");
+                const overlay = document.getElementById("auto-launch-overlay");
+                if (overlay) overlay.style.display = "none";
+                const status = document.getElementById("status-text");
+                if (status) status.innerText = t("status_ready", "Prêt");
+            }
+        };
     }
 
     window.openContextMenu = (e, idx) => {

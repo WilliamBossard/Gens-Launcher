@@ -30,7 +30,7 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
  */
 const javaExactRegex = /\bjava(?:$|[-_ \d])/i;
 const jvmDistrosRegex = /\b(jdk|jre|jvm|adoptium|temurin|corretto|zulu|graalvm|semeru|liberica|dragonwell)/i;
-const mediaRegex = /\.(png|jpe?g|gif|webp|bmp|ico)$/i;
+const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
 
 function enforceReadSandbox(p) {
     const resolved = path.resolve(p);
@@ -40,9 +40,9 @@ function enforceReadSandbox(p) {
     const isMinecraftDir = pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep);
     const isJavaDir = pathParts.some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
     const isTempDir = resolved.startsWith(os.tmpdir());
-    const isMedia = mediaRegex.test(resolved);
+    const isSafeExt = safeReadRegex.test(resolved);
 
-    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isMedia) {
+    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isSafeExt) {
         console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
     }

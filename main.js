@@ -4,7 +4,6 @@ const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
-const axios = require("axios");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
@@ -1089,8 +1088,10 @@ ipcMain.handle("check-horizon-status", async () => {
     let localVersion = "v0.0.0";
     if (fs.existsSync(horizonVersionPath)) { try { localVersion = JSON.parse(fs.readFileSync(horizonVersionPath)).version; } catch(e) {} }
     try {
-        const res = await axios.get('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
-        return { installed: isInstalled, localVersion, latestVersion: res.data.tag_name, needsUpdate: res.data.tag_name !== localVersion, linked: isLinked, provider: currentProvider };
+        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
+        if (!res.ok) throw new Error("Erreur fetch");
+        const data = await res.json();
+        return { installed: isInstalled, localVersion, latestVersion: data.tag_name, needsUpdate: data.tag_name !== localVersion, linked: isLinked, provider: currentProvider };
     } catch(e) {
         return { installed: isInstalled, localVersion, latestVersion: null, needsUpdate: false, offline: true, linked: isLinked, provider: currentProvider };
     }
@@ -1100,21 +1101,29 @@ ipcMain.handle('call-horizon', async (event, action) => runHorizonAction(action,
 
 ipcMain.handle('install-horizon', async () => {
     try {
-        const res = await axios.get('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
-        const asset = res.data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || res.data.assets.find(a => !path.extname(a.name));
+        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
+        if (!res.ok) throw new Error("Erreur fetch Github");
+        const data = await res.json();
+        const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
         if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
-        const response = await axios({ url: asset.browser_download_url, method: 'GET', responseType: 'arraybuffer' });
-        const binaryBuffer = Buffer.from(response.data);
-        const sha256Asset = res.data.assets.find(a => a.name === asset.name + ".sha256");
+        
+        const response = await fetch(asset.browser_download_url);
+        if (!response.ok) throw new Error("Erreur de téléchargement du binaire");
+        const arrayBuffer = await response.arrayBuffer();
+        const binaryBuffer = Buffer.from(arrayBuffer);
+        
+        const sha256Asset = data.assets.find(a => a.name === asset.name + ".sha256");
         if (sha256Asset) {
             try {
-                const hashRes = await axios({ url: sha256Asset.browser_download_url, method: 'GET', responseType: 'text' });
-                const expected = hashRes.data.trim().split(/\s/)[0].toLowerCase();
+                const hashRes = await fetch(sha256Asset.browser_download_url);
+                if (!hashRes.ok) throw new Error("Erreur fetch hash");
+                const hashText = await hashRes.text();
+                const expected = hashText.trim().split(/\s/)[0].toLowerCase();
                 const actual = crypto.createHash('sha256').update(binaryBuffer).digest('hex');
                 if (actual !== expected) {
                     throw new Error(`Vérification SHA256 du binaire Horizon échouée.\nAttendu : ${expected}\nObtenu  : ${actual}`);
                 }
-                mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${res.data.tag_name}.`);
+                mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch(hashErr) {
                 if (hashErr.message.includes("SHA256")) throw hashErr;
                 mainLog(`[Horizon] Avertissement : fichier .sha256 introuvable ou illisible — ${hashErr.message}`);
@@ -1125,8 +1134,8 @@ ipcMain.handle('install-horizon', async () => {
 
         fs.writeFileSync(horizonExePath, binaryBuffer);
         if (!isWin) fs.chmodSync(horizonExePath, 0o755);
-        fs.writeFileSync(horizonVersionPath, JSON.stringify({ version: res.data.tag_name }));
-        return { success: true, version: res.data.tag_name };
+        fs.writeFileSync(horizonVersionPath, JSON.stringify({ version: data.tag_name }));
+        return { success: true, version: data.tag_name };
     } catch(e) { return { success: false, error: e.message }; }
 });
 
@@ -1283,7 +1292,6 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
 });
 
 ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
-    zipPath = assertPathUnderSandbox(zipPath);
     return new Promise((resolve) => {
         const targets = new Set(entryNames);
         yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
@@ -1314,7 +1322,6 @@ ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
 });
 
 ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
-    zipPath = assertPathUnderSandbox(zipPath);
     destDir = assertPathUnderSandbox(destDir);
     return new Promise((resolve) => {
         const resolvedTarget = path.resolve(destDir);

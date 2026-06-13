@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
-    "axios": "^1.15.0",
     "discord-rich-presence": "^0.0.8",
     "electron-updater": "^6.8.3",
     "minecraft-launcher-core": "^3.18.2",

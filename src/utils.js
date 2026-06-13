@@ -77,6 +77,7 @@ let _lastToastMsg = "";
 let _lastToastTime = 0;
 
 window.showToast = (msg, type = "info") => {
+    if (type === "error" && window.abortAutoLaunch) window.abortAutoLaunch();
     const now = Date.now();
     if (msg === _lastToastMsg && (now - _lastToastTime < 1500)) return;
     _lastToastMsg = msg;

@@ -500,10 +500,15 @@ export function setupLauncher() {
 
         if (code !== 0 && closedInstIndex !== -1) {
             if (isAutoClose) {
-                setAutoStatus(t("msg_crash_generic", "Le jeu a planté (code {code}).").replace("{code}", code));
-                const analysis = await window.analyzeCrash(instanceId);
-                if (analysis && analysis.cause !== t("cause_unknown", "Raison inconnue")) setAutoStatus(`⚠ Crash détecté : ${analysis.cause}`);
-            } else if (store.selectedInstanceIdx === closedInstIndex) {
+                isAutoClose = false;
+                window._isAutoLaunch = false;
+                document.body.classList.remove("is-auto-launch");
+                const overlay = document.getElementById("auto-launch-overlay");
+                if (overlay) overlay.style.display = "none";
+                window.selectInstance(closedInstIndex);
+            }
+
+            if (store.selectedInstanceIdx === closedInstIndex) {
                 document.getElementById("console-container").style.display = "block";
                 const analysis = await window.analyzeCrash(instanceId);
 
@@ -655,9 +660,14 @@ export function setupLauncher() {
             if (await window.showCustomConfirm(t("msg_java_not_found_prompt", "Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ") + requiredJava + " ?")) {
                 const newJava = await window.downloadJavaAuto(requiredJava);
                 if (newJava) jPath = newJava;
-                else { document.getElementById("status-text").innerText = t("msg_err_java", "Erreur Java"); return; }
+                else { 
+                    document.getElementById("status-text").innerText = t("msg_err_java", "Erreur Java"); 
+                    if (window.abortAutoLaunch) window.abortAutoLaunch();
+                    return; 
+                }
             } else {
                 document.getElementById("status-text").innerText = t("msg_err_java", "Erreur Java");
+                if (window.abortAutoLaunch) window.abortAutoLaunch();
                 return;
             }
         }
@@ -797,7 +807,11 @@ export function setupLauncher() {
                         fs.writeFileSync(jsonPath, await response.text());
                     }
                 }
-            } catch (e) { sysLog("Erreur Fabric: " + e, true); return; }
+            } catch (e) { 
+                sysLog("Erreur Fabric: " + e, true); 
+                window.showToast(t("msg_err_fabric", "Erreur Fabric : ") + e.message, "error");
+                return; 
+            }
         } else if (inst.loader === "quilt") {
             try {
                 document.getElementById("status-text").innerText = t("msg_install_quilt", "Installation de Quilt...");
@@ -817,7 +831,11 @@ export function setupLauncher() {
                         fs.writeFileSync(jsonPath, await response.text());
                     }
                 }
-            } catch (e) { sysLog("Erreur Quilt: " + e, true); return; }
+            } catch (e) { 
+                sysLog("Erreur Quilt: " + e, true); 
+                window.showToast(t("msg_err_quilt", "Erreur Quilt : ") + e.message, "error");
+                return; 
+            }
         } else if (inst.loader === "forge" || inst.loader === "neoforge") {
             document.getElementById("status-text").innerText = `${t("msg_prep_loader", "Préparation de ")}${inst.loader}...`;
             sysLog(`Configuration de l'environnement ${inst.loader} ${inst.loaderVersion || 'latest'}...`);
