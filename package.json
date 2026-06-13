@@ -67,13 +67,7 @@
       "executableArgs": [
         "--no-sandbox",
         "--disable-setuid-sandbox"
-      ],
-      "desktop": {
-        "entry": {
-          "Name": "Gens Launcher",
-          "Icon": "gens-launcher"
-        }
-      }
+      ]
     },
     "deb": {
       "priority": "optional",
