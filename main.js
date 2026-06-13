@@ -8,7 +8,7 @@ const axios = require("axios");
 const { autoUpdater } = require("electron-updater");
 const { Authflow, Titles } = require("prismarine-auth");
 const { Client } = require("minecraft-launcher-core");
-const DiscordRPC = require("discord-rpc");
+
 const { safeStorage } = require('electron');
 const archiver = require("archiver");
 const yauzl = require("yauzl");
@@ -103,6 +103,14 @@ function mainLog(msg) {
     console.log(msg);
 }
 
+process.on('uncaughtException', (err) => {
+    mainLog("Crash évité (uncaughtException) : " + err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason.stack || reason));
+});
+
 let _cachedMainSecretKey = null;
 
 function _getMainProcSecretKey() {
@@ -156,6 +164,17 @@ function readSettingsMainProc(settingsPath) {
         mainLog("Avertissement : impossible de lire settings.json dans main process : " + e.message);
     }
     return {};
+}
+
+function writeJsonAtomicSync(filePath, data) {
+    const tempPath = filePath + ".tmp." + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    try {
+        fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
+        fs.renameSync(tempPath, filePath);
+    } catch (e) {
+        if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch (_) {}
+        mainLog("Erreur critique lors de l'écriture atomique de " + filePath + " : " + e.message);
+    }
 }
 
 function createWindow() {
@@ -1036,7 +1055,7 @@ ipcMain.handle("get-horizon-settings", async () => {
     if (fs.existsSync(settingsPath)) { try { fileContent = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch(e) {} }
     const merged = { ...defaults, ...fileContent };
     const hasMissingKey = Object.keys(defaults).some(k => !(k in fileContent));
-    if (hasMissingKey) { fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2)); }
+    if (hasMissingKey) { writeJsonAtomicSync(settingsPath, merged); }
     return merged;
 });
 
@@ -1112,6 +1131,8 @@ ipcMain.handle('install-horizon', async () => {
 });
 
 const discordClientId = "1490353507218227301";
+const discordRPCClient = require("discord-rich-presence");
+
 let rpc = null;
 let rpcReady = false;
 let rpcReconnectTimer = null;
@@ -1125,36 +1146,41 @@ function connectRPC() {
     }
 
     if (rpc) {
-        rpc.removeAllListeners();
-        rpc.destroy().catch(() => {});
+        rpc.disconnect();
         rpc = null;
     }
 
-    rpc = new DiscordRPC.Client({ transport: "ipc" });
-    rpc.on("ready", () => {
-        rpcReady = true;
-        rpcRetries = 0;
-        mainLog("Discord RPC connecté.");
-    });
-    rpc.on("disconnected", () => {
+    try {
+        rpc = discordRPCClient(discordClientId);
+        rpc.on('connected', () => {
+            rpcReady = true;
+            rpcRetries = 0;
+            mainLog("Discord RPC connecté.");
+        });
+        rpc.on('error', (err) => {
+            rpcReady = false;
+            rpcRetries++;
+            mainLog("Discord RPC déconnecté, tentative de reconnexion dans 15s...");
+            rpcReconnectTimer = setTimeout(connectRPC, 15000);
+        });
+    } catch (e) {
         rpcReady = false;
         rpcRetries++;
-        mainLog("Discord RPC déconnecté, tentative de reconnexion dans 15s...");
         rpcReconnectTimer = setTimeout(connectRPC, 15000);
-    });
-    rpc.login({ clientId: discordClientId }).catch(() => {
-        rpcReady = false;
-        rpcRetries++;
-        rpcReconnectTimer = setTimeout(connectRPC, 15000);
-    });
+    }
 }
 
 connectRPC();
 
 ipcMain.on("update-discord", (event, data) => {
     if (!rpcReady || !rpc) return;
-    if (data === "clear") { rpc.clearActivity().catch(() => {}); return; }
-    rpc.setActivity(data).catch(() => {});
+    if (data === "clear") { 
+        rpc.disconnect(); 
+        rpcReady = false;
+        connectRPC();
+        return; 
+    }
+    try { rpc.updatePresence(data); } catch(e) {}
 });
 
 ipcMain.on('encrypt-string-sync', (event, text) => {

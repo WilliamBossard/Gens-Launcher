@@ -302,23 +302,23 @@ const groups = {};
                 const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
                 const lockedClass = isLockedByMulti ? "is-locked" : "";
 
-                const iconCacheKey = inst.icon || "";
-                if (!inst._iconCache || inst._iconCacheKey !== iconCacheKey) {
-                    inst._iconCacheKey = iconCacheKey;
-                    
-                    const buster = inst._iconCacheBuster ? `?t=${inst._iconCacheBuster}` : "";
-                    
-                    if (fs.existsSync(path.join(instFolder, "icon.png"))) {
-                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
-                    } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
-                        inst._iconCache = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
-                    } else if (iconCacheKey !== "") {
-                        inst._iconCache = iconCacheKey.startsWith("file://") ? (iconCacheKey + buster) : iconCacheKey;
-                    } else {
-                        inst._iconCache = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
-                    }
+                const buster = inst._iconCacheBuster ? `?t=${inst._iconCacheBuster}` : "";
+                const primaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
+                const secondaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
+                const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                
+                const customIcon = inst.icon ? (inst.icon.startsWith("file://") ? inst.icon + buster : inst.icon) : "";
+                
+                let iconSrc = "";
+                let onErrorStr = "";
+                
+                if (customIcon) {
+                    iconSrc = customIcon;
+                    onErrorStr = `if(this.src!=='${fallbackIcon}') this.src='${fallbackIcon}';`;
+                } else {
+                    iconSrc = primaryIcon;
+                    onErrorStr = `if(this.src!=='${secondaryIcon}') this.src='${secondaryIcon}'; else if(this.src!=='${fallbackIcon}') this.src='${fallbackIcon}';`;
                 }
-                const iconSrc = inst._iconCache;
 
                 const safeName = window.escapeHTML(inst.name);
                 const safeVersion = window.escapeHTML(inst.version);
@@ -347,10 +347,9 @@ const groups = {};
                         <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; position: absolute;"></div>
                         <div class="progress-text" style="font-size: 0.65rem; font-weight: bold; color: white; position: absolute; z-index: 11;">0%</div>
                     </div>
-                    
                     ${runningBadge}
                     ${shortcutBadge}
-                    <img src="${iconSrc}" class="instance-icon">
+                    <img src="${iconSrc}" onerror="${onErrorStr}" class="instance-icon">
                     <div class="instance-name">${safeName}</div>
                     <div class="instance-version" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center;">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
                 </div>`;

@@ -124,7 +124,15 @@ contextBridge.exposeInMainWorld("api", {
         writeJSON: (filePath, data) => {
             const jsonString = JSON.stringify(data, null, 2);
             const encrypted = ipcRenderer.sendSync('encrypt-string-sync', jsonString);
-            fs.writeFileSync(enforceSandbox(filePath), encrypted, 'utf8');
+            const safePath = enforceSandbox(filePath);
+            const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            try {
+                fs.writeFileSync(tempPath, encrypted, 'utf8');
+                fs.renameSync(tempPath, safePath);
+            } catch (e) {
+                if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch (_) {}
+                throw e;
+            }
         },
         readJSON: (filePath) => {
             const safePath = enforceSandbox(filePath);
@@ -209,7 +217,17 @@ contextBridge.exposeInMainWorld("api", {
         // OPÉRATIONS D'ÉCRITURE/SUPPRESSION (AVEC SANDBOX)
         // Strictement verrouillées sur le dossier de l'application
         // ==========================================
-        writeFileSync: (p, d) => fs.writeFileSync(enforceSandbox(p), d),
+        writeFileSync: (p, d) => {
+            const safePath = enforceSandbox(p);
+            const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            try {
+                fs.writeFileSync(tempPath, d);
+                fs.renameSync(tempPath, safePath);
+            } catch (e) {
+                if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch (_) {}
+                throw e;
+            }
+        },
         mkdirSync: (p, opts) => fs.mkdirSync(enforceSandbox(p), opts),
         renameSync: (oldP, newP) => fs.renameSync(enforceSandbox(oldP), enforceSandbox(newP)),
         unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
@@ -234,7 +252,17 @@ contextBridge.exposeInMainWorld("api", {
             // ==========================================
             // Écriture (Verrouillée)
             // ==========================================
-            writeFile: (p, d) => fs.promises.writeFile(enforceSandbox(p), d),
+            writeFile: async (p, d) => {
+                const safePath = enforceSandbox(p);
+                const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                try {
+                    await fs.promises.writeFile(tempPath, d);
+                    await fs.promises.rename(tempPath, safePath);
+                } catch (e) {
+                    if (fs.existsSync(tempPath)) try { await fs.promises.unlink(tempPath); } catch (_) {}
+                    throw e;
+                }
+            },
             rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts),
             cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o),
             unlink: (p) => fs.promises.unlink(enforceSandbox(p)),

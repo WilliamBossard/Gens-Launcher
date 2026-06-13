@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -13,9 +13,9 @@
     "dist:all": "electron-builder --win --linux"
   },
   "dependencies": {
-    "archiver": "^6.0.1",
+    "archiver": "^7.0.1",
     "axios": "^1.15.0",
-    "discord-rpc": "^4.0.1",
+    "discord-rich-presence": "^0.0.8",
     "electron-updater": "^6.8.3",
     "minecraft-launcher-core": "^3.18.2",
     "prismarine-auth": "^3.1.1",
@@ -23,13 +23,13 @@
     "yauzl": "^3.3.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
+    "electron": "^42.4.0",
     "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "electronVersion": "31.0.0",
+    "electronVersion": "42.4.0",
     "directories": {
       "output": "dist"
     },
