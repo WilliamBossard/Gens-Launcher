@@ -11,23 +11,28 @@ if (!zipPath || !destDir) {
     process.exit(1);
 }
 
-function sendMsg(msg) {
-    console.log(JSON.stringify(msg));
+function sendMsg(msg, cb) {
+    if (process.send) {
+        process.send(msg, (err) => {
+            if (cb) cb();
+        });
+    } else {
+        console.log(JSON.stringify(msg));
+        if (cb) cb();
+    }
 }
 
 function extractZip(zipPath, destDir) {
     const resolvedTarget = path.resolve(destDir);
     yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
         if (err) {
-            sendMsg({ success: false, error: err.message });
-            process.exit(1);
+            return sendMsg({ success: false, error: err.message }, () => process.exit(1));
         }
 
         let processedCount = 0;
         const total = zipfile.entryCount;
         if (total === 0) {
-            sendMsg({ success: true });
-            process.exit(0);
+            return sendMsg({ success: true }, () => process.exit(0));
         }
 
         zipfile.on("entry", async (entry) => {
@@ -50,8 +55,7 @@ function extractZip(zipPath, destDir) {
                     fs.mkdirSync(path.dirname(dest), { recursive: true });
                     zipfile.openReadStream(entry, async (err, readStream) => {
                         if (err) {
-                            sendMsg({ success: false, error: err.message });
-                            process.exit(1);
+                            return sendMsg({ success: false, error: err.message }, () => process.exit(1));
                         }
 
                         const writeStream = fs.createWriteStream(dest);
@@ -59,25 +63,21 @@ function extractZip(zipPath, destDir) {
                             await pipeline(readStream, writeStream);
                             zipfile.readEntry();
                         } catch (pErr) {
-                            sendMsg({ success: false, error: "Stream error: " + pErr.message });
-                            process.exit(1);
+                            sendMsg({ success: false, error: "Stream error: " + pErr.message }, () => process.exit(1));
                         }
                     });
                 }
             } catch (err) {
-                sendMsg({ success: false, error: err.message });
-                process.exit(1);
+                sendMsg({ success: false, error: err.message }, () => process.exit(1));
             }
         });
 
         zipfile.on("end", () => {
-            sendMsg({ success: true });
-            process.exit(0);
+            sendMsg({ success: true }, () => process.exit(0));
         });
 
         zipfile.on("error", (zErr) => {
-            sendMsg({ success: false, error: zErr.message });
-            process.exit(1);
+            sendMsg({ success: false, error: zErr.message }, () => process.exit(1));
         });
 
         zipfile.readEntry();
