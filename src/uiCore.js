@@ -303,8 +303,8 @@ const groups = {};
                 const lockedClass = isLockedByMulti ? "is-locked" : "";
 
                 const buster = inst._iconCacheBuster ? `?t=${inst._iconCacheBuster}` : "";
-                const primaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.png").replace(/\\/g, "/")) + buster;
-                const secondaryIcon = "file:///" + encodeURI(path.join(instFolder, "icon.jpg").replace(/\\/g, "/")) + buster;
+                const primaryIcon = window.pathToFileUrl(path.join(instFolder, "icon.png")) + buster;
+                const secondaryIcon = window.pathToFileUrl(path.join(instFolder, "icon.jpg")) + buster;
                 const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
                 const fallbackSafe = fallbackIcon.replace(/'/g, "\\'");
                 
@@ -598,11 +598,14 @@ const groups = {};
         window.abortAutoLaunch = () => {
             if (window._isAutoLaunch) {
                 window._isAutoLaunch = false;
-                document.body.classList.remove("is-auto-launch");
-                const overlay = document.getElementById("auto-launch-overlay");
-                if (overlay) overlay.style.display = "none";
                 const status = document.getElementById("status-text");
-                if (status) status.innerText = t("status_ready", "Prêt");
+                if (status) status.innerText = t("status_error", "Erreur, redémarrage du launcher...");
+                const autoStatus = document.getElementById("auto-status-text");
+                if (autoStatus) autoStatus.innerText = "Erreur ! Redémarrage...";
+                
+                setTimeout(() => {
+                    if (window.api && window.api.send) window.api.send("restart_app");
+                }, 3000);
             }
         };
     }

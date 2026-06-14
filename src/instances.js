@@ -226,7 +226,19 @@ export function setupInstances() {
         document.getElementById("edit-jvm-profile").value = inst.jvmProfile || "none";
         window.updateJvmDesc();
         document.getElementById("edit-notes").value = inst.notes || "";
-        document.getElementById("edit-icon-preview").src = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+        
+        const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
+        let resolvedIcon = inst.icon;
+        if (!resolvedIcon || resolvedIcon === "") {
+            if (fs.existsSync(path.join(instFolder, "icon.png"))) {
+                resolvedIcon = window.pathToFileUrl(path.join(instFolder, "icon.png").replace(/\\/g, "/"));
+            } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
+                resolvedIcon = window.pathToFileUrl(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
+            } else {
+                resolvedIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+            }
+        }
+        document.getElementById("edit-icon-preview").src = resolvedIcon;
         document.getElementById("edit-backup-mode").value = inst.backupMode || "none";
         document.getElementById("edit-backup-limit").value = inst.backupLimit || 5;
         if (document.getElementById("edit-disable-horizon")) {

@@ -47,7 +47,8 @@ export function setupArchives() {
       const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
 
       try {
-        await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
         if (!fs.existsSync(indexPath)) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
@@ -147,7 +148,8 @@ export function setupArchives() {
         const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
 
         try {
-            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
             const manifestText = fs.readFileSync(path.join(tempExtractDir, "manifest.json"), "utf8");
             const manifest = JSON.parse(manifestText);
@@ -293,7 +295,8 @@ export function setupArchives() {
         await yieldUI();
         const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
-            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
             const instanceJsonPath = path.join(tempExtractDir, "instance.json");
             if (!fs.existsSync(instanceJsonPath)) {
@@ -367,6 +370,9 @@ export function setupArchives() {
             }
 
             store.allInstances.push(instData);
+            
+            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch(e) {}
+            
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);
             window.safeWriteJSON(store.instanceFile, store.allInstances);
@@ -389,7 +395,8 @@ export function setupArchives() {
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
 
       try {
-        await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
         if (!fs.existsSync(indexPath)) {
@@ -530,7 +537,8 @@ export function setupArchives() {
         const tempExtractDir = path.join(store.dataDir, "temp_cf_" + Date.now());
 
         try {
-            await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
+            if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
             if (!manifestText) {
                 manifestText = fs.readFileSync(path.join(tempExtractDir, "manifest.json"), "utf8");
@@ -663,7 +671,7 @@ export function setupArchives() {
           await yieldUI();
 
           try {
-            await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: [] });
+            await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: EXPORT_EXCLUDED });
             shell.showItemInFolder(zipPath);
             window.showToast(t("msg_zip_success", "Export ZIP réussi !"), "success");
           } catch (e) {

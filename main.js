@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, session, Tray, Menu, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
+const { pipeline } = require("stream/promises");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -1284,7 +1285,7 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
         archive.pipe(output);
 
         for (const { fullPath, relativePath } of filesToArchive) {
-            archive.file(fullPath, { name: relativePath });
+            archive.file(fullPath, { name: relativePath.replace(/\\/g, '/') });
         }
 
         archive.finalize();
@@ -1293,82 +1294,107 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
 
 ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
     return new Promise((resolve) => {
-        const targets = new Set(entryNames);
-        yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-            if (err) return resolve({ success: false });
-            zipfile.readEntry();
-            zipfile.on("entry", (entry) => {
-                if (targets.has(entry.fileName)) {
-                    zipfile.openReadStream(entry, (err, readStream) => {
-                        if (err) { zipfile.readEntry(); return; }
-                        let data = '';
-                        readStream.on("data", chunk => data += chunk);
-                        readStream.on("end", () => {
-                            zipfile.close(); 
-                            resolve({ success: true, text: data, file: entry.fileName });
-                        });
-                    });
-                } else {
-                    zipfile.readEntry();
-                }
+        try {
+            const targets = new Set(entryNames);
+            yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+                if (err) return resolve({ success: false });
+                zipfile.readEntry();
+                zipfile.on("entry", (entry) => {
+                    try {
+                        if (targets.has(entry.fileName)) {
+                            zipfile.openReadStream(entry, (err, readStream) => {
+                                if (err) { zipfile.readEntry(); return; }
+                                let data = '';
+                                readStream.on("data", chunk => data += chunk);
+                                readStream.on("end", () => {
+                                    zipfile.close(); 
+                                    resolve({ success: true, text: data, file: entry.fileName });
+                                });
+                            });
+                        } else {
+                            zipfile.readEntry();
+                        }
+                    } catch (e) {
+                        mainLog(`[read-zip-text] Exception sur entrée ${entry.fileName} : ${e.message}`);
+                        zipfile.readEntry();
+                    }
+                });
+                zipfile.on("end", () => resolve({ success: false }));
+                zipfile.on("error", (zErr) => {
+                    mainLog(`[read-zip-text] Erreur zipfile : ${zErr.message}`);
+                    resolve({ success: false });
+                });
             });
-            zipfile.on("end", () => resolve({ success: false }));
-            zipfile.on("error", (zErr) => {
-                mainLog(`[read-zip-text] Erreur zipfile : ${zErr.message}`);
-                resolve({ success: false });
-            });
-        });
+        } catch (err) {
+            mainLog(`[read-zip-text] Exception critique : ${err.message}`);
+            resolve({ success: false });
+        }
     });
 });
 
 ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
-    destDir = assertPathUnderSandbox(destDir);
-    return new Promise((resolve) => {
-        const resolvedTarget = path.resolve(destDir);
-        yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-            if (err) return resolve({ success: false, error: err.message });
+    try {
+        const { spawn } = require("child_process");
+        mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
+        destDir = assertPathUnderSandbox(destDir);
+        
+        return await new Promise((resolve) => {
+            let isResolved = false;
+            const safeResolve = (data) => {
+                if (isResolved) return;
+                isResolved = true;
+                mainLog(`[extract-zip] Résolution finale : ${JSON.stringify(data).substring(0, 100)}`);
+                resolve(data);
+            };
+
+            const extractorPath = path.join(__dirname, "src", "extractor.js");
             
-            let processedCount = 0;
-            const total = zipfile.entryCount; 
+            // Fork le processus avec node directement
+            const child = spawn("node", [extractorPath, zipPath, destDir], {
+                env: process.env,
+                stdio: ["ignore", "pipe", "pipe"],
+                shell: true // Important on Windows to resolve 'node'
+            });
 
-            zipfile.readEntry();
-            zipfile.on("entry", (entry) => {
-                
-                processedCount++;
-                if (total > 0 && processedCount % 10 === 0 || processedCount === total) {
-                    safeSend(event, "zip-progress", { percent: Math.round((processedCount / total) * 100) });
-                }
-
-                const dest = path.join(destDir, entry.fileName);
-                const resDest = path.resolve(dest);
-                if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
-                    zipfile.readEntry(); return; 
-                }
-                if (/\/$/.test(entry.fileName)) {
-                    fs.mkdirSync(dest, { recursive: true });
-                    zipfile.readEntry();
-                } else {
-                    fs.mkdirSync(path.dirname(dest), { recursive: true });
-                    zipfile.openReadStream(entry, (err, readStream) => {
-                        if (err) { zipfile.close(); return resolve({ success: false, error: err.message }); }
-                        const writeStream = fs.createWriteStream(dest);
-                        readStream.pipe(writeStream);
-                        writeStream.on("close", () => zipfile.readEntry());
-                        writeStream.on("error", (wErr) => {
-                            readStream.destroy();
-                            zipfile.close();
-                            resolve({ success: false, error: wErr.message });
-                        });
-                    });
+            child.stdout.on("data", (data) => {
+                const lines = data.toString().split('\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const msg = JSON.parse(line.trim());
+                        if (msg.progress) {
+                            safeSend(event, "zip-progress", { percent: msg.percent });
+                        } else if (msg.success !== undefined) {
+                            safeResolve(msg);
+                        }
+                    } catch (e) {}
                 }
             });
-            zipfile.on("end", () => resolve({ success: true }));
-            zipfile.on("error", (zErr) => {
-                mainLog(`[extract-zip] Erreur zipfile : ${zErr.message}`);
-                resolve({ success: false, error: zErr.message });
+
+            let errBuffer = "";
+            child.stderr.on("data", (data) => { errBuffer += data.toString(); });
+
+            child.on("close", (code) => {
+                if (!isResolved) {
+                    if (code === 0) {
+                        mainLog(`[extract-zip] Process exited with 0 but no success message was sent. Error buffer: ${errBuffer}`);
+                        safeResolve({ success: false, error: "Extraction n'a pas renvoyé de succès. Log: " + errBuffer.substring(0, 200) });
+                    } else {
+                        mainLog(`[extract-zip] Process exited with code ${code}. Error: ${errBuffer}`);
+                        safeResolve({ success: false, error: "Extraction process crashed: " + errBuffer.substring(0, 200) });
+                    }
+                }
+            });
+            
+            child.on("error", (err) => {
+                mainLog(`[extract-zip] Process error: ${err.message}`);
+                safeResolve({ success: false, error: err.message });
             });
         });
-    });
+    } catch (err) {
+        mainLog(`[extract-zip] Exception handler synchrone : ${err.message}`);
+        return { success: false, error: err.message };
+    }
 });
 
 app.on('before-quit', () => { try { _logStream.end(); } catch (_) {} });

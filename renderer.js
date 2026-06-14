@@ -839,18 +839,20 @@ window.ctxRestoreCloud = async () => {
 
     const targetName = store.cloudTarget;
 
+    let iconData = "";
+    let loader = "vanilla";
+    try {
+        const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
+        const metaPath = window.api.path.join(binPath, `meta_${window.safeDir(targetName)}.json`);
+        if (window.api.fs.existsSync(metaPath)) {
+            const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
+            iconData = meta.iconData || "";
+            loader = meta.loader || "vanilla";
+        }
+    } catch (_) {}
+
     if (!store.allInstances.some(i => i.name === targetName)) {
-        let iconData = "";
-        let loader = "vanilla";
-        try {
-            const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-            const metaPath = window.api.path.join(binPath, `meta_${window.safeDir(targetName)}.json`);
-            if (window.api.fs.existsSync(metaPath)) {
-                const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-                iconData = meta.iconData || "";
-                loader = meta.loader || "vanilla";
-            }
-        } catch (_) {}
+
 
         store.allInstances.push({
             name: targetName,
@@ -900,8 +902,8 @@ window.ctxRestoreCloud = async () => {
                 const subDirs = window.api.fs.readdirSync(vDir);
                 if (subDirs.length > 0) {
                     const vName = subDirs[0].toLowerCase(); 
-                    const matchMC = vName.match(/1\.\d+(\.\d+)?/);
-                    if (matchMC) dVer = matchMC[0];
+                    const matchMC = vName.match(/(?:^|[^.\\d])(1\\.\\d+(?:\\.\\d+)?)(?:[^.\\d]|$)/);
+                    if (matchMC) dVer = matchMC[1];
 
                     if (vName.includes("fabric")) dLoader = "fabric";
                     else if (vName.includes("neoforge")) dLoader = "neoforge";
@@ -914,12 +916,12 @@ window.ctxRestoreCloud = async () => {
         store.allInstances[idx] = {
             name: targetName,
             version: dVer,
-            loader: dLoader,
+            loader: loader !== "vanilla" ? loader : dLoader,
             loaderVersion: dLoaderVer, 
             ram: store.globalSettings.defaultRam.toString(),
             javaPath: "", jvmArgs: "", jvmProfile: "none", 
             notes: t("msg_old_cloud_backup", "Ancienne sauvegarde Cloud auto-détectée."),
-            icon: "", resW: "", resH: "", playTime: 0, lastPlayed: 0, 
+            icon: iconData, resW: "", resH: "", playTime: 0, lastPlayed: 0, 
             sessionHistory: [], group: t("lbl_group_general", "Général"), servers: [], backupMode: "none", backupLimit: 5
         };
         
