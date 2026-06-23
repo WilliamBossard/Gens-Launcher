@@ -14,11 +14,11 @@ if (!zipPath || !destDir) {
 function sendMsg(msg, cb) {
     if (process.send) {
         process.send(msg, (err) => {
-            if (cb) cb();
+            if (cb) setTimeout(cb, 200);
         });
     } else {
         console.log(JSON.stringify(msg));
-        if (cb) cb();
+        if (cb) setTimeout(cb, 200);
     }
 }
 
@@ -31,8 +31,9 @@ function extractZip(zipPath, destDir) {
 
         let processedCount = 0;
         const total = zipfile.entryCount;
+        console.log(JSON.stringify({ msg: "ZIP_TOTAL_ENTRIES", count: total }));
         if (total === 0) {
-            return sendMsg({ success: true }, () => process.exit(0));
+            return sendMsg({ success: true }, () => setTimeout(() => process.exit(0), 200));
         }
 
         zipfile.on("entry", async (entry) => {

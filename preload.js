@@ -40,7 +40,7 @@ function enforceReadSandbox(p) {
     const isMinecraftDir = pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep);
     const isJavaDir = pathParts.some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
     const isTempDir = resolved.startsWith(os.tmpdir());
-    const isSafeExt = safeReadRegex.test(resolved);
+    const isSafeExt = /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(resolved);
 
     if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isSafeExt) {
         console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
@@ -66,36 +66,11 @@ function safeExternalUrl(url) {
     return url;
 }
 
-function _getPreloadSecretKey() {
-    const secretPath = path.join(_appPaths.appData, "GensLauncher", ".secret_key");
-    let secret;
-    try {
-        if (fs.existsSync(secretPath)) {
-            secret = fs.readFileSync(secretPath, 'utf8').trim();
-        } else {
-            secret = crypto.randomUUID();
-            fs.writeFileSync(secretPath, secret, 'utf8');
-        }
-    } catch (e) {
-        secret = os.hostname() + "_" + (os.userInfo().username || "user");
-    }
-    return crypto.createHash('sha256').update(secret).digest();
-}
-
-const SECRET_KEY = _getPreloadSecretKey();
-
 function deobfuscateData(text) {
-    try {
-        const parts = text.split(':');
-        const iv = Buffer.from(parts.shift(), 'hex');
-        const decipher = crypto.createDecipheriv('aes-256-cbc', SECRET_KEY, iv);
-        let decrypted = decipher.update(parts.join(':'), 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        return decrypted;
-    } catch (e) { return null; }
+    return ipcRenderer.sendSync('legacy-decrypt-sync', text);
 }
 
-const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
+const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "legacy-decrypt-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
 const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin"];
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected"];
 

@@ -2119,14 +2119,14 @@
             <div class="modal-header" data-i18n="modal_export">Options d'exportation</div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; padding: 20px;">
                 
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('mrpack')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-                    <div style="font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_mrpack">Export Léger (.mrpack)</div>
-                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_mrpack_desc">Génère un fichier de quelques Ko idéal pour partager avec vos amis. (Recommandé)</div>
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip_light')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <div style="font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_light">Export Léger (.zip)</div>
+                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_light_desc">Inclut vos mods, configurations et sauvegardes (Exclut les assets et versions du jeu). (Recommandé)</div>
                 </div>
 
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-                    <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_zip">Export Complet (.zip)</div>
-                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_zip_desc">Contient absolument tous vos mods, configs et mondes (Fichier très lourd).</div>
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip_full')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_full">Export Complet (.zip)</div>
+                    <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_full_desc">Contient absolument tous les fichiers de l'instance, y compris le cœur du jeu. (Fichier très lourd).</div>
                 </div>
 
             </div>

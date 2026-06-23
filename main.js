@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
-const { pipeline } = require("stream/promises");
+process.env.NODE_NO_WARNINGS = "1";
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -14,7 +14,7 @@ const archiver = require("archiver");
 const yauzl = require("yauzl");
 
 
-if (process.platform === 'linux') {
+if (process.platform === 'linux' && process.env.APPIMAGE) {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-setuid-sandbox');
 }
@@ -1230,6 +1230,19 @@ ipcMain.on('decrypt-string-sync', (event, hexText) => {
     event.returnValue = null;
 });
 
+ipcMain.on('legacy-decrypt-sync', (event, hexText) => {
+    try {
+        const key = _getMainProcSecretKey();
+        const parts = hexText.split(':');
+        const iv = Buffer.from(parts.shift(), 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+        let dec = decipher.update(parts.join(':'), 'hex', 'utf8') + decipher.final('utf8');
+        event.returnValue = dec;
+    } catch (e) {
+        event.returnValue = null;
+    }
+});
+
 ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
     src = assertPathUnderSandbox(src);
     dest = assertPathUnderSandbox(dest);
@@ -1262,10 +1275,14 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
 
     return new Promise((resolve) => {
         const output = fs.createWriteStream(dest);
-        const archive = archiver('zip', { zlib: { level: 6 } });
+        const archive = archiver('zip', { zlib: { level: 6 }, forceLocalTime: true, statConcurrency: 1 });
 
         output.on('close', () => resolve({ success: true }));
+        archive.on('warning', (err) => {
+            mainLog(`[compress-folder] Warning : ${err.message}`);
+        });
         archive.on('error', (err) => {
+            mainLog(`[compress-folder] Error : ${err.message}`);
             try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch(_) {}
             resolve({ success: false, error: err.message });
         });
@@ -1275,17 +1292,21 @@ ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => 
             resolve({ success: false, error: err.message });
         });
 
-        archive.on('progress', (progress) => {
-            if (progress.entries.total > 0) {
-                const pct = Math.round((progress.entries.processed / progress.entries.total) * 100);
-                safeSend(event, "zip-progress", { percent: pct });
+        let processed = 0;
+        const total = filesToArchive.length;
+        archive.on('entry', (entry) => {
+            processed++;
+            if (total > 0 && (processed % 10 === 0 || processed === total)) {
+                try { event.sender.send("zip-progress", { percent: Math.round((processed / total) * 100) }); } catch(e) {}
             }
         });
 
         archive.pipe(output);
 
         for (const { fullPath, relativePath } of filesToArchive) {
-            archive.file(fullPath, { name: relativePath.replace(/\\/g, '/') });
+            if (fs.existsSync(fullPath)) {
+                archive.file(fullPath, { name: relativePath.replace(/\\/g, '/') });
+            }
         }
 
         archive.finalize();
@@ -1339,67 +1360,67 @@ ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
         destDir = assertPathUnderSandbox(destDir);
         
         return await new Promise((resolve) => {
-            let isResolved = false;
-            const safeResolve = (data) => {
-                if (isResolved) return;
-                isResolved = true;
-                mainLog(`[extract-zip] Résolution finale : ${JSON.stringify(data).substring(0, 100)}`);
-                resolve(data);
-            };
-            const { fork } = require("child_process");
-            const extractorPath = path.join(__dirname, "src", "extractor.js");
-            
-            // Utilisez fork pour que Electron gère automatiquement ELECTRON_RUN_AS_NODE et les flux
-            const child = fork(extractorPath, [zipPath, destDir], {
-                env: process.env,
-                stdio: ["ignore", "pipe", "pipe", "ipc"]
-            });
+            const fs = require('fs');
+            if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
-            child.on("message", (msg) => {
-                if (msg.progress) {
-                    safeSend(event, "zip-progress", { percent: msg.percent });
-                } else if (msg.success !== undefined) {
-                    safeResolve(msg);
+            // 1. Get total file count via tar -tf
+            const counter = spawn("tar", ["-tf", zipPath], { windowsHide: true });
+            let total = 0;
+            
+            counter.stdout.on("data", (chunk) => {
+                const str = chunk.toString();
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === '\n') total++;
                 }
             });
 
-            child.stdout.on("data", (data) => {
-                const lines = data.toString().split('\n');
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const msg = JSON.parse(line.trim());
-                        if (msg.progress) {
-                            safeSend(event, "zip-progress", { percent: msg.percent });
-                        } else if (msg.success !== undefined) {
-                            safeResolve(msg);
+            counter.on("close", (countCode) => {
+                if (countCode !== 0) total = 0; // fallback
+
+                // 2. Extract and track progress
+                const child = spawn("tar", ["-xf", zipPath, "-v", "-C", destDir], { windowsHide: true });
+                let processed = 0;
+                let errBuffer = "";
+
+                child.stdout.on("data", (chunk) => {
+                    if (total > 0) {
+                        const str = chunk.toString();
+                        for (let i = 0; i < str.length; i++) {
+                            if (str[i] === '\n') {
+                                processed++;
+                                if (processed % 10 === 0 || processed === total) {
+                                    try { event.sender.send("zip-progress", { percent: Math.min(100, Math.round((processed / total) * 100)) }); } catch(e) {}
+                                }
+                            }
                         }
-                    } catch (e) {}
-                }
-            });
-
-            let errBuffer = "";
-            child.stderr.on("data", (data) => { errBuffer += data.toString(); });
-
-            child.on("close", (code) => {
-                if (!isResolved) {
-                    if (code === 0) {
-                        mainLog(`[extract-zip] Process exited with 0 but no success message was sent. Assuming success.`);
-                        safeResolve({ success: true });
-                    } else {
-                        mainLog(`[extract-zip] Process exited with code ${code}. Error: ${errBuffer}`);
-                        safeResolve({ success: false, error: "Extraction process crashed: " + errBuffer.substring(0, 200) });
                     }
-                }
+                });
+
+                child.stderr.on("data", (data) => { errBuffer += data.toString(); });
+
+                child.on("close", (code) => {
+                    if (code === 0) {
+                        mainLog(`[extract-zip] Extraction terminée avec succès (${processed} fichiers).`);
+                        resolve({ success: true });
+                    } else {
+                        mainLog(`[extract-zip] Erreur extraction tar: code ${code}, ${errBuffer}`);
+                        resolve({ success: false, error: errBuffer || `tar process exited with code ${code}` });
+                    }
+                });
+
+                child.on("error", (err) => {
+                    mainLog(`[extract-zip] Erreur process tar: ${err.message}`);
+                    resolve({ success: false, error: err.message });
+                });
             });
-            
-            child.on("error", (err) => {
-                mainLog(`[extract-zip] Process error: ${err.message}`);
-                safeResolve({ success: false, error: err.message });
+
+            counter.on("error", (err) => {
+                mainLog(`[extract-zip] Erreur tar -tf: ${err.message}`);
+                resolve({ success: false, error: "Impossible de lire l'archive." });
             });
         });
     } catch (err) {
-        mainLog(`[extract-zip] Exception handler synchrone : ${err.message}`);
+        mainLog(`[extract-zip] Exception handler: ${err.message}`);
         return { success: false, error: err.message };
     }
 });

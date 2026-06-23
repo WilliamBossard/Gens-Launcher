@@ -298,9 +298,22 @@ export function setupArchives() {
             const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
-            const instanceJsonPath = path.join(tempExtractDir, "instance.json");
+            let extractRoot = tempExtractDir;
+            let instanceJsonPath = path.join(extractRoot, "instance.json");
+            
             if (!fs.existsSync(instanceJsonPath)) {
-                const manifestPath = path.join(tempExtractDir, "manifest.json");
+                const items = fs.readdirSync(tempExtractDir);
+                if (items.length === 1) {
+                    const subDir = path.join(tempExtractDir, items[0]);
+                    if (fs.statSync(subDir).isDirectory()) {
+                        extractRoot = subDir;
+                        instanceJsonPath = path.join(extractRoot, "instance.json");
+                    }
+                }
+            }
+
+            if (!fs.existsSync(instanceJsonPath)) {
+                const manifestPath = path.join(extractRoot, "manifest.json");
                 if (fs.existsSync(manifestPath)) {
                     const manifestText = fs.readFileSync(manifestPath, "utf8");
                     sysLog(`[IMPORT] Redirection vers l'importateur CurseForge.`);
@@ -325,10 +338,10 @@ export function setupArchives() {
             let detectedLoaderVersion = String(rawData.loaderVersion || "").substring(0, 64);
 
             if (detectedLoader === "vanilla" && !rawData.loader) {
-                const filesDir = fs.existsSync(path.join(tempExtractDir, "files"))
-                    ? path.join(tempExtractDir, "files")
-                    : tempExtractDir;
-                const detected = detectLoaderFromFolder(filesDir);
+                const filesDirFallback = fs.existsSync(path.join(extractRoot, "files"))
+                    ? path.join(extractRoot, "files")
+                    : extractRoot;
+                const detected = detectLoaderFromFolder(filesDirFallback);
                 if (detected.loader !== "vanilla") {
                     detectedLoader        = detected.loader;
                     detectedLoaderVersion = detected.loaderVersion;
@@ -354,17 +367,17 @@ export function setupArchives() {
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
 
-            const filesDir = path.join(tempExtractDir, "files");
+            const filesDir = path.join(extractRoot, "files");
             if (fs.existsSync(filesDir)) {
                 const items = fs.readdirSync(filesDir);
                 for (let item of items) {
                     fs.renameSync(path.join(filesDir, item), path.join(instDir, item));
                 }
             } else {
-                const items = fs.readdirSync(tempExtractDir);
+                const items = fs.readdirSync(extractRoot);
                 for (let item of items) {
                     if (item !== "instance.json") {
-                        fs.renameSync(path.join(tempExtractDir, item), path.join(instDir, item));
+                        fs.renameSync(path.join(extractRoot, item), path.join(instDir, item));
                     }
                 }
             }
@@ -663,12 +676,14 @@ export function setupArchives() {
       const exportDir = path.join(store.dataDir, "exports");
       if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
       
-      const EXPORT_EXCLUDED = ["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups"];
-
-      if (type === "zip") {
-          const zipPath = path.join(exportDir, `${safeName}.zip`);
-          window.showLoading(t("msg_compress", "Compression..."), 0);
+      if (type === "zip_light" || type === "zip_full") {
+          const zipPath = path.join(exportDir, `${safeName}${type === "zip_light" ? "_light" : "_full"}.zip`);
+          window.showLoading(t("msg_compress", "Compression de l'archive..."), 0);
           await yieldUI();
+
+          const EXPORT_EXCLUDED = type === "zip_light" 
+              ? ["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups", "instance.lock"] 
+              : ["instance.lock"]; // On exclut toujours le lockfile
 
           try {
             await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: EXPORT_EXCLUDED });
@@ -679,93 +694,6 @@ export function setupArchives() {
             window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
           }
           window.hideLoading();
-      }
-      else if (type === "mrpack") {
-          const zipPath = path.join(exportDir, `${safeName}.mrpack`);
-          window.showLoading(t("msg_mrpack_analyze", "Analyse des mods et génération du .mrpack..."));
-          await yieldUI();
-          
-          const tempExportDir = path.join(store.dataDir, "temp_export_mrpack_" + Date.now());
-
-          try {
-              fs.mkdirSync(tempExportDir, { recursive: true });
-              const overridesDir = path.join(tempExportDir, "overrides");
-              fs.mkdirSync(overridesDir, { recursive: true });
-
-              const modsPath = path.join(sourceFolder, "mods");
-              let filesArray = [];
-
-              if (fs.existsSync(modsPath)) {
-                  const jarFiles = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar"));
-                  let hashes = {};
-                  jarFiles.forEach(f => {
-                      const buf = fs.readFileSync(path.join(modsPath, f));
-                      const sha1   = window.api.tools.hashBuffer(buf, "sha1");
-                      const sha512 = window.api.tools.hashBuffer(buf, "sha512");
-                      hashes[sha1] = { file: f, sha1, sha512, size: buf.length };
-                  });
-
-                  let apiData = {};
-                  if (Object.keys(hashes).length > 0) {
-                      const res = await fetch("https://api.modrinth.com/v2/version_files", {
-                          method: "POST", headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ hashes: Object.keys(hashes), algorithm: "sha1" })
-                      });
-                      if (res.ok) apiData = await res.json();
-                  }
-
-                  for (let hash in hashes) {
-                      if (apiData[hash]) {
-                          const versionData = apiData[hash];
-                          const fileData = versionData.files.find(f => f.hashes.sha1 === hash) || versionData.files[0];
-                          filesArray.push({
-                              path: `mods/${hashes[hash].file}`, hashes: { sha1: hashes[hash].sha1, sha512: hashes[hash].sha512 },
-                              env: { client: "required", server: "required" }, downloads: [fileData.url], fileSize: hashes[hash].size
-                          });
-                      } else {
-                          const destModDir = path.join(overridesDir, "mods");
-                          if (!fs.existsSync(destModDir)) fs.mkdirSync(destModDir, { recursive: true });
-                          fs.copyFileSync(path.join(modsPath, hashes[hash].file), path.join(destModDir, hashes[hash].file));
-                      }
-                  }
-              }
-
-              if (fs.existsSync(path.join(sourceFolder, "config"))) {
-                  fs.mkdirSync(path.join(overridesDir, "config"), { recursive: true });
-                  await fs.promises.cp(path.join(sourceFolder, "config"), path.join(overridesDir, "config"), { recursive: true });
-              }
-              if (fs.existsSync(path.join(sourceFolder, "resourcepacks"))) {
-                  fs.mkdirSync(path.join(overridesDir, "resourcepacks"), { recursive: true });
-                  await fs.promises.cp(path.join(sourceFolder, "resourcepacks"), path.join(overridesDir, "resourcepacks"), { recursive: true });
-              }
-              if (fs.existsSync(path.join(sourceFolder, "options.txt"))) {
-                  fs.copyFileSync(path.join(sourceFolder, "options.txt"), path.join(overridesDir, "options.txt"));
-              }
-
-              const indexJson = {
-                  formatVersion: 1, game: "minecraft", versionId: "1.0.0", name: inst.name,
-                  dependencies: { minecraft: inst.version }, files: filesArray
-              };
-
-              if (inst.loader === "fabric")   indexJson.dependencies["fabric-loader"] = inst.loaderVersion || "latest";
-              if (inst.loader === "quilt")    indexJson.dependencies["quilt-loader"]  = inst.loaderVersion || "latest";
-              if (inst.loader === "forge")    indexJson.dependencies.forge    = inst.loaderVersion || "latest";
-              if (inst.loader === "neoforge") indexJson.dependencies.neoforge = inst.loaderVersion || "latest";
-
-              fs.writeFileSync(path.join(tempExportDir, "modrinth.index.json"), JSON.stringify(indexJson, null, 2));
-
-              window.updateLoadingPercent(0, t("msg_compress", "Compression de l'archive..."));
-              await window.api.invoke("compress-folder", { src: tempExportDir, dest: zipPath });
-              
-              shell.showItemInFolder(zipPath);
-              window.showToast(t("msg_mrpack_success", "Export .mrpack réussi !"), "success");
-          } catch(e) {
-              sysLog("Erreur MrPack export: " + e.message, true);
-              window.showToast(t("msg_mrpack_error", "Erreur lors de l'export .mrpack"), "error");
-          } finally {
-              try { if (fs.existsSync(tempExportDir)) fs.rmSync(tempExportDir, { recursive: true, force: true }); } catch(_) {}
-              window.hideLoading();
-          }
       }
     };
 }
