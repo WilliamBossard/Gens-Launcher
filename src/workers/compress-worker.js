@@ -1,0 +1,80 @@
+const { parentPort, workerData } = require('worker_threads');
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
+
+async function compressFolder({ src, dest, exclude }) {
+    const excludeSet = new Set(exclude || []);
+
+    async function collectFiles(currentDir) {
+        const items = await fs.promises.readdir(currentDir);
+        const collected = [];
+        for (const item of items) {
+            const fullPath = path.join(currentDir, item);
+            const relativePath = path.relative(src, fullPath);
+            const rootItem = relativePath.split(/[/\\]/)[0];
+            if (excludeSet.has(rootItem)) continue;
+
+            const stat = await fs.promises.stat(fullPath);
+            if (stat.isDirectory()) {
+                const sub = await collectFiles(fullPath);
+                collected.push(...sub);
+            } else {
+                collected.push({ fullPath, relativePath });
+            }
+        }
+        return collected;
+    }
+
+    let filesToArchive = [];
+    try {
+        await fs.promises.access(src);
+        filesToArchive = await collectFiles(src);
+    } catch (err) {
+        throw new Error(err.message);
+    }
+
+    return new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(dest);
+        const archive = archiver('zip', { zlib: { level: 6 }, forceLocalTime: true, statConcurrency: 1 });
+
+        output.on('close', () => resolve(true));
+
+        archive.on('warning', (err) => {
+            parentPort.postMessage({ type: 'log', message: `Warning: ${err.message}` });
+        });
+
+        archive.on('error', (err) => {
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { }
+            reject(err);
+        });
+
+        output.on('error', (err) => {
+            archive.destroy();
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { }
+            reject(err);
+        });
+
+        let processed = 0;
+        const total = filesToArchive.length;
+
+        archive.on('entry', () => {
+            processed++;
+            if (total > 0 && (processed % 10 === 0 || processed === total)) {
+                parentPort.postMessage({ type: 'progress', percent: Math.round((processed / total) * 100) });
+            }
+        });
+
+        archive.pipe(output);
+
+        for (const { fullPath, relativePath } of filesToArchive) {
+            archive.file(fullPath, { name: relativePath.replace(/\\/g, '/') });
+        }
+
+        archive.finalize();
+    });
+}
+
+compressFolder(workerData)
+    .then(() => parentPort.postMessage({ type: 'done', success: true }))
+    .catch((err) => parentPort.postMessage({ type: 'done', success: false, error: err.message }));

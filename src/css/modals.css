@@ -1,0 +1,24 @@
+#modal-first-launch .modal-card { width: 350px; }
+#modal-updates .modal-card { width: 450px; }
+#modal-account .modal-card { width: 680px; }
+#modal-stats .modal-card { width: 600px; }
+#modal-restore .modal-card { width: 550px; }
+#modal-instance .modal-card { width: 350px; }
+#modal-settings .modal-card { width: 650px; }
+#modal-edit .modal-card { width: 580px; }
+#modal-ms-device .modal-card { width: 440px; }
+#modal-confirm .modal-card { width: 400px; }
+#modal-skin .modal-card { width: 500px; }
+#modal-export .modal-card { width: 450px; }
+#modal-icon-gallery .modal-card { width: 420px; }
+#modal-first-launch { z-index: 99999; }
+#modal-updates { z-index: 2500; }
+#modal-import-mc { z-index: 2500; }
+#modal-restore { z-index: 3500; }
+#modal-ms-device { z-index: 4500; }
+#modal-confirm { z-index: 100000; }
+#modal-skin { z-index: 3000; }
+#modal-export { z-index: 3000; }
+#modal-crash { z-index: 5000; }
+#modal-icon-gallery { z-index: 3500; }
+#modal-builder { z-index: 3600; }

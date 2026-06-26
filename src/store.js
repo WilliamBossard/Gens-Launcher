@@ -1,7 +1,6 @@
-// NOTE : Les comptes (accounts.json) sont chiffrés en AES (api.security). Les paramètres (settings.json, instances.json) sont stockés en clair (safeWriteJSON).
+
 const path = window.api.path;
 const dataDir = path.join(window.api.appData, "GensLauncher");
-
 export const store = {
     dataDir: dataDir,
     instancesRoot: path.join(dataDir, "instances"),
@@ -30,7 +29,6 @@ export const store = {
         collapsedGroups: {}
     },
     currentLangObj: {},
-
     selectedInstanceIdx: null,
     selectedAccountIdx: null,
     uiSelectedAccRow: null,
@@ -42,7 +40,6 @@ export const store = {
     primaryRpcInstance: null,
     pendingLauncherUpdate: null,
     horizonActive: false,
-
     defaultIcons: {
         vanilla:  "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' fill='%2317B139'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='5' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='3' y='4' width='2' height='3' fill='%23000'/%3E%3C/svg%3E",
         forge:    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232b2b2b'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%238c8c8c'/%3E%3C/svg%3E",

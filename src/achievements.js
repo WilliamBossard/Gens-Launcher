@@ -1,5 +1,4 @@
 import { store } from "./store.js";
-
 export const ACHIEVEMENTS = [
     {
         id: "first_launch",
@@ -86,7 +85,6 @@ export const ACHIEVEMENTS = [
         descKey: "adv_warmachine_desc"
     },
 ];
-
 /**
  * 
  * @param {string} id
@@ -95,23 +93,17 @@ export function checkAchievement(id) {
     if (!store.globalSettings.unlockedAchievements) {
         store.globalSettings.unlockedAchievements = [];
     }
-
     if (store.globalSettings.unlockedAchievements.includes(id)) return;
-
     store.globalSettings.unlockedAchievements.push(id);
-
     try {
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
     } catch(e) {
         console.error("checkAchievement : erreur écriture settings :", e);
     }
-
     const adv = ACHIEVEMENTS.find(a => a.id === id);
     if (!adv) return;
-
     const container = document.getElementById("advancement-container");
     if (!container) return;
-
     const toast = document.createElement("div");
     toast.className = "advancement-toast";
     toast.innerHTML = `
@@ -121,13 +113,10 @@ export function checkAchievement(id) {
             <span class="advancement-name">${t(adv.nameKey, t("lbl_achievement_fallback", "Succès"))}</span>
         </div>
     `;
-
     if (store.globalSettings.disableAnimations) {
         toast.style.animation = "none";
     }
-
     container.appendChild(toast);
-
     setTimeout(() => {
         if (store.globalSettings.disableAnimations) { toast.remove(); return; }
         toast.classList.add("advancement-toast-exit");

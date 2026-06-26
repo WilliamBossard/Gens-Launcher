@@ -1,9 +1,7 @@
 import { store } from "./store.js";
-
 const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
-
 async function _getModCount(inst) {
     if (inst.loader === "vanilla") return 0;
     if (inst._modCountCache !== undefined) return inst._modCountCache;
@@ -17,23 +15,18 @@ async function _getModCount(inst) {
     }
     return inst._modCountCache;
 }
-
 window.invalidateModCountCache = (inst) => { if (inst) delete inst._modCountCache; };
-
 async function updateRPC(inst, customState) {
     if (store.globalSettings.disableRPC) {
         ipcRenderer.send("update-discord", "clear");
         return; 
     }
-    
     try {
         let activity = {};
-        
         if (inst) {
             const modCount = await _getModCount(inst);
             const modSuffix = modCount > 0 ? ` (${modCount} mods)` : "";
             const stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix;
-
             activity = {
                 details: inst.name,
                 state: stateText,
@@ -55,21 +48,15 @@ async function updateRPC(inst, customState) {
                 ]
             };
         }
-        
         ipcRenderer.send("update-discord", activity);
-        
     } catch (e) {
         console.error("Erreur préparation RPC:", e);
     }
 }
-
 function clearRPC() {
     ipcRenderer.send("update-discord", "clear");
 }
-
 window.updateRPC = updateRPC;
 window.clearRPC  = clearRPC;
-
 const initRPC = updateRPC;
-
 export { initRPC, updateRPC, clearRPC };
