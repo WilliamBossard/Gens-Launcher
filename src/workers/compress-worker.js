@@ -1,7 +1,7 @@
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
-const archiver = require('archiver');
+const { ZipArchive } = require('archiver');
 
 async function compressFolder({ src, dest, exclude }) {
     const excludeSet = new Set(exclude || []);
@@ -36,7 +36,7 @@ async function compressFolder({ src, dest, exclude }) {
 
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(dest);
-        const archive = archiver('zip', { zlib: { level: 6 }, forceLocalTime: true, statConcurrency: 1 });
+        const archive = new ZipArchive({ zlib: { level: 6 }, forceLocalTime: true, statConcurrency: 1 });
 
         output.on('close', () => resolve(true));
 
