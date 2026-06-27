@@ -725,10 +725,11 @@ window.runHorizonLogin = async (provider) => {
         const horizonProgressHandler = (pct) => {
             window.updateLoadingPercent(pct, t("btn_install_horizon", "Installation de Horizon...") + ` (${pct}%)`);
         };
-        window.api.receive("horizon-install-progress", horizonProgressHandler);
+        const unsubscribeProgress = window.api.on("horizon-install-progress", horizonProgressHandler);
 
         try {
             const res = await window.api.invoke("install-horizon");
+            if (unsubscribeProgress) unsubscribeProgress();
             window.hideLoading();
             if (res.success) {
                 window.showToast(t("horizon_install_success", "Horizon installé avec succès !") + ` (${res.version})`, "success");
@@ -737,6 +738,7 @@ window.runHorizonLogin = async (provider) => {
                 window.showToast(t("horizon_install_error", "Erreur d'installation : ") + (res.error || "inconnue"), "error");
             }
         } catch(e) {
+            if (unsubscribeProgress) unsubscribeProgress();
             window.hideLoading();
             window.showToast(t("horizon_install_error", "Erreur d'installation : ") + e.message, "error");
         }
