@@ -442,10 +442,13 @@
                         <label data-i18n="lbl_discord_rpc" style="margin-top: 0;">Discord RPC (Statut en jeu)</label>
                         <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_discord_rpc" data-tooltip="Affiche à quoi vous jouez sur votre profil Discord.">?</div>
                     </div>
-                    <select id="global-discord-rpc">
-                        <option value="true" data-i18n="opt_enabled">Activé</option>
-                        <option value="false" data-i18n="opt_disabled">Désactivé</option>
-                    </select>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <select id="global-discord-rpc" style="flex: 1; margin-bottom: 0;">
+                            <option value="true" data-i18n="opt_enabled">Activé</option>
+                            <option value="false" data-i18n="opt_disabled">Désactivé</option>
+                        </select>
+                        <button class="btn-secondary" style="height: 35px; padding: 0 15px;" onclick="window.reconnectDiscord()" data-i18n="btn_reconnect_discord">Relancer RPC</button>
+                    </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_multi_inst">Lancement Multi-instances</label>
                     <select id="global-multi-inst">
@@ -847,7 +850,7 @@
         <div class="modal-card" >
             <div class="modal-header" id="confirm-title" data-i18n="modal_confirm">Confirmation</div>
             <div class="modal-body" id="confirm-message"
-                style="padding: 20px 15px; text-align: center; line-height: 1.5;">...</div>
+                style="padding: 20px 15px; text-align: center; line-height: 1.5; white-space: pre-wrap;">...</div>
             <div class="modal-footer" style="justify-content: center; gap: 15px;">
                 <button class="btn-secondary" id="confirm-no" data-i18n="btn_no" style="width: 100px;">Non</button>
                 <button class="btn-primary" id="confirm-yes" data-i18n="btn_yes" style="width: 100px;">Oui</button>

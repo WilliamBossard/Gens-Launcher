@@ -157,6 +157,15 @@ window.updateLoadingPercent = (percent, text = null) => {
 window.hideLoading = () => {
     document.getElementById("loading-overlay").style.display = "none";
 };
+
+if (window.api && window.api.on) {
+    window.api.on("zip-progress", (data) => {
+        if (data && typeof data.percent === "number") {
+            window.updateLoadingPercent(data.percent);
+        }
+    });
+}
+
 window.t = function (key, fallback) {
     return store.currentLangObj[key] || fallback;
 };
@@ -190,3 +199,18 @@ const yieldUI = () => new Promise((resolve) => {
     }
 });
 export { sysLog, yieldUI };
+
+window.reconnectDiscord = async () => {
+    window.showToast(t("msg_rpc_connecting", "Connexion à Discord en cours..."));
+    try {
+        const res = await window.api.invoke("reconnect-discord");
+        if (res && res.success) {
+            window.showToast(t("msg_rpc_success", "Discord RPC reconnecté avec succès !"), "success");
+            if (window.updateRPC) window.updateRPC();
+        } else {
+            window.showToast(t("msg_rpc_error", "Erreur RPC : " + (res?.error || "Impossible de se connecter")), "error");
+        }
+    } catch(e) {
+        window.showToast(t("msg_rpc_error", "Erreur RPC : " + e.message), "error");
+    }
+};

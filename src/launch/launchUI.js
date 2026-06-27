@@ -10,7 +10,6 @@ const path = window.api.path;
 const os = window.api.os;
 let monitorInterval = null;
 let lastCpuTimes = os.cpus().map(c => c.times);
-const hiddenInstances = new Set();
 export let _logLineCount = 0;
 export function resetLogLineCount() {
     _logLineCount = 0;
@@ -26,7 +25,7 @@ export function setupLauncher() {
         const isThisRunning = store.activeInstances.has(inst.name);
         const isAnyRunning = store.activeInstances.size > 0;
         const lockUI = isThisRunning || (!store.globalSettings.multiInstance && isAnyRunning);
-        ["btn-edit", "btn-delete", "btn-copy", "btn-export"].forEach((id) => {
+        ["btn-edit", "btn-mods", "btn-delete", "btn-copy", "btn-export"].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.disabled = lockUI;
         });
@@ -64,10 +63,11 @@ export function setupLauncher() {
         if (inst && payload.instanceId === inst.name) {
             let perc = 0;
             if (payload.total > 0) perc = Math.min(100, Math.max(0, Math.round((payload.task / payload.total) * 100)));
+            const displayTxt = perc === 100 ? t("msg_verifying", "Vérification...") : `${t("msg_dl", "Téléchargement :")} ${perc}%`;
             document.getElementById("progress-bar").style.width = perc + "%";
-            document.getElementById("status-text").innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+            document.getElementById("status-text").innerText = displayTxt;
             const autoStatus = document.getElementById("auto-status-text");
-            if (autoStatus) autoStatus.innerText = `${t("msg_dl", "Téléchargement :")} ${perc}%`;
+            if (autoStatus) autoStatus.innerText = displayTxt;
             const autoBar = document.getElementById("auto-progress-bar");
             if (autoBar) autoBar.style.width = perc + "%";
             window.api.send("set-taskbar-progress", perc);
@@ -79,6 +79,28 @@ export function setupLauncher() {
             }
         }
     });
+    window.api.on("mc-started", (payload) => {
+        const instanceId = payload.instanceId;
+        if (window._isAutoLaunch) {
+            const overlay = document.getElementById("auto-launch-overlay");
+            if (overlay) overlay.style.display = "none";
+            ipcRenderer.send("hide-window");
+        } else if (store.globalSettings.launcherVisibility === "hide") {
+            ipcRenderer.send("hide-window");
+        }
+        const selectedInst = store.allInstances[store.selectedInstanceIdx];
+        if (selectedInst && selectedInst.name === instanceId) {
+            const pBar = document.getElementById("progress-bar");
+            if (pBar) pBar.style.width = "0%";
+            const autoBar = document.getElementById("auto-progress-bar");
+            if (autoBar) autoBar.style.width = "0%";
+            window.api.send("set-taskbar-progress", -1);
+            const statusText = document.getElementById("status-text");
+            if (statusText) statusText.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
+            const autoStatus = document.getElementById("auto-status-text");
+            if (autoStatus) autoStatus.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
+        }
+    });
     window.api.on("mc-data", (payload) => {
         const instanceId = payload.instanceId;
         const dStr = payload.data.toString().trim();
@@ -88,28 +110,9 @@ export function setupLauncher() {
         } else {
             sysLog(`GAME [${instanceId}]: ` + dStr);
         }
-        if (!hiddenInstances.has(instanceId)) {
-            hiddenInstances.add(instanceId);
-            if (window._isAutoLaunch) {
-                const overlay = document.getElementById("auto-launch-overlay");
-                if (overlay) overlay.style.display = "none";
-                ipcRenderer.send("hide-window");
-            } else if (store.globalSettings.launcherVisibility === "hide") {
-                ipcRenderer.send("hide-window");
-            }
-        }
+
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
         if (selectedInst && selectedInst.name === instanceId) {
-            const pBar = document.getElementById("progress-bar");
-            if (pBar && pBar.style.width !== "0%") {
-                pBar.style.width = "0%";
-                const autoBar = document.getElementById("auto-progress-bar");
-                if (autoBar) autoBar.style.width = "0%";
-                window.api.send("set-taskbar-progress", -1);
-                document.getElementById("status-text").innerText = t("msg_game_running", "Jeu en cours d'exécution...");
-                const autoStatus = document.getElementById("auto-status-text");
-                if (autoStatus) autoStatus.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
-            }
             const logOutput = document.getElementById("log-output");
             let color = "#d4d4d4";
             if (dStr.includes("WARN")) color = "#ffaa00";
@@ -125,6 +128,12 @@ export function setupLauncher() {
                     }
                     logTimer = null;
                 }, 150);
+            }
+            if (dStr.includes("Launching with arguments")) {
+                const statusText = document.getElementById("status-text");
+                if (statusText) statusText.innerText = t("msg_launching_java", "Lancement de Java...");
+                const autoStatus = document.getElementById("auto-status-text");
+                if (autoStatus) autoStatus.innerText = t("msg_launching_java", "Lancement de Java...");
             }
         }
         try {
@@ -219,9 +228,8 @@ export function setupLauncher() {
         }
         if (!isAutoClose && isLastInstance && store.globalSettings.launcherVisibility === "hide") {
             ipcRenderer.send("show-window");
-            hiddenInstances.clear();
         }
-        if (code !== 0 && closedInstIndex !== -1) {
+        if (code !== 0 && code !== -1 && closedInstIndex !== -1) {
             if (isAutoClose) {
                 isAutoClose = false;
                 window._isAutoLaunch = false;
@@ -306,6 +314,11 @@ export function setupLauncher() {
                 if (el) {
                     if (perc < 0) el.style.width = "0%";
                     else el.style.width = perc + "%";
+                }
+                const autoBar = document.getElementById("auto-progress-bar");
+                if (autoBar) {
+                    if (perc < 0) autoBar.style.width = "0%";
+                    else autoBar.style.width = perc + "%";
                 }
                 window.api.send("set-taskbar-progress", perc);
             },

@@ -32,12 +32,16 @@
   "modal_create": "Créer",
   "modal_add": "Ajouter",
   "btn_search": "Chercher",
+  "btn_reconnect_discord": "Relancer RPC",
   "tab_gen": "Général",
   "tab_mods": "Mods",
   "tab_shaders": "Shaders",
   "tab_resourcepacks": "Packs de Textures",
   "tab_servers": "Serveurs",
   "tab_backups": "Sauvegardes",
+  "msg_rpc_connecting": "Connexion à Discord en cours...",
+  "msg_rpc_success": "Discord RPC reconnecté avec succès !",
+  "msg_rpc_error": "Erreur RPC : ",
   "tab_java": "Configuration",
   "tab_notes": "Notes",
   "tab_updates": "Mises à jour",
@@ -622,5 +626,6 @@
   "crash_mod_action": "Essayez de désactiver ou de mettre à jour le mod \"{mod}\" dans le gestionnaire de mods.",
   "crash_gen_java_cause": "Erreur Java générique",
   "crash_gen_java_action": "Désactivez vos mods récents un par un pour trouver le coupable.",
-  "action_unknown": "Aucune action spécifique recommandée. Vérifiez les logs complets."
+  "action_unknown": "Aucune action spécifique recommandée. Vérifiez les logs complets.",
+  "msg_cannot_edit_running": "Impossible d'éditer une instance en cours d'exécution."
 }

@@ -310,6 +310,10 @@ async function init() {
     });
     document.getElementById("app-version").innerText = "v" + window.api.version;
     await window.loadStorage();
+    window._isStorageLoaded = true;
+    if (window._pendingAutoLaunch && window.processAutoLaunch) {
+        window.processAutoLaunch(window._pendingAutoLaunch);
+    }
     window.applyTheme();
     if (window.populateLangDropdown) window.populateLangDropdown();
     if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";

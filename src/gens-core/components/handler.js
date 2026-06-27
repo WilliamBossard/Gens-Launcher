@@ -26,9 +26,12 @@ class Zip {
               const writeStream = fs.createWriteStream(destPath);
               readStream.pipe(writeStream);
               writeStream.on('close', () => zipfile.readEntry());
+              writeStream.on('error', (e) => { readStream.destroy(); reject(e); });
+              readStream.on('error', (e) => { writeStream.destroy(); reject(e); });
             });
           }
         });
+        zipfile.on('error', (e) => reject(e));
         zipfile.on('end', () => resolve());
       });
     });
@@ -41,15 +44,17 @@ class Zip {
         zipfile.on('entry', (entry) => {
           if (entry.fileName === fileName) {
             zipfile.openReadStream(entry, (err, readStream) => {
-              if (err) return resolve(null);
+              if (err) { zipfile.close(); return resolve(null); }
               let data = '';
               readStream.on('data', chunk => data += chunk);
-              readStream.on('end', () => resolve(data));
+              readStream.on('end', () => { zipfile.close(); resolve(data); });
+              readStream.on('error', () => { zipfile.close(); resolve(null); });
             });
           } else {
             zipfile.readEntry();
           }
         });
+        zipfile.on('error', () => resolve(null));
         zipfile.on('end', () => resolve(null));
       });
     });
@@ -112,6 +117,7 @@ class Handler {
   }
 
   async downloadAsync(url, directory, name, retry, type) {
+    if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
     fs.mkdirSync(directory, { recursive: true });
     let response;
     try {
@@ -135,6 +141,11 @@ class Handler {
     const bodyStream = Readable.fromWeb(response.body);
 
     bodyStream.on('data', chunk => {
+      if (this.client && this.client.aborted) {
+        dest.destroy(new Error("Launch aborted by user"));
+        bodyStream.destroy();
+        return;
+      }
       receivedBytes += chunk.length;
       this.client.emit('download-status', {
         name: name, type: type, current: receivedBytes, total: totalBytes
@@ -143,7 +154,7 @@ class Handler {
 
     bodyStream.pipe(dest);
 
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       dest.once('finish', () => {
         this.client.emit('download', name);
         resolve({ failed: false, asset: null });
@@ -239,6 +250,7 @@ class Handler {
     })
 
     await pMap(Object.keys(index.objects), 50, async asset => {
+      if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       const hash = index.objects[asset].hash
       const subhash = hash.substring(0, 2)
       const subAsset = path.join(assetDirectory, 'objects', subhash)
@@ -272,6 +284,7 @@ class Handler {
       })
 
       await pMap(Object.keys(index.objects), 50, async asset => {
+        if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const hash = index.objects[asset].hash
         const subhash = hash.substring(0, 2)
         const subAsset = path.join(assetDirectory, 'objects', subhash)
@@ -325,6 +338,7 @@ class Handler {
       const natives = async () => {
         const natives = []
         await pMap(this.version.libraries, 50, async (lib) => {
+          if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
           if (!lib.downloads || !lib.downloads.classifiers) return
           if (this.parseRule(lib)) return
 
@@ -345,6 +359,7 @@ class Handler {
       })
 
       await pMap(stat, 50, async (native) => {
+        if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
         const name = native.path.split('/').pop()
         if (!fs.existsSync(path.join(nativeDirectory, name)) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
@@ -465,6 +480,7 @@ class Handler {
       }
     } else {
       await pMap(json.libraries, 50, async library => {
+        if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const lib = library.name.split(':')
         if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) return
 
@@ -519,6 +535,7 @@ class Handler {
     const libs = []
 
     await pMap(libraries, 50, async library => {
+      if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       if (!library) return
       if (this.parseRule(library)) return
       const lib = library.name.split(':')

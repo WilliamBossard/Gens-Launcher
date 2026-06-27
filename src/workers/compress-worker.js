@@ -55,13 +55,14 @@ async function compressFolder({ src, dest, exclude }) {
             reject(err);
         });
 
-        let processed = 0;
-        const total = filesToArchive.length;
-
-        archive.on('entry', () => {
-            processed++;
-            if (total > 0 && (processed % 10 === 0 || processed === total)) {
-                parentPort.postMessage({ type: 'progress', percent: Math.round((processed / total) * 100) });
+        let lastPct = -1;
+        archive.on('progress', (data) => {
+            if (data.entries.total > 0) {
+                const pct = Math.round((data.entries.processed / data.entries.total) * 100);
+                if (pct !== lastPct) {
+                    lastPct = pct;
+                    parentPort.postMessage({ type: 'progress', percent: pct });
+                }
             }
         });
 

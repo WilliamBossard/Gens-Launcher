@@ -161,7 +161,7 @@ window.openStatsModal = async () => {
                 totalTimeMs += playTime;
                 if (playTime > maxTime) { maxTime = playTime; favInstance = inst.name; }
                 const sessions = inst.sessionHistory || [];
-                totalSessions += sessions.length;
+                totalSessions += Math.max(inst.launchCount || 0, sessions.length);
                 for (const s of sessions) {
                     if (s.ms > longestSessionMs) longestSessionMs = s.ms;
                 }
@@ -264,7 +264,14 @@ window.openStatsModal = async () => {
             if (window.showToast) window.showToast(t("msg_cache_empty", "Le cache est déjà vide !"), "info");
             return;
         }
-        const confirmMsg = t("msg_cache_clean_confirm", "Voulez-vous supprimer définitivement les fichiers temporaires ?");
+        
+        let fileNames = cacheInfo.files.map(f => "- " + path.basename(f));
+        if (fileNames.length > 10) {
+            fileNames = fileNames.slice(0, 10);
+            fileNames.push(`... et ${cacheInfo.files.length - 10} autres.`);
+        }
+        const confirmMsg = t("msg_cache_clean_confirm", "Voulez-vous supprimer définitivement les fichiers temporaires ?") + "\n\n" + fileNames.join("\n");
+        
         if (await window.showCustomConfirm(confirmMsg, true)) {
             if (window.showLoading) window.showLoading(t("msg_cache_cleaning", "Nettoyage en cours..."));
             for (const file of cacheInfo.files) {
@@ -275,6 +282,7 @@ window.openStatsModal = async () => {
             if (window.hideLoading) window.hideLoading();
             if (window.showToast) window.showToast(t("msg_cache_clean_success", "Nettoyage terminé !"), "success");
             if (window.checkAchievement) window.checkAchievement("cleaner");
+            store._diskSizeCache = null;
             window.openStatsModal(); 
         }
     };

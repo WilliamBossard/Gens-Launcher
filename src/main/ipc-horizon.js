@@ -40,6 +40,35 @@ module.exports = function setupHorizonHandlers(context) {
         }
 
         const isWriteOp = isHorizonWriteOp(_lockArgs);
+
+        if (fs.existsSync(horizonExePath)) {
+            let expectedHash = null;
+            try {
+                const data = await fetchLatestHorizonRelease();
+                const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
+                if (asset) {
+                    const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
+                    if (shaAsset) {
+                        const hashRes = await fetch(shaAsset.browser_download_url);
+                        if (hashRes.ok) expectedHash = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
+                    }
+                }
+            } catch(e) {}
+
+            if (expectedHash) {
+                try {
+                    const actualHash = crypto.createHash('sha256').update(fs.readFileSync(horizonExePath)).digest('hex');
+                    if (actualHash !== expectedHash) {
+                        mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
+                        if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
+                        return Promise.resolve({ exitCode: -1, lastJson: null });
+                    }
+                } catch (hashReadErr) {
+                    mainLog(`Erreur lecture Horizon.exe pour hash : ${hashReadErr.message}`);
+                }
+            }
+        }
+
         if (isWriteOp) {
             const lockFile = path.join(horizonBinDir, 'horizon.lock');
             let rawPid = NaN;
@@ -265,20 +294,29 @@ module.exports = function setupHorizonHandlers(context) {
             const tmpPath = horizonExePath + '.tmp';
             const fileStream = fs.createWriteStream(tmpPath);
 
-            for await (const chunk of response.body) {
-                fileStream.write(chunk);
-                hash.update(chunk);
-                loaded += chunk.length;
-                if (contentLength && event) {
-                    const pct = Math.round((loaded / contentLength) * 100);
-                    if (pct !== lastPct) {
-                        safeSend(event, 'horizon-install-progress', pct);
-                        lastPct = pct;
+            try {
+                for await (const chunk of response.body) {
+                    fileStream.write(chunk);
+                    hash.update(chunk);
+                    loaded += chunk.length;
+                    if (contentLength && event) {
+                        const pct = Math.round((loaded / contentLength) * 100);
+                        if (pct !== lastPct) {
+                            safeSend(event, 'horizon-install-progress', pct);
+                            lastPct = pct;
+                        }
                     }
                 }
+                fileStream.end();
+                await new Promise((resolve, reject) => {
+                    fileStream.on('finish', resolve);
+                    fileStream.on('error', reject);
+                });
+            } catch (err) {
+                fileStream.destroy();
+                try { fs.unlinkSync(tmpPath); } catch (_) {}
+                throw err;
             }
-            fileStream.end();
-            await new Promise(r => fileStream.on('finish', r));
 
             const sha256Asset = data.assets.find(a => a.name === asset.name + ".sha256");
             if (!sha256Asset) {

@@ -28,14 +28,16 @@ export function setup() {
         ? ["versions", "libraries", "assets", "natives", "logs", "crash-reports", "backups", "instance.lock"]
         : ["instance.lock"];
       try {
-        await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: EXPORT_EXCLUDED });
-        shell.showItemInFolder(zipPath);
+        const res = await window.api.invoke("compress-folder", { src: sourceFolder, dest: zipPath, exclude: EXPORT_EXCLUDED });
+        if (res && !res.success) throw new Error(res.error || "Erreur de compression inconnue");
+        window.api.shell.showItemInFolder(zipPath);
         window.showToast(t("msg_zip_success", "Export ZIP réussi !"), "success");
       } catch (e) {
         sysLog("Erreur Export ZIP: " + e.message, true);
         window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
+      } finally {
+        window.hideLoading();
       }
-      window.hideLoading();
     }
   };
 }

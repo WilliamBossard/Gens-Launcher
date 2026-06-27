@@ -68,8 +68,7 @@ export function setupSettings() {
         if (window.populateLangDropdown) window.populateLangDropdown();
         document.getElementById("global-ram-input").value = store.globalSettings.defaultRam;
         document.getElementById("global-ram-slider").value = store.globalSettings.defaultRam;
-        window.scanJavaVersions("global-java", true, /*forceRescan=*/false); 
-        document.getElementById("global-java").value = store.globalSettings.defaultJavaPath;
+        window.scanJavaVersions("global-java", true, false, store.globalSettings.defaultJavaPath); 
         document.getElementById("global-cf-api").value = store.globalSettings.cfApiKey || ""; 
         document.getElementById("global-server-ip").value = store.globalSettings.serverIp || "";
         document.getElementById("global-accent").value = store.globalSettings.theme?.accent || "#007acc";
@@ -234,13 +233,13 @@ export function setupSettings() {
         else if (jPath.includes(".minecraft")) source = t("lbl_mc_official");
         return `${name} (${source})`;
     };
-    window.scanJavaVersions = async (targetSelectId = null, silent = false, forceRescan = true) => {
+    window.scanJavaVersions = async (targetSelectId = null, silent = false, forceRescan = true, targetValue = null) => {
         if (_javaScanInProgress) return;
         _javaScanInProgress = true;
         if (!silent) document.getElementById("status-text").innerText = t("msg_search_java");
         const selectId = targetSelectId || (document.getElementById("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
         const selectEl = document.getElementById(selectId);
-        const savedValue = selectEl.value;
+        const savedValue = targetValue !== null ? targetValue : selectEl.value;
         if (silent && !forceRescan && _javaScanDone && selectEl.options.length > 1) {
             selectEl.value = savedValue || selectEl.value;
             _javaScanInProgress = false;
@@ -286,6 +285,17 @@ export function setupSettings() {
             }
         });
         await Promise.all(searchPromises);
+        
+        if (savedValue && savedValue !== "javaw" && savedValue !== "" && window.api.fs.existsSync(savedValue)) {
+            const exists = Array.from(selectEl.options).some(o => o.value === savedValue);
+            if (!exists) {
+                let opt = document.createElement("option");
+                opt.value = savedValue;
+                opt.innerText = window.getFriendlyJavaName(savedValue) + window.t("lbl_manual", " (Manuel)");
+                selectEl.appendChild(opt);
+            }
+        }
+        
         selectEl.value = savedValue || selectEl.value;
         _javaScanDone = true;
         _javaScanInProgress = false;

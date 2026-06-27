@@ -55,12 +55,14 @@ module.exports = function setupGameHandlers(context) {
                 resolve({ err: { message: "Chemin Java invalide bloqué.", code: "SEC_ERR" }, stdout: "", stderr: "" });
                 return;
             }
-            try {
-                const stat = fs.statSync(javaPath);
-                if (!stat.isFile()) throw new Error("Not a file");
-            } catch (e) {
-                resolve({ err: { message: "Fichier Java introuvable.", code: "SEC_ERR" }, stdout: "", stderr: "" });
-                return;
+            if (javaPath !== "java" && javaPath !== "javaw" && javaPath !== "java.exe" && javaPath !== "javaw.exe") {
+                try {
+                    const stat = fs.statSync(javaPath);
+                    if (!stat.isFile()) throw new Error("Not a file");
+                } catch (e) {
+                    resolve({ err: { message: "Fichier Java introuvable.", code: "SEC_ERR" }, stdout: "", stderr: "" });
+                    return;
+                }
             }
             const lowerPath = javaPath.toLowerCase();
             if (lowerPath.includes(path.sep + 'temp' + path.sep) || lowerPath.includes(path.sep + 'downloads' + path.sep)) {
@@ -128,10 +130,20 @@ module.exports = function setupGameHandlers(context) {
         return new Promise(async (resolve) => {
             const clientData = activeMinecraftClients.get(instanceId);
             const mainWindow = getMainWindow();
-            if (clientData && clientData.process) {
-                clientData.process.kill("SIGKILL");
+            if (clientData) {
+                if (clientData.process) {
+                    if (process.platform === 'win32') {
+                        try { require('child_process').exec(`taskkill /pid ${clientData.process.pid} /T /F`, () => {}); } catch(e){}
+                    } else {
+                        clientData.process.kill("SIGKILL");
+                    }
+                    mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
+                }
+                if (clientData.launcher && typeof clientData.launcher.abort === 'function') {
+                    clientData.launcher.abort();
+                    mainLog(`Lancement [${instanceId}] avorté avant le démarrage.`);
+                }
                 activeMinecraftClients.delete(instanceId);
-                mainLog(`Jeu [${instanceId}] arrêté de force via PID.`);
                 if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
                 return resolve({ success: true });
             }
@@ -142,7 +154,11 @@ module.exports = function setupGameHandlers(context) {
                 const pidStr = await fs.promises.readFile(lockFile, 'utf8');
                 const pid = parseInt(pidStr, 10);
                 try {
-                    process.kill(pid, 'SIGKILL');
+                    if (process.platform === 'win32') {
+                        require('child_process').exec(`taskkill /pid ${pid} /T /F`, () => {});
+                    } else {
+                        process.kill(pid, 'SIGKILL');
+                    }
                     mainLog(`Jeu [${instanceId}] arrêté via instance.lock (PID ${pid}).`);
                 } catch (e) {
                     mainLog(`force-stop: PID ${pid} déjà mort pour [${instanceId}]`);
@@ -168,11 +184,20 @@ module.exports = function setupGameHandlers(context) {
 
         const instanceId = opts.instanceId;
         const launcher = new Client();
+        activeMinecraftClients.set(instanceId, { launcher });
+
         launcher.on("progress", (e) => mainWindow?.webContents.send("mc-progress", { instanceId, ...e }));
         launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
         launcher.on("debug", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
 
         launcher.launch(opts).then((mcProcess) => {
+            if (!mcProcess) {
+                if (activeMinecraftClients.has(instanceId)) {
+                    activeMinecraftClients.delete(instanceId);
+                    mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
+                }
+                return;
+            }
             const lockFile = path.join(opts.root, "instance.lock");
             if (mcProcess.pid) {
                 fs.writeFileSync(lockFile, mcProcess.pid.toString(), 'utf8');
@@ -180,14 +205,19 @@ module.exports = function setupGameHandlers(context) {
                 mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
             }
             activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
+            mainWindow?.webContents.send("mc-started", { instanceId });
             mcProcess.on("close", (code) => {
                 if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
-                activeMinecraftClients.delete(instanceId);
-                mainWindow?.webContents.send("mc-close", { instanceId, code: code });
+                if (activeMinecraftClients.has(instanceId)) {
+                    activeMinecraftClients.delete(instanceId);
+                    mainWindow?.webContents.send("mc-close", { instanceId, code: code });
+                }
             });
         }).catch(e => {
             mainLog("Erreur Lancement: " + e);
+            activeMinecraftClients.delete(instanceId);
             mainWindow?.webContents.send("mc-data", { instanceId, data: "Erreur critique de la JVM : " + e.toString() });
+            if (e && e.message === "Launch aborted by user") return;
             mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
         });
     });

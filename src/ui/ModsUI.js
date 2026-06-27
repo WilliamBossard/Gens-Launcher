@@ -76,7 +76,18 @@ function setupMods() {
               const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
               const searchString = mod.slug  ? mod.slug.toLowerCase()  : "";
               const searchTitle  = mod.title ? mod.title.toLowerCase().replace(/\s+/g, "") : "";
-              const isInstalled  = installedItems.some(f => (searchString && f.includes(searchString)) || (searchTitle && f.includes(searchTitle)));
+              const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const isInstalled = installedItems.some(f => {
+                  if (searchString) {
+                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      if (regex.test(f)) return true;
+                  }
+                  if (searchTitle) {
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      if (regex.test(f)) return true;
+                  }
+                  return false;
+              });
               const card = document.createElement("div");
               card.className = "catalog-card";
               card.innerHTML = `
@@ -137,8 +148,19 @@ function setupMods() {
               const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : t("lbl_author", "Auteur"));
               const safeCfIcon = (icon && /^https:\/\//i.test(icon)) ? icon : "";
               const searchSlug = mod.slug ? mod.slug.toLowerCase() : "";
-              const searchName = mod.name ? mod.name.toLowerCase().replace(/\s+/g, "") : "";
-              const isInstalled = installedItems.some(f => (searchSlug && f.includes(searchSlug)) || (searchName && f.includes(searchName)));
+              const searchTitle = mod.name ? mod.name.toLowerCase().replace(/\s+/g, "") : "";
+              const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const isInstalled = installedItems.some(f => {
+                  if (searchSlug) {
+                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      if (regex.test(f)) return true;
+                  }
+                  if (searchTitle) {
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      if (regex.test(f)) return true;
+                  }
+                  return false;
+              });
               const card = document.createElement("div");
               card.className = "catalog-card";
               card.innerHTML = `

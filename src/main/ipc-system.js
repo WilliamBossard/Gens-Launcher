@@ -118,21 +118,31 @@ module.exports = function setupSystemHandlers(context) {
                     if (countCode !== 0) total = 0;
                     const child = spawn("tar", ["-xf", zipPath, "-v", "-C", destDir], { windowsHide: true });
                     let processed = 0;
+                    let lastProgress = -1;
                     let errBuffer = "";
-                    child.stdout.on("data", (chunk) => {
+                    
+                    const processChunk = (chunk) => {
                         if (total > 0) {
                             const str = chunk.toString();
                             for (let i = 0; i < str.length; i++) {
                                 if (str[i] === '\n') {
                                     processed++;
-                                    if (processed % 10 === 0 || processed === total) {
-                                        try { event.sender.send("zip-progress", { percent: Math.min(100, Math.round((processed / total) * 100)) }); } catch (e) { }
-                                    }
                                 }
                             }
+                            const pct = Math.min(100, Math.round((processed / total) * 100));
+                            if (pct !== lastProgress) {
+                                lastProgress = pct;
+                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { }
+                            }
                         }
+                    };
+
+                    child.stdout.on("data", processChunk);
+                    child.stderr.on("data", (chunk) => {
+                        processChunk(chunk);
+                        const str = chunk.toString();
+                        if (errBuffer.length < 50000) errBuffer += str; // Limit errBuffer size
                     });
-                    child.stderr.on("data", (data) => { errBuffer += data.toString(); });
                     child.on("close", (code) => {
                         if (code === 0) {
                             mainLog(`[extract-zip] Extraction terminée avec succès (${processed} fichiers).`);

@@ -116,7 +116,7 @@ export function setupInstances() {
         const isNewInstance = store.selectedInstanceIdx !== i;
         store.selectedInstanceIdx = i;
         const inst = store.allInstances[i];
-        invalidateScreenshotCache(inst.name);
+        if (isNewInstance) invalidateScreenshotCache(inst.name);
         document.getElementById("action-panel").style.opacity = "1";
         document.getElementById("action-panel").style.pointerEvents = "auto";
         document.getElementById("panel-title").innerText = inst.name;
@@ -190,8 +190,7 @@ export function setupInstances() {
         document.getElementById("edit-group").value = inst.group || "";
         document.getElementById("edit-ram-input").value = ramMB;
         document.getElementById("edit-ram-slider").value = ramMB;
-        window.scanJavaVersions("edit-javapath", true);
-        document.getElementById("edit-javapath").value = inst.javaPath || "";
+        window.scanJavaVersions("edit-javapath", true, false, inst.javaPath || "");
         document.getElementById("edit-res-w").value = inst.resW || "";
         document.getElementById("edit-res-h").value = inst.resH || "";
         document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
@@ -564,13 +563,54 @@ export function setupInstances() {
         inst.name = newName;
         inst.playTime = 0;
         inst.lastPlayed = 0;
-        window.showLoading(t("msg_copy", "Copie en cours..."));
+        window.showLoading(t("msg_copy", "Copie en cours..."), 0);
         await yieldUI();
         try {
             const oldPath = path.join(store.instancesRoot, window.safeDir(oldInst.name));
             const newPath = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (fs.existsSync(oldPath)) {
-                await fs.promises.cp(oldPath, newPath, { recursive: true });
+                let totalBytes = 0;
+                let copiedBytes = 0;
+                async function calcSize(dir) {
+                    try {
+                        const entries = await fs.promises.readdir(dir);
+                        for (const entry of entries) {
+                            const full = path.join(dir, entry);
+                            const stat = await fs.promises.stat(full);
+                            if (stat.isDirectory) await calcSize(full);
+                            else totalBytes += stat.size;
+                        }
+                    } catch(e) {}
+                }
+                await calcSize(oldPath);
+
+                async function doCopy(s, d) {
+                    fs.mkdirSync(d, { recursive: true });
+                    const entries = await fs.promises.readdir(s);
+                    for (const entry of entries) {
+                        const srcPath = path.join(s, entry);
+                        const destPath = path.join(d, entry);
+                        try {
+                            const stat = await fs.promises.stat(srcPath);
+                            if (stat.isDirectory) {
+                                await doCopy(srcPath, destPath);
+                            } else {
+                                fs.copyFileSync(srcPath, destPath);
+                                copiedBytes += stat.size;
+                                if (totalBytes > 0 && window.updateLoadingPercent) {
+                                    window.updateLoadingPercent(Math.min(100, Math.floor((copiedBytes / totalBytes) * 100)));
+                                }
+                                await new Promise(r => setTimeout(r, 0));
+                            }
+                        } catch(e) {}
+                    }
+                }
+                
+                if (totalBytes === 0) {
+                    await fs.promises.cp(oldPath, newPath, { recursive: true });
+                } else {
+                    await doCopy(oldPath, newPath);
+                }
             }
             const safeOldName = window.safeDir(oldInst.name);
             const safeNewName = window.safeDir(inst.name);
@@ -988,7 +1028,7 @@ const groups = {};
         }
     });
     if (window.api) {
-        window.api.on("trigger-auto-launch", (instName) => {
+        window.processAutoLaunch = (instName) => {
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
                 window._isAutoLaunch = true;
@@ -1028,6 +1068,14 @@ const groups = {};
                 });
                 window.selectInstance(idx);
                 setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
+            }
+        };
+
+        window.api.on("trigger-auto-launch", (instName) => {
+            if (!window._isStorageLoaded) {
+                window._pendingAutoLaunch = instName;
+            } else {
+                window.processAutoLaunch(instName);
             }
         });
         window.abortAutoLaunch = () => {
@@ -1094,7 +1142,14 @@ document.addEventListener("click", () => {
     });
     window.ctxLaunch = () => { document.getElementById("launch-btn").click(); };
     window.ctxFolder = () => { if(window.openDir) window.openDir(''); };
-    window.ctxEdit   = () => { if(window.openEditModal) window.openEditModal(); };
+    window.ctxEdit   = () => { 
+        const inst = store.allInstances[window.ctxTargetIdx];
+        if (inst && store.activeInstances.has(inst.name)) {
+            window.showToast(t("msg_cannot_edit_running", "Impossible d'éditer une instance en cours d'exécution."), "error");
+            return;
+        }
+        if(window.openEditModal) window.openEditModal(); 
+    };
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
     async function getOrGenerateIconPath(inst) {
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));

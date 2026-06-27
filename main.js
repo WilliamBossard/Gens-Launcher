@@ -358,7 +358,43 @@ ipcMain.on("get-paths-sync", (event) => {
     event.returnValue = { appData: app.getPath("appData"), platform: process.platform, arch: process.arch, version: app.getVersion() };
 });
 
+const https = require('https');
+const http = require('http');
 
+function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
+        const protocol = url.startsWith('https') ? https : http;
+        protocol.get(url, (response) => {
+            if (response.statusCode === 301 || response.statusCode === 302) {
+                return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+            }
+            if (response.statusCode !== 200) {
+                return reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
+            }
+            const file = fs.createWriteStream(dest);
+            response.pipe(file);
+            file.on('finish', () => {
+                file.close(() => resolve({ success: true }));
+            });
+            file.on('error', (err) => {
+                fs.unlink(dest, () => {});
+                reject(err);
+            });
+        }).on('error', (err) => {
+            fs.unlink(dest, () => {});
+            reject(err);
+        });
+    });
+}
+
+ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
+    try {
+        await downloadFile(url, destPath);
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
 
 ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
     try {
@@ -412,7 +448,13 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                         isPng = magic.toString('hex') === '89504e470d0a1a0a';
                     } catch (magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
                     if (isPng) {
-                        const pngData = fs.readFileSync(localIconPath);
+                        const { nativeImage } = require("electron");
+                        const nImg = nativeImage.createFromPath(localIconPath);
+                        let pngData = fs.readFileSync(localIconPath);
+                        if (!nImg.isEmpty()) {
+                            const resized = nImg.resize({ width: 256, height: 256, quality: 'best' });
+                            pngData = resized.toPNG();
+                        }
                         const icoPath = path.join(instFolder, "icon_win.ico");
                         const header = Buffer.alloc(22);
                         header.writeUInt16LE(0, 0);
@@ -578,6 +620,47 @@ function connectRPC() {
     }
 }
 connectRPC();
+
+ipcMain.handle("reconnect-discord", async () => {
+    rpcRetries = 0;
+    if (rpcReconnectTimer) {
+        clearTimeout(rpcReconnectTimer);
+        rpcReconnectTimer = null;
+    }
+    if (rpc) {
+        try { rpc.destroy(); } catch(e) {}
+        rpc = null;
+    }
+    return new Promise((resolve) => {
+        try {
+            rpc = new DiscordRPCClient({ clientId: discordClientId });
+            rpc.on('ready', () => {
+                rpcReady = true;
+                rpcRetries = 0;
+                mainLog("Discord RPC connecté (manuel).");
+                resolve({ success: true });
+            });
+            rpc.on('disconnected', () => {
+                rpcReady = false;
+                rpcRetries++;
+                mainLog("Discord RPC déconnecté.");
+                rpcReconnectTimer = setTimeout(connectRPC, 15000);
+            });
+            rpc.login().catch(e => {
+                rpcReady = false;
+                rpcRetries++;
+                rpcReconnectTimer = setTimeout(connectRPC, 15000);
+                resolve({ success: false, error: e.message || "Erreur de connexion" });
+            });
+        } catch(e) {
+            rpcReady = false;
+            rpcRetries++;
+            rpcReconnectTimer = setTimeout(connectRPC, 15000);
+            resolve({ success: false, error: e.message });
+        }
+    });
+});
+
 ipcMain.on("update-discord", (event, data) => {
     if (!rpcReady || !rpc || !rpc.user) return;
     if (data === "clear") {

@@ -81,6 +81,20 @@ export async function launchInstance(inst, acc, ui) {
     
     const requiredJava = getRequiredJavaVersion(inst.version);
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
+    
+    if (jPath === "javaw" || jPath === "java" || !jPath) {
+        const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
+        const jrePath = path.join(store.dataDir, "java", `jre${requiredJava}`, "bin", javaExeName);
+        const jdkPath = path.join(store.dataDir, "java", `jdk${requiredJava}`, "bin", javaExeName);
+        if (window.api.fs.existsSync(jrePath)) {
+            jPath = jrePath;
+            sysLog(`Auto-sélection de Java ${requiredJava} : ${jrePath}`);
+        } else if (window.api.fs.existsSync(jdkPath)) {
+            jPath = jdkPath;
+            sysLog(`Auto-sélection de Java ${requiredJava} : ${jdkPath}`);
+        }
+    }
+
     if (ui.setStatusText) ui.setStatusText(window.t("msg_check_java", "Vérification de Java..."));
     
     let javaToTest = (jPath === "javaw" || jPath === "java") ? "java" : jPath;
@@ -375,6 +389,8 @@ export async function launchInstance(inst, acc, ui) {
     if (window.renderUI) window.renderUI();
     
     inst._tempSessionStart = Date.now();
+    inst.launchCount = (inst.launchCount || 0) + 1;
+    window.safeWriteJSON(store.instanceFile, store.allInstances);
     store.sessionStartTime = Date.now();
     updateRPC(inst);
     

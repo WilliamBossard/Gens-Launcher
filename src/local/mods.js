@@ -60,7 +60,7 @@ export function setup() {
     }
     window.renderModsManager = async function() {
         const modsListDiv = document.getElementById("mods-list");
-        modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_loading", "Chargement...")}</div>`;
+        const savedScroll = modsListDiv.scrollTop;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
@@ -93,9 +93,11 @@ export function setup() {
         });
         if (hasMods) {
             modsListDiv.innerHTML = htmlBuilder;
+            if (window.filterLocalMods) window.filterLocalMods();
         } else {
             modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
         }
+        modsListDiv.scrollTop = savedScroll;
     };
     window.filterLocalMods = () => {
         const filter = document.getElementById("local-mod-search").value.toLowerCase();

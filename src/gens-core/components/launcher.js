@@ -120,8 +120,8 @@ class MCLCore extends EventEmitter {
       this.emit('debug', '[Gens-Core]: Attempting to download assets')
       await this.handler.getAssets()
 
-      // Forge -> Custom -> Vanilla
       const launchOptions = await this.handler.getLaunchOptions(modifyJson)
+      if (this.aborted) throw new Error("Launch aborted by user")
 
       const launchArguments = args.concat(jvm, classPaths, launchOptions)
       this.emit('arguments', launchArguments)
@@ -132,6 +132,10 @@ class MCLCore extends EventEmitter {
       this.emit('debug', `[Gens-Core]: Failed to start due to ${e}, closing...`)
       return null
     }
+  }
+
+  abort () {
+    this.aborted = true
   }
 
   printVersion () {
@@ -180,11 +184,13 @@ class MCLCore extends EventEmitter {
   }
 
   startMinecraft (launchArguments) {
+    const isDetached = this.options.overrides.detached !== false;
     const minecraft = child.spawn(this.options.javaPath ? this.options.javaPath : 'java', launchArguments,
-      { cwd: this.options.overrides.cwd || this.options.root, detached: this.options.overrides.detached })
+      { cwd: this.options.overrides.cwd || this.options.root, detached: isDetached })
     minecraft.stdout.on('data', (data) => this.emit('data', data.toString('utf-8')))
     minecraft.stderr.on('data', (data) => this.emit('data', data.toString('utf-8')))
     minecraft.on('close', (code) => this.emit('close', code))
+    if (isDetached) minecraft.unref();
     return minecraft
   }
 }

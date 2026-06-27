@@ -63,10 +63,9 @@ export function setup() {
                             const rawFileName = decodeURIComponent(downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1));
                             const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
                             const finalPath = path.join(modsDir, fileName);
-                            const modRes = await fetch(downloadUrl);
-                            if (modRes.ok) {
-                                const fileBytes = new Uint8Array(await modRes.arrayBuffer());
-                                await fs.promises.writeFile(finalPath, fileBytes);
+                            const dlRes = await window.api.invoke("download-file-stream", { url: downloadUrl, destPath: finalPath });
+                            if (!dlRes.success) {
+                                throw new Error(dlRes.error || "Erreur de téléchargement");
                             }
                         }
                     } catch (e) {}
@@ -140,18 +139,26 @@ export function setup() {
                 }
             }
             const instData = {
+                ...rawData,
                 name:          finalName,
                 version:       String(rawData.version  || "1.20.4").substring(0, 32),
                 loader:        detectedLoader,
                 loaderVersion: detectedLoaderVersion,
                 ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),
-                javaPath:      "", jvmArgs: "", jvmProfile: "none",
+                javaPath:      typeof rawData.javaPath === 'string' ? rawData.javaPath : "", 
+                jvmArgs:       typeof rawData.jvmArgs === 'string' ? rawData.jvmArgs : "", 
+                jvmProfile:    typeof rawData.jvmProfile === 'string' ? rawData.jvmProfile : "none",
                 notes:         String(rawData.notes || "").substring(0, 1000),
-                icon:          "", resW: String(rawData.resW || "").replace(/[^0-9]/g, ""), resH: String(rawData.resH || "").replace(/[^0-9]/g, ""),
+                icon:          typeof rawData.icon === 'string' ? rawData.icon : "", 
+                resW:          String(rawData.resW || "").replace(/[^0-9]/g, ""), 
+                resH:          String(rawData.resH || "").replace(/[^0-9]/g, ""),
                 group:         String(rawData.group || "").substring(0, 64),
-                playTime: 0, lastPlayed: 0, sessionHistory: [], servers: [],
-                backupMode: ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
-                backupLimit: Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
+                playTime:      typeof rawData.playTime === 'number' ? rawData.playTime : 0, 
+                lastPlayed:    typeof rawData.lastPlayed === 'number' ? rawData.lastPlayed : 0, 
+                sessionHistory: Array.isArray(rawData.sessionHistory) ? rawData.sessionHistory : [], 
+                servers:       Array.isArray(rawData.servers) ? rawData.servers : [],
+                backupMode:    ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
+                backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
@@ -159,13 +166,17 @@ export function setup() {
             if (fs.existsSync(filesDir)) {
                 const items = fs.readdirSync(filesDir);
                 for (let item of items) {
-                    fs.renameSync(path.join(filesDir, item), path.join(instDir, item));
+                    const destPath = path.join(instDir, item);
+                    if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
+                    fs.renameSync(path.join(filesDir, item), destPath);
                 }
             } else {
                 const items = fs.readdirSync(extractRoot);
                 for (let item of items) {
                     if (item !== "instance.json") {
-                        fs.renameSync(path.join(extractRoot, item), path.join(instDir, item));
+                        const destPath = path.join(instDir, item);
+                        if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
+                        fs.renameSync(path.join(extractRoot, item), destPath);
                     }
                 }
             }
