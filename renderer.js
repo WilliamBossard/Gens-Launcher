@@ -731,7 +731,21 @@ window.api.on("horizon-status", async (data) => {
                     const jsonPath = window.api.path.join(instFolder, "instance.json");
                     if (window.api.fs.existsSync(jsonPath)) {
                         const parsed = JSON.parse(window.api.fs.readFileSync(jsonPath, "utf8"));
+                        
+                        const oldRam = localInst.ram;
+                        const oldJava = localInst.javaPath;
+                        const oldArgs = localInst.customArgs;
+                        const oldWidth = localInst.windowWidth;
+                        const oldHeight = localInst.windowHeight;
+
                         Object.assign(localInst, parsed);
+
+                        if (oldRam !== undefined) localInst.ram = oldRam;
+                        if (oldJava !== undefined) localInst.javaPath = oldJava;
+                        if (oldArgs !== undefined) localInst.customArgs = oldArgs;
+                        if (oldWidth !== undefined) localInst.windowWidth = oldWidth;
+                        if (oldHeight !== undefined) localInst.windowHeight = oldHeight;
+
                         window.safeWriteJSON(store.instanceFile, store.allInstances);
                     }
                 } catch(e) { console.error("Erreur màj instance.json après sync:", e); }
