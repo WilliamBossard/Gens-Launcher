@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -16,7 +16,6 @@
     "@xhayper/discord-rpc": "^1.3.4",
     "archiver": "^8.0.0",
     "electron-updater": "^6.8.9",
-    "node-machine-id": "^1.1.12",
     "prismarine-auth": "^3.1.1",
     "prismarine-nbt": "^2.8.0",
     "yauzl": "^3.4.0"
