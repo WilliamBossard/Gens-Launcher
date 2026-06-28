@@ -784,14 +784,16 @@ window.ctxRestoreCloud = async () => {
         }
     } catch (_) {}
     if (!store.allInstances.some(i => i.name === targetName)) {
-        store.allInstances.push({
+        const phantom = {
             name: targetName,
             version: "...", 
             loader: loader,
             icon: iconData,
             ram: store.globalSettings.defaultRam.toString(),
             group: t("lbl_group_general", "Général")
-        });
+        };
+        store.allInstances.push(phantom);
+        if (window.updateIconCache) window.updateIconCache(phantom);
         window.renderUI(); 
     }
     window._isManualHorizon = true;
@@ -847,7 +849,8 @@ window.ctxRestoreCloud = async () => {
         };
         try { window.api.fs.writeFileSync(jsonPath, JSON.stringify(store.allInstances[idx], null, 2)); } catch(e){}
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
-    }
+    }
+    if (window.updateIconCache) window.updateIconCache(store.allInstances[idx]);
     window.safeWriteJSON(store.instanceFile, store.allInstances);
     window.renderUI(); 
 };
