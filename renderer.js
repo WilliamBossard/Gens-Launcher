@@ -726,8 +726,21 @@ window.api.on("horizon-status", async (data) => {
                 || data.base !== undefined || data.deltas !== undefined;
             const localInst = store.allInstances.find(i => window.safeDir(i.name) === window.safeDir(data.instance || ""));
             if (localInst) {
+                try {
+                    const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
+                    const jsonPath = window.api.path.join(instFolder, "instance.json");
+                    if (window.api.fs.existsSync(jsonPath)) {
+                        const parsed = JSON.parse(window.api.fs.readFileSync(jsonPath, "utf8"));
+                        Object.assign(localInst, parsed);
+                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                    }
+                } catch(e) { console.error("Erreur màj instance.json après sync:", e); }
+                
                 localInst._iconCacheBuster = Date.now();
                 if (window.renderUI) window.renderUI();
+                if (window.selectInstance && store.allInstances[store.selectedInstanceIdx] === localInst) {
+                    window.selectInstance(store.selectedInstanceIdx);
+                }
             }
             window.horizonScheduleCloudRefresh({ refreshQuota });
         }
