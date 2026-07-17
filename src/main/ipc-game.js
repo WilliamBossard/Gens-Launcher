@@ -3,6 +3,7 @@ module.exports = function setupGameHandlers(context) {
         ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, execFile,
         mainResolveInstanceFolder, safeSend
     } = context;
+    const os = require('os');
 
     const activeMinecraftClients = new Map();
 
