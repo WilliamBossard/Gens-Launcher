@@ -368,6 +368,13 @@ module.exports = function setupHorizonHandlers(context) {
                 if (actual !== expected) {
                     throw new Error(`Vérification SHA256 du binaire Horizon échouée.\nAttendu : ${expected}\nObtenu  : ${actual}`);
                 }
+                cachedExpectedHash = expected;
+                try {
+                    let c = {};
+                    if (fs.existsSync(githubCacheFile)) c = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
+                    c.hash = expected;
+                    fs.writeFileSync(githubCacheFile, JSON.stringify(c));
+                } catch (_) {}
                 mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch (hashErr) {
                 try { fs.unlinkSync(tmpPath); } catch (_) { }

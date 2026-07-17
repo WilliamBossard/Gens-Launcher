@@ -390,6 +390,8 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
     if (data.type === "CLOUD_LIST") {
+        window._cloudInstances = data.data || [];
+        window._cloudRichData = data.richData || [];
         const grid = document.getElementById("horizon-cloud-grid");
         if (!grid) return;
         if (!data.data || data.data.length === 0) {
@@ -453,14 +455,12 @@ window.api.on("horizon-status", async (data) => {
                     }
                 }
             } else {
-                const metaPath = window.api.path.join(horizonBinPath, `meta_${instName}.json`);
-                if (window.api.fs.existsSync(metaPath)) {
-                    try {
-                        const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-                        iconSrc = (meta.iconData && meta.iconData !== "")
-                            ? meta.iconData
-                            : (store.defaultIcons[meta.loader] || store.defaultIcons.vanilla);
-                    } catch(e) {}
+                if (rich) {
+                    iconSrc = (rich.iconData && rich.iconData !== "")
+                        ? rich.iconData
+                        : (store.defaultIcons[rich.loader] || store.defaultIcons.vanilla);
+                } else {
+                    iconSrc = store.defaultIcons.vanilla;
                 }
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
@@ -798,15 +798,13 @@ window.ctxRestoreCloud = async () => {
     const targetName = store.cloudTarget;
     let iconData = "";
     let loader = "vanilla";
-    try {
-        const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const metaPath = window.api.path.join(binPath, `meta_${window.safeDir(targetName)}.json`);
-        if (window.api.fs.existsSync(metaPath)) {
-            const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-            iconData = meta.iconData || "";
-            loader = meta.loader || "vanilla";
+    if (window._cloudRichData) {
+        const rich = window._cloudRichData.find(r => r.name === targetName || window.safeDir(r.name) === window.safeDir(targetName));
+        if (rich) {
+            iconData = rich.iconData || "";
+            loader = rich.loader || "vanilla";
         }
-    } catch (_) {}
+    }
     if (!store.allInstances.some(i => i.name === targetName)) {
         const phantom = {
             name: targetName,
@@ -842,7 +840,11 @@ window.ctxRestoreCloud = async () => {
     }
     if (realInst) {
         realInst._iconCacheBuster = Date.now();
-        store.allInstances[idx] = realInst; 
+        const phantomInst = store.allInstances[idx];
+        if (phantomInst && phantomInst.icon && (!realInst.icon || realInst.icon.startsWith("file://"))) {
+            realInst.icon = phantomInst.icon;
+        }
+        store.allInstances[idx] = realInst;
     } else {
         let dVer = "1.20.4", dLoader = "vanilla", dLoaderVer = "";
         const vDir = window.api.path.join(instFolder, "versions");

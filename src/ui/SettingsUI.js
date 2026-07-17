@@ -564,6 +564,21 @@ window.refreshHorizonUI = async () => {
                     if (provider === "google" && window.api.fs.existsSync(legacyPath)) {
                         window.api.fs.unlinkSync(legacyPath);
                     }
+                    
+                    // Clear stale UI caches so we don't display the previous provider's data
+                    const cacheFiles = [
+                        "horizon_cloud_cache.json",
+                        "horizon_cloud_html_cache.txt",
+                        "horizon_quota_cache.json",
+                        "horizon_quota_html_cache.txt"
+                    ];
+                    for (const f of cacheFiles) {
+                        const p = window.api.path.join(binPath, f);
+                        if (window.api.fs.existsSync(p)) {
+                            try { window.api.fs.unlinkSync(p); } catch(_) {}
+                        }
+                    }
+
                     window.showToast(t("horizon_disconnected_success", "Compte Cloud déconnecté avec succès."), "success");
                     await window.refreshHorizonUI();
                 } catch(e) {
@@ -690,6 +705,22 @@ window.refreshHorizonUI = async () => {
     };
     window.changeHorizonProvider = async (newProvider) => {
         await window.saveHorizonConfig('provider', newProvider);
+        
+        // Clear caches so the new provider starts fresh
+        const binPath = window.api.path.join(store.dataDir, "bin");
+        const cacheFiles = [
+            "horizon_cloud_cache.json",
+            "horizon_cloud_html_cache.txt",
+            "horizon_quota_cache.json",
+            "horizon_quota_html_cache.txt"
+        ];
+        for (const f of cacheFiles) {
+            const p = window.api.path.join(binPath, f);
+            if (window.api.fs.existsSync(p)) {
+                try { window.api.fs.unlinkSync(p); } catch(_) {}
+            }
+        }
+        
         await window.refreshHorizonUI(); 
     };
 window.runHorizonLogin = async (provider) => {

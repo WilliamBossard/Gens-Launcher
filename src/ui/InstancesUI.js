@@ -645,7 +645,8 @@ export function setupInstances() {
                 if (store.horizonActive) {
                     const binDir = path.join(store.dataDir, "bin");
                     const metaPath = path.join(binDir, `meta_${safeName}.json`);
-                    if (fs.existsSync(metaPath)) {
+                    const onCloud = (window._cloudInstances && window._cloudInstances.includes(safeName)) || fs.existsSync(metaPath);
+                    if (onCloud) {
                         const confirmMsg = t("msg_also_delete_cloud", 'Voulez-vous ÉGALEMENT supprimer "{name}" du Cloud ?').replace("{name}", instName);
                         deleteCloudToo = await window.showCustomConfirm(confirmMsg, true);
                     }
