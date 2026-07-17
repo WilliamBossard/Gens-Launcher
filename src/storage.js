@@ -68,8 +68,8 @@ export function setupStorage() {
 
         if (store.accountFile && fs.existsSync(store.accountFile)) {
             try {
-                if (window.api.security && typeof window.api.security.readJSON === 'function') {
-                    const parsed = window.api.security.readJSON(store.accountFile);
+                if (window.api.security && typeof window.api.security.readJSONAsync === 'function') {
+                    const parsed = await window.api.security.readJSONAsync(store.accountFile);
                     if (parsed) {
                         store.allAccounts = parsed.list || [];
                         const lastUsed = parsed.lastUsed;

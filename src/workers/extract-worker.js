@@ -10,6 +10,8 @@ async function extractArchive({ archivePath, destDir, isWin }) {
             const resolvedTarget = path.resolve(destDir);
             yauzl.open(archivePath, { lazyEntries: true }, (err, zipfile) => {
                 if (err) return reject(err);
+                const total = zipfile.entryCount;
+                let processed = 0;
                 zipfile.readEntry();
                 zipfile.on("entry", (entry) => {
                     const dest = path.join(destDir, entry.fileName);
@@ -31,7 +33,12 @@ async function extractArchive({ archivePath, destDir, isWin }) {
                             }
                             const writeStream = fs.createWriteStream(dest);
                             readStream.pipe(writeStream);
-                            writeStream.on("close", () => zipfile.readEntry());
+                            writeStream.on("close", () => {
+                                processed++;
+                                const progress = Math.min(100, Math.round((processed / total) * 100));
+                                parentPort.postMessage({ type: 'progress', progress });
+                                zipfile.readEntry();
+                            });
                             writeStream.on("error", (wErr) => {
                                 readStream.destroy();
                                 zipfile.close();

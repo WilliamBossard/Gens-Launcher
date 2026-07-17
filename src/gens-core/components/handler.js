@@ -118,6 +118,7 @@ class Handler {
 
   async downloadAsync(url, directory, name, retry, type) {
     if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
+    if (this.options.offline) return path.join(directory, name);
     fs.mkdirSync(directory, { recursive: true });
     let response;
     try {

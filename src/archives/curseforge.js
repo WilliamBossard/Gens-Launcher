@@ -181,6 +181,7 @@ export function setup() {
                 }
             }
             store.allInstances.push(instData);
+            if (window.updateIconCache) window.updateIconCache(instData);
             try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch(e) {}
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSON(store.settingsFile, store.globalSettings);

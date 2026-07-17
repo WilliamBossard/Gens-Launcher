@@ -10,7 +10,7 @@ jobs:
     
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Récupération du code
@@ -23,6 +23,9 @@ jobs:
 
       - name: Installation des dépendances
         run: npm install
+
+      - name: ExǸcution des tests
+        run: npm test
 
       - name: Compilation et Publication
         env:

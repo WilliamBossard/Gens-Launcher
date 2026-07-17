@@ -82,6 +82,7 @@ export function setupSettings() {
         document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
         document.getElementById("global-disable-animations").value = store.globalSettings.disableAnimations ? "true" : "false";
         document.getElementById("global-disable-transparency").value = store.globalSettings.disableTransparency ? "true" : "false";
+        document.getElementById("global-offline-mode").value = store.globalSettings.offlineMode ? "true" : "false";
         const optSelect = document.getElementById("global-options-source");
         optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         {
@@ -111,8 +112,12 @@ export function setupSettings() {
         window.updateJavaButtonsDisplay();
         window.switchTabGlob("tab-glob-gen");
         document.getElementById("modal-settings").style.display = "flex";
+        document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
     };
-    window.closeGlobalSettings = () => document.getElementById("modal-settings").style.display = "none";
+    window.closeGlobalSettings = () => {
+        document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
+        document.getElementById("modal-settings").style.display = "none";
+    };
     window.saveGlobalSettings = () => {
         let rawRam = parseInt(document.getElementById("global-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024;
@@ -126,6 +131,7 @@ export function setupSettings() {
         store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
         store.globalSettings.disableAnimations = document.getElementById("global-disable-animations").value === "true";
         store.globalSettings.disableTransparency = document.getElementById("global-disable-transparency").value === "true";
+        store.globalSettings.offlineMode = document.getElementById("global-offline-mode").value === "true";
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
         let bgPath = document.getElementById("global-bg-path").value.trim();
         const allowedBgExts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
@@ -152,6 +158,7 @@ export function setupSettings() {
             panelOpacity: Math.max(0.1, Math.min(1,  isNaN(rawOp)   ? 0.6 : rawOp)),
         };
         window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        if (window.updateNetworkUI) window.updateNetworkUI();
         if(store.selectedInstanceIdx !== null) window.selectInstance(store.selectedInstanceIdx);
         else if(window.applyTheme) window.applyTheme();
         window.closeGlobalSettings();
@@ -754,8 +761,10 @@ window.runHorizonLogin = async (provider) => {
         const content = document.getElementById(tabId);
         if (content) content.classList.add("active");
         const btnId = "tab-btn-glob-" + tabId.split("-").pop();
-        const tabBtn = document.getElementById(btnId);
-        if (tabBtn) tabBtn.classList.add("active");
+        const btn = document.querySelector(`.tab-btn-glob[onclick="switchTabGlob('${tabId}')"]`);
+        if (btn) btn.classList.add("active");
+        
+        if (window.applyTranslations) window.applyTranslations();
         if (tabId === "tab-glob-horizon") {
             window.refreshHorizonUI();
             if (window.clearHorizonUpdateBadges) window.clearHorizonUpdateBadges();

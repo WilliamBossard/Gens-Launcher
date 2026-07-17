@@ -568,7 +568,7 @@
             flex-grow: 1;
             padding: 15px;
             overflow-y: auto;
-            overflow-x: visible;
+            overflow-x: hidden;
             display: none;
         }
         .settings-content.active {
@@ -781,6 +781,7 @@
         }
         .toast.error { border-left-color: #f87171; }
         .toast.success { border-left-color: #17B139; }
+        .toast.warning { border-left-color: #f59e0b; }
         @keyframes slideIn {
             from { transform: translateX(120%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }

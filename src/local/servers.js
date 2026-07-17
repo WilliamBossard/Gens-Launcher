@@ -169,16 +169,14 @@ fs.renameSync(tmpPath, datPath);
             const statusDiv = document.getElementById(`srv-ping-${i}`);
             if (!statusDiv || signal.aborted) return;
             try {
-                const res = await fetch(
-                    `https://api.mcsrvstat.us/3/${encodeURIComponent(ip)}`,
-                    { signal, headers: { 'Accept': 'application/json' } }
-                );
+                const res = await window.api.invoke("ping-server", ip);
                 if (signal.aborted) return;
                 const currentInst = store.allInstances[store.selectedInstanceIdx];
                 if (!currentInst || currentInst.name !== instName) return;
                 const freshDiv = document.getElementById(`srv-ping-${i}`);
                 if (!freshDiv) return;
-                const data = await res.json();
+                if (!res.success) throw new Error(res.error);
+                const data = res.data;
                 const formatNum = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
                 if (data.online)
                     freshDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players?.online ?? 0)}/${formatNum(data.players?.max ?? 0)}</span>`;

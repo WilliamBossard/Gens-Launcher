@@ -15,7 +15,7 @@ const { contextBridge, ipcRenderer, shell, clipboard, webUtils } = require("elec
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const nbt = require("prismarine-nbt");
+const nbt = require("./src/gens-core/components/nbt.js");
 const crypto = require("crypto");
 const _appPaths = ipcRenderer.sendSync("get-paths-sync");
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
@@ -32,7 +32,7 @@ function enforceReadSandbox(p) {
     const isInDataDir = resolved.startsWith(safeDataDir + path.sep) || resolved === safeDataDir;
     const pathParts = resolved.split(path.sep);
     const isAppdataMinecraft = resolved.startsWith(path.join(_appPaths.appData, '.minecraft') + path.sep) || resolved === path.join(_appPaths.appData, '.minecraft');
-    const isMinecraftDir = isAppdataMinecraft || (pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep) && !resolved.toLowerCase().includes(path.sep + 'system32' + path.sep) && !resolved.toLowerCase().endsWith('.env') && !resolved.toLowerCase().endsWith('.key'));
+    const isMinecraftDir = isAppdataMinecraft || (pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep) && !resolved.toLowerCase().includes(path.sep + 'system32' + path.sep) && !/\.(env|key|pem|pfx|p12|cert)$/i.test(resolved));
     const isJavaDir = pathParts.some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
     const isTempDir = resolved.startsWith(os.tmpdir());
     const isSafeExt = /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(resolved);
@@ -58,11 +58,11 @@ function safeExternalUrl(url) {
     }
     return url;
 }
-function deobfuscateData(text) {
-    return ipcRenderer.sendSync('legacy-decrypt-sync', text);
+function deobfuscateDataAsync(text) {
+    return ipcRenderer.invoke('legacy-decrypt', text);
 }
 const validSendChannels = ["set-auto-download", "encrypt-string-sync", "decrypt-string-sync", "legacy-decrypt-sync", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
-const validInvokeChannels = ["login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream"];
+const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "encrypt-string", "decrypt-string", "legacy-decrypt"];
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
@@ -80,7 +80,10 @@ contextBridge.exposeInMainWorld("api", {
         }
     },
     nbt: {
-        parse: async (arr) => await nbt.parse(Buffer.from(arr)),
+        parse: async (arr) => {
+            if (arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
+            return await nbt.parse(Buffer.from(arr));
+        },
         write: (data) => new Uint8Array(nbt.writeUncompressed(data))
     },
     security: {
@@ -88,7 +91,7 @@ contextBridge.exposeInMainWorld("api", {
             const jsonString = JSON.stringify(data, null, 2);
             const encrypted = ipcRenderer.sendSync('encrypt-string-sync', jsonString);
             const safePath = enforceSandbox(filePath);
-            const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            const tempPath = safePath + '.tmp.' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
             try {
                 fs.writeFileSync(tempPath, encrypted, 'utf8');
                 fs.renameSync(tempPath, safePath);
@@ -114,11 +117,8 @@ contextBridge.exposeInMainWorld("api", {
                         needsMigration = true;
                     }
                 } else {
-                    const decryptedOld = deobfuscateData(raw);
-                    if (decryptedOld) {
-                        parsedData = JSON.parse(decryptedOld);
-                        needsMigration = true;
-                    }
+                    // Lecture synchrone ne supporte plus le format legacy
+                    console.error("Format de chiffrement obsolète non supporté en lecture synchrone.");
                 }
             }
             if (parsedData && needsMigration) {
@@ -132,6 +132,19 @@ contextBridge.exposeInMainWorld("api", {
             }
             return parsedData;
         },
+        writeJSONAsync: async (filePath, data) => {
+            const jsonString = JSON.stringify(data, null, 2);
+            const encrypted = await ipcRenderer.invoke('encrypt-string', jsonString);
+            const safePath = enforceSandbox(filePath);
+            const tempPath = safePath + '.tmp.' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
+            try {
+                await fs.promises.writeFile(tempPath, encrypted, 'utf8');
+                await fs.promises.rename(tempPath, safePath);
+            } catch (e) {
+                if (fs.existsSync(tempPath)) try { await fs.promises.unlink(tempPath); } catch (_) {}
+                throw e;
+            }
+        },
         readJSONAsync: async (filePath) => {
             const safePath = enforceSandbox(filePath);
             if (!fs.existsSync(safePath)) return null;
@@ -142,14 +155,14 @@ contextBridge.exposeInMainWorld("api", {
                 parsedData = JSON.parse(raw);
                 needsMigration = true;
             } else {
-                const decryptedNew = ipcRenderer.sendSync('decrypt-string-sync', raw);
+                const decryptedNew = await ipcRenderer.invoke('decrypt-string', raw);
                 if (decryptedNew) {
                     parsedData = JSON.parse(decryptedNew);
                     if (raw.startsWith('aes:')) {
                         needsMigration = true;
                     }
                 } else {
-                    const decryptedOld = deobfuscateData(raw);
+                    const decryptedOld = await deobfuscateDataAsync(raw);
                     if (decryptedOld) {
                         parsedData = JSON.parse(decryptedOld);
                         needsMigration = true;
@@ -158,7 +171,7 @@ contextBridge.exposeInMainWorld("api", {
             }
             if (parsedData && needsMigration) {
                 try {
-                    const encrypted = ipcRenderer.sendSync('encrypt-string-sync', JSON.stringify(parsedData, null, 2));
+                    const encrypted = await ipcRenderer.invoke('encrypt-string', JSON.stringify(parsedData, null, 2));
                     await fs.promises.writeFile(safePath, encrypted, 'utf8');
                     console.log(`[Sécurité] Fichier migré vers le nouveau format de chiffrement : ${safePath}`);
                 } catch (e) {
@@ -188,7 +201,7 @@ contextBridge.exposeInMainWorld("api", {
         dirname: (p) => path.dirname(p),
         basename: (p, ext) => path.basename(p, ext),
     },
-    fs: {
+    fs: {
         existsSync: (p) => {
             try { enforceReadSandbox(p); } catch (_) { return false; }
             return fs.existsSync(p);
@@ -198,10 +211,10 @@ contextBridge.exposeInMainWorld("api", {
         statSync: (p) => {
             const s = fs.statSync(enforceReadSandbox(p));
             return { isDirectory: s.isDirectory(), isFile: s.isFile(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
-        },
+        },
         writeFileSync: (p, d) => {
             const safePath = enforceSandbox(p);
-            const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            const tempPath = safePath + '.tmp.' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
             try {
                 fs.writeFileSync(tempPath, d);
                 fs.renameSync(tempPath, safePath);
@@ -216,16 +229,13 @@ contextBridge.exposeInMainWorld("api", {
         rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
         copyFileSync: (src, dest) => fs.copyFileSync(enforceReadSandbox(src), enforceSandbox(dest)),
         appendFileSync: (p, d) => fs.appendFileSync(enforceSandbox(p), d),
-        openSync: (p, f) => fs.openSync(enforceSandbox(p), f),
-        readSync: (fd, b, o, l, pos) => fs.readSync(fd, b, o, l, pos),
-        closeSync: (fd) => fs.closeSync(fd),
-        promises: {
+        promises: {
             readFile: (p, enc) => fs.promises.readFile(enforceReadSandbox(p), enc),
             readdir: (p) => fs.promises.readdir(enforceReadSandbox(p)),
             stat: async (p) => {
                 const s = await fs.promises.stat(enforceReadSandbox(p));
                 return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
-            },
+            },
             writeFile: async (p, d) => {
                 const safePath = enforceSandbox(p);
                 const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -238,7 +248,7 @@ contextBridge.exposeInMainWorld("api", {
                 }
             },
             rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts),
-            cp: (s, d, o) => fs.promises.cp(s, enforceSandbox(d), o),
+            cp: (s, d, o) => fs.promises.cp(enforceReadSandbox(s), enforceSandbox(d), o),
             unlink: (p) => fs.promises.unlink(enforceSandbox(p)),
             chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode)
         }

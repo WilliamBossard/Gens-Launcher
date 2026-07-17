@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://* http://*; connect-src 'self' https://* http://* wss://* ws://*; font-src 'self' data:;">
     <title>Gens Launcher</title>
-    <script src="./libs/skinview3d.bundle.min.js"></script>
+    <script src="./src/gens-core/components/skinview3d.bundle.min.js"></script>
     <link rel="stylesheet" href="src/css/main.css">
     <link rel="stylesheet" href="src/css/modals.css">
 </head>
@@ -97,9 +97,9 @@
     <div class="toolbar">
         <div class="toolbar-group">
             <button class="tool-btn" onclick="openInstanceModal()" data-i18n="toolbar_add">Ajouter une instance</button>
-            <button class="tool-btn" onclick="openBuilderModal()" data-i18n="toolbar_builder">Créer un Modpack</button>
+            <button class="tool-btn" id="btn-toolbar-builder" onclick="openBuilderModal()" data-i18n="toolbar_builder">Créer un Modpack</button>
             <button class="tool-btn" onclick="document.getElementById('import-upload').click()" data-i18n="toolbar_import">Importer</button>
-            <button class="tool-btn" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
+            <button class="tool-btn" id="btn-toolbar-catalog" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
             
             <button class="tool-btn" onclick="openGlobalSettings()" style="position: relative;">
                 <span data-i18n="toolbar_settings">Paramètres Globaux</span>
@@ -490,6 +490,15 @@
 
                     <label style="margin-top: 15px;" data-i18n="lbl_fav_server">Serveur favori (Afficher le statut)</label>
                     <input type="text" id="global-server-ip" placeholder="Ex: play.hypixel.net">
+
+                    <div style="display: flex; align-items: center; margin-top: 15px;">
+                        <label style="margin-top: 0;" data-i18n="lbl_offline_mode">Forcer le mode hors ligne</label>
+                        <div class="ram-help-icon custom-tooltip-trigger" data-i18n-tooltip="tt_offline" data-tooltip="Démarre le jeu sans vérifier les fichiers ni le compte. Pratique si vous n'avez pas internet.">?</div>
+                    </div>
+                    <select id="global-offline-mode">
+                        <option value="false" data-i18n="btn_no">Non</option>
+                        <option value="true" data-i18n="btn_yes">Oui</option>
+                    </select>
                 </div>
 
                  <div id="tab-glob-app" class="settings-content">
@@ -534,6 +543,7 @@
                         <option value="true" data-i18n="btn_yes">Oui</option>
                     </select>
                 </div>
+
 
                 <div id="tab-glob-updates" class="settings-content">
                     <div style="font-weight: bold; margin-bottom: 10px; color: var(--text-light);"><span data-i18n="lbl_current_version">Version actuelle :</span> <span id="current-app-version" style="color: var(--accent);"></span></div>
@@ -708,7 +718,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
                         <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_mods">Vos Mods Installés</span>
                         <div style="display: flex; gap: 5px;">
-                            <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="checkModUpdates()" data-i18n="btn_check_updates">Vérifier les MAJ</button>
+                            <button class="btn-secondary" id="btn-check-mod-updates" style="padding: 4px 8px; font-size: 0.75rem;" onclick="checkModUpdates()" data-i18n="btn_check_updates">Vérifier les MAJ</button>
                             <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('mods')" data-i18n="btn_folder">Dossier</button>
                         </div>
                     </div>

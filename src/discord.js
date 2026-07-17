@@ -21,12 +21,16 @@ async function updateRPC(inst, customState) {
         ipcRenderer.send("update-discord", "clear");
         return; 
     }
+    if (!store.currentLangObj || Object.keys(store.currentLangObj).length === 0) {
+        return; // Wait for language to load
+    }
     try {
         let activity = {};
         if (inst) {
             const modCount = await _getModCount(inst);
             const modSuffix = modCount > 0 ? ` (${modCount} mods)` : "";
-            const stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix;
+            const versionSuffix = inst.version ? ` [${inst.version}]` : "";
+            const stateText = (customState || t("lbl_discord_solo", "En jeu")) + modSuffix + versionSuffix;
             activity = {
                 details: inst.name,
                 state: stateText,

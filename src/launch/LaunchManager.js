@@ -21,12 +21,13 @@ export async function launchInstance(inst, acc, ui) {
     }
 
     const instancePath = path.join(store.instancesRoot, window.safeDir(inst.name));
+    const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
     
     await performAutoBackup(inst, "on_launch", { showLoading: ui.showLoading, hideLoading: ui.hideLoading });
     
     const horizonStatus = await window.api.invoke("check-horizon-status");
     const cloudPrefs = await getCloudSettings();
-    if (horizonStatus.installed && horizonStatus.linked && cloudPrefs.systemEnabled) {
+    if (!isOffline && horizonStatus.installed && horizonStatus.linked && cloudPrefs.systemEnabled) {
         if (inst.disableHorizon) {
             sysLog(`[HORIZON] Sync ignorée pour "${inst.name}" (désactivée).`);
         } else if (cloudPrefs.autoSync) {
@@ -150,7 +151,7 @@ export async function launchInstance(inst, acc, ui) {
     }
     
     let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}" };
-    if (acc.type === "microsoft" && acc.mclcAuth) {
+    if (acc.type === "microsoft" && acc.mclcAuth && !isOffline) {
         if (ui.setStatusText) ui.setStatusText(window.t("msg_check_ms_session", "Vérification de la session Microsoft..."));
         let sessionValid = false;
         try {
@@ -206,6 +207,7 @@ export async function launchInstance(inst, acc, ui) {
     
     let opts = {
         instanceId: inst.name,
+        offline: isOffline,
         authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
         memory: { max: ramMB + "M", min: "1024M" }, javaPath: jPath, customArgs,
         window: { width: resW, height: resH }, spawnOptions: { detached: false, shell: false, windowsHide: true },
@@ -233,8 +235,16 @@ export async function launchInstance(inst, acc, ui) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_fabric", "Installation de Fabric..."));
             let loaderVer = inst.loaderVersion;
             if (!loaderVer) {
-                const fbRes = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}`);
-                loaderVer = (await fbRes.json())[0].loader.version;
+                const dirs = fs.existsSync(path.join(instancePath, "versions")) ? fs.readdirSync(path.join(instancePath, "versions")) : [];
+                const match = dirs.find(d => d.startsWith("fabric-loader-") && d.endsWith(`-${inst.version}`));
+                if (match) {
+                    loaderVer = match.replace("fabric-loader-", "").replace(`-${inst.version}`, "");
+                }
+                if (!loaderVer) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
+                    const fbRes = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}`);
+                    loaderVer = (await fbRes.json())[0].loader.version;
+                }
             }
             if (loaderVer) {
                 const customVerName = `fabric-loader-${loaderVer}-${inst.version}`;
@@ -243,6 +253,7 @@ export async function launchInstance(inst, acc, ui) {
                 if (!fs.existsSync(vPath)) fs.mkdirSync(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
                 if (!fs.existsSync(jsonPath)) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger le profil Fabric hors ligne."));
                     const response = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}/${loaderVer}/profile/json`);
                     fs.writeFileSync(jsonPath, await response.text());
                 }
@@ -257,8 +268,16 @@ export async function launchInstance(inst, acc, ui) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_quilt", "Installation de Quilt..."));
             let loaderVer = inst.loaderVersion;
             if (!loaderVer) {
-                const qRes = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
-                loaderVer = (await qRes.json())[0].loader.version;
+                const dirs = fs.existsSync(path.join(instancePath, "versions")) ? fs.readdirSync(path.join(instancePath, "versions")) : [];
+                const match = dirs.find(d => d.startsWith("quilt-loader-") && d.endsWith(`-${inst.version}`));
+                if (match) {
+                    loaderVer = match.replace("quilt-loader-", "").replace(`-${inst.version}`, "");
+                }
+                if (!loaderVer) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
+                    const qRes = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
+                    loaderVer = (await qRes.json())[0].loader.version;
+                }
             }
             if (loaderVer) {
                 const customVerName = `quilt-loader-${loaderVer}-${inst.version}`;
@@ -267,6 +286,7 @@ export async function launchInstance(inst, acc, ui) {
                 if (!fs.existsSync(vPath)) fs.mkdirSync(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
                 if (!fs.existsSync(jsonPath)) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger le profil Quilt hors ligne."));
                     const response = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}/${loaderVer}/profile/json`);
                     fs.writeFileSync(jsonPath, await response.text());
                 }
@@ -295,8 +315,17 @@ export async function launchInstance(inst, acc, ui) {
         const installerName = `${inst.loader}-${inst.loaderVersion}-installer.jar`;
         const installerPath = path.join(installersDir, installerName);
         
-        if (!fs.existsSync(installerPath)) {
+        let needsInstall = true;
+        const versionsDir = path.join(instancePath, "versions");
+        if (fs.existsSync(versionsDir)) {
+            const subDirs = fs.readdirSync(versionsDir);
+            const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
+            if (forgeDir) { needsInstall = false; opts.version.custom = forgeDir; }
+        }
+        
+        if (needsInstall && !fs.existsSync(installerPath)) {
             try {
+                if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger l'installeur hors ligne."));
                 if (ui.setStatusText) ui.setStatusText(`${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} (Patientez)...`);
                 await yieldUI();
                 
@@ -372,13 +401,6 @@ export async function launchInstance(inst, acc, ui) {
             }
         }
         
-        let needsInstall = true;
-        const versionsDir = path.join(instancePath, "versions");
-        if (fs.existsSync(versionsDir)) {
-            const subDirs = fs.readdirSync(versionsDir);
-            const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
-            if (forgeDir) { needsInstall = false; opts.version.custom = forgeDir; }
-        }
         if (needsInstall) opts.forge = installerPath;
     }
     
@@ -400,6 +422,21 @@ export async function launchInstance(inst, acc, ui) {
         if (ramToVerify > 8192) window.checkAchievement("war_machine");
         const hour = new Date().getHours();
         if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
+    }
+    
+    if (isOffline) {
+        const libsDir = window.api.path.join(instancePath, "libraries");
+        if (!window.api.fs.existsSync(libsDir) || window.api.fs.readdirSync(libsDir).length === 0) {
+            sysLog("Premier lancement en mode hors-ligne détecté (pas de librairies). Annulation.", true);
+            if (ui.showToast) ui.showToast(window.t("err_offline_first_launch", "Internet est requis pour le premier lancement afin de télécharger les fichiers du jeu."), "error");
+            if (ui.setStatusText) ui.setStatusText(window.t("status_ready", "Prêt"));
+            if (ui.setProgressBar) ui.setProgressBar(-1);
+            if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            store.activeInstances.delete(inst.name);
+            if (window.setUIState) window.setUIState();
+            if (window.renderUI) window.renderUI();
+            return;
+        }
     }
     
     sysLog("Démarrage du processus MCLC...");

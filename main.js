@@ -6,13 +6,13 @@ const os = require("os");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
-const { Client } = require("./src/gens-core/index.js");
 const { safeStorage } = require('electron');
+const { encryptText, decryptText, legacyDecryptText } = require('./src/main/crypto-utils');
 if (process.platform === 'linux' && process.env.APPIMAGE) {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-setuid-sandbox');
 }
-const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 function sanitizeShortcutName(name) {
     return String(name)
         .replace(/[<>:"/\\|?*\r\n\0]/g, "")
@@ -24,10 +24,16 @@ function parseAutoLaunchArg(argv) {
     const prefix = '--auto-launch=';
     const arg = argv.find(a => a.startsWith(prefix));
     if (!arg) return null;
-    return arg.slice(prefix.length).replace(/^["']|["']$/g, '');
+    const val = arg.slice(prefix.length).replace(/^["']|["']$/g, '');
+    try {
+        return decodeURIComponent(val);
+    } catch (_) {
+        return val;
+    }
 }
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net", "sessionserver.mojang.com", "assets.mojang.com"];
 const SKIN_HOSTS = ["mc-heads.net", "crafatar.com", "mineatar.io", "s.optifine.net"];
+const DISCORD_CLIENT_ID = "1490353507218227301";
 let mainWindow;
 let tray = null;
 let linuxUpdatePath = null;
@@ -115,47 +121,22 @@ const context = {
     assertPathUnderSandbox, sanitizeShortcutName, shell
 };
 process.on('uncaughtException', (err) => {
-    mainLog("Crash évité (uncaughtException) : " + err.stack);
+    mainLog("Erreur critique (uncaughtException) : " + err.stack);
+    app.quit();
 });
 process.on('unhandledRejection', (reason, promise) => {
     mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason.stack || reason));
 });
-let _cachedMainSecretKey = null;
-function _getMainProcSecretKey() {
-    if (_cachedMainSecretKey) return _cachedMainSecretKey;
-    const secretPath = path.join(app.getPath("appData"), "GensLauncher", ".secret_key");
-    let secret;
-    try {
-        if (fs.existsSync(secretPath)) {
-            secret = fs.readFileSync(secretPath, 'utf8').trim();
-        } else {
-            secret = crypto.randomUUID();
-            fs.writeFileSync(secretPath, secret, 'utf8');
-        }
-    } catch (e) {
-        secret = os.hostname() + "_" + (os.userInfo().username || "user");
-    }
-    _cachedMainSecretKey = crypto.createHash('sha256').update(secret).digest();
-    return _cachedMainSecretKey;
-}
+
 function decryptSettingsMainProc(text) {
     try {
-        if (text.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
-            return safeStorage.decryptString(Buffer.from(text.slice('safeStorage:'.length), 'hex'));
-        }
-        if (text.startsWith('aes:')) {
-            const key = _getMainProcSecretKey();
-            const parts = text.split(':');
-            const iv = Buffer.from(parts[1], 'hex');
-            const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-            return decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
-        }
-        const key = _getMainProcSecretKey();
-        const parts = text.split(':');
-        const iv = Buffer.from(parts.shift(), 'hex');
-        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        return decipher.update(parts.join(':'), 'hex', 'utf8') + decipher.final('utf8');
-    } catch (e) { return null; }
+        const decrypted = decryptText(text);
+        if (decrypted !== null) return decrypted;
+        
+        const leg = legacyDecryptText(text);
+        if (leg !== null) return leg;
+    } catch (e) { }
+    return text;
 }
 function readSettingsMainProc(settingsPath) {
     if (!fs.existsSync(settingsPath)) return {};
@@ -172,7 +153,7 @@ function readSettingsMainProc(settingsPath) {
     return {};
 }
 function writeJsonAtomicSync(filePath, data) {
-    const tempPath = filePath + ".tmp." + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    const tempPath = filePath + ".tmp." + Date.now() + "_" + Math.random().toString(36).substring(2, 11);
     try {
         fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
         fs.renameSync(tempPath, filePath);
@@ -240,6 +221,18 @@ if (!gotTheLock) {
 }
 app.whenReady().then(() => {
     app.setAppUserModelId("com.gens.launcher");
+    
+    let dynamicChromeUA = session.defaultSession.getUserAgent();
+
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+            responseHeaders: {
+                ...details.responseHeaders,
+                'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
+            }
+        });
+    });
+
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         try {
             const url = new URL(details.url);
@@ -247,7 +240,7 @@ app.whenReady().then(() => {
             const isSkin = SKIN_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
             const isModrinth = url.hostname.includes("modrinth.com");
             if (isMojang || isSkin) {
-                details.requestHeaders['User-Agent'] = CHROME_UA;
+                details.requestHeaders['User-Agent'] = dynamicChromeUA;
                 delete details.requestHeaders['sec-ch-ua'];
                 delete details.requestHeaders['sec-ch-ua-mobile'];
                 delete details.requestHeaders['sec-ch-ua-platform'];
@@ -361,12 +354,32 @@ ipcMain.on("get-paths-sync", (event) => {
 const https = require('https');
 const http = require('http');
 
-function downloadFile(url, dest) {
+const ALLOWED_DOMAINS = [
+    'github.com', 'githubusercontent.com', 'modrinth.com',
+    'curseforge.com', 'cursecdn.com', 'forgecdn.net',
+    'mojang.com', 'minecraft.net', 'edgecastcdn.net',
+    'googleapis.com'
+];
+
+function downloadFile(url, dest, redirectCount = 0) {
     return new Promise((resolve, reject) => {
+        if (redirectCount >= 5) {
+            return reject(new Error("Trop de redirections (max 5)"));
+        }
+        try {
+            const parsedUrl = new URL(url);
+            const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
+            if (!isAllowed) {
+                return reject(new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`));
+            }
+        } catch(e) {
+            return reject(new Error("URL invalide"));
+        }
+        
         const protocol = url.startsWith('https') ? https : http;
-        protocol.get(url, (response) => {
+        const req = protocol.get(url, { rejectUnauthorized: true }, (response) => {
             if (response.statusCode === 301 || response.statusCode === 302) {
-                return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+                return downloadFile(response.headers.location, dest, redirectCount + 1).then(resolve).catch(reject);
             }
             if (response.statusCode !== 200) {
                 return reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
@@ -380,16 +393,27 @@ function downloadFile(url, dest) {
                 fs.unlink(dest, () => {});
                 reject(err);
             });
-        }).on('error', (err) => {
+        });
+        
+        req.on('error', (err) => {
             fs.unlink(dest, () => {});
             reject(err);
+        });
+
+        req.setTimeout(30000, () => {
+            req.destroy();
+            if (fs.existsSync(dest)) {
+                try { fs.unlinkSync(dest); } catch (_) {}
+            }
+            reject(new Error("Timeout de téléchargement (30s)."));
         });
     });
 }
 
 ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
     try {
-        await downloadFile(url, destPath);
+        const safeDest = assertPathUnderSandbox(destPath);
+        await downloadFile(url, safeDest);
         return { success: true };
     } catch (err) {
         return { success: false, error: err.message };
@@ -455,21 +479,24 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                             const resized = nImg.resize({ width: 256, height: 256, quality: 'best' });
                             pngData = resized.toPNG();
                         }
-                        const icoPath = path.join(instFolder, "icon_win.ico");
-                        const header = Buffer.alloc(22);
-                        header.writeUInt16LE(0, 0);
-                        header.writeUInt16LE(1, 2);
-                        header.writeUInt16LE(1, 4);
-                        header.writeUInt8(0, 6);
-                        header.writeUInt8(0, 7);
-                        header.writeUInt8(0, 8);
-                        header.writeUInt8(0, 9);
-                        header.writeUInt16LE(1, 10);
-                        header.writeUInt16LE(32, 12);
-                        header.writeUInt32LE(pngData.length, 14);
-                        header.writeUInt32LE(22, 18);
-                        fs.writeFileSync(icoPath, Buffer.concat([header, pngData]));
-                        finalIconPath = icoPath;
+                        if (pngData && pngData.length > 0) {
+                            const safeInstFolder = assertPathUnderSandbox(instFolder);
+                            const icoPath = path.join(safeInstFolder, "icon_win.ico");
+                            const header = Buffer.alloc(22);
+                            header.writeUInt16LE(0, 0);
+                            header.writeUInt16LE(1, 2);
+                            header.writeUInt16LE(1, 4);
+                            header.writeUInt8(0, 6);
+                            header.writeUInt8(0, 7);
+                            header.writeUInt8(0, 8);
+                            header.writeUInt8(0, 9);
+                            header.writeUInt16LE(0, 10);
+                            header.writeUInt16LE(0, 12);
+                            header.writeUInt32LE(pngData.length, 14);
+                            header.writeUInt32LE(22, 18);
+                            fs.writeFileSync(icoPath, Buffer.concat([header, pngData]));
+                            finalIconPath = icoPath;
+                        }
                     }
                 } catch (e) {
                     mainLog("Erreur de conversion PNG vers ICO : " + e.message);
@@ -490,7 +517,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             const mode = alreadyExists ? 'update' : 'create';
             const options = {
                 target: process.execPath,
-                args: `--auto-launch="${instanceName.replace(/"/g, '\\"')}"`,
+                args: `--auto-launch="${safeName}"`,
                 appUserModelId: "com.gens.launcher",
                 description: `Lancer ${safeName}`,
                 icon: finalIconPath,
@@ -500,7 +527,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             return { success: true, updated: alreadyExists };
         } else if (process.platform === 'linux') {
             const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-            const escapedInstanceName = sanitizeShortcutName(instanceName);
+            const escapedInstanceName = encodeURIComponent(instanceName);
             const execLine = `"${process.execPath}" "--auto-launch=${escapedInstanceName}"`;
             const desktopFile = [
                 '[Desktop Entry]',
@@ -526,7 +553,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             return { success: true, updated: alreadyExists };
         } else if (process.platform === 'darwin') {
             const shortcutPath = path.join(desktopPath, `${safeName}.command`);
-            const escapedInstanceName = sanitizeShortcutName(instanceName);
+            const escapedInstanceName = encodeURIComponent(instanceName);
             const script = [
                 '#!/bin/bash',
                 `# Raccourci Gens Launcher — ${safeName}`,
@@ -579,152 +606,77 @@ require('./src/main/ipc-horizon')(context);
 require('./src/main/ipc-game')(context);
 require('./src/main/ipc-system')(context);
 
-const discordClientId = "1490353507218227301";
-const { Client: DiscordRPCClient } = require("@xhayper/discord-rpc");
-let rpc = null;
-let rpcReady = false;
-let rpcReconnectTimer = null;
-let rpcRetries = 0;
-function connectRPC() {
-    if (rpcReconnectTimer) { clearTimeout(rpcReconnectTimer); rpcReconnectTimer = null; }
-    if (rpcRetries > 20) {
-        mainLog("Discord RPC abandonné après 20 tentatives.");
-        return;
-    }
-    if (rpc) {
-        try { rpc.destroy(); } catch (_) { }
-        rpc = null;
-    }
-    try {
-        rpc = new DiscordRPCClient({ clientId: discordClientId });
-        rpc.on('ready', () => {
-            rpcReady = true;
-            rpcRetries = 0;
-            mainLog("Discord RPC connecté.");
-        });
-        rpc.on('disconnected', () => {
-            rpcReady = false;
-            rpcRetries++;
-            mainLog("Discord RPC déconnecté, tentative de reconnexion dans 15s...");
-            rpcReconnectTimer = setTimeout(connectRPC, 15000);
-        });
-        rpc.login().catch(e => {
-            rpcReady = false;
-            rpcRetries++;
-            rpcReconnectTimer = setTimeout(connectRPC, 15000);
-        });
-    } catch (e) {
-        rpcReady = false;
-        rpcRetries++;
-        rpcReconnectTimer = setTimeout(connectRPC, 15000);
+const DiscordRPC = require('./src/gens-core/components/discord.js');
+let rpc = new DiscordRPC(DISCORD_CLIENT_ID);
+let lastDiscordData = null;
+
+function applyDiscordData(data) {
+    if (!rpc.connected) return;
+    if (data === "clear") {
+        rpc.clearActivity();
+    } else {
+        const activity = {};
+        if (data.details) activity.details = data.details;
+        if (data.state) activity.state = data.state;
+        if (data.startTimestamp) activity.timestamps = { start: new Date(data.startTimestamp).getTime() };
+        
+        const assets = {};
+        if (data.largeImageKey) assets.large_image = data.largeImageKey;
+        if (data.largeImageText) assets.large_text = data.largeImageText;
+        if (data.smallImageKey) assets.small_image = data.smallImageKey;
+        if (data.smallImageText) assets.small_text = data.smallImageText;
+        if (Object.keys(assets).length > 0) activity.assets = assets;
+
+        if (data.buttons && data.buttons.length > 0) activity.buttons = data.buttons;
+
+        rpc.setActivity(activity);
     }
 }
-connectRPC();
+
+rpc.connect().then(success => {
+    if (success) {
+        mainLog('Discord RPC connecté.');
+        if (lastDiscordData) applyDiscordData(lastDiscordData);
+    }
+    else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
+});
 
 ipcMain.handle("reconnect-discord", async () => {
-    rpcRetries = 0;
-    if (rpcReconnectTimer) {
-        clearTimeout(rpcReconnectTimer);
-        rpcReconnectTimer = null;
+    rpc.disconnect();
+    const success = await rpc.connect();
+    if (success) {
+        mainLog("Discord RPC connecté (manuel).");
+        if (lastDiscordData) applyDiscordData(lastDiscordData);
     }
-    if (rpc) {
-        try { rpc.destroy(); } catch(e) {}
-        rpc = null;
-    }
-    return new Promise((resolve) => {
-        try {
-            rpc = new DiscordRPCClient({ clientId: discordClientId });
-            rpc.on('ready', () => {
-                rpcReady = true;
-                rpcRetries = 0;
-                mainLog("Discord RPC connecté (manuel).");
-                resolve({ success: true });
-            });
-            rpc.on('disconnected', () => {
-                rpcReady = false;
-                rpcRetries++;
-                mainLog("Discord RPC déconnecté.");
-                rpcReconnectTimer = setTimeout(connectRPC, 15000);
-            });
-            rpc.login().catch(e => {
-                rpcReady = false;
-                rpcRetries++;
-                rpcReconnectTimer = setTimeout(connectRPC, 15000);
-                resolve({ success: false, error: e.message || "Erreur de connexion" });
-            });
-        } catch(e) {
-            rpcReady = false;
-            rpcRetries++;
-            rpcReconnectTimer = setTimeout(connectRPC, 15000);
-            resolve({ success: false, error: e.message });
-        }
-    });
+    return { success };
 });
 
 ipcMain.on("update-discord", (event, data) => {
-    if (!rpcReady || !rpc || !rpc.user) return;
-    if (data === "clear") {
-        try { rpc.user.clearActivity(); } catch (_) { }
-        return;
-    }
-    try {
-        rpc.user.setActivity({
-            details: data.details,
-            state: data.state,
-            startTimestamp: data.startTimestamp ? new Date(data.startTimestamp) : undefined,
-            largeImageKey: data.largeImageKey,
-            largeImageText: data.largeImageText,
-            smallImageKey: data.smallImageKey,
-            smallImageText: data.smallImageText
-        });
-    } catch (e) { }
+    lastDiscordData = data;
+    applyDiscordData(data);
 });
 ipcMain.on('encrypt-string-sync', (event, text) => {
-    if (safeStorage.isEncryptionAvailable()) {
-        event.returnValue = 'safeStorage:' + safeStorage.encryptString(text).toString('hex');
-    } else {
-        const key = _getMainProcSecretKey();
-        const iv = crypto.randomBytes(16);
-        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-        let enc = cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
-        event.returnValue = 'aes:' + iv.toString('hex') + ':' + enc;
-    }
+    event.returnValue = encryptText(text);
 });
+
 ipcMain.on('decrypt-string-sync', (event, hexText) => {
-    try {
-        if (hexText.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
-            event.returnValue = safeStorage.decryptString(Buffer.from(hexText.split(':')[1], 'hex'));
-            return;
-        }
-        if (hexText.startsWith('aes:')) {
-            const key = _getMainProcSecretKey();
-            const parts = hexText.split(':');
-            const iv = Buffer.from(parts[1], 'hex');
-            const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-            let dec = decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
-            event.returnValue = dec;
-            return;
-        }
-        if (hexText.startsWith('b64:')) {
-            event.returnValue = Buffer.from(hexText.split(':')[1], 'base64').toString('utf8');
-            return;
-        }
-    } catch (e) {
-        mainLog("Erreur de déchiffrement : " + e.message);
-    }
-    event.returnValue = null;
+    event.returnValue = decryptText(hexText);
 });
+
 ipcMain.on('legacy-decrypt-sync', (event, hexText) => {
-    try {
-        const key = _getMainProcSecretKey();
-        const parts = hexText.split(':');
-        const iv = Buffer.from(parts.shift(), 'hex');
-        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        let dec = decipher.update(parts.join(':'), 'hex', 'utf8') + decipher.final('utf8');
-        event.returnValue = dec;
-    } catch (e) {
-        event.returnValue = null;
-    }
+    event.returnValue = legacyDecryptText(hexText);
+});
+
+ipcMain.handle('encrypt-string', async (event, text) => {
+    return encryptText(text);
+});
+
+ipcMain.handle('decrypt-string', async (event, hexText) => {
+    return decryptText(hexText);
+});
+
+ipcMain.handle('legacy-decrypt', async (event, text) => {
+    return legacyDecryptText(text);
 });
 app.on('before-quit', () => { try { _logStream.end(); } catch (_) { } });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

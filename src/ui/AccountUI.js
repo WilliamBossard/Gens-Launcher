@@ -278,30 +278,22 @@ export function setupAccountUI() {
         const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : null;
         async function loadSkinFromMojang(accParam) {
             const uuid = accParam.uuid;
+            let token = null;
             if (accParam.type === "microsoft" && accParam.mclcAuth && accParam.mclcAuth.access_token) {
                 try {
-                    const res = await fetch("https://api.minecraftservices.com/minecraft/profile", {
-                        headers: { "Authorization": `Bearer ${accParam.mclcAuth.access_token}` }
-                    });
-                    if (res.ok) {
-                        const profile = await res.json();
-                        const activeSkin = profile.skins?.find(s => s.state === "ACTIVE");
-                        const activeCape = profile.capes?.find(c => c.state === "ACTIVE");
-                        if (activeSkin) {
-                            return { skinUrl: activeSkin.url || null, capeUrl: activeCape?.url || null };
-                        }
+                    const refreshRes = await window.api.invoke("refresh-microsoft", accParam.mclcAuth.meta.msaCacheKey);
+                    if (refreshRes.success && refreshRes.access_token) {
+                        accParam.mclcAuth.access_token = refreshRes.access_token;
                     }
+                    token = accParam.mclcAuth.access_token;
                 } catch (e) { }
             }
-            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`);
-            if (!profileRes.ok) throw new Error("profile not found");
-            const profile = await profileRes.json();
-            const encoded = profile.properties?.find(p => p.name === "textures")?.value;
-            if (!encoded) throw new Error("no textures");
-            const textures = JSON.parse(atob(encoded)).textures;
-            const skinObj = textures?.SKIN;
-            const capeObj = textures?.CAPE;
-            return { skinUrl: skinObj?.url || null, capeUrl: capeObj?.url || null };
+            
+            const res = await window.api.invoke("fetch-mojang-profile", { token, uuid });
+            if (res.success && res.data) {
+                return res.data;
+            }
+            throw new Error(res.error || "Profile not found");
         }
         const STEVE_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAFDUlEQVR42u2a20sUURzH97G0LKMotPuWbVpslj1olJXdjCgyisowsSjzgrB0gSKyC5UF1ZNQWEEQSBQ9dHsIe+zJ/+nXfM/sb/rN4ZwZ96LOrnPgyxzP/M7Z+X7OZc96JpEISfWrFhK0YcU8knlozeJKunE4HahEqSc2nF6zSEkCgGCyb+82enyqybtCZQWAzdfVVFgBJJNJn1BWFgC49/VpwGVlD0CaxQiA5HSYEwBM5sMAdKTqygcAG9+8coHKY/XXAZhUNgDYuBSPjJL/GkzVVhAEU5tqK5XZ7cnFtHWtq/TahdSw2l0HUisr1UKIWJQBAMehDuqiDdzndsP2EZECAG1ZXaWMwOCODdXqysLf++uXUGv9MhUHIByDOijjdiSAoH3ErANQD73C7TXXuGOsFj1d4YH4OTJAEy8y9Hd0mCaeZ5z8dfp88zw1bVyiYhCLOg1ZeAqC0ybaDttHRGME1DhDeVWV26u17lRAPr2+mj7dvULfHw2q65fhQRrLXKDfIxkau3ZMCTGIRR3URR5toU38HbaPiMwUcKfBAkoun09PzrbQ2KWD1JJaqswjdeweoR93rirzyCMBCmIQizqoizZkm2H7iOgAcHrMHbbV9KijkUYv7qOn55sdc4fo250e+vUg4329/Xk6QB/6DtOws+dHDGJRB3XRBve+XARt+4hIrAF4UAzbnrY0ve07QW8uHfB+0LzqanMM7qVb+3f69LJrD90/1axiEIs6qIs21BTIToewfcSsA+Bfb2x67OoR1aPPzu2i60fSNHRwCw221Suz0O3jO+jh6V1KyCMGse9721XdN5ePutdsewxS30cwuMjtC860T5JUKpXyKbSByUn7psi5l+juDlZYGh9324GcPKbkycaN3jUSAGxb46IAYPNZzW0AzgiQ5tVnzLUpUDCAbakMQXXrOtX1UMtHn+Q9/X5L4wgl7t37r85OSrx+TYl379SCia9KXjxRpiTjIZTBFOvrV1f8ty2eY/T7XJ81FQAwmA8ASH1ob68r5PnBsxA88/xAMh6SpqW4HRnLBrkOA9Xv5wPAZjAUgOkB+SHxgBgR0qSMh0zmZRsmwDJm1gFg2PMDIC8/nAHIMls8x8GgzOsG5WiaqREgYzDvpTwjLDy8NM15LpexDEA3LepjU8Z64my+8PtDCmUyRr+fFwA2J0eAFYA0AxgSgMmYBMZTwFQnO9RNAEaHOj2DXF5UADmvAToA2ftyxZYA5BqgmZZApDkdAK4mAKo8GzPlr8G8AehzMAyA/i1girUA0HtYB2CaIkUBEHQ/cBHSvwF0AKZFS5M0ZwMQtEaEAmhtbSUoDADH9ff3++QZ4o0I957e+zYAMt6wHkhzpjkuAcgpwNcpA7AZDLsvpwiuOkBvxygA6Bsvb0HlaeKIF2EbADZpGiGzBsA0gnwQHGOhW2snRpbpPexbAB2Z1oicAMQpTnGKU5ziFKc4xSlOcYpTnOIUpzgVmgo+XC324WfJAdDO/+ceADkCpuMFiFKbApEHkOv7BfzfXt+5gpT8V7rpfYJcDz+jAsB233r6yyBsJ0mlBCDofuBJkel4vOwBFPv8fyYAFPJ+wbSf/88UANNRVy4Awo6+Ig2gkCmgA5DHWjoA+X7AlM//owLANkX0w0359od++pvX8fdMAcj3/QJ9iJsAFPQCxHSnQt8vMJ3v2wCYpkhkAOR7vG7q4aCXoMoSgG8hFAuc/grMdAD4B/kHl9da7Ne9AAAAAElFTkSuQmCC";
         const customSkin = getCustomSkin(acc.name);

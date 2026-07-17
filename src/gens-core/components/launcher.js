@@ -5,7 +5,7 @@ const fs = require('fs')
 const EventEmitter = require('events').EventEmitter
 
 class MCLCore extends EventEmitter {
-  async launch (options) {
+  async launch(options) {
     try {
       this.options = { ...options }
       this.options.root = path.resolve(this.options.root)
@@ -59,7 +59,7 @@ class MCLCore extends EventEmitter {
       this.options.mcPath = mcPath
       const nativePath = await this.handler.getNatives()
 
-      if (!fs.existsSync(mcPath)) {
+      if (!fs.existsSync(mcPath) && !this.options.offline) {
         this.emit('debug', '[Gens-Core]: Attempting to download Minecraft version jar')
         await this.handler.getJar()
       }
@@ -108,17 +108,17 @@ class MCLCore extends EventEmitter {
       const classPaths = ['-cp']
       const separator = this.handler.getOS() === 'windows' ? ';' : ':'
       this.emit('debug', `[Gens-Core]: Using ${separator} to separate class paths`)
-      // Handling launch arguments.
       const file = modifyJson || versionFile
-      // So mods like fabric work.
       const jar = fs.existsSync(mcPath)
         ? `${separator}${mcPath}`
         : `${separator}${path.join(directory, `${this.options.version.number}.jar`)}`
       classPaths.push(`${this.options.forge ? this.options.forge + separator : ''}${classes.join(separator)}${jar}`)
       classPaths.push(file.mainClass)
 
-      this.emit('debug', '[Gens-Core]: Attempting to download assets')
-      await this.handler.getAssets()
+      if (!this.options.offline) {
+        this.emit('debug', '[Gens-Core]: Attempting to download assets')
+        await this.handler.getAssets()
+      }
 
       const launchOptions = await this.handler.getLaunchOptions(modifyJson)
       if (this.aborted) throw new Error("Launch aborted by user")
@@ -134,25 +134,25 @@ class MCLCore extends EventEmitter {
     }
   }
 
-  abort () {
+  abort() {
     this.aborted = true
   }
 
-  printVersion () {
+  printVersion() {
     if (fs.existsSync(path.join(__dirname, '..', 'package.json'))) {
       const { version } = require('../package.json')
       this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
     } else { this.emit('debug', '[Gens-Core]: Package JSON not found, skipping MCLC version check.') }
   }
 
-  createRootDirectory () {
+  createRootDirectory() {
     if (!fs.existsSync(this.options.root)) {
       this.emit('debug', '[Gens-Core]: Attempting to create root folder')
       fs.mkdirSync(this.options.root)
     }
   }
 
-  createGameDirectory () {
+  createGameDirectory() {
     if (this.options.overrides.gameDirectory) {
       this.options.overrides.gameDirectory = path.resolve(this.options.overrides.gameDirectory)
       if (!fs.existsSync(this.options.overrides.gameDirectory)) {
@@ -161,14 +161,14 @@ class MCLCore extends EventEmitter {
     }
   }
 
-  async extractPackage () {
+  async extractPackage() {
     if (this.options.clientPackage) {
       this.emit('debug', `[Gens-Core]: Extracting client package to ${this.options.root}`)
       await this.handler.extractPackage()
     }
   }
 
-  async getModifyJson () {
+  async getModifyJson() {
     let modifyJson = null
 
     if (this.options.forge) {
@@ -183,7 +183,7 @@ class MCLCore extends EventEmitter {
     return modifyJson
   }
 
-  startMinecraft (launchArguments) {
+  startMinecraft(launchArguments) {
     const isDetached = this.options.overrides.detached !== false;
     const minecraft = child.spawn(this.options.javaPath ? this.options.javaPath : 'java', launchArguments,
       { cwd: this.options.overrides.cwd || this.options.root, detached: isDetached })

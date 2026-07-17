@@ -144,8 +144,13 @@ export function setupLauncher() {
             if (dStr.includes("Connecting to")) {
                 const parts = dStr.split("Connecting to ");
                 if (parts[1]) {
-                    currentServerIPs[instanceId] = parts[1].split(",")[0].trim();
-                    updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                    const ip = parts[1].split(",")[0].trim();
+                    if (ip.includes("127.0.0.1") || ip.includes("localhost") || ip.includes("0.0.0.0")) {
+                        // Ignorer les serveurs locaux (Serveur Solo intégré ou VoiceChat)
+                    } else {
+                        currentServerIPs[instanceId] = ip;
+                        updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                    }
                 }
             } else if (
                 dStr.includes("Saving and pausing game...") || dStr.includes("lost connection") ||
@@ -171,7 +176,7 @@ export function setupLauncher() {
         if (window.renderUI) window.renderUI();
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
         const isLastInstance = store.activeInstances.size === 0;
-        const isAutoClose = window._isAutoLaunch && isLastInstance;
+        let isAutoClose = window._isAutoLaunch && isLastInstance;
         function setAutoStatus(text) {
             const el = document.getElementById("auto-status-text");
             if (el) el.textContent = text;
@@ -277,11 +282,24 @@ export function setupLauncher() {
                     } else {
                         document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
                     }
-                    window._isManualHorizon = false;
-                    await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);
-                    sysLog(`[HORIZON] Upload terminé pour "${instanceId}".`);
+                    const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+                    if (!isOffline) {
+                        window._isManualHorizon = false;
+                        const hRes = await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);
+                        if (hRes && hRes.lastJson && hRes.lastJson.type === "ERROR") {
+                            let msg = hRes.lastJson.message;
+                            if (msg === "fetch failed") msg = t("err_fetch_failed", "Impossible de se connecter au serveur Horizon.");
+                            sysLog(`[HORIZON] Erreur d'upload pour "${instanceId}" : ${msg}`, true);
+                        } else {
+                            sysLog(`[HORIZON] Upload terminé pour "${instanceId}".`);
+                        }
+                    } else {
+                        sysLog(`[HORIZON] Upload ignoré pour "${instanceId}" (Mode hors ligne).`);
+                    }
                     if (!isAutoClose) {
                         document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+                        const pBar = document.getElementById("progress-bar");
+                        if (pBar) pBar.style.width = "0%";
                     }
                 }
             }

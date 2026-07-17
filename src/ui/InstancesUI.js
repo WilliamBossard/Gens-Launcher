@@ -244,6 +244,7 @@ export function setupInstances() {
         }
         if (window.switchTab) window.switchTab(targetTab);
         document.getElementById("modal-edit").style.display = "flex";
+        document.querySelectorAll("#modal-edit .settings-content").forEach(el => el.scrollTop = 0);
     };
     window.updateEditLoaderVersions = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
@@ -295,6 +296,7 @@ export function setupInstances() {
         versionSelect.appendChild(frag);
     };
     window.closeEditModal = () => {
+        document.querySelectorAll("#modal-edit .settings-content").forEach(el => el.scrollTop = 0);
         document.getElementById("modal-edit").style.display = "none";
         store.pendingIconPath = null;
     };

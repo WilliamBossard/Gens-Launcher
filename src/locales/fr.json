@@ -627,5 +627,14 @@
   "crash_gen_java_cause": "Erreur Java générique",
   "crash_gen_java_action": "Désactivez vos mods récents un par un pour trouver le coupable.",
   "action_unknown": "Aucune action spécifique recommandée. Vérifiez les logs complets.",
-  "msg_cannot_edit_running": "Impossible d'éditer une instance en cours d'exécution."
+  "msg_cannot_edit_running": "Impossible d'éditer une instance en cours d'exécution.",
+  "lbl_offline_mode": "Forcer le mode hors ligne",
+  "tt_offline": "Démarre le jeu sans vérifier les fichiers ni le compte. Pratique si vous n'avez pas internet.",
+  "err_fetch_failed": "Impossible de se connecter au serveur.",
+  "err_offline_fetch": "Impossible de télécharger les fichiers requis en mode hors ligne.",
+  "msg_offline_active": "Mode hors ligne actif",
+  "msg_connection_lost": "Connexion perdue : Mode hors ligne activé",
+  "msg_connection_restored": "Connexion rétablie : Mode en ligne activé",
+  "err_offline_first_launch": "Internet est requis pour le premier lancement afin de télécharger les fichiers du jeu.",
+  "msg_disabled_offline": "Cette action est désactivée en mode hors ligne."
 }

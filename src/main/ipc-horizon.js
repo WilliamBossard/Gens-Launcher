@@ -8,16 +8,35 @@ module.exports = function setupHorizonHandlers(context) {
 
     let githubReleaseCache = null;
     let githubReleaseCacheTime = 0;
+    let cachedExpectedHash = null;
+    const githubCacheFile = path.join(safeDataDir, 'github_release_cache.json');
 
-    async function fetchLatestHorizonRelease() {
-        if (githubReleaseCache && Date.now() - githubReleaseCacheTime < 30 * 60 * 1000) {
+    try {
+        if (fs.existsSync(githubCacheFile)) {
+            const parsed = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
+            if (parsed && parsed.time && parsed.data) {
+                githubReleaseCacheTime = parsed.time;
+                githubReleaseCache = parsed.data;
+            }
+            if (parsed && parsed.hash) {
+                cachedExpectedHash = parsed.hash;
+            }
+        }
+    } catch (_) {}
+
+    async function fetchLatestHorizonRelease(forceBypassCache = false) {
+        if (!forceBypassCache && githubReleaseCache && Date.now() - githubReleaseCacheTime < 2 * 60 * 60 * 1000) {
             return githubReleaseCache;
         }
-        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error("Erreur fetch Github");
         const data = await res.json();
         githubReleaseCache = data;
         githubReleaseCacheTime = Date.now();
+        try { fs.writeFileSync(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) {}
         return data;
     }
 
@@ -30,11 +49,15 @@ module.exports = function setupHorizonHandlers(context) {
 
     async function _runHorizonActionImpl(action, event = null) {
         const _lockArgs = Array.isArray(action) ? action : [action];
-        const isSafe = _lockArgs.every(arg =>
-            /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]]+$/.test(arg) &&
+        const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
+        
+        const isSafeCommand = _lockArgs.length > 0 && ALLOWED_COMMANDS.includes(_lockArgs[0]);
+        const isSafeChars = _lockArgs.every(arg =>
+            /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]\u00C0-\u017F]+$/.test(arg) &&
             !arg.includes('..')
         );
-        if (!isSafe) {
+        
+        if (!isSafeCommand || !isSafeChars) {
             mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
             return Promise.resolve({ exitCode: -1, lastJson: null });
         }
@@ -42,18 +65,31 @@ module.exports = function setupHorizonHandlers(context) {
         const isWriteOp = isHorizonWriteOp(_lockArgs);
 
         if (fs.existsSync(horizonExePath)) {
-            let expectedHash = null;
-            try {
-                const data = await fetchLatestHorizonRelease();
-                const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
-                if (asset) {
-                    const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
-                    if (shaAsset) {
-                        const hashRes = await fetch(shaAsset.browser_download_url);
-                        if (hashRes.ok) expectedHash = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
+            let expectedHash = cachedExpectedHash;
+            if (!expectedHash) {
+                try {
+                    const data = await fetchLatestHorizonRelease();
+                    const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
+                    if (asset) {
+                        const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
+                        if (shaAsset) {
+                            const hashRes = await fetch(shaAsset.browser_download_url);
+                            if (hashRes.ok) {
+                                expectedHash = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
+                                cachedExpectedHash = expectedHash;
+                                try {
+                                    let c = {};
+                                    if (fs.existsSync(githubCacheFile)) c = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
+                                    c.hash = expectedHash;
+                                    fs.writeFileSync(githubCacheFile, JSON.stringify(c));
+                                } catch (_) {}
+                            }
+                        }
                     }
+                } catch(e) {
+                    mainLog("Erreur vérification SHA256 (réseau): " + e.message);
                 }
-            } catch(e) {}
+            }
 
             if (expectedHash) {
                 try {
@@ -80,7 +116,7 @@ module.exports = function setupHorizonHandlers(context) {
                         break;
                     }
                 } catch (_) { }
-                if (isNaN(rawPid)) await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 100));
             }
             if (!isNaN(rawPid)) {
                 let alive = false;
@@ -88,7 +124,7 @@ module.exports = function setupHorizonHandlers(context) {
                     if (killErr.code === 'EPERM') {
                         try {
                             const age = Date.now() - fs.statSync(lockFile).mtimeMs;
-                            if (age > 30 * 60 * 1000) {
+                            if (age > 2 * 60 * 60 * 1000) {
                                 fs.unlinkSync(lockFile);
                             } else {
                                 alive = true;
@@ -113,7 +149,7 @@ module.exports = function setupHorizonHandlers(context) {
             const args = Array.isArray(action) ? action : [action];
             mainLog(`[Horizon] Exécution : ${args.join(' ')}`);
 
-            const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir });
+            const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir, env: { ...process.env, HORIZON_DATA_DIR: horizonBinDir } });
             let settled = false;
             let killTimer;
             let shutdownTimer;
@@ -279,7 +315,7 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('install-horizon', async (event) => {
         try {
-            const data = await fetchLatestHorizonRelease();
+            const data = await fetchLatestHorizonRelease(true);
             const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
             if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
 

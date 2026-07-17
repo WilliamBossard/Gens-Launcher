@@ -213,12 +213,9 @@ window.checkServerStatus = async () => {
         banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
     }
     try {
-        const serverController = new AbortController();
-        const serverTimeout = setTimeout(() => serverController.abort(), 8000);
-        const res = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(ip)}`, { signal: serverController.signal });
-        clearTimeout(serverTimeout);
-        if (!res.ok) throw new Error(`mcstatus HTTP ${res.status}`);
-        const data = await res.json();
+        const res = await window.api.invoke("ping-server", ip);
+        if (!res.success) throw new Error(`ping HTTP ${res.error}`);
+        const data = res.data;
         if (data.online) {
             const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
             let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;

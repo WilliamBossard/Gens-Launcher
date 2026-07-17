@@ -62,6 +62,7 @@ module.exports = function setupSystemHandlers(context) {
         const yauzl = require("yauzl");
         return new Promise((resolve) => {
             try {
+                zipPath = assertPathUnderSandbox(zipPath);
                 const targets = new Set(entryNames);
                 yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
                     if (err) return resolve({ success: false });
@@ -101,70 +102,178 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
         try {
-            const { spawn } = require("child_process");
             mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
             destDir = assertPathUnderSandbox(destDir);
+            
             return await new Promise((resolve) => {
-                if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-                const counter = spawn("tar", ["-tf", zipPath], { windowsHide: true });
-                let total = 0;
-                counter.stdout.on("data", (chunk) => {
-                    const str = chunk.toString();
-                    for (let i = 0; i < str.length; i++) {
-                        if (str[i] === '\n') total++;
+                const yauzl = require("yauzl");
+                yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+                    if (err) {
+                        mainLog(`[extract-zip] Erreur ouverture zip: ${err.message}`);
+                        return resolve({ success: false, error: err.message });
                     }
-                });
-                counter.on("close", (countCode) => {
-                    if (countCode !== 0) total = 0;
-                    const child = spawn("tar", ["-xf", zipPath, "-v", "-C", destDir], { windowsHide: true });
+                    
+                    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+                    const total = zipfile.entryCount;
                     let processed = 0;
                     let lastProgress = -1;
-                    let errBuffer = "";
-                    
-                    const processChunk = (chunk) => {
-                        if (total > 0) {
-                            const str = chunk.toString();
-                            for (let i = 0; i < str.length; i++) {
-                                if (str[i] === '\n') {
-                                    processed++;
-                                }
-                            }
-                            const pct = Math.min(100, Math.round((processed / total) * 100));
-                            if (pct !== lastProgress) {
-                                lastProgress = pct;
-                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { }
-                            }
-                        }
-                    };
 
-                    child.stdout.on("data", processChunk);
-                    child.stderr.on("data", (chunk) => {
-                        processChunk(chunk);
-                        const str = chunk.toString();
-                        if (errBuffer.length < 50000) errBuffer += str; // Limit errBuffer size
-                    });
-                    child.on("close", (code) => {
-                        if (code === 0) {
-                            mainLog(`[extract-zip] Extraction terminée avec succès (${processed} fichiers).`);
-                            resolve({ success: true });
+                    zipfile.readEntry();
+                    zipfile.on("entry", (entry) => {
+                        const destPath = path.join(destDir, entry.fileName);
+                        const resDest = path.resolve(destPath);
+                        const resolvedTarget = path.resolve(destDir);
+                        
+                        if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                            zipfile.readEntry();
+                            return;
+                        }
+
+                        if (/\/$/.test(entry.fileName)) {
+                            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+                            processed++;
+                            zipfile.readEntry();
                         } else {
-                            mainLog(`[extract-zip] Erreur extraction tar: code ${code}, ${errBuffer}`);
-                            resolve({ success: false, error: errBuffer || `tar process exited with code ${code}` });
+                            if (!fs.existsSync(path.dirname(destPath))) fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                            zipfile.openReadStream(entry, (err, readStream) => {
+                                if (err) {
+                                    processed++;
+                                    zipfile.readEntry();
+                                    return;
+                                }
+                                const writeStream = fs.createWriteStream(destPath);
+                                readStream.pipe(writeStream);
+                                writeStream.on("close", () => {
+                                    processed++;
+                                    if (total > 0) {
+                                        const pct = Math.min(100, Math.round((processed / total) * 100));
+                                        if (pct !== lastProgress) {
+                                            lastProgress = pct;
+                                            try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { }
+                                        }
+                                    }
+                                    zipfile.readEntry();
+                                });
+                                writeStream.on("error", (wErr) => {
+                                    processed++;
+                                    zipfile.readEntry();
+                                });
+                            });
                         }
                     });
-                    child.on("error", (err) => {
-                        mainLog(`[extract-zip] Erreur process tar: ${err.message}`);
+                    
+                    zipfile.on("end", () => {
+                        mainLog(`[extract-zip] Extraction terminée avec succès (${processed}/${total} entrées).`);
+                        resolve({ success: true });
+                    });
+                    
+                    zipfile.on("error", (err) => {
+                        mainLog(`[extract-zip] Erreur extraction: ${err.message}`);
                         resolve({ success: false, error: err.message });
                     });
                 });
-                counter.on("error", (err) => {
-                    mainLog(`[extract-zip] Erreur tar -tf: ${err.message}`);
-                    resolve({ success: false, error: "Impossible de lire l'archive." });
-                });
             });
+        } catch (e) {
+            mainLog(`[extract-zip] Exception: ${e.message}`);
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("ping-server", async (event, ip) => {
+        try {
+            const { Ping } = require('../gens-core');
+            const data = await Ping.pingServer(ip, 5000);
+            
+            const mcColorMap = {
+                'black': '#000000', 'dark_blue': '#0000AA', 'dark_green': '#00AA00', 'dark_aqua': '#00AAAA',
+                'dark_red': '#AA0000', 'dark_purple': '#AA00AA', 'gold': '#FFAA00', 'gray': '#AAAAAA',
+                'dark_gray': '#555555', 'blue': '#5555FF', 'green': '#55FF55', 'aqua': '#55FFFF',
+                'red': '#FF5555', 'light_purple': '#FF55FF', 'yellow': '#FFFF55', 'white': '#FFFFFF'
+            };
+            const legacyMap = {
+                '0': '#000', '1': '#00a', '2': '#0a0', '3': '#0aa',
+                '4': '#a00', '5': '#a0a', '6': '#fa0', '7': '#aaa',
+                '8': '#555', '9': '#55f', 'a': '#5f5', 'b': '#5ff',
+                'c': '#f55', 'd': '#f5f', 'e': '#ff5', 'f': '#fff'
+            };
+
+            function parseLegacy(raw) {
+                if (!raw) return '';
+                let html = '';
+                let spanCount = 0;
+                const parts = raw.split('§');
+                html += parts[0];
+                for (let i = 1; i < parts.length; i++) {
+                    const part = parts[i];
+                    if (part.length === 0) continue;
+                    const code = part[0].toLowerCase();
+                    const text = part.substring(1);
+                    if (legacyMap[code]) {
+                        html += '</span>'.repeat(spanCount);
+                        spanCount = 0;
+                        html += `<span style="color: ${legacyMap[code]};">`;
+                        spanCount++;
+                    } else if (code === 'l') {
+                        html += `<span style="font-weight: bold;">`;
+                        spanCount++;
+                    } else if (code === 'o') {
+                        html += `<span style="font-style: italic;">`;
+                        spanCount++;
+                    } else if (code === 'n') {
+                        html += `<span style="text-decoration: underline;">`;
+                        spanCount++;
+                    } else if (code === 'm') {
+                        html += `<span style="text-decoration: line-through;">`;
+                        spanCount++;
+                    } else if (code === 'r') {
+                        html += '</span>'.repeat(spanCount);
+                        spanCount = 0;
+                    }
+                    html += text;
+                }
+                html += '</span>'.repeat(spanCount);
+                return html.replace(/\n/g, '  ');
+            }
+
+            function parseComponent(comp) {
+                if (typeof comp === 'string') return parseLegacy(comp);
+                if (!comp) return '';
+                if (Array.isArray(comp)) return comp.map(parseComponent).join('');
+                
+                let style = '';
+                if (comp.color) {
+                    const c = comp.color;
+                    if (c.startsWith('#')) style += `color: ${c}; `;
+                    else if (mcColorMap[c]) style += `color: ${mcColorMap[c]}; `;
+                }
+                if (comp.bold) style += 'font-weight: bold; ';
+                if (comp.italic) style += 'font-style: italic; ';
+                if (comp.underlined) style += 'text-decoration: underline; ';
+                if (comp.strikethrough) style += 'text-decoration: line-through; ';
+                
+                let html = '';
+                if (style) html += `<span style="${style}">`;
+                html += parseLegacy(comp.text || '');
+                if (Array.isArray(comp.extra)) {
+                    for (const child of comp.extra) html += parseComponent(child);
+                }
+                if (style) html += '</span>';
+                return html;
+            }
+
+            let motdHtml = '';
+            if (data.description) motdHtml = parseComponent(data.description);
+
+            const mappedData = {
+                online: true,
+                icon: data.favicon || "",
+                motd: { html: motdHtml },
+                players: { online: data.players ? data.players.online : 0, max: data.players ? data.players.max : 0 }
+            };
+
+            return { success: true, data: mappedData };
         } catch (err) {
-            mainLog(`[extract-zip] Exception handler: ${err.message}`);
-            return { success: false, error: err.message };
+            return { success: true, data: { online: false, error: err.message } };
         }
     });
 
