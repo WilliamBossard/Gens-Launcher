@@ -417,6 +417,7 @@
   "tt_transparency": "Affiche des fonds noirs unis derrière les fenêtres (Bon pour les vieux PC).",
   "discord_playing_with": "Joue avec Gens Launcher !",
   "msg_loader_incompat_ver": "Incompatible avec la {ver}",
+  "msg_loader_incompat_toast": "{loader} n'est pas disponible pour MC {ver}. Choisissez une autre version ou passez en Vanilla.",
   "msg_loader_incompat": "Incompatible",
   "msg_autobackup_running": "Auto-Backup en cours...",
   "msg_game_closed_normal": "{name} s'est fermé normalement.",

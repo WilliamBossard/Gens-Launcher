@@ -96,7 +96,7 @@ export function checkAchievement(id) {
     if (store.globalSettings.unlockedAchievements.includes(id)) return;
     store.globalSettings.unlockedAchievements.push(id);
     try {
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
     } catch(e) {
         console.error("checkAchievement : erreur écriture settings :", e);
     }

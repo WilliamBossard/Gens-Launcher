@@ -97,7 +97,7 @@ export async function analyzeCrash(instanceName) {
                     stats.sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
                     latestReport = await fs.promises.readFile(path.join(crashDir, stats[0].file), 'utf8');
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         const logPath = path.join(instDir, "logs", "latest.log");
         if (fs.existsSync(logPath)) {
@@ -106,7 +106,7 @@ export async function analyzeCrash(instanceName) {
                 if (logData.length > 200000) {
                     logData = logData.substring(logData.length - 200000);
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         let uiLogs = "";
         const logOutput = document.getElementById("log-output");

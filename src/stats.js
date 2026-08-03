@@ -20,9 +20,9 @@ export function setupStats() {
                             filesToDelete.push(filePath);
                             totalSize += stats.size;
                         }
-                    } catch (e) {}
+                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
-            } catch (e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         };
         await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
         await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip") || f.endsWith(".tar.gz"));
@@ -46,13 +46,13 @@ export function setupStats() {
                                 try {
                                     const sfStat = await fs.promises.stat(path.join(dPath, sf));
                                     if (!sfStat.isDirectory) totalSize += sfStat.size;
-                                } catch(_) {}
+                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in stats.js:", _); }
                             }
                         }
-                    } catch(e) {}
+                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
             }
-        } catch(e) {}
+        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         return { files: filesToDelete, size: totalSize };
     }
     async function getInGameStatsAsync() {
@@ -91,11 +91,11 @@ export function setupStats() {
                                 const horse  = custom["minecraft:horse_one_cm"]    || data["stat.horseOneCm"]    || 0;
                                 const minec  = custom["minecraft:minecart_one_cm"] || data["stat.minecartOneCm"] || 0;
                                 totalWalkCm += (walk + sprint + crouch + swim + fly + elytra + boat + horse + minec);
-                            } catch(e) {} 
+                            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); } 
                         }
-                    } catch(e) {}
+                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         }
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
     }
@@ -115,9 +115,9 @@ async function getFolderSizeAsync(dir, visited = new Set()) {
                 } else {
                     size += stats.size;
                 }
-            } catch (e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         }
-    } catch (e) {}
+    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
     return size;
 }
 window.openStatsModal = async () => {

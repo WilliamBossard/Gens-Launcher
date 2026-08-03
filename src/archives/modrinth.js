@@ -23,7 +23,7 @@ export function setup() {
         else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
         const modsDir = path.join(instDir, "mods");
         if (fs.existsSync(modsDir)) {
-            try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch(_) {}
+            try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
         }
         fs.mkdirSync(modsDir, { recursive: true });
         const processOverrides = (folderName) => {
@@ -34,7 +34,7 @@ export function setup() {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
                     if (fs.existsSync(destPath)) {
-                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     fs.renameSync(path.join(srcDir, item), destPath);
                 }
@@ -63,24 +63,24 @@ export function setup() {
                 try {
                     const downloadUrl = modFile.downloads[0];
                     if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) { downloadedCount++; continue; }
-                    const res = await fetch(downloadUrl);
+                    const res = await window.fetchWithTimeout(downloadUrl, { timeout: 120000 });
                     if (res.ok) {
                         const fileBytes = new Uint8Array(await res.arrayBuffer());
                         await fs.promises.writeFile(modPath, fileBytes);
                     }
-                } catch (e) {}
+                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
                 downloadedCount++;
                 window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
         await Promise.all(workers);
-        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         window.showToast("Modpack mis à jour avec succès !", "success");
       } catch (err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
       } finally {
-         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
          window.hideLoading();
          window.renderUI();
       }
@@ -128,7 +128,7 @@ export function setup() {
                 for (const item of items) {
                     const destPath = path.join(instDir, item);
                     if (fs.existsSync(destPath)) {
-                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     fs.renameSync(path.join(srcDir, item), destPath);
                 }
@@ -161,7 +161,7 @@ export function setup() {
                         downloadedCount++;
                         continue;
                     }
-                    const res = await fetch(downloadUrl);
+                    const res = await window.fetchWithTimeout(downloadUrl, { timeout: 120000 });
                     if (res.ok) {
                         const fileBytes = new Uint8Array(await res.arrayBuffer());
                         if (modFile.hashes?.sha1) {
@@ -184,21 +184,21 @@ export function setup() {
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         const instOpt = path.join(instDir, "options.txt");
         if (fs.existsSync(defaultOpt) && !fs.existsSync(instOpt)) {
-            try { fs.copyFileSync(defaultOpt, instOpt); } catch(e) {}
+            try { fs.copyFileSync(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         }
         store.allInstances.push(newInst);
         if (window.updateIconCache) window.updateIconCache(newInst);
-        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch(e) {}
+        try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
         window.showToast(t("msg_install_success", "Installation réussie !"), "success");
       } catch (err) {
         sysLog("Erreur Modpack Modrinth : " + err.message, true);
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
       } finally {
-         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+         try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
          window.hideLoading();
          window.renderUI();
       }

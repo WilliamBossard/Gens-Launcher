@@ -57,7 +57,7 @@ fs.renameSync(tmpPath, datPath);
         if (!inst.servers) inst.servers = [];
         if (!inst.servers.includes(ip)) {
             inst.servers.push(ip);
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             await syncServersDat(inst);
         }
         document.getElementById("new-server-ip").value = "";
@@ -66,7 +66,7 @@ fs.renameSync(tmpPath, datPath);
     window.removeServer = async (index) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         inst.servers.splice(index, 1);
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         await syncServersDat(inst);
         await window.renderServersManager();
     };
@@ -77,7 +77,7 @@ fs.renameSync(tmpPath, datPath);
         } else {
             inst.autoConnect = ip;
         }
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         await window.renderServersManager();
     };
     /**
@@ -104,7 +104,7 @@ fs.renameSync(tmpPath, datPath);
                 }
             }
             if (changed) {
-                window.safeWriteJSON(store.instanceFile, store.allInstances);
+                window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                 sysLog(`syncServersDatToStore : ${inst.name} — ${entries.length} serveur(s) importé(s) depuis servers.dat`);
             }
             return changed;

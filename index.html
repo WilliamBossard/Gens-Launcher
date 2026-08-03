@@ -3,9 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://* http://*; connect-src 'self' https://* http://* wss://* ws://*; font-src 'self' data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*; connect-src 'self' https://* wss://*; font-src 'self' data:;">
     <title>Gens Launcher</title>
-    <script src="./src/gens-core/components/skinview3d.bundle.min.js"></script>
+    <script src="./src/gens-core/components/skinview3d.bundle.min.js" defer></script>
     <link rel="stylesheet" href="src/css/main.css">
     <link rel="stylesheet" href="src/css/modals.css">
 </head>
@@ -41,7 +41,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-primary" onclick="saveFirstLaunch()">Continuer / Continue</button>
+                <button id="btn-save-first-launch" class="btn-primary">Continuer / Continue</button>
             </div>
         </div>
     </div>
@@ -54,7 +54,7 @@
                 <div id="updates-list" style="max-height: 200px; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); padding: 10px; border-radius: 4px; font-size: 0.85rem; color: var(--text-light);"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-updates').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+                <button id="btn-close-updates-modal" class="btn-secondary" data-i18n="modal_cancel">Annuler</button>
                 <button class="btn-primary" id="btn-confirm-updates" data-i18n="btn_update_all">Tout mettre à jour</button>
             </div>
         </div>
@@ -69,39 +69,39 @@
                     </div>
 
                 <div class="mmc-actions">
-                    <button class="btn-microsoft" id="btn-ms-login" onclick="loginMicrosoft()" data-i18n="lbl_add_microsoft">Ajouter Microsoft</button>
-                    <button class="btn-secondary" onclick="toggleOfflineInput()" data-i18n="lbl_add_offline">Ajouter Hors-Ligne</button>
+                    <button class="btn-microsoft" id="btn-ms-login" data-i18n="lbl_add_microsoft">Ajouter Microsoft</button>
+                    <button id="btn-toggle-offline" class="btn-secondary" data-i18n="lbl_add_offline">Ajouter Hors-Ligne</button>
                     
                     <div id="offline-input-container" class="mmc-offline-input" style="display: none;">
-                        <input type="text" id="acc-name" placeholder="Pseudo..." onkeydown="if(event.key==='Enter') saveOfflineAccount()">
-                        <button class="btn-secondary" onclick="saveOfflineAccount()" data-i18n="modal_apply">Valider</button>
+                        <input type="text" id="acc-name" placeholder="Pseudo...">
+                        <button id="btn-save-offline" class="btn-secondary" data-i18n="modal_apply">Valider</button>
                     </div>
 
                     <div class="acc-divider"></div>
 
-                    <button class="btn-secondary" id="btn-use-acc" onclick="useSelectedRow()" disabled data-i18n="lbl_use_account">Utiliser le compte</button>
-                    <button class="btn-secondary" id="btn-skin-acc" onclick="openSkinModal()" disabled data-i18n="lbl_skin_cape">Skin & Cape</button>
-                    <button class="btn-secondary" id="btn-del-acc" onclick="deleteSelectedRow()" style="color: #f87171;" disabled data-i18n="btn_delete">Supprimer</button>
+                    <button class="btn-secondary" id="btn-use-acc" disabled data-i18n="lbl_use_account">Utiliser le compte</button>
+                    <button class="btn-secondary" id="btn-skin-acc" disabled data-i18n="lbl_skin_cape">Skin & Cape</button>
+                    <button class="btn-secondary" id="btn-del-acc" style="color: #f87171;" disabled data-i18n="btn_delete">Supprimer</button>
                     
                     <div style="flex-grow: 1;"></div>
-                    <button class="btn-secondary" onclick="closeAccountModal()" data-i18n="modal_close">Fermer</button>
+                    <button id="btn-close-account-modal" class="btn-secondary" data-i18n="modal_close">Fermer</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <input type="file" id="import-upload" accept=".zip,.mrpack" style="display: none;" onchange="handleImport(this)">
+    <input type="file" id="import-upload" accept=".zip,.mrpack" style="display: none;">
     <datalist id="java-paths-list"></datalist>
     <datalist id="group-paths-list"></datalist>
 
     <div class="toolbar">
         <div class="toolbar-group">
-            <button class="tool-btn" onclick="openInstanceModal()" data-i18n="toolbar_add">Ajouter une instance</button>
-            <button class="tool-btn" id="btn-toolbar-builder" onclick="openBuilderModal()" data-i18n="toolbar_builder">Créer un Modpack</button>
-            <button class="tool-btn" onclick="document.getElementById('import-upload').click()" data-i18n="toolbar_import">Importer</button>
-            <button class="tool-btn" id="btn-toolbar-catalog" onclick="openCatalogModal()" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
+            <button id="btn-open-instance-modal" class="tool-btn" data-i18n="toolbar_add">Ajouter une instance</button>
+            <button class="tool-btn" id="btn-toolbar-builder" data-i18n="toolbar_builder">Créer un Modpack</button>
+            <button id="btn-import-upload" class="tool-btn" data-i18n="toolbar_import">Importer</button>
+            <button class="tool-btn" id="btn-toolbar-catalog" data-i18n="toolbar_catalog">Catalogue de Contenu</button>
             
-            <button class="tool-btn" onclick="openGlobalSettings()" style="position: relative;">
+            <button id="btn-open-global-settings" class="tool-btn" style="position: relative;">
                 <span data-i18n="toolbar_settings">Paramètres Globaux</span>
                 <!-- Pastille MAJ launcher -->
                 <span id="settings-update-badge" style="display:none; position: absolute; top: 2px; right: 2px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f87171;"></span>
@@ -109,22 +109,22 @@
                 <span id="horizon-update-badge" style="display:none; position: absolute; top: 2px; right: 14px; background:#f48a21; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f48a21;" data-i18n-title="horizon_update_available"></span>
             </button>
             
-            <button class="tool-btn" onclick="document.getElementById('console-container').style.display='block'" data-i18n="toolbar_logs">Afficher les logs</button>
-            <button class="tool-btn" onclick="openStatsModal()" data-i18n="toolbar_stats" style="color: var(--accent);">Statistiques</button>
+            <button id="btn-show-console" class="tool-btn" data-i18n="toolbar_logs">Afficher les logs</button>
+            <button id="btn-open-stats" class="tool-btn" data-i18n="toolbar_stats" style="color: var(--accent);">Statistiques</button>
         </div>
 
         <div class="toolbar-group">
             <img id="active-skin" src="" style="width: 20px; height: 20px; border-radius: 2px; image-rendering: pixelated; display: none;">
-            <select id="account-dropdown" class="tool-select" onchange="changeAccount()" style="min-width: 120px;"></select>
-            <button class="tool-btn" onclick="openAccountModal()" data-i18n="toolbar_manage">Gérer</button>
+            <select id="account-dropdown" class="tool-select" style="min-width: 120px;"></select>
+            <button id="btn-open-account-modal" class="tool-btn" data-i18n="toolbar_manage">Gérer</button>
         </div>
     </div>
 
     <div class="workspace">
         <div class="main-area">
             <div class="search-bar-container">
-                <input type="text" id="search-bar" data-i18n="search_inst" placeholder="Rechercher une instance..." style="width: 250px;" oninput="scheduleSearch()">
-                <select id="sort-dropdown" class="tool-select" style="width: 200px;" onchange="renderUI()">
+                <input type="text" id="search-bar" data-i18n="search_inst" placeholder="Rechercher une instance..." style="width: 250px;">
+                <select id="sort-dropdown" class="tool-select" style="width: 200px;">
                     <option value="name" data-i18n="sort_name">Trier par Nom</option>
                     <option value="lastPlayed" data-i18n="sort_last">Dernière utilisation</option>
                     <option value="playTime" data-i18n="sort_time">Temps de jeu</option>
@@ -144,8 +144,8 @@
                         <input type="text" id="console-filter" data-i18n="ph_filter_logs" placeholder="Filtrer les logs..." style="width: 180px; font-size: 0.7rem; padding: 3px 6px; background: #222; border: 1px solid var(--border); color: var(--text-light); border-radius: 3px;">
                     </div>
                     <div>
-                        <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.7rem; margin-right: 10px;" onclick="copyLogs()" data-i18n="btn_copy_logs">Copier</button>
-                        <span style="cursor:pointer; font-size: 14px;" onclick="document.getElementById('console-container').style.display='none'">X</span>
+                        <button id="btn-copy-logs" class="btn-secondary" style="padding: 2px 8px; font-size: 0.7rem; margin-right: 10px;" data-i18n="btn_copy_logs">Copier</button>
+                        <span id="btn-hide-console" style="cursor:pointer; font-size: 14px;">X</span>
                     </div>
                 </div>
                 <div id="log-output"></div>
@@ -163,18 +163,18 @@
 
             <button id="launch-btn" class="action-btn" style="font-weight: bold; color: white; background: var(--accent);" disabled data-i18n="btn_launch">Lancer</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-edit" onclick="openEditModal('tab-general')" data-i18n="btn_settings">Paramètres de l'instance</button>
-            <button class="action-btn" id="btn-mods" onclick="openEditModal('tab-mods')" data-i18n="btn_mods">Gestionnaire de Mods</button>
-            <button class="action-btn" id="btn-saves" onclick="openWorldsModal()" data-i18n="btn_saves">Voir les mondes</button>
-            <button class="action-btn" id="btn-screens" onclick="openGalleryModal()" data-i18n="btn_gallery">Galerie de Captures</button>
+            <button class="action-btn" id="btn-edit" data-i18n="btn_settings">Paramètres de l'instance</button>
+            <button class="action-btn" id="btn-mods" data-i18n="btn_mods">Gestionnaire de Mods</button>
+            <button class="action-btn" id="btn-saves" data-i18n="btn_saves">Voir les mondes</button>
+            <button class="action-btn" id="btn-screens" data-i18n="btn_gallery">Galerie de Captures</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-folder" onclick="openDir('')" data-i18n="btn_folder">Dossier de l'instance</button>
+            <button class="action-btn" id="btn-folder" data-i18n="btn_folder">Dossier de l'instance</button>
             <div class="panel-divider"></div>
-            <button class="action-btn" id="btn-delete" onclick="deleteInstance()" style="color: #f87171;" data-i18n="btn_delete">Supprimer</button>
-            <button class="action-btn" id="btn-copy" onclick="copyInstance()" data-i18n="btn_copy">Copier l'instance</button>
-            <button class="action-btn" id="btn-export" onclick="exportInstance()" data-i18n="btn_export">Exporter l'instance</button>
-            <button class="action-btn" id="btn-update-modpack" onclick="document.getElementById('update-modpack-input').click()" data-i18n="btn_update_modpack">Mettre à jour le modpack</button>
-            <input type="file" id="update-modpack-input" accept=".zip,.mrpack" style="display: none;" onchange="handleUpdateModpack(this)">
+            <button class="action-btn" id="btn-delete" style="color: #f87171;" data-i18n="btn_delete">Supprimer</button>
+            <button class="action-btn" id="btn-copy" data-i18n="btn_copy">Copier l'instance</button>
+            <button class="action-btn" id="btn-export" data-i18n="btn_export">Exporter l'instance</button>
+            <button class="action-btn" id="btn-update-modpack" data-i18n="btn_update_modpack">Mettre à jour le modpack</button>
+            <input type="file" id="update-modpack-input" accept=".zip,.mrpack" style="display: none;">
         </div>
     </div>
 
@@ -246,7 +246,7 @@
                             <span data-i18n="lbl_freed_space">Espace libérable :</span> <span id="dashboard-cache-size" style="color:var(--text-light); font-weight:bold;">Calcul...</span>
                         </div>
                     </div>
-                    <button class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 10px; font-size: 0.8rem;" onclick="cleanCache()" data-i18n="btn_clean">Nettoyer</button>
+                    <button id="btn-clean-cache" class="btn-secondary" style="color: #f87171; border-color: #f87171; padding: 4px 10px; font-size: 0.8rem;" data-i18n="btn_clean">Nettoyer</button>
                 </div>
 
                 <div style="margin-top: 20px; text-align: center; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; border: 1px dashed var(--border);">
@@ -267,7 +267,7 @@
                 </div>
                 </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeStatsModal()" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-stats" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -278,7 +278,7 @@
             <div class="modal-body" id="mc-worlds-list" style="flex-grow: 1; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; padding: 10px;">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-import-mc').style.display='none'" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-import-mc" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -287,17 +287,17 @@
         <div class="modal-card" style="width: 750px; height: 500px;">
             <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <span data-i18n="modal_worlds_title">Gestion des Mondes</span>
-                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="openImportMCWorldsModal()" data-i18n="btn_import_official_world">Importer depuis .minecraft</button>
+                <button id="btn-open-import-mc" class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" data-i18n="btn_import_official_world">Importer depuis .minecraft</button>
             </div>
             <div class="modal-body" id="worlds-list" style="flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; margin: 15px; margin-top: 0;">
             </div>
             <div class="modal-footer">
                 <div style="display: flex; gap: 8px; margin-right: auto;">
-                    <button class="btn-secondary" onclick="openDir('')" data-i18n="btn_folder_inst">Dossier de l'instance</button>
-                    <button class="btn-secondary" onclick="openDir('saves')" data-i18n="btn_folder_saves">Dossier Mondes</button>
-                    <button class="btn-secondary" onclick="openDir('backups')" data-i18n="btn_folder_backups">Dossier Sauvegardes</button>
+                    <button id="btn-open-dir-root" class="btn-secondary" data-i18n="btn_folder_inst">Dossier de l'instance</button>
+                    <button id="btn-open-dir-saves" class="btn-secondary" data-i18n="btn_folder_saves">Dossier Mondes</button>
+                    <button id="btn-open-dir-backups" class="btn-secondary" data-i18n="btn_folder_backups">Dossier Sauvegardes</button>
                 </div>
-                <button class="btn-secondary" onclick="closeWorldsModal()" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-worlds" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -308,7 +308,7 @@
             <div class="modal-body" id="restore-list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 15px;">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-restore').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+                <button id="btn-close-restore" class="btn-secondary" data-i18n="modal_cancel">Annuler</button>
             </div>
         </div>
     </div>
@@ -320,10 +320,10 @@
             </div>
             <div class="modal-footer">
                 <div style="display: flex; gap: 8px; margin-right: auto;">
-                    <button class="btn-secondary" onclick="openDir('')" data-i18n="btn_folder_inst">Dossier de l'instance</button>
-                    <button class="btn-secondary" onclick="openDir('screenshots')" data-i18n="btn_folder_screens">Dossier Captures</button>
+                    <button id="btn-open-dir-root-gallery" class="btn-secondary" data-i18n="btn_folder_inst">Dossier de l'instance</button>
+                    <button id="btn-open-dir-screenshots" class="btn-secondary" data-i18n="btn_folder_screens">Dossier Captures</button>
                 </div>
-                <button class="btn-secondary" onclick="closeGalleryModal()" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-gallery" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -333,32 +333,32 @@
             <div class="modal-header" data-i18n="toolbar_catalog">Catalogue (Mods, Shaders, Packs)</div>
             <div class="modal-body" style="flex-grow: 1; overflow: hidden; padding: 15px; display: flex; flex-direction: column;">
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <select id="catalog-source" style="width: 120px;" onchange="searchGlobalCatalog()">
+                    <select id="catalog-source" style="width: 120px;">
                         <option value="modrinth">Modrinth</option>
                         <option value="curseforge">CurseForge</option>
                     </select>
-                    <select id="catalog-type" style="width: 120px;" onchange="searchGlobalCatalog()">
+                    <select id="catalog-type" style="width: 120px;">
                         <option value="mod" data-i18n="opt_mods_type">Mods</option>
                         <option value="modpack" data-i18n="opt_modpack">Modpacks</option>
                         <option value="shader" data-i18n="opt_shaders_type">Shaders</option>
                         <option value="resourcepack" data-i18n="opt_rp_type">Ressources</option>
                     </select>
-                    <input type="text" id="catalog-search" data-i18n="ph_search_catalog" placeholder="Rechercher dans le catalogue..." style="flex-grow: 1;" onkeydown="if(event.key === 'Enter') searchGlobalCatalog()">
-                    <select id="catalog-loader" style="width: 100px;" onchange="searchGlobalCatalog()">
+                    <input type="text" id="catalog-search" data-i18n="ph_search_catalog" placeholder="Rechercher dans le catalogue..." style="flex-grow: 1;">
+                    <select id="catalog-loader" style="width: 100px;">
                         <option value="fabric">Fabric</option>
                         <option value="quilt">Quilt</option>
                         <option value="forge">Forge</option>
                         <option value="neoforge">NeoForge</option>
                     </select>
-                    <select id="catalog-version" style="width: 90px;" onchange="searchGlobalCatalog()"></select>
-                    <button class="btn-primary" onclick="searchGlobalCatalog()" data-i18n="btn_search">Chercher</button>
+                    <select id="catalog-version" style="width: 90px;"></select>
+                    <button id="btn-search-catalog" class="btn-primary" data-i18n="btn_search">Chercher</button>
                 </div>
                 <div id="catalog-results" style="flex-grow: 1; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 10px;">
                 </div>
             </div>
             <div class="modal-footer">
                 <span id="catalog-status" style="margin-right: auto; font-size: 0.85rem; color: var(--accent);"></span>
-                <button class="btn-secondary" onclick="closeCatalogModal()" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-catalog" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -368,17 +368,16 @@
             <div class="modal-header" data-i18n="toolbar_add">Nouvelle instance</div>
             <div class="modal-body">
                 <label data-i18n="lbl_inst_name">Nom</label>
-                <input type="text" id="new-name" data-i18n="ph_inst_name" placeholder="Ma Survie" oninput="this.style.borderColor='var(--border)'">
+                <input type="text" id="new-name" data-i18n="ph_inst_name" placeholder="Ma Survie">
                 <div class="checkbox-container">
-                    <input type="checkbox" id="check-beta" style="width:auto; margin:0;"
-                        onchange="updateVersionList(this.checked)">
+                    <input type="checkbox" id="check-beta" style="width:auto; margin:0;">
                     <label for="check-beta" data-i18n="lbl_beta">Afficher les Bêtas</label>
                 </div>
                 <label data-i18n="lbl_version">Version Minecraft</label>
-                <select id="new-version" onchange="updateLoaderVersions()"></select>
+                <select id="new-version"></select>
                 
                 <label data-i18n="lbl_loader">Type de chargeur (Loader)</label>
-                <select id="new-loader" onchange="updateLoaderVersions()">
+                <select id="new-loader">
                     <option value="vanilla">Vanilla</option>
                     <option value="fabric">Fabric</option>
                     <option value="quilt">Quilt</option>
@@ -394,15 +393,13 @@
                 <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 10px;">
                     <label data-i18n="lbl_ram">Mémoire RAM (Mo) :</label>
                     <input type="number" id="new-ram-input" min="1024" max="32768"
-                        style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;"
-                        oninput="document.getElementById('new-ram-slider').value = this.value">
+                        style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;">
                 </div>
-                <input type="range" id="new-ram-slider" min="1024" max="32768" step="128" value="4096"
-                    oninput="document.getElementById('new-ram-input').value = this.value">
+                <input type="range" id="new-ram-slider" min="1024" max="32768" step="128" value="4096">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeInstanceModal()" data-i18n="modal_cancel">Annuler</button>
-                <button class="btn-primary" onclick="saveInstance()" data-i18n="modal_create">Créer</button>
+                <button id="btn-close-instance-modal" class="btn-secondary" data-i18n="modal_cancel">Annuler</button>
+                <button id="btn-save-instance" class="btn-primary" data-i18n="modal_create">Créer</button>
             </div>
         </div>
     </div>
@@ -412,14 +409,14 @@
             <div class="modal-header" data-i18n="toolbar_settings">Paramètres Globaux du Launcher</div>
             <div class="settings-layout">
                 <div class="settings-sidebar">
-                    <div id="tab-btn-glob-gen" class="settings-tab active" onclick="switchTabGlob('tab-glob-gen')" data-i18n="tab_gen">Général</div>
-                    <div id="tab-btn-glob-app" class="settings-tab" onclick="switchTabGlob('tab-glob-app')" data-i18n="tab_appearance">Apparence</div>
-                    <div id="tab-btn-glob-updates" class="settings-tab" onclick="switchTabGlob('tab-glob-updates')" style="position: relative;">
+                    <div id="tab-btn-glob-gen" class="settings-tab active" data-i18n="tab_gen">Général</div>
+                    <div id="tab-btn-glob-app" class="settings-tab" data-i18n="tab_appearance">Apparence</div>
+                    <div id="tab-btn-glob-updates" class="settings-tab" style="position: relative;">
                         <span data-i18n="tab_updates">Mises à jour</span>
                         <span id="updates-tab-badge" style="display:none; position:absolute; top:6px; right:8px; background:#f87171; border-radius:50%; width:8px; height:8px; box-shadow:0 0 5px #f87171;"></span>
                     </div>
-                    <div id="tab-btn-glob-java" class="settings-tab" onclick="switchTabGlob('tab-glob-java')" data-i18n="horizon_java_tab">Gérer Java</div>
-                    <div id="tab-btn-glob-horizon" class="settings-tab" onclick="switchTabGlob('tab-glob-horizon')" style="position: relative;">
+                    <div id="tab-btn-glob-java" class="settings-tab" data-i18n="horizon_java_tab">Gérer Java</div>
+                    <div id="tab-btn-glob-horizon" class="settings-tab" style="position: relative;">
                         Horizon
                         <span id="horizon-tab-badge" style="display:none; position: absolute; top: 6px; right: 8px; background:#f48a21; border-radius:50%; width:8px; height:8px; box-shadow: 0 0 5px #f48a21;"></span>
                     </div>
@@ -427,7 +424,7 @@
 
                 <div id="tab-glob-gen" class="settings-content active">
                     <label style="margin-top: 5px;" data-i18n="lbl_lang">Langue du Launcher</label>
-                    <select id="global-lang" onchange="changeLanguage(this.value)"></select>
+                    <select id="global-lang"></select>
 
                     <div style="display: flex; align-items: center; margin-top: 15px;">
                         <label data-i18n="lbl_visibility" style="margin-top: 0;">Comportement au lancement</label>
@@ -447,7 +444,7 @@
                             <option value="true" data-i18n="opt_enabled">Activé</option>
                             <option value="false" data-i18n="opt_disabled">Désactivé</option>
                         </select>
-                        <button class="btn-secondary" style="height: 35px; padding: 0 15px;" onclick="window.reconnectDiscord()" data-i18n="btn_reconnect_discord">Relancer RPC</button>
+                        <button id="btn-reconnect-discord" class="btn-secondary" style="height: 35px; padding: 0 15px;" data-i18n="btn_reconnect_discord">Relancer RPC</button>
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_multi_inst">Lancement Multi-instances</label>
@@ -458,16 +455,16 @@
 
                     <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 15px;">
                         <label data-i18n="lbl_ram">RAM par défaut (Mo) :</label>
-                        <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('global-ram-slider').value = this.value">
+                        <input type="number" id="global-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;">
                     </div>
-                    <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096" oninput="document.getElementById('global-ram-input').value = this.value">
+                    <input type="range" id="global-ram-slider" min="1024" max="32768" step="128" value="4096">
 
                     <label style="margin-top: 15px;" data-i18n="lbl_java">Chemin Java par défaut</label>
                     <div style="display: flex; gap: 8px;">
                         <select id="global-java" style="flex-grow: 1;"></select>
-                        <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
-                        <button class="btn-secondary" onclick="document.getElementById('custom-java-file').click()">Parcourir</button>
-                        <input type="file" id="custom-java-file" style="display:none;" accept=".exe" onchange="addCustomJava(this, 'global-java')">
+                        <button id="btn-scan-java" class="btn-secondary" data-i18n="btn_scan">Scanner</button>
+                        <button id="btn-custom-java-browse" class="btn-secondary">Parcourir</button>
+                        <input type="file" id="custom-java-file" style="display:none;" accept=".exe">
                     </div>
                     
                     <label style="margin-top: 15px;" data-i18n="lbl_cf_api">Clé API CurseForge (Optionnel)</label>
@@ -478,14 +475,14 @@
                     <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;" data-i18n="txt_options_desc">Sélectionnez une instance pour que ses touches deviennent celles par défaut.</div>
                     <div style="display: flex; gap: 8px;">
                         <select id="global-options-source" style="flex-grow: 1;"></select>
-                        <button class="btn-secondary" onclick="saveDefaultOptions()" data-i18n="btn_save_options">Définir comme défaut</button>
+                        <button id="btn-save-default-options" class="btn-secondary" data-i18n="btn_save_options">Définir comme défaut</button>
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_servers_profile">Profil de Serveurs (servers.dat)</label>
                     <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px;" data-i18n="txt_servers_desc">Copie automatiquement les serveurs de cette instance vers toutes les nouvelles instances.</div>
                     <div style="display: flex; gap: 8px;">
                         <select id="global-servers-source" style="flex-grow: 1;"></select>
-                        <button class="btn-secondary" onclick="saveDefaultServers()" data-i18n="btn_save_default">Définir comme défaut</button>
+                        <button id="btn-save-default-servers" class="btn-secondary" data-i18n="btn_save_default">Définir comme défaut</button>
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_fav_server">Serveur favori (Afficher le statut)</label>
@@ -510,10 +507,9 @@
                     <label style="margin-top: 15px;" data-i18n="lbl_bg">Image de fond (Fond d'écran)</label>
                     <div style="display: flex; gap: 8px;">
                         <input type="text" id="global-bg-path" placeholder="C:\Images\bg.png" style="flex-grow: 1;">
-                        <button class="btn-secondary" onclick="document.getElementById('bg-upload').click()" data-i18n="btn_browse">Parcourir</button>
-                        <button class="btn-secondary" onclick="document.getElementById('global-bg-path').value=''" data-i18n="btn_clear">Effacer</button>
-                        <input type="file" id="bg-upload" accept="image/png, image/jpeg, image/gif, image/webp, image/bmp" style="display:none;"
-                               onchange="document.getElementById('global-bg-path').value = window.api.getFilePath(this.files[0])">
+                        <button id="btn-bg-upload" class="btn-secondary" data-i18n="btn_browse">Parcourir</button>
+                        <button id="btn-clear-bg" class="btn-secondary" data-i18n="btn_clear">Effacer</button>
+                        <input type="file" id="bg-upload" accept="image/png, image/jpeg, image/gif, image/webp, image/bmp" style="display:none;">
                     </div>
 
                     <label style="margin-top: 15px;" data-i18n="lbl_darkness">Assombrissement du fond (Opacité)</label>
@@ -551,7 +547,7 @@
                     <div id="update-available-container" style="display: none; margin-top: 10px; background: rgba(0, 122, 204, 0.1); border: 1px solid var(--accent); padding: 15px; border-radius: 4px;">
                         <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 10px;"><span data-i18n="lbl_new_version">Nouvelle version disponible :</span> <span id="new-version-badge" style="color: var(--accent);"></span></div>
                         <div id="update-changelog" style="font-size: 0.8rem; color: #ccc; max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; margin-bottom: 15px; white-space: pre-wrap;"></div>
-                        <button class="btn-primary" id="btn-start-update" onclick="startLauncherUpdate()" data-i18n="btn_start_update">Télécharger et Installer</button>
+                        <button class="btn-primary" id="btn-start-update" data-i18n="btn_start_update">Télécharger et Installer</button>
                     </div>
 
                     <div style="display: flex; align-items: center; margin-top: 15px;">
@@ -562,7 +558,7 @@
                         <option value="false" data-i18n="btn_no">Non</option>
                     </select>
 
-                    <button class="btn-primary" style="margin-top: 15px;" onclick="checkLauncherUpdates()" id="btn-check-launcher" data-i18n="btn_check_launcher_updates">Vérifier les mises à jour</button>
+                    <button class="btn-primary" style="margin-top: 15px;" id="btn-check-launcher" data-i18n="btn_check_launcher_updates">Vérifier les mises à jour</button>
                     <div id="update-status" style="margin-top: 10px; color: #aaa; font-size: 0.85rem;"></div>
                 </div>
 
@@ -576,7 +572,7 @@
                                 <div style="font-weight: bold; color: var(--text-light);" data-i18n="lbl_java_25">Java 25</div>
                                 <div style="font-size: 0.7rem; color: #888;" data-i18n="desc_java_25">Pour Minecraft 26.1 et +</div>
                             </div>
-                            <button class="btn-secondary" id="btn-dl-java-25" onclick="downloadJavaAuto(25)" data-i18n="btn_java_dl">Télécharger</button>
+                            <button class="btn-secondary" id="btn-dl-java-25" data-i18n="btn_java_dl">Télécharger</button>
                         </div>
 
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
@@ -584,7 +580,7 @@
                                 <div style="font-weight: bold; color: var(--text-light);" data-i18n="lbl_java_21">Java 21</div>
                                 <div style="font-size: 0.7rem; color: #888;" data-i18n="desc_java_21">Pour Minecraft 1.20.5 à 26.1</div>
                             </div>
-                            <button class="btn-secondary" id="btn-dl-java-21" onclick="downloadJavaAuto(21)" data-i18n="btn_java_dl">Télécharger</button>
+                            <button class="btn-secondary" id="btn-dl-java-21" data-i18n="btn_java_dl">Télécharger</button>
                         </div>
 
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
@@ -592,7 +588,7 @@
                                 <div style="font-weight: bold; color: var(--text-light);" data-i18n="lbl_java_17">Java 17</div>
                                 <div style="font-size: 0.7rem; color: #888;" data-i18n="desc_java_17">Pour Minecraft 1.17 à 1.20.4</div>
                             </div>
-                            <button class="btn-secondary" id="btn-dl-java-17" onclick="downloadJavaAuto(17)" data-i18n="btn_java_dl">Télécharger</button>
+                            <button class="btn-secondary" id="btn-dl-java-17" data-i18n="btn_java_dl">Télécharger</button>
                         </div>
 
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
@@ -600,7 +596,7 @@
                                 <div style="font-weight: bold; color: var(--text-light);" data-i18n="lbl_java_8">Java 8</div>
                                 <div style="font-size: 0.7rem; color: #888;" data-i18n="desc_java_8">Pour Minecraft 1.16.5 et inférieur</div>
                             </div>
-                            <button class="btn-secondary" id="btn-dl-java-8" onclick="downloadJavaAuto(8)" data-i18n="btn_java_dl">Télécharger</button>
+                            <button class="btn-secondary" id="btn-dl-java-8" data-i18n="btn_java_dl">Télécharger</button>
                         </div>
                     </div>
                 </div>
@@ -625,8 +621,8 @@
 </div>
             </div> 
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeGlobalSettings()" data-i18n="modal_close">Fermer</button>
-                <button class="btn-primary" onclick="saveGlobalSettings()" data-i18n="modal_apply">Appliquer</button>
+                <button id="btn-close-global-settings" class="btn-secondary" data-i18n="modal_close">Fermer</button>
+                <button id="btn-save-global-settings" class="btn-primary" data-i18n="modal_apply">Appliquer</button>
             </div>
         </div>
     </div>
@@ -636,24 +632,24 @@
             <div class="modal-header" id="edit-modal-title" data-i18n="btn_settings">Paramètres de l'instance</div>
             <div class="settings-layout">
                 <div class="settings-sidebar">
-                    <div id="tab-btn-general" class="settings-tab active" onclick="switchTab('tab-general')" data-i18n="tab_gen">Général</div>
-                    <div id="tab-btn-mods" class="settings-tab" onclick="switchTab('tab-mods')" data-i18n="tab_mods">Mods</div>
-                    <div id="tab-btn-shaders" class="settings-tab" onclick="switchTab('tab-shaders')" data-i18n="tab_shaders">Shaders</div>
-                    <div id="tab-btn-resourcepacks" class="settings-tab" onclick="switchTab('tab-resourcepacks')" data-i18n="tab_resourcepacks">Packs de Textures</div>
-                    <div id="tab-btn-servers" class="settings-tab" onclick="switchTab('tab-servers')" data-i18n="tab_servers">Serveurs</div>
-                    <div id="tab-btn-backups" class="settings-tab" onclick="switchTab('tab-backups')" data-i18n="tab_backups">Sauvegardes</div>
-                    <div id="tab-btn-java" class="settings-tab" onclick="switchTab('tab-java')" data-i18n="tab_java">Configuration</div>
-                    <div id="tab-btn-notes" class="settings-tab" onclick="switchTab('tab-notes')" data-i18n="tab_notes">Notes</div>
+                    <div id="tab-btn-general" class="settings-tab active" data-i18n="tab_gen">Général</div>
+                    <div id="tab-btn-mods" class="settings-tab" data-i18n="tab_mods">Mods</div>
+                    <div id="tab-btn-shaders" class="settings-tab" data-i18n="tab_shaders">Shaders</div>
+                    <div id="tab-btn-resourcepacks" class="settings-tab" data-i18n="tab_resourcepacks">Packs de Textures</div>
+                    <div id="tab-btn-servers" class="settings-tab" data-i18n="tab_servers">Serveurs</div>
+                    <div id="tab-btn-backups" class="settings-tab" data-i18n="tab_backups">Sauvegardes</div>
+                    <div id="tab-btn-java" class="settings-tab" data-i18n="tab_java">Configuration</div>
+                    <div id="tab-btn-notes" class="settings-tab" data-i18n="tab_notes">Notes</div>
                 </div>
 
                 <div id="tab-general" class="settings-content active">
                     <div style="display: flex; gap: 15px; align-items: flex-start;">
                         <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
-                            <div class="icon-wrapper" onclick="document.getElementById('edit-icon-upload').click()">
+                            <div id="btn-edit-icon-upload" class="icon-wrapper">
                                 <img id="edit-icon-preview" src="">
-                                <input type="file" id="edit-icon-upload" style="display:none;" accept="image/png, image/jpeg, image/jpg" onchange="previewInstanceIcon(this)">
+                                <input type="file" id="edit-icon-upload" style="display:none;" accept="image/png, image/jpeg, image/jpg">
                             </div>
-                            <button class="btn-secondary" style="padding: 4px 0; font-size: 0.8rem; width: 100%; text-align: center;" onclick="openIconGallery()" data-i18n="btn_icon_gallery">Galerie</button>
+                            <button id="btn-open-icon-gallery" class="btn-secondary" style="padding: 4px 0; font-size: 0.8rem; width: 100%; text-align: center;" data-i18n="btn_icon_gallery">Galerie</button>
                         </div>
                         <div style="flex-grow: 1;">
                             <label data-i18n="lbl_inst_name">Nom de l'instance</label>
@@ -671,15 +667,15 @@
                         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                             <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px;">
                                 <label style="font-size: 0.75rem; color: #aaa;" data-i18n="lbl_mc_version">Version MC</label>
-                                <select id="edit-mc-version" onchange="updateEditLoaderVersions()" style="font-size: 0.8rem; padding: 4px;"></select>
+                                <select id="edit-mc-version" style="font-size: 0.8rem; padding: 4px;"></select>
                             </div>
                             <div style="display: flex; align-items: center; gap: 4px; padding-top: 16px;">
-                                <input type="checkbox" id="edit-show-snapshots" onchange="toggleEditSnapshots()">
+                                <input type="checkbox" id="edit-show-snapshots">
                                 <label for="edit-show-snapshots" style="font-size: 0.75rem; color: #aaa; cursor: pointer;" data-i18n="lbl_beta">Bêtas</label>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px;">
                                 <label style="font-size: 0.75rem; color: #aaa;" data-i18n="lbl_loader">Loader</label>
-                                <select id="edit-loader-type" onchange="updateEditLoaderVersions()" style="font-size: 0.8rem; padding: 4px;">
+                                <select id="edit-loader-type" style="font-size: 0.8rem; padding: 4px;">
                                     <option value="vanilla">Vanilla</option>
                                     <option value="fabric">Fabric</option>
                                     <option value="forge">Forge</option>
@@ -700,17 +696,17 @@
                             <label data-i18n="lbl_ram">Mémoire RAM allouée (Mo) :</label>
                         </div>
                         <div style="display:flex; gap: 8px; align-items: center;">
-                            <input type="number" id="edit-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;" oninput="document.getElementById('edit-ram-slider').value = this.value">
+                            <input type="number" id="edit-ram-input" min="1024" max="32768" style="width: 80px; text-align: center; color: var(--accent); font-weight: bold;">
                         </div>
                     </div>
-                    <input type="range" id="edit-ram-slider" min="1024" max="32768" step="128" oninput="document.getElementById('edit-ram-input').value = this.value">
+                    <input type="range" id="edit-ram-slider" min="1024" max="32768" step="128">
 
                     <div style="margin-top: 15px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <div style="font-size: 0.85rem; font-weight: bold; color: var(--text-light);" data-i18n="lbl_sync_options">Touches & Options</div>
                             <div style="font-size: 0.7rem; color: #aaa;" data-i18n="txt_sync_options">Écrase les paramètres avec votre profil par défaut.</div>
                         </div>
-                        <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px; white-space: nowrap;" onclick="forceInjectOptions()" data-i18n="btn_sync_now">Injecter</button>
+                        <button id="btn-force-inject-options" class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px; white-space: nowrap;" data-i18n="btn_sync_now">Injecter</button>
                     </div>
                 </div>
 
@@ -718,42 +714,42 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
                         <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_mods">Vos Mods Installés</span>
                         <div style="display: flex; gap: 5px;">
-                            <button class="btn-secondary" id="btn-check-mod-updates" style="padding: 4px 8px; font-size: 0.75rem;" onclick="checkModUpdates()" data-i18n="btn_check_updates">Vérifier les MAJ</button>
-                            <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('mods')" data-i18n="btn_folder">Dossier</button>
+                            <button class="btn-secondary" id="btn-check-mod-updates" style="padding: 4px 8px; font-size: 0.75rem;" data-i18n="btn_check_updates">Vérifier les MAJ</button>
+                            <button id="btn-open-dir-mods" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" data-i18n="btn_folder">Dossier</button>
                         </div>
                     </div>
                     <div style="display: flex; gap: 5px; margin-bottom: 5px; padding-top: 10px;">
-                        <input type="text" id="local-mod-search" data-i18n="ph_search_local_mod" placeholder="Rechercher un mod installé..." style="flex-grow: 1; padding: 4px; font-size: 0.8rem;" oninput="filterLocalMods()">
+                        <input type="text" id="local-mod-search" data-i18n="ph_search_local_mod" placeholder="Rechercher un mod installé..." style="flex-grow: 1; padding: 4px; font-size: 0.8rem;">
                     </div>
                     <div id="mods-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
-                    <button class="btn-primary" style="margin-top: 10px;" onclick="closeEditModal(); document.getElementById('catalog-type').value='mod'; openCatalogModal();" data-i18n="btn_dl_mods">Télécharger de nouveaux mods</button>
+                    <button id="btn-open-catalog-mods" class="btn-primary" style="margin-top: 10px;" data-i18n="btn_dl_mods">Télécharger de nouveaux mods</button>
                 </div>
 
                 <div id="tab-shaders" class="settings-content" style="padding: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
                         <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_shaders">Vos Shaders</span>
-                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('shaderpacks')" data-i18n="btn_folder">Dossier</button>
+                        <button id="btn-open-dir-shaderpacks" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" data-i18n="btn_folder">Dossier</button>
                     </div>
                     <div id="shaders-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
-                    <button class="btn-primary" style="margin-top: 10px;" data-i18n="btn_dl_shaders" onclick="closeEditModal(); document.getElementById('catalog-type').value='shader'; openCatalogModal();">Télécharger de nouveaux shaders</button>
+                    <button id="btn-open-catalog-shaders" class="btn-primary" style="margin-top: 10px;" data-i18n="btn_dl_shaders">Télécharger de nouveaux shaders</button>
                 </div>
 
                 <div id="tab-resourcepacks" class="settings-content" style="padding: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px;">
                         <span style="font-size: 0.85rem; font-weight: bold;" data-i18n="lbl_installed_rps">Vos Packs de Textures</span>
-                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="openDir('resourcepacks')" data-i18n="btn_folder">Dossier</button>
+                        <button id="btn-open-dir-resourcepacks" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" data-i18n="btn_folder">Dossier</button>
                     </div>
                     <div id="resourcepacks-list" style="overflow-y: auto; flex-grow: 1; padding-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
-                    <button class="btn-primary" style="margin-top: 10px;" data-i18n="btn_dl_rps" onclick="closeEditModal(); document.getElementById('catalog-type').value='resourcepack'; openCatalogModal();">Télécharger de nouveaux packs</button>
+                    <button id="btn-open-catalog-resourcepacks" class="btn-primary" style="margin-top: 10px;" data-i18n="btn_dl_rps">Télécharger de nouveaux packs</button>
                 </div>
 
                 <div id="tab-servers" class="settings-content">
                     <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-                        <input type="text" id="new-server-ip" placeholder="Ex: play.hypixel.net" onkeydown="if(event.key === 'Enter') addServer()">
-                        <button class="btn-primary" onclick="addServer()" data-i18n="modal_add">Ajouter</button>
+                        <input type="text" id="new-server-ip" placeholder="Ex: play.hypixel.net">
+                        <button id="btn-add-server" class="btn-primary" data-i18n="modal_add">Ajouter</button>
                     </div>
                     <div id="server-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 8px;"></div>
                 </div>
@@ -768,7 +764,7 @@
                     <label style="margin-top: 10px;" data-i18n="lbl_backup_limit">Nombre de sauvegardes à conserver :</label>
                     <input type="number" id="edit-backup-limit" min="1" max="100" value="5" style="width: 80px;">
                     <div style="font-size: 0.75rem; color: #aaa; margin-top: 5px;" data-i18n="txt_backup_desc">Le launcher conservera automatiquement vos sauvegardes dans le dossier 'backups'.</div>
-                    <button class="btn-secondary" style="margin-top: 15px;" onclick="openDir('backups')" data-i18n="btn_open_backups">Ouvrir le dossier des sauvegardes</button>
+                    <button id="btn-open-dir-backups-edit" class="btn-secondary" style="margin-top: 15px;" data-i18n="btn_open_backups">Ouvrir le dossier des sauvegardes</button>
 
                     <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
                         <label style="font-weight: bold; color: var(--accent);" data-i18n="lbl_horizon_instance">☁ Gens Horizon (Cloud)</label>
@@ -784,9 +780,9 @@
                     <label data-i18n="lbl_java">Chemin de l'exécutable Java local</label>
                     <div style="display: flex; gap: 8px;">
                         <select id="edit-javapath" style="flex-grow: 1;"></select>
-                        <button class="btn-secondary" onclick="scanJavaVersions()" data-i18n="btn_scan">Scanner</button>
-                        <button class="btn-secondary" onclick="document.getElementById('custom-edit-java-file').click()">Parcourir</button>
-                        <input type="file" id="custom-edit-java-file" style="display:none;" accept=".exe" onchange="addCustomJava(this, 'edit-javapath')">
+                        <button id="btn-scan-java-edit" class="btn-secondary" data-i18n="btn_scan">Scanner</button>
+                        <button id="btn-custom-edit-java-browse" class="btn-secondary">Parcourir</button>
+                        <input type="file" id="custom-edit-java-file" style="display:none;" accept=".exe">
                     </div>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
                         <div style="flex: 1;"><label data-i18n="lbl_width">Largeur</label><input type="number" id="edit-res-w" placeholder="854"></div>
@@ -794,7 +790,7 @@
                     </div>
                     
                     <label style="margin-top: 15px; font-weight: bold; color: var(--accent);" data-i18n="lbl_java_opti">Profil d'Optimisation Java (Anti-Lag)</label>
-                    <select id="edit-jvm-profile" style="margin-bottom: 5px;" onchange="updateJvmDesc()">
+                    <select id="edit-jvm-profile" style="margin-bottom: 5px;">
                         <option value="none" data-i18n="opt_java_none">Aucun (Standard)</option>
                         <option value="aikar" data-i18n="opt_java_aikar">Aikar's Flags (Recommandé pour la majorité)</option>
                         <option value="zgc" data-i18n="opt_java_zgc">ZGC (Basse latence - Java 21+ requis)</option>
@@ -823,8 +819,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeEditModal()" data-i18n="modal_close">Fermer</button>
-                <button class="btn-primary" onclick="saveEdit()" data-i18n="modal_apply">Appliquer</button>
+                <button id="btn-close-edit-modal" class="btn-secondary" data-i18n="modal_close">Fermer</button>
+                <button id="btn-save-edit" class="btn-primary" data-i18n="modal_apply">Appliquer</button>
             </div>
         </div>
     </div>
@@ -836,11 +832,11 @@
                 <p class="ms-device-help" id="ms-device-help"></p>
                 <div class="ms-device-code-row">
                     <span id="ms-device-code-display"></span>
-                    <button type="button" class="btn-secondary" id="ms-device-btn-copy" onclick="copyMsDeviceCode()"
+                    <button type="button" class="btn-secondary" id="ms-device-btn-copy"
                         data-i18n="ms_device_copy">Copier le code</button>
                 </div>
                 <button type="button" class="btn-microsoft" style="width: 100%; margin-top: 4px;"
-                    id="ms-device-btn-open" onclick="openMsDevicePage()" data-i18n="ms_device_open">Ouvrir la page
+                    id="ms-device-btn-open" data-i18n="ms_device_open">Ouvrir la page
                     Microsoft</button>
                 <div class="ms-device-waiting">
                     <div class="ms-device-spinner spinner" aria-hidden="true"></div>
@@ -850,7 +846,7 @@
             <div class="modal-footer">
                 <span id="ms-device-footer-note"
                     style="font-size: 0.75rem; color: #aaa; line-height: 1.35; text-align: left; flex: 1; min-width: 0;"></span>
-                <button type="button" class="btn-secondary" id="ms-device-btn-cancel" onclick="cancelMsDeviceLogin()"
+                <button type="button" class="btn-secondary" id="ms-device-btn-cancel"
                     data-i18n="ms_device_cancel" style="flex-shrink: 0;">Annuler</button>
             </div>
         </div>
@@ -879,22 +875,22 @@
                 <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
                     <div style="font-weight: bold; color: var(--text-light); text-align: center; font-size: 1.2rem; margin-bottom: 5px;" id="skin-modal-name">Pseudo</div>
                     
-                    <button class="btn-secondary" id="btn-upload-skin" onclick="document.getElementById('skin-upload').click()" data-i18n="btn_test_skin">Tester un Skin (Aperçu)</button>
-                    <input type="file" id="skin-upload" accept=".png" style="display: none;" onchange="previewLocalSkin(this)">
+                    <button class="btn-secondary" id="btn-upload-skin" data-i18n="btn_test_skin">Tester un Skin (Aperçu)</button>
+                    <input type="file" id="skin-upload" accept=".png" style="display: none;">
                     
-                    <button class="btn-secondary" onclick="exportSkin()" data-i18n="btn_export_skin">Exporter le Skin actuel</button>
+                    <button id="btn-export-skin" class="btn-secondary" data-i18n="btn_export_skin">Exporter le Skin actuel</button>
                     
                     <div id="skin-divider" class="acc-divider" style="height: 1px; background: var(--border); margin: 5px 0;"></div>
                     
                     <div id="btn-link-ms-skin" style="display: none; width: 100%;">
                         <div style="display:flex; gap: 10px;">
-                            <select id="skin-variant-select" class="tool-select" style="flex: 1;" onchange="updateSkinVariantPreview(this)">
+                            <select id="skin-variant-select" class="tool-select" style="flex: 1;">
                                 <option value="classic">Classique</option>
                                 <option value="slim">Fin (Alex)</option>
                             </select>
-                            <button class="btn-microsoft" onclick="document.getElementById('skin-mojang-input').click()" data-i18n="btn_upload_mojang" style="flex: 2;">Envoyer vers Mojang</button>
+                            <button id="btn-skin-mojang-upload" class="btn-microsoft" data-i18n="btn_upload_mojang" style="flex: 2;">Envoyer vers Mojang</button>
                         </div>
-                        <input type="file" id="skin-mojang-input" accept=".png" style="display: none;" onchange="uploadSkinToMojang(this)">
+                        <input type="file" id="skin-mojang-input" accept=".png" style="display: none;">
                     </div>
                     
                     <div style="font-size: 0.75rem; color: #aaa; text-align: center; margin-top: 10px;" data-i18n="tip_skin_3d">
@@ -903,7 +899,7 @@
                 </div>
             </div>
              <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeSkinModal()" data-i18n="modal_close">Retour</button>
+                <button id="btn-close-skin-modal" class="btn-secondary" data-i18n="modal_close">Retour</button>
             </div>
         </div>
     </div>
@@ -913,19 +909,19 @@
             <div class="modal-header" data-i18n="modal_export">Options d'exportation</div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; padding: 20px;">
                 
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip_light')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                <div id="btn-export-zip-light" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" class="export-card" >
                     <div style="font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_light">Export Léger (.zip)</div>
                     <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_light_desc">Inclut vos mods, configurations et sauvegardes (Exclut les assets et versions du jeu). (Recommandé)</div>
                 </div>
 
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" onclick="doExport('zip_full')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                <div id="btn-export-zip-full" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;" class="export-card" >
                     <div style="font-weight: bold; color: var(--text-light); font-size: 1.1rem; margin-bottom: 5px;" data-i18n="modal_export_full">Export Complet (.zip)</div>
                     <div style="font-size: 0.8rem; color: #aaa;" data-i18n="txt_export_full_desc">Contient absolument tous les fichiers de l'instance, y compris le cœur du jeu. (Fichier très lourd).</div>
                 </div>
 
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-export').style.display='none'" data-i18n="modal_cancel">Annuler</button>
+                <button id="btn-close-export-modal" class="btn-secondary" data-i18n="modal_cancel">Annuler</button>
             </div>
         </div>
     </div>
@@ -952,8 +948,8 @@
                 <div id="crash-log-excerpt" style="background: #111; color: #f87171; font-family: monospace; font-size: 0.75rem; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; max-height: 150px; overflow-y: auto; border: 1px solid #333;"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-primary" id="btn-copy-crash-log" style="background: var(--bg-hover);" onclick="copyCrashLog()" data-i18n="btn_copy_log">Copier le Log</button>
-                <button class="btn-secondary" onclick="document.getElementById('modal-crash').style.display='none'" data-i18n="modal_close">Fermer</button>
+                <button class="btn-primary" id="btn-copy-crash-log" style="background: var(--bg-hover);" data-i18n="btn_copy_log">Copier le Log</button>
+                <button id="btn-close-crash-modal" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -964,7 +960,7 @@
             <div class="modal-body" id="icon-gallery-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 20px;">
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modal-icon-gallery').style.display='none'" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-icon-gallery" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
@@ -981,11 +977,11 @@
                         <div style="display: flex; gap: 10px; margin-top: 10px;">
                             <div style="flex: 1;">
                                 <label data-i18n="lbl_version">Version</label>
-                                <select id="builder-version" onchange="searchBuilderMods()"></select>
+                                <select id="builder-version"></select>
                             </div>
                             <div style="flex: 1;">
                                 <label data-i18n="lbl_loader">Loader</label>
-                                <select id="builder-loader" onchange="searchBuilderMods()">
+                                <select id="builder-loader">
                                     <option value="fabric">Fabric</option>
                                     <option value="forge">Forge</option>
                                     <option value="neoforge">NeoForge</option>
@@ -1001,18 +997,18 @@
                     <div id="builder-selected-list" style="flex-grow: 1; overflow-y: auto; padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;">
                         </div>
                     <div style="padding: 15px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.1); flex-shrink: 0;">
-                        <button class="btn-primary" style="width: 100%; font-weight: bold; background: #17B139; border-color: #17B139; padding: 10px;" onclick="buildModpack()" data-i18n="btn_create_install">Créer &amp; Installer</button>
+                        <button id="btn-build-modpack" class="btn-primary" style="width: 100%; font-weight: bold; background: #17B139; border-color: #17B139; padding: 10px;" data-i18n="btn_create_install">Créer &amp; Installer</button>
                     </div>
                 </div>
 
                 <div style="flex-grow: 1; display: flex; flex-direction: column; background: var(--bg-main); overflow: hidden;">
                     <div style="padding: 15px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; background: rgba(0,0,0,0.2); align-items: center; flex-shrink: 0;">
-                        <select id="builder-type" style="width: 140px;" onchange="searchBuilderMods()">
+                        <select id="builder-type" style="width: 140px;">
                             <option value="mod" data-i18n="opt_mods_type">Mods</option>
                             <option value="shader" data-i18n="opt_shaders_type">Shaders</option>
                             <option value="resourcepack" data-i18n="opt_rp_type">Ressources</option>
                         </select>
-                        <input type="text" id="builder-search" data-i18n="ph_search_modrinth" placeholder="Rechercher sur Modrinth..." style="flex-grow: 1;" oninput="scheduleBuilderSearch()">
+                        <input type="text" id="builder-search" data-i18n="ph_search_modrinth" placeholder="Rechercher sur Modrinth..." style="flex-grow: 1;">
                     </div>
                     <div id="builder-results" style="flex-grow: 1; overflow-y: auto; padding: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-content: start;">
                         </div>
@@ -1020,31 +1016,31 @@
 
             </div>
             <div class="modal-footer" style="flex-shrink: 0;">
-                <button class="btn-secondary" onclick="closeBuilderModal()" data-i18n="modal_close">Fermer</button>
+                <button id="btn-close-builder-modal" class="btn-secondary" data-i18n="modal_close">Fermer</button>
             </div>
         </div>
     </div>
 <div id="custom-context-menu" class="context-menu">
-        <div class="context-menu-item" onclick="ctxLaunch()" data-i18n="ctx_launch">Lancer</div>
+        <div id="ctx-launch" class="context-menu-item" data-i18n="ctx_launch">Lancer</div>
         <div class="context-menu-divider" id="ctx-cloud-divider"></div>
-        <div class="context-menu-item" id="ctx-cloud-import" onclick="ctxSyncCloud()" data-i18n="ctx_cloud_import">Importer du Cloud</div>
-        <div class="context-menu-item" id="ctx-cloud-upload" onclick="ctxUploadCloud()" data-i18n="ctx_cloud_upload">Envoyer sur le Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-import" data-i18n="ctx_cloud_import">Importer du Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-upload" data-i18n="ctx_cloud_upload">Envoyer sur le Cloud</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxFolder()" data-i18n="ctx_open_folder">Ouvrir le dossier</div>
-        <div class="context-menu-item" onclick="ctxEdit()" data-i18n="ctx_edit">Modifier</div>
+        <div id="ctx-folder" class="context-menu-item" data-i18n="ctx_open_folder">Ouvrir le dossier</div>
+        <div id="ctx-edit" class="context-menu-item" data-i18n="ctx_edit">Modifier</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" id="ctx-create-shortcut" onclick="ctxShortcut()" data-i18n="ctx_create_shortcut">Créer raccourci bureau</div>
-        <div class="context-menu-item" id="ctx-delete-shortcut" onclick="ctxDeleteShortcut()" data-i18n="ctx_delete_shortcut" style="display:none; color:#f87171;">Supprimer le raccourci</div>
+        <div class="context-menu-item" id="ctx-create-shortcut" data-i18n="ctx_create_shortcut">Créer raccourci bureau</div>
+        <div class="context-menu-item" id="ctx-delete-shortcut" data-i18n="ctx_delete_shortcut" style="display:none; color:#f87171;">Supprimer le raccourci</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxDelete()" style="color:#f87171;" data-i18n="btn_delete">Supprimer</div>
+        <div id="ctx-delete" class="context-menu-item" style="color:#f87171;" data-i18n="btn_delete">Supprimer</div>
     </div>
 
     <div id="cloud-only-context-menu" class="context-menu">
-        <div class="context-menu-item" id="ctx-cloud-restore-item" onclick="ctxRestoreCloud()" data-i18n="ctx_restore_cloud">Restaurer l'instance</div>
-        <div class="context-menu-item" id="ctx-cloud-sync-item"   onclick="ctxSyncCloudFromMenu()"   data-i18n="ctx_cloud_import"  style="display:none;">Importer du Cloud</div>
-        <div class="context-menu-item" id="ctx-cloud-upload-item" onclick="ctxUploadCloudFromMenu()" data-i18n="ctx_cloud_upload" style="display:none;">Envoyer sur le Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-restore-item" data-i18n="ctx_restore_cloud">Restaurer l'instance</div>
+        <div class="context-menu-item" id="ctx-cloud-sync-item"   data-i18n="ctx_cloud_import"  style="display:none;">Importer du Cloud</div>
+        <div class="context-menu-item" id="ctx-cloud-upload-item" data-i18n="ctx_cloud_upload" style="display:none;">Envoyer sur le Cloud</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="ctxDeleteCloudOnly()" data-i18n="ctx_delete_cloud" style="color:#f87171;">Supprimer du Cloud</div>
+        <div id="ctx-delete-cloud-only" class="context-menu-item" data-i18n="ctx_delete_cloud" style="color:#f87171;">Supprimer du Cloud</div>
     </div>
 <div id="auto-launch-overlay" style="display: none; position: fixed; inset: 0; z-index: 9999999; flex-direction: column; align-items: center; justify-content: center; padding: 28px 32px; -webkit-app-region: drag; gap: 0; overflow: hidden;">
 
@@ -1053,7 +1049,7 @@
 
     <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;">
 
-        <div id="auto-crash-banner" style="display:none;width:100%;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.35);border-radius:10px;padding:8px 14px;margin-bottom:14px;font-size:0.78rem;color:#f87171;text-align:center;-webkit-app-region:no-drag;cursor:pointer;" onclick="window.openLastCrashReport()">
+        <div id="auto-crash-banner" style="display:none;width:100%;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.35);border-radius:10px;padding:8px 14px;margin-bottom:14px;font-size:0.78rem;color:#f87171;text-align:center;-webkit-app-region:no-drag;cursor:pointer;">
             ⚠ <span data-i18n="msg_last_crash">Dernier lancement : crash détecté</span> — <span style="text-decoration:underline;" data-i18n="lbl_see_report">Voir le rapport</span>
         </div>
 
@@ -1084,7 +1080,7 @@
 
         <div id="auto-status-text" style="font-size:0.78rem;color:#666;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:5px 18px;text-align:center;-webkit-app-region:no-drag;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:14px;" data-i18n="msg_auto_init">Initialisation...</div>
 
-        <button id="auto-cancel-btn" class="btn-secondary" style="display:none;height:28px;padding:0 18px;font-size:0.8rem;-webkit-app-region:no-drag;" onclick="window.cancelAutoLaunch()">
+        <button id="auto-cancel-btn" class="btn-secondary" style="display:none;height:28px;padding:0 18px;font-size:0.8rem;-webkit-app-region:no-drag;">
             <span data-i18n="btn_cancel">Annuler</span>
         </button>
 
@@ -1092,6 +1088,7 @@
 
     </div>
 </div>
+    <script type="module" src="./src/event-listeners.js"></script>
     <script type="module" src="renderer.js"></script>
     
 </body>

@@ -186,7 +186,6 @@ function createWindow() {
     });
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile("index.html");
-
 }
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -228,7 +227,9 @@ app.whenReady().then(() => {
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
-                'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
+                // Tous les handlers inline (onclick/onchange) ont été migrés vers event-listeners.js.
+                // 'unsafe-inline' n'est plus nécessaire pour script-src.
+                'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
             }
         });
     });
@@ -253,10 +254,14 @@ app.whenReady().then(() => {
     createWindow();
     mainWindow.once('ready-to-show', () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        const instName = parseAutoLaunchArg(process.argv);
-        if (!instName) {
-            mainWindow.show();
-        }
+        // En mode normal : la fenêtre est affichée par le renderer via IPC 'show-window'.
+        // Safety fallback : si le renderer ne répond pas dans 3s, on affiche quand même.
+        setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+                console.log('[Main] Safety show (renderer timeout)');
+                mainWindow.show();
+            }
+        }, 3000);
     });
     mainWindow.webContents.on('did-finish-load', () => {
         const instName = parseAutoLaunchArg(process.argv);
@@ -352,7 +357,7 @@ ipcMain.on("get-paths-sync", (event) => {
 });
 
 const https = require('https');
-const http = require('http');
+// Note : le module 'http' n'est pas importé — seul HTTPS est autorisé pour les téléchargements.
 
 const ALLOWED_DOMAINS = [
     'github.com', 'githubusercontent.com', 'modrinth.com',
@@ -376,8 +381,11 @@ function downloadFile(url, dest, redirectCount = 0) {
             return reject(new Error("URL invalide"));
         }
         
-        const protocol = url.startsWith('https') ? https : http;
-        const req = protocol.get(url, { rejectUnauthorized: true }, (response) => {
+        // SÉCURITÉ : Seul HTTPS est autorisé — pas de downgrade HTTP possible
+        if (!url.startsWith('https://')) {
+            return reject(new Error(`Seul HTTPS est autorisé pour les téléchargements. URL reçue : ${url}`));
+        }
+        const req = https.get(url, { rejectUnauthorized: true }, (response) => {
             if (response.statusCode === 301 || response.statusCode === 302) {
                 return downloadFile(response.headers.location, dest, redirectCount + 1).then(resolve).catch(reject);
             }
@@ -419,6 +427,64 @@ ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
         return { success: false, error: err.message };
     }
 });
+
+/**
+ * Copie une image choisie par l'utilisateur (file picker) vers le sandbox GensLauncher.
+ * Seul le main process (contexte de confiance) accède au chemin source arbitraire.
+ * Validation : extension + signature magique du fichier (PNG/JPEG/GIF/WEBP/BMP).
+ */
+ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDir }) => {
+    try {
+        const ALLOWED_IMG_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'];
+        const MAGIC_SIGNATURES = [
+            { ext: ['.png'],              bytes: [0x89, 0x50, 0x4E, 0x47], offset: 0 },
+            { ext: ['.jpg', '.jpeg'],     bytes: [0xFF, 0xD8, 0xFF],       offset: 0 },
+            { ext: ['.gif'],              bytes: [0x47, 0x49, 0x46],       offset: 0 },
+            { ext: ['.webp'],             bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 },
+            { ext: ['.bmp'],              bytes: [0x42, 0x4D],             offset: 0 },
+            { ext: ['.ico'],              bytes: [0x00, 0x00, 0x01, 0x00], offset: 0 },
+        ];
+
+        // 1. Valider l'extension
+        const ext = path.extname(srcPath).toLowerCase();
+        if (!ALLOWED_IMG_EXTS.includes(ext)) {
+            return { success: false, error: `Extension non autorisée : ${ext}` };
+        }
+
+        // 2. Valider la signature magique du fichier
+        const fd = fs.openSync(srcPath, 'r');
+        const magicBuf = Buffer.alloc(8);
+        fs.readSync(fd, magicBuf, 0, 8, 0);
+        fs.closeSync(fd);
+
+        const sig = MAGIC_SIGNATURES.find(s => s.ext.includes(ext));
+        if (sig) {
+            const isValid = sig.bytes.every((b, i) => magicBuf[sig.offset + i] === b);
+            if (!isValid) {
+                return { success: false, error: 'Le fichier ne correspond pas à son extension (signature invalide).' };
+            }
+        }
+
+        // 3. Déterminer le dossier de destination (optionnellement dans un sous-dossier du sandbox)
+        const safeName = String(destName || 'image').replace(/[^a-z0-9_\-\.]/gi, '_').substring(0, 64);
+        let destDir = safeDataDir;
+        if (subDir) {
+            // subDir est un chemin relatif au sandbox — on valide qu'il reste dedans
+            const candidate = path.join(safeDataDir, subDir);
+            assertPathUnderSandbox(candidate); // lève une erreur si hors-sandbox
+            destDir = candidate;
+        }
+        fs.mkdirSync(destDir, { recursive: true });
+        const destPath = path.join(destDir, safeName + ext);
+        assertPathUnderSandbox(destPath); // double vérification
+        fs.copyFileSync(srcPath, destPath);
+
+        return { success: true, destPath };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
 
 ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
     try {
@@ -655,17 +721,7 @@ ipcMain.on("update-discord", (event, data) => {
     lastDiscordData = data;
     applyDiscordData(data);
 });
-ipcMain.on('encrypt-string-sync', (event, text) => {
-    event.returnValue = encryptText(text);
-});
 
-ipcMain.on('decrypt-string-sync', (event, hexText) => {
-    event.returnValue = decryptText(hexText);
-});
-
-ipcMain.on('legacy-decrypt-sync', (event, hexText) => {
-    event.returnValue = legacyDecryptText(hexText);
-});
 
 ipcMain.handle('encrypt-string', async (event, text) => {
     return encryptText(text);

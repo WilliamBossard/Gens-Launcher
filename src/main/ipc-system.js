@@ -19,7 +19,7 @@ module.exports = function setupSystemHandlers(context) {
                 if (msg.type === 'log') {
                     mainLog(msg.message);
                 } else if (msg.type === 'progress') {
-                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) { }
+                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
                 } else if (msg.type === 'done') {
                     resolve({ success: msg.success, error: msg.error });
                 }
@@ -149,7 +149,7 @@ module.exports = function setupSystemHandlers(context) {
                                         const pct = Math.min(100, Math.round((processed / total) * 100));
                                         if (pct !== lastProgress) {
                                             lastProgress = pct;
-                                            try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { }
+                                            try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
                                         }
                                     }
                                     zipfile.readEntry();

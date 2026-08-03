@@ -221,7 +221,7 @@ export function setupLauncher() {
             } catch (e) {
                 sysLog("Erreur relecture servers.dat après fermeture : " + e.message, true);
             }
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (!isAutoClose && store.selectedInstanceIdx === closedInstIndex) {
                 if (document.getElementById("log-output")) {
                     window.appendLog(`<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
@@ -250,9 +250,13 @@ export function setupLauncher() {
                 document.getElementById("crash-cause").innerText = analysis.cause || t("cause_unknown", "Raison inconnue");
                 let actionHtml = analysis.action || "Aucune action spécifique recommandée.";
                 if (analysis.mod) {
-                    actionHtml += `<br><button class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;" onclick="document.getElementById('modal-crash').style.display='none'; window.openEditModal('tab-mods');">Ouvrir le gestionnaire de mods</button>`;
+                    actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
                 }
                 document.getElementById("crash-action").innerHTML = actionHtml;
+                document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
+                    document.getElementById('modal-crash').style.display = 'none';
+                    window.openEditModal('tab-mods');
+                });
                 document.getElementById("crash-log-excerpt").innerText = analysis.logExcerpt || "Aucun log disponible.";
                 window._currentCrashLog = analysis.logExcerpt;
                 document.getElementById("modal-crash").style.display = "flex";

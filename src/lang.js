@@ -30,7 +30,7 @@ export async function setupLang() {
         const p = path.join(store.langDir, `${code}.json`);
         if (fs.existsSync(p)) {
             try {
-                store.currentLangObj = JSON.parse(fs.readFileSync(p, "utf8"));
+                store.currentLangObj = (() => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch(e) { return {}; } })();
                 window.applyTranslations();
             } catch (e) {
                 console.error("Erreur lecture fichier de langue:", e);
@@ -41,7 +41,7 @@ export async function setupLang() {
     window.changeLanguage = (code) => {
         store.globalSettings.language = code;
         if (window.safeWriteJSON) {
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         } else {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         }
@@ -55,7 +55,7 @@ export async function setupLang() {
         const code = document.getElementById("first-launch-lang").value;
         store.globalSettings.language = code;
         if (window.safeWriteJSON) {
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         } else {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         }
@@ -96,7 +96,7 @@ export async function setupLang() {
     function syncLangFile(filePath, defaultObj) {
         let current = {};
         if (fs.existsSync(filePath)) {
-            try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) {}
+            try { current = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
         }
         const merged = Object.assign({}, defaultObj, current);
         const dir = path.dirname(filePath);
@@ -139,7 +139,7 @@ export async function setupLang() {
         const p = path.join(store.langDir, `${code}.json`);
         if (fs.existsSync(p)) {
             try {
-                store.currentLangObj = JSON.parse(fs.readFileSync(p, "utf8"));
+                store.currentLangObj = (() => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch(e) { return {}; } })();
                 window.applyTranslations();
             } catch (e) {
                 console.error("Erreur lecture fichier de langue:", e);
@@ -150,7 +150,7 @@ export async function setupLang() {
     window.changeLanguage = (code) => {
         store.globalSettings.language = code;
         if (window.safeWriteJSON) {
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         } else {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         }
@@ -164,7 +164,7 @@ export async function setupLang() {
         const code = document.getElementById("first-launch-lang").value;
         store.globalSettings.language = code;
         if (window.safeWriteJSON) {
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         } else {
             fs.writeFileSync(store.settingsFile, JSON.stringify(store.globalSettings, null, 2));
         }

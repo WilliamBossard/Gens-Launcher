@@ -94,7 +94,7 @@ if (result.success) {
               store.selectedAccountIdx = store.allAccounts.length - 1;
           }
           store.uiSelectedAccRow = store.selectedAccountIdx;
-          window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+          await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
           if(window.renderAccountManager) window.renderAccountManager();
           if(window.updateAccountDropdown) window.updateAccountDropdown(); 
           if(window.closeAccountModal) window.closeAccountModal();

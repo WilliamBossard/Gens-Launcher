@@ -17,7 +17,7 @@ export function setupStorage() {
                     } catch(_) {
                         parsed = await window.api.security.readJSONAsync(store.settingsFile);
                         if (parsed) {
-                            window.safeWriteJSON(store.settingsFile, parsed);
+                            window.safeWriteJSONAsync(store.settingsFile, parsed);
                             console.log("Settings migrés vers format clair.");
                         }
                     }
@@ -38,7 +38,7 @@ export function setupStorage() {
                     } catch (e) {
                         loadedInstances = await window.api.security.readJSONAsync(store.instanceFile);
                         if (loadedInstances) {
-                            window.safeWriteJSON(store.instanceFile, loadedInstances);
+                            window.safeWriteJSONAsync(store.instanceFile, loadedInstances);
                             console.log("Fichier instances.json déchiffré et remis en clair.");
                         }
                     }
@@ -51,7 +51,7 @@ export function setupStorage() {
                         });
 
                         if (store.allInstances.length !== initialCount) {
-                            window.safeWriteJSON(store.instanceFile, store.allInstances);
+                            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                             console.log("Nettoyage : Instances fantômes supprimées du fichier instances.json.");
                         }
                     }
@@ -83,7 +83,7 @@ export function setupStorage() {
 
         if (store.globalSettings.defaultRam > store.maxSafeRam) {
             store.globalSettings.defaultRam = store.maxSafeRam;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         }
     };
 }

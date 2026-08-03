@@ -21,7 +21,7 @@ export function setupNews() {
             let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
                 <div style="font-weight: bold; color: var(--text-light);">${window.t("lbl_news", "Actualités Minecraft")}</div>
-                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleNews()" id="btn-toggle-news">${toggleText}</button>
+                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
             </div>
             <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
             
@@ -34,7 +34,7 @@ export function setupNews() {
                 const safeLink = window.escapeHTML(link);
                 const safeImgUrl = window.escapeHTML(imgUrl);
                 html += `
-                <div class="news-card" onclick="window.api.openExternal(this.getAttribute('data-link'))" data-link="${safeLink}">
+                <div class="news-card" data-link="${safeLink}">
                     <img src="${safeImgUrl}" class="news-img">
                     <div class="news-content">
                         <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
@@ -44,6 +44,11 @@ export function setupNews() {
             });
             html += `</div>`;
             container.innerHTML = html;
+            // Délégation d'événements post-injection
+            container.querySelector('#btn-toggle-news')?.addEventListener('click', () => toggleNews());
+            container.querySelectorAll('.news-card[data-link]').forEach(card => {
+                card.addEventListener('click', () => window.api.openExternal(card.dataset.link));
+            });
             _newsLoaded = true;
         } catch(e) {
             console.warn("loadNews failed:", e.message);
@@ -52,7 +57,7 @@ export function setupNews() {
 
     window.toggleNews = () => {
         store.globalSettings.newsCollapsed = !store.globalSettings.newsCollapsed;
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         const wrapper = document.getElementById("news-content-wrapper");
         const btn = document.getElementById("btn-toggle-news");
         if (store.globalSettings.newsCollapsed) {

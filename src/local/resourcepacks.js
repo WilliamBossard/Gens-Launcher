@@ -23,16 +23,22 @@ export function setup() {
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = safeAttrJson(file);
                 rpHtml += `
-                <div class="mod-item">
+                <div class="mod-item" data-rp-file="${window.escapeHTML(file)}">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleResourcePack(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteResourcePack(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary rp-delete-btn" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
         });
         listDiv.innerHTML = rpHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
+        // Délégation d'événements — remplace les handlers inline
+        listDiv.querySelectorAll('.mod-item[data-rp-file]').forEach(item => {
+            const filename = item.dataset.rpFile;
+            item.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => toggleResourcePack(filename, e.target.checked));
+            item.querySelector('.rp-delete-btn')?.addEventListener('click', () => deleteResourcePack(filename));
+        });
     };
     window.toggleResourcePack = (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];

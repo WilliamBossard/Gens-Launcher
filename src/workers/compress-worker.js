@@ -45,13 +45,13 @@ async function compressFolder({ src, dest, exclude }) {
         });
 
         archive.on('error', (err) => {
-            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { }
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
         output.on('error', (err) => {
             archive.destroy();
-            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { }
+            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 

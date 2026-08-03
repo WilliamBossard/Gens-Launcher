@@ -21,7 +21,13 @@ export function setupTheme() {
         
         const appBg = document.getElementById("app-background");
         if (appBg) {
-            if (th.bg && fs.existsSync(th.bg)) {
+            // SÉCURITÉ : Seul un chemin dans le sandbox GensLauncher est accepté comme fond d'écran.
+            // Les anciens chemins (ex: C:\Users\...\Pictures\) sont ignorés silencieusement.
+            const safeDataDir = window.api.appData
+                ? window.api.path.join(window.api.appData, 'GensLauncher')
+                : null;
+            const isSandboxed = th.bg && safeDataDir && th.bg.startsWith(safeDataDir);
+            if (isSandboxed && fs.existsSync(th.bg)) {
                 const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(th.dim))  ? 0.5 : parseFloat(th.dim)));
                 const blur = Math.max(0, Math.min(50,   isNaN(parseInt(th.blur))   ? 5   : parseInt(th.blur)));
                 appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;

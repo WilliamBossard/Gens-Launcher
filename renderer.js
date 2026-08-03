@@ -161,7 +161,7 @@ async function loadNews() {
         let html = `
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
             <div style="font-weight: bold; color: var(--text-light);">${t("lbl_news", "Actualités Minecraft")}</div>
-            <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleNews()" id="btn-toggle-news">${toggleText}</button>
+            <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
         </div>
         <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
         data.entries.slice(0, 6).forEach(news => {
@@ -172,8 +172,7 @@ async function loadNews() {
             const safeCategory = window.escapeHTML(news.category);
             const safeLink = window.escapeHTML(link);
             const safeImgUrl = window.escapeHTML(imgUrl);
-            html += `
-            <div class="news-card" onclick="openSystemPath(this.getAttribute('data-link'))" data-link="${safeLink}">
+            html += `<div class="news-card" data-link="${safeLink}">
                 <img src="${safeImgUrl}" class="news-img">
                 <div class="news-content">
                     <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
@@ -183,6 +182,10 @@ async function loadNews() {
         });
         html += `</div>`;
         container.innerHTML = html;
+        container.querySelector('#btn-toggle-news')?.addEventListener('click', () => toggleNews());
+        container.querySelectorAll('.news-card[data-link]').forEach(card => {
+            card.addEventListener('click', () => window.api.openExternal(card.dataset.link));
+        });
         _newsLoaded = true;
     } catch(e) {
         console.warn("loadNews failed:", e.message);
@@ -298,49 +301,56 @@ async function checkCloudAtStartup() {
     } catch (e) { console.error("🚨 Erreur démarrage :", e); }
 }
 async function init() {
-    const totalRamMB = Math.floor(os.totalmem() / (1024 * 1024));
-    store.maxSafeRam = Math.max(1024, totalRamMB - 2048);
-    const ramInputs = ["new-ram-input", "new-ram-slider", "global-ram-input", "global-ram-slider", "edit-ram-input", "edit-ram-slider"];
-    ramInputs.forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.max = store.maxSafeRam;
-    });
-    document.getElementById("app-version").innerText = "v" + window.api.version;
-    await window.loadStorage();
-    window._isStorageLoaded = true;
-    if (window._pendingAutoLaunch && window.processAutoLaunch) {
-        window.processAutoLaunch(window._pendingAutoLaunch);
-    }
-    window.applyTheme();
-    if (window.populateLangDropdown) window.populateLangDropdown();
-    if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";
-    else if (window.loadLanguage) window.loadLanguage(store.globalSettings.language);
-    window.renderUI();
-    if (window.renderAccountManager) window.renderAccountManager();
-    if (window.updateAccountDropdown) window.updateAccountDropdown();
-    if (window.restoreRunningInstances) window.restoreRunningInstances();
-    loadNews();
-    checkCloudAtStartup();
-    setTimeout(() => checkHorizonUpdateAtStartup(), 0);
-    window.checkServerStatus();
-    window._serverStatusInterval = setInterval(() => {
-        if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
-    }, 120000);
     try {
-        const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
-        const data = await res.json();
-        if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
-        store.rawVersions = data.versions;
-        window.safeWriteJSON(path.join(store.dataDir, "versions_cache.json"), data.versions);
-        if (window.updateVersionList) window.updateVersionList(false);
-    } catch (e) {
-        const cachePath = path.join(store.dataDir, "versions_cache.json");
-        if (fs.existsSync(cachePath)) {
-            try {
-                store.rawVersions = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-                if (window.updateVersionList) window.updateVersionList(false);
-            } catch(err) {}
+        const totalRamMB = Math.floor(os.totalmem() / (1024 * 1024));
+        store.maxSafeRam = Math.max(1024, totalRamMB - 2048);
+        const ramInputs = ["new-ram-input", "new-ram-slider", "global-ram-input", "global-ram-slider", "edit-ram-input", "edit-ram-slider"];
+        ramInputs.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.max = store.maxSafeRam;
+        });
+        document.getElementById("app-version").innerText = "v" + window.api.version;
+        await window.loadStorage();
+        window._isStorageLoaded = true;
+        if (window._pendingAutoLaunch && window.processAutoLaunch) {
+            window.processAutoLaunch(window._pendingAutoLaunch);
         }
+        window.applyTheme();
+        if (window.populateLangDropdown) window.populateLangDropdown();
+        if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";
+        else if (window.loadLanguage) window.loadLanguage(store.globalSettings.language);
+        window.renderUI();
+        if (window.renderAccountManager) window.renderAccountManager();
+        if (window.updateAccountDropdown) window.updateAccountDropdown();
+        window.api.send('show-window');
+        window.dispatchEvent(new Event('resize'));
+        if (window.restoreRunningInstances) window.restoreRunningInstances();
+        loadNews();
+        checkCloudAtStartup();
+        setTimeout(() => checkHorizonUpdateAtStartup(), 0);
+        window.checkServerStatus();
+        window._serverStatusInterval = setInterval(() => {
+            if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
+        }, 120000);
+        try {
+            const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
+            const data = await res.json();
+            if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
+            store.rawVersions = data.versions;
+            window.safeWriteJSON(path.join(store.dataDir, "versions_cache.json"), data.versions);
+            if (window.updateVersionList) window.updateVersionList(false);
+        } catch (e) {
+            const cachePath = path.join(store.dataDir, "versions_cache.json");
+            if (fs.existsSync(cachePath)) {
+                try {
+                    store.rawVersions = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+                    if (window.updateVersionList) window.updateVersionList(false);
+                } catch(err) {}
+            }
+        }
+    } catch(e) {
+        console.error("Critical error in init():", e);
+        window.api.send('show-window');
     }
 }
 window.ctxSyncCloud = async () => {
@@ -465,16 +475,20 @@ window.api.on("horizon-status", async (data) => {
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
             const fallbackSafe = store.defaultIcons.vanilla.replace(/'/g, "\\'");
-            html += `
-            <div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" oncontextmenu="openCloudContextMenu(event, '${window.escapeHTML(displayName)}', ${isLocal})">
+            html += `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}">
                 <img class="instance-icon" src="${safeIconSrc}" onerror="if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
             </div>`;
         });
-        window._lastCloudGridHtml = html; 
+        window._lastCloudGridHtml = html;
         grid.innerHTML = html;
+        grid.querySelectorAll('.instance-card[data-name]').forEach(card => {
+            const name = card.dataset.name;
+            const isLoc = card.dataset.isLocal === 'true';
+            card.addEventListener('contextmenu', (e) => openCloudContextMenu(e, name, isLoc));
+        });
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
             if (!window.api.fs.existsSync(binDir)) window.api.fs.mkdirSync(binDir, { recursive: true });
@@ -555,11 +569,11 @@ window.api.on("horizon-status", async (data) => {
             <div style="font-size:0.78rem; color:#888; margin-bottom:6px;">${t("horizon_quota_per_instance", "Détail par instance")}</div>
             ${instRows}
             ` : `<div style="font-size:0.78rem; color:#555;">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`}
-            <button class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px;"
-                onclick="window.refreshHorizonQuota()">
+            <button id="btn-refresh-quota" class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px;">
                 ↻ ${t("horizon_quota_refresh", "Actualiser")}
             </button>`;
         window._lastQuotaHtml = el.innerHTML;
+        el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
             if (!window.api.fs.existsSync(binDir)) window.api.fs.mkdirSync(binDir, { recursive: true });
@@ -1021,4 +1035,4 @@ window.refreshHorizonQuota = async () => {
 window.refreshHorizonQuotaSilent = async () => {
     await window.api.invoke("call-horizon", ["--quota"]);
 };
-init();
+init().catch(e => console.error('[INIT FATAL]', e));

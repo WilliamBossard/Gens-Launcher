@@ -19,7 +19,7 @@ function getCachedScreenshot(inst) {
             const files = fs.readdirSync(safeDir).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
             if (files.length > 0) file = path.join(safeDir, files[Math.floor(Math.random() * files.length)]);
         }
-    } catch(e) {}
+    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
     _screenshotCache.set(inst.name, { dir: safeDir, file, ts: Date.now() });
     return file;
 }
@@ -98,7 +98,9 @@ export function setupInstances() {
             const versions = await fetchLoaderVersions(loader, mcVer);
             select.innerHTML = "";
             if (versions.length === 0) {
-                select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `Incompatible avec la ${mcVer}`).replace("{ver}", mcVer)}</option>`;
+                select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
+                // Pas de toast ici — l'utilisateur parcourt juste les versions.
+                // Le toast + le blocage se font dans saveInstance au moment de créer.
             } else {
                 const frag = document.createDocumentFragment();
                 versions.forEach(v => {
@@ -109,7 +111,7 @@ export function setupInstances() {
                 select.appendChild(frag);
             }
         } catch(e) {
-            select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `Incompatible avec la ${mcVer}`).replace("{ver}", mcVer)}</option>`;
+            select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
         }
     };
     window.selectInstance = (i) => {
@@ -297,10 +299,10 @@ export function setupInstances() {
     };
     window.closeEditModal = () => {
         document.querySelectorAll("#modal-edit .settings-content").forEach(el => el.scrollTop = 0);
-        document.getElementById("modal-edit").style.display = "none";
+        window.closeModal('modal-edit');
         store.pendingIconPath = null;
     };
-    window.saveInstance = () => {
+    window.saveInstance = async () => {
         const nameInput = document.getElementById("new-name");
         const name = nameInput.value.trim();
         if (!name) {
@@ -324,9 +326,26 @@ export function setupInstances() {
             window.showToast(t("msg_err_no_version", "Aucune version disponible. Vérifiez votre connexion internet et réessayez."), "error");
             return;
         }
+        // Bloquer si le loader est incompatible avec la version choisie
+        const selectedLoader = document.getElementById("new-loader").value;
+        if (selectedLoader !== "vanilla") {
+            const loaderVerEl = document.getElementById("new-loader-version");
+            const loaderVerVal = loaderVerEl ? loaderVerEl.value : "";
+            const isIncompat = !loaderVerVal || loaderVerEl?.options[0]?.text?.includes("Incompatible");
+            if (isIncompat) {
+                window.showToast(
+                    t("msg_loader_incompat_toast",
+                      `${selectedLoader.charAt(0).toUpperCase()+selectedLoader.slice(1)} n'est pas encore disponible pour MC ${version}. Choisissez une autre version ou passez en Vanilla.`)
+                    .replace("{loader}", selectedLoader.charAt(0).toUpperCase()+selectedLoader.slice(1))
+                    .replace("{ver}", version),
+                    "error"
+                );
+                return;
+            }
+        }
         const destFolder = path.join(store.instancesRoot, safeFolderName);
         try {
-            fs.mkdirSync(destFolder, { recursive: true });
+            await fs.promises.mkdir(destFolder, { recursive: true });
         } catch(e) {
             sysLog("Erreur création dossier instance: " + e.message, true);
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
@@ -349,15 +368,15 @@ export function setupInstances() {
         if (window.updateIconCache) window.updateIconCache(newInst);
         store.allInstances.push(newInst);
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})`);
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (fs.existsSync(defaultOpt)) { try { fs.copyFileSync(defaultOpt, path.join(destFolder, "options.txt")); } catch(e) {} }
+        if (fs.existsSync(defaultOpt)) { try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-        if (fs.existsSync(defaultSrv)) { try { fs.copyFileSync(defaultSrv, path.join(destFolder, "servers.dat")); } catch(e) {} }
-        try { fs.writeFileSync(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch(e) {}
+        if (fs.existsSync(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
+        try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         window.renderUI();
         window.closeInstanceModal();
     };
@@ -387,13 +406,13 @@ export function setupInstances() {
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
             if (oldFolder !== newFolder) {
-                if (fs.existsSync(newFolder)) {
+                if (await fs.promises.access(newFolder).then(() => true).catch(() => false)) {
                     window.showToast(t("msg_err_folder_exists", "Un dossier portant ce nom existe déjà sur le disque. Renommage annulé."), "error");
                     return;
                 }
                 try {
-                    if (fs.existsSync(oldFolder)) {
-                        fs.renameSync(oldFolder, newFolder);
+                    if (await fs.promises.access(oldFolder).then(() => true).catch(() => false)) {
+                        await fs.promises.rename(oldFolder, newFolder);
                         if (inst.icon && inst.icon.includes(safeOldName)) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
@@ -403,25 +422,27 @@ export function setupInstances() {
                                 await window.api.invoke("call-horizon", ['--upload', safeNewName]);
                                 const binDir = path.join(store.dataDir, "bin");
                                 const syncPath = path.join(binDir, "last_sync.json");
-                                if (fs.existsSync(syncPath)) {
+                                if (await fs.promises.access(syncPath).then(() => true).catch(() => false)) {
                                     try {
-                                        const syncState = JSON.parse(fs.readFileSync(syncPath, "utf8"));
+                                        const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
                                         if (syncState[safeOldName] !== undefined) {
                                             syncState[safeNewName] = syncState[safeOldName];
                                             delete syncState[safeOldName];
-                                            window.safeWriteJSON(syncPath, syncState);
+                                            window.safeWriteJSONAsync(syncPath, syncState);
                                         }
-                                    } catch (_) {}
+                                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                                 }
                                 for (const prefix of ["meta_", "manifest_"]) {
                                     const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
                                     const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
                                     try {
-                                        if (fs.existsSync(oldCache)) {
-                                            if (fs.existsSync(newCache)) fs.unlinkSync(newCache);
-                                            fs.renameSync(oldCache, newCache);
+                                        if (await fs.promises.access(oldCache).then(() => true).catch(() => false)) {
+                                            if (await fs.promises.access(newCache).then(() => true).catch(() => false)) {
+                                                await fs.promises.unlink(newCache);
+                                            }
+                                            await fs.promises.rename(oldCache, newCache);
                                         }
-                                    } catch (_) {}
+                                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                                 }
                             }
                         }
@@ -465,13 +486,18 @@ export function setupInstances() {
                 inst.loader = "vanilla";
                 inst.loaderVersion = "";
             } else {
-                const isLoadingVer = newLoaderVer.includes("Chargement") || newLoaderVer.includes("...");
-                if (!isLoadingVer && (newVersion !== inst.version || newLoader !== inst.loader || newLoaderVer !== inst.loaderVersion)) {
+                const isLoadingVer = !newLoaderVer || newLoaderVer.includes("Chargement") || newLoaderVer.includes("...") || newLoaderVer.includes("Incompatible");
+                if (newLoaderVer.includes("Incompatible")) {
+                    window.showToast(t("msg_loader_no_compat", `Ce loader n'est pas compatible avec cette version.`), "error");
+                }
+                if (!isLoadingVer && (newVersion !== inst.version || newLoader !== inst.loader || (newLoader !== 'vanilla' && newLoaderVer !== inst.loaderVersion))) {
                     const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
-                    ["versions", "libraries"].forEach(dir => {
+                    for (const dir of ["versions", "libraries"]) {
                         const dirPath = path.join(instFolder, dir);
-                        if (fs.existsSync(dirPath)) { try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) {} }
-                    });
+                        if (await fs.promises.access(dirPath).then(() => true).catch(() => false)) {
+                            try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+                        }
+                    }
                     window.showToast(t("msg_version_changed", "Version changée ! Les fichiers seront retéléchargés au prochain lancement."), "info");
                 }
                 inst.version = newVersion;
@@ -483,18 +509,42 @@ export function setupInstances() {
         }
         const oldIcon = inst.icon || "";
         let newIcon = oldIcon;
-        if (store.pendingIconPath && fs.existsSync(store.pendingIconPath)) {
-            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
-            if (!fs.existsSync(instFolder)) fs.mkdirSync(instFolder, { recursive: true });
-            const ext = path.extname(store.pendingIconPath);
-            const newIconPath = path.join(instFolder, "icon" + ext);
-            try {
-                fs.copyFileSync(store.pendingIconPath, newIconPath);
-                newIcon = window.pathToFileUrl(newIconPath.replace(/\\/g, "/"));
-            } catch(e) {}
+
+        // Supprime les anciens fichiers icône (toutes extensions) dans le dossier de l'instance.
+        // Appeler AVANT la copie du nouveau fichier pour ne pas supprimer ce qu'on vient de créer.
+        const _cleanOldIconFiles = async (exceptExt) => {
+            const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
+            for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']) {
+                if (exceptExt && ext === exceptExt) continue; // Ne pas supprimer le nouveau fichier
+                const f = window.api.path.join(instFolder, 'icon' + ext);
+                if (await fs.promises.access(f).then(() => true).catch(() => false)) { 
+                    try { await fs.promises.unlink(f); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); } 
+                }
+            }
+        };
+
+        if (store.pendingIconPath) {
+            // Déterminer l'extension de la nouvelle icône avant la copie
+            const newExt = window.api.path.extname(store.pendingIconPath).toLowerCase();
+            // Nettoyer les anciens fichiers AVANT la copie (pour éviter de supprimer le nouveau)
+            await _cleanOldIconFiles(newExt);
+
+            // Icône depuis le file picker — copier via le main process (validation extension + magic bytes)
+            const safeInstName = window.safeDir(inst.name);
+            const subDir = path.join('instances', safeInstName); // relatif au sandbox GensLauncher/
+            const result = await window.api.copyImageToSandbox(store.pendingIconPath, 'icon', subDir);
+            if (result.success) {
+                newIcon = window.pathToFileUrl(result.destPath.replace(/\\/g, "/"));
+            } else {
+                window.showToast(t("msg_err_bg_type", "Format d'icône non supporté ou invalide."), "error");
+            }
             store.pendingIconPath = null;
         } else {
             newIcon = document.getElementById("edit-icon-preview").src;
+            // Si on revient à un SVG par défaut (galerie), supprimer les fichiers icône copiés
+            if (newIcon && newIcon.startsWith("data:image/svg+xml")) {
+                await _cleanOldIconFiles(); // Tout nettoyer
+            }
         }
         const iconWasChanged = (oldIcon !== newIcon);
         inst.icon = newIcon;
@@ -504,13 +554,15 @@ export function setupInstances() {
             delete inst._iconCacheKey;
         }
         if (window.updateIconCache) window.updateIconCache(inst);
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         window.selectInstance(store.selectedInstanceIdx);
-        try { fs.writeFileSync(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+        try { await fs.promises.writeFile(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         if (iconWasChanged && inst._hasDesktopShortcut) {
             window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: inst.icon })
                 .then(res => { if (res?.success) window.showToast(t("msg_shortcut_updated", "Raccourci bureau mis à jour !"), "success"); })
-                .catch(() => {});
+                .catch(e => {
+                    if (typeof sysLog !== 'undefined') sysLog("Erreur création raccourci bureau : " + e.message, true);
+                });
         }
         if (oldInstName && oldInstName !== inst.name && inst._hasDesktopShortcut) {
             window.closeEditModal();
@@ -536,7 +588,7 @@ export function setupInstances() {
                     }
                 } else {
                     inst._hasDesktopShortcut = false;
-                    window.safeWriteJSON(store.instanceFile, store.allInstances);
+                    window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                     window.renderUI();
                 }
             });
@@ -582,7 +634,7 @@ export function setupInstances() {
                             if (stat.isDirectory) await calcSize(full);
                             else totalBytes += stat.size;
                         }
-                    } catch(e) {}
+                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                 }
                 await calcSize(oldPath);
 
@@ -604,7 +656,7 @@ export function setupInstances() {
                                 }
                                 await new Promise(r => setTimeout(r, 0));
                             }
-                        } catch(e) {}
+                        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                     }
                 }
                 
@@ -621,9 +673,9 @@ export function setupInstances() {
             }
             store.allInstances.push(inst);
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
-            try { fs.writeFileSync(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            try { fs.writeFileSync(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         } catch(e) { sysLog("Erreur Copie: " + e, true); }
         window.hideLoading();
         window.renderUI();
@@ -660,7 +712,7 @@ export function setupInstances() {
             document.getElementById("panel-title").innerText = t("panel_title", "Sélectionnez une instance");
             if (window.applyTheme) window.applyTheme();
             window.renderUI();
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (deleteCloudToo) {
                 try {
                     window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
@@ -687,7 +739,7 @@ export function setupInstances() {
                 sysLog(`[FALLBACK] Impossible de supprimer le dossier de ${instName}: ${localErr.message}`, true);
                 window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier complet. Le dossier est peut-être verrouillé."), "error");
                 store.allInstances.splice(instIdx, 0, inst);
-                window.safeWriteJSON(store.instanceFile, store.allInstances);
+                window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                 window.renderUI();
             }
         }
@@ -712,7 +764,7 @@ export function setupInstances() {
         const idx = parseInt(e.dataTransfer.getData("instIdx"), 10);
         if (!isNaN(idx) && store.allInstances[idx]) {
             store.allInstances[idx].group = targetGroup;
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             window.renderUI();
         }
     };
@@ -741,7 +793,7 @@ export function setupInstances() {
     window.selectGalleryIcon = (icon) => {
         store.pendingIconPath = null;
         document.getElementById("edit-icon-preview").src = icon;
-        document.getElementById("modal-icon-gallery").style.display = "none";
+        window.closeModal('modal-icon-gallery');
     };
     let searchTimer = null;
     window.scheduleSearch = () => {
@@ -753,17 +805,42 @@ export function setupInstances() {
         const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
         let iconSrc = fallbackIcon;
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
-        const pngPath = window.api.path.join(instFolder, "icon.png");
-        const jpgPath = window.api.path.join(instFolder, "icon.jpg");
 
         if (inst.icon && inst.icon.startsWith("data:")) {
+            // Icône data URI (SVG galerie ou base64 encodé) — utiliser directement
             iconSrc = inst.icon;
-        } else if (window.api.fs.existsSync(pngPath)) {
-            iconSrc = inst._iconCacheBuster ? `data:image/png;base64,${window.api.fs.readFileSync(pngPath, 'base64')}` : window.pathToFileUrl(pngPath);
-        } else if (window.api.fs.existsSync(jpgPath)) {
-            iconSrc = inst._iconCacheBuster ? `data:image/jpeg;base64,${window.api.fs.readFileSync(jpgPath, 'base64')}` : window.pathToFileUrl(jpgPath);
-        } else if (inst.icon) {
-            iconSrc = inst.icon;
+        } else {
+            // Chercher un fichier icône dans le dossier de l'instance (toutes extensions supportées)
+            const ICON_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
+            let foundIconPath = null;
+            for (const ext of ICON_EXTS) {
+                const candidate = window.api.path.join(instFolder, 'icon' + ext);
+                if (window.api.fs.existsSync(candidate)) {
+                    foundIconPath = candidate;
+                    break;
+                }
+            }
+
+            if (foundIconPath) {
+                // Fichier trouvé — l'utiliser (avec cache-buster si l'icône vient d'être changée)
+                const ext = window.api.path.extname(foundIconPath).toLowerCase();
+                const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
+                const mime = mimeMap[ext] || 'image/png';
+                iconSrc = inst._iconCacheBuster
+                    ? `data:${mime};base64,${window.api.fs.readFileSync(foundIconPath, 'base64')}`
+                    : window.pathToFileUrl(foundIconPath);
+                // Mettre à jour inst.icon si stale (pointe vers un fichier différent ou supprimé)
+                const expectedUrl = window.pathToFileUrl(foundIconPath);
+                if (inst.icon && inst.icon !== iconSrc && inst.icon !== expectedUrl) {
+                    inst.icon = expectedUrl;
+                }
+            } else if (inst.icon && inst.icon.startsWith("file://")) {
+                // inst.icon est un file:// URL mais le fichier n'existe plus → réinitialiser
+                console.warn(`[Icon] Icône stale réinitialisée pour "${inst.name}" : ${inst.icon}`);
+                inst.icon = "";
+                // Pas de persistance ici : sera sauvegardé au prochain saveEdit
+                iconSrc = fallbackIcon;
+            }
         }
         inst._cachedIconSrc = iconSrc;
     };
@@ -782,7 +859,7 @@ export function setupInstances() {
                 <div style="font-size: 0.9rem; text-align:center; max-width: 400px;">
                     ${t("msg_welcome_desc", "Vous n'avez pas encore d'instance. Créez-en une nouvelle ou téléchargez un Modpack pour commencer à jouer.")}
                 </div>
-                <button class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);" onclick="openInstanceModal()">
+                <button id="btn-welcome-add-instance" class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);">
                     ${t("toolbar_add", "Ajouter une instance")}
                 </button>
             </div>`;
@@ -826,8 +903,6 @@ const groups = {};
             const arrowRot = isCollapsed ? '-90deg' : '0deg';
             let html = `<div class="category-header"
                 data-group="${escapedGroupAttr}"
-                ondragover="event.preventDefault()"
-                ondrop="dropInstanceOnGroup(event, this.getAttribute('data-group'))"
                 style="display: flex; align-items: center; gap: 8px;"
             >
                 <span>${window.escapeHTML(g)} (${groups[g].length})</span>
@@ -863,11 +938,7 @@ const groups = {};
                 <div class="instance-card ${isActive} ${phantomClass} ${lockedClass}"
                     data-index="${inst.originalIndex}"
                     style="position: relative;${isLockedByMulti ? ' opacity: 0.4; pointer-events: none;' : ''}"
-                    onclick="selectInstance(${inst.originalIndex})"
-                    ondblclick="handleInstanceDoubleClick(${inst.originalIndex})" 
-                    oncontextmenu="openContextMenu(event, ${inst.originalIndex})"
                     draggable="${isLockedByMulti ? 'false' : 'true'}"
-                    ondragstart="dragInstanceStart(event, ${inst.originalIndex})"
                 >
                     <div class="progress-circle-container" style="position: absolute; top: 5px; right: 5px; width: 34px; height: 34px; display: ${isPhantom ? 'flex' : 'none'}; z-index: 10; background: rgba(0,0,0,0.6); border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); align-items: center; justify-content: center;">
                         <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; position: absolute;"></div>
@@ -875,7 +946,7 @@ const groups = {};
                     </div>
                     ${runningBadge}
                     ${shortcutBadge}
-                    <img src="${iconSrc}" onerror="${onErrorStr}" class="instance-icon">
+                    <img src="${iconSrc}" class="instance-icon" data-fallback="${window.escapeHTML(fallbackSafe)}">
                     <div class="instance-name">${safeName}</div>
                     <div class="instance-version" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center;">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
                 </div>`;
@@ -884,8 +955,28 @@ const groups = {};
             fullHtml += html;
         }
         container.innerHTML = fullHtml;
+        // Bouton d'accueil (écran vide)
+        const btnWelcome = document.getElementById('btn-welcome-add-instance');
+        if (btnWelcome) btnWelcome.addEventListener('click', () => openInstanceModal());
+        // Fallback icônes manquantes
+        container.querySelectorAll('.instance-icon[data-fallback]').forEach(img => {
+            img.addEventListener('error', function() {
+                const fb = this.dataset.fallback;
+                if (fb && this.src !== fb) this.src = fb;
+            });
+        });
+        // Délégation d'événements sur les cards d'instances
+        container.querySelectorAll('.instance-card').forEach(card => {
+            const idx = parseInt(card.dataset.index);
+            card.addEventListener('click', () => selectInstance(idx));
+            card.addEventListener('dblclick', () => handleInstanceDoubleClick(idx));
+            card.addEventListener('contextmenu', (e) => openContextMenu(e, idx));
+            card.addEventListener('dragstart', (e) => dragInstanceStart(e, idx));
+        });
         container.querySelectorAll(".category-header").forEach(header => {
             header.addEventListener("click", () => window.toggleCategory(header, header.dataset.group || ""));
+            header.addEventListener("dragover", (e) => e.preventDefault());
+            header.addEventListener("drop", (e) => dropInstanceOnGroup(e, header.dataset.group || ""));
         });
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
@@ -963,7 +1054,7 @@ const groups = {};
             if (dropOverlay) dropOverlay.style.display = "none";
         }
     });
-    document.addEventListener("drop", (e) => {
+    document.addEventListener("drop", async (e) => {
         e.preventDefault();
         if (window._isInternalDrag) {
             window._isInternalDrag = false;
@@ -1000,18 +1091,18 @@ const groups = {};
                 if (ext === ".jar") {
                     const modsDir = path.join(instFolder, "mods");
                     if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
-                    fs.copyFileSync(filePath, path.join(modsDir, file.name));
+                    await fs.promises.copyFile(filePath, path.join(modsDir, file.name));
                     added++;
                 } else if (ext === ".zip") {
                     const nameLower = file.name.toLowerCase();
                     if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
                         const shadersDir = path.join(instFolder, "shaderpacks");
                         if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
-                        fs.copyFileSync(filePath, path.join(shadersDir, file.name));
+                        await fs.promises.copyFile(filePath, path.join(shadersDir, file.name));
                     } else {
                         const rpDir = path.join(instFolder, "resourcepacks");
                         if (!fs.existsSync(rpDir)) fs.mkdirSync(rpDir, { recursive: true });
-                        fs.copyFileSync(filePath, path.join(rpDir, file.name));
+                        await fs.promises.copyFile(filePath, path.join(rpDir, file.name));
                     }
                     added++;
                 }
@@ -1121,7 +1212,7 @@ const groups = {};
                 window.api.invoke("check-shortcut-exists", { safeName: safeShortcutName }).then(exists => {
                     if (exists === false && !!inst._hasDesktopShortcut) {
                         inst._hasDesktopShortcut = false;
-                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                         if (createShortcutItem) createShortcutItem.style.display = "flex";
                         if (deleteShortcutItem) deleteShortcutItem.style.display = "none";
                         window.renderUI(); 
@@ -1207,7 +1298,7 @@ document.addEventListener("click", () => {
         });
         if (res?.success) {
             inst._hasDesktopShortcut = true;
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             window.showToast(t("msg_shortcut_created", "Raccourci créé sur le bureau !"), "success");
             window.renderUI();
         } else {
@@ -1221,7 +1312,7 @@ document.addEventListener("click", () => {
         const res = await window.api.invoke("delete-desktop-shortcut", { instanceName: inst.name });
         if (res?.success) {
             inst._hasDesktopShortcut = false;
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             window.showToast(t("msg_shortcut_deleted", "Raccourci supprimé du bureau."), "success");
             window.renderUI();
         }

@@ -2,9 +2,9 @@ import { store } from "../store.js";
 let _accountSaveTimer = null;
 function scheduleSaveAccounts() {
     if (_accountSaveTimer) clearTimeout(_accountSaveTimer);
-    _accountSaveTimer = setTimeout(() => {
+    _accountSaveTimer = setTimeout(async () => {
         _accountSaveTimer = null;
-        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
     }, 300);
 }
 export function setupAccountUI() {
@@ -21,7 +21,7 @@ export function setupAccountUI() {
     function saveSkin(name, b64) {
         const cache = getSkinCache();
         cache[name] = b64;
-        window.safeWriteJSON(skinCacheFile, cache);
+        window.safeWriteJSONAsync(skinCacheFile, cache);
     }
     function getCachedSkin(name) {
         return getSkinCache()[name] || null;
@@ -39,12 +39,12 @@ export function setupAccountUI() {
     function saveCustomSkin(name, b64) {
         const cache = getCustomSkinCache();
         cache[name] = b64;
-        window.safeWriteJSON(customSkinCacheFile, cache);
+        window.safeWriteJSONAsync(customSkinCacheFile, cache);
     }
     window.getCustomSkin = function (name) {
         return getCustomSkinCache()[name] || null;
     };
-    (function migrateSkins() {
+    (async function migrateSkins() {
         let changed = false;
         store.allAccounts.forEach(acc => {
             if (acc.skinBase64) {
@@ -54,7 +54,7 @@ export function setupAccountUI() {
             }
         });
         if (changed) {
-            window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+            await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         }
     })();
     async function fetchSkinBase64(acc) {
@@ -100,7 +100,7 @@ export function setupAccountUI() {
             const isSelected = store.uiSelectedAccRow === i;
             const isActive = store.selectedAccountIdx === i;
             const typeText = acc.type === "microsoft" ? t("lbl_ms_account", "Compte Microsoft") : t("lbl_offline_account", "Hors-Ligne (Crack)");
-            const activeText = isActive ? `✔ ${t("lbl_active_acc", "Actif")}` : "";
+            const activeText = isActive ? `\u2713 ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
             const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
             const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
@@ -119,7 +119,7 @@ export function setupAccountUI() {
                 });
             }
             rowsHtml += `
-            <div class="mmc-account-item ${isSelected ? 'selected' : ''}" onclick="selectAccountRow(${i})" ondblclick="useSelectedRow()">
+            <div class="mmc-account-item ${isSelected ? 'selected' : ''}" data-acc-index="${i}">
                 <img id="acc-img-${i}" src="${imgSrc}" alt="${safeName}">
                 <div class="mmc-info">
                     <div class="mmc-name">${safeName}</div>
@@ -129,15 +129,21 @@ export function setupAccountUI() {
             </div>`;
         });
         list.innerHTML = rowsHtml;
+        // Délégation d'événements — remplace onclick/ondblclick inline (CSP)
+        list.querySelectorAll('.mmc-account-item').forEach(el => {
+            const idx = parseInt(el.dataset.accIndex);
+            el.addEventListener('click', () => window.selectAccountRow(idx));
+            el.addEventListener('dblclick', () => window.useSelectedRow());
+        });
     };
     window.selectAccountRow = (index) => {
         store.uiSelectedAccRow = index;
         window.renderAccountManager();
     };
-    window.useSelectedRow = () => {
+    window.useSelectedRow = async () => {
         if (store.uiSelectedAccRow !== null) {
             store.selectedAccountIdx = store.uiSelectedAccRow;
-            window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+            await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             if (window.renderAccountManager) window.renderAccountManager();
             if (window.updateAccountDropdown) window.updateAccountDropdown();
         }
@@ -160,7 +166,7 @@ export function setupAccountUI() {
                     store.selectedAccountIdx--;
                 }
                 store.uiSelectedAccRow = null;
-                window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                 if (window.renderAccountManager) window.renderAccountManager();
                 if (window.updateAccountDropdown) window.updateAccountDropdown();
             }
@@ -173,7 +179,7 @@ export function setupAccountUI() {
             document.getElementById("acc-name").focus();
         }
     };
-    window.saveOfflineAccount = () => {
+    window.saveOfflineAccount = async () => {
         const nameInput = document.getElementById("acc-name");
         const name = nameInput.value.trim();
         if (!name) {
@@ -191,7 +197,7 @@ export function setupAccountUI() {
             uuid: offlineUuid
         });
         store.selectedAccountIdx = store.allAccounts.length - 1;
-        window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         nameInput.value = "";
         document.getElementById("offline-input-container").style.display = "none";
         if (window.renderAccountManager) window.renderAccountManager();
@@ -239,12 +245,12 @@ export function setupAccountUI() {
         }
         if (window.updateLaunchButton) window.updateLaunchButton();
     };
-    window.changeAccount = () => {
+    window.changeAccount = async () => {
         const dropdown = document.getElementById("account-dropdown");
         const newIdx = parseInt(dropdown.value);
         if (!isNaN(newIdx)) {
             store.selectedAccountIdx = newIdx;
-            window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+            await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             window.updateAccountDropdown();
             if (window.renderUI) window.renderUI();
             if (window.renderAccountManager) window.renderAccountManager();
@@ -286,7 +292,7 @@ export function setupAccountUI() {
                         accParam.mclcAuth.access_token = refreshRes.access_token;
                     }
                     token = accParam.mclcAuth.access_token;
-                } catch (e) { }
+                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
             }
             
             const res = await window.api.invoke("fetch-mojang-profile", { token, uuid });
@@ -307,8 +313,7 @@ export function setupAccountUI() {
                         currentSkinUrl = data.skinUrl;
                     }
                     capeUrl = data.capeUrl;
-                } catch (e) {
-                }
+                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
             } else if (!customSkin) {
                 currentSkinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}`;
             }
@@ -321,6 +326,15 @@ export function setupAccountUI() {
                 fullscreenSkinViewer.controls.enableRotate = true;
                 fullscreenSkinViewer.controls.enableZoom = true;
                 fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
+                
+                // Fix WebGL bias warning: clamp overly negative bias values.
+                if (fullscreenSkinViewer.scene) {
+                    fullscreenSkinViewer.scene.traverse((child) => {
+                        if (child.isLight && child.shadow && child.shadow.bias < -16) {
+                            child.shadow.bias = -0.001;
+                        }
+                    });
+                }
             } else {
                 if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
             }
@@ -330,7 +344,7 @@ export function setupAccountUI() {
                 await fullscreenSkinViewer.loadSkin(currentSkinUrl, { model: currentModel });
             } catch (e) {
                 window.lastLoadedSkinUrl = STEVE_URL;
-                try { await fullscreenSkinViewer.loadSkin(STEVE_URL, { model: currentModel }); } catch (_) { }
+                try { await fullscreenSkinViewer.loadSkin(STEVE_URL, { model: currentModel }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
             }
             try {
                 if (capeUrl) {
@@ -339,7 +353,7 @@ export function setupAccountUI() {
                     await fullscreenSkinViewer.loadCape(null);
                 }
             } catch (_) {
-                try { fullscreenSkinViewer.loadCape(null); } catch (_) { }
+                try { fullscreenSkinViewer.loadCape(null); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
             }
             canvas.style.opacity = "1";
         }
@@ -364,7 +378,7 @@ export function setupAccountUI() {
             const img = new Image();
             img.onload = () => {
                 if (img.width !== 64 || (img.height !== 64 && img.height !== 32)) {
-                    if (window.showToast) window.showToast("Erreur: Le fichier doit être une image de Skin Minecraft valide (64x64 pixels).", "error");
+                    if (window.showToast) window.showToast("Erreur: Le fichier doit Ãªtre une image de Skin Minecraft valide (64x64 pixels).", "error");
                     return;
                 }
                 if (fullscreenSkinViewer) {
@@ -381,7 +395,7 @@ export function setupAccountUI() {
                             if (skinImg) skinImg.src = e.target.result;
                         }
                     }
-                    if (window.showToast) window.showToast(t("msg_skin_preview", "Skin chargé et sauvegardé localement !"), "info");
+                    if (window.showToast) window.showToast(t("msg_skin_preview", "Skin chargÃ© et sauvegardÃ© localement !"), "info");
                 }
             };
             img.src = e.target.result;
@@ -396,7 +410,7 @@ export function setupAccountUI() {
         if (!urlToExport) return;
         try {
             const res = await fetch(urlToExport);
-            if (!res.ok) throw new Error("Impossible de récupérer le skin");
+            if (!res.ok) throw new Error("Impossible de rÃ©cupÃ©rer le skin");
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -406,7 +420,7 @@ export function setupAccountUI() {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            if (window.showToast) window.showToast(t("msg_skin_exported", "Skin exporté avec succès !"), "success");
+            if (window.showToast) window.showToast(t("msg_skin_exported", "Skin exportÃ© avec succÃ¨s !"), "success");
         } catch (e) {
             console.error(e);
             if (window.showToast) window.showToast(t("msg_err_skin_export", "Erreur lors de l'exportation du skin."), "error");
@@ -427,7 +441,7 @@ export function setupAccountUI() {
             const refreshRes = await window.api.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
             if (refreshRes.success && refreshRes.access_token) {
                 acc.mclcAuth.access_token = refreshRes.access_token;
-                window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             }
             const res = await window.api.invoke("upload-mojang-skin", {
                 accessToken: acc.mclcAuth.access_token,
@@ -435,14 +449,14 @@ export function setupAccountUI() {
                 variant: variant
             });
             if (res.success) {
-                if (window.showToast) window.showToast(t("msg_skin_uploaded", "Skin mis à jour avec succès sur Mojang !"), "success");
+                if (window.showToast) window.showToast(t("msg_skin_uploaded", "Skin mis Ã  jour avec succÃ¨s sur Mojang !"), "success");
                 const cacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
                 try {
                     let cache = {};
                     if (window.api.fs.existsSync(cacheFile)) cache = JSON.parse(window.api.fs.readFileSync(cacheFile, 'utf8'));
                     delete cache[acc.name];
-                    window.safeWriteJSON(cacheFile, cache);
-                } catch (err) { }
+                    window.safeWriteJSONAsync(cacheFile, cache);
+                } catch (err) { if (err && err.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", err); }
                 setTimeout(() => window.openSkinModal(), 1000);
             } else {
                 if (window.showToast) window.showToast(t("msg_err_skin_upload", "Erreur: ") + res.error, "error");

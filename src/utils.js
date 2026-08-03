@@ -33,14 +33,14 @@ const allLogs = fs
 const launcherLogs = allLogs.filter(l => l.file.startsWith("launcher_"));
 if (launcherLogs.length > 4) {
     for (let i = 4; i < launcherLogs.length; i++) {
-        try { fs.unlinkSync(path.join(store.logsDir, launcherLogs[i].file)); } catch (_) { }
+        try { fs.unlinkSync(path.join(store.logsDir, launcherLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
     }
 }
 
 const gameLogs = allLogs.filter(l => l.file.startsWith("game_"));
 if (gameLogs.length > 5) {
     for (let i = 5; i < gameLogs.length; i++) {
-        try { fs.unlinkSync(path.join(store.logsDir, gameLogs[i].file)); } catch (_) { }
+        try { fs.unlinkSync(path.join(store.logsDir, gameLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
     }
 }
 const currentLogFile = path.join(
@@ -95,8 +95,34 @@ window.safeWriteJSON = (filePath, data) => {
         fs.renameSync(tmp, filePath);
     } catch (e) {
         sysLog("safeWriteJSON ERREUR sur " + filePath + " : " + e.message, true);
-        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) { }
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
     }
+};
+
+const _writeQueues = {};
+
+window.safeWriteJSONAsync = (filePath, data) => {
+    if (!_writeQueues[filePath]) {
+        _writeQueues[filePath] = Promise.resolve();
+    }
+    
+    _writeQueues[filePath] = _writeQueues[filePath].then(async () => {
+        const tmp = filePath + ".tmp";
+        try {
+            await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2));
+            await fs.promises.rename(tmp, filePath);
+        } catch (e) {
+            if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
+            try {
+                const exists = await fs.promises.access(tmp).then(() => true).catch(() => false);
+                if (exists) await fs.promises.unlink(tmp);
+            } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+        }
+    }).catch(err => {
+        if (typeof sysLog !== 'undefined') sysLog("Erreur inattendue queue d'écriture " + filePath + " : " + err.message, true);
+    });
+    
+    return _writeQueues[filePath];
 };
 let _lastToastMsg = "";
 let _lastToastTime = 0;
@@ -198,6 +224,25 @@ const yieldUI = () => new Promise((resolve) => {
         setTimeout(resolve, 0);
     }
 });
+window.sanitizeHTML = (str) => {
+    if (!str) return "";
+    const temp = document.createElement("div");
+    temp.textContent = str;
+    return temp.innerHTML;
+};
+
+window.fetchWithTimeout = async (resource, options = {}) => {
+    const { timeout = 30000 } = options;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    const response = await fetch(resource, {
+        ...options,
+        signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+};
+
 export { sysLog, yieldUI };
 
 window.reconnectDiscord = async () => {

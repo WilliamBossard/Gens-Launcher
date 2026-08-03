@@ -80,12 +80,12 @@ export function setup() {
                 warningHtml = `<div style="font-size:0.7rem; color:#f48a21; margin-top:2px;">⚠ ${t("msg_warn_deps", "Dépendance manquante potentielle : ")} ${window.escapeHTML(warnings[f].join(", "))}</div>`;
             }
             htmlBuilder += `
-            <div class="mod-item" style="flex-direction: column; align-items: flex-start;">
+            <div class="mod-item" data-mod-file="${window.escapeHTML(f)}" style="flex-direction: column; align-items: flex-start;">
                 <div style="display:flex; width: 100%; justify-content: space-between; align-items: center;">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleMod(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteMod(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary mod-delete-btn" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>
                 ${warningHtml}
@@ -93,6 +93,12 @@ export function setup() {
         });
         if (hasMods) {
             modsListDiv.innerHTML = htmlBuilder;
+            // Délégation d'événements — remplace les handlers inline
+            modsListDiv.querySelectorAll('.mod-item[data-mod-file]').forEach(item => {
+                const filename = item.dataset.modFile;
+                item.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => toggleMod(filename, e.target.checked));
+                item.querySelector('.mod-delete-btn')?.addEventListener('click', () => deleteMod(filename));
+            });
             if (window.filterLocalMods) window.filterLocalMods();
         } else {
             modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;

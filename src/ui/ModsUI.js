@@ -79,11 +79,11 @@ function setupMods() {
               const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const isInstalled = installedItems.some(f => {
                   if (searchString) {
-                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   return false;
@@ -152,11 +152,11 @@ function setupMods() {
               const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const isInstalled = installedItems.some(f => {
                   if (searchSlug) {
-                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|\\\\d)|\\\\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   return false;
@@ -216,7 +216,7 @@ function setupMods() {
             if (projType === "mod") params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
             if (projType === "modpack") params.push(`loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`);
             if (params.length > 0) url += "?" + params.join("&");
-            const versionsRes = await fetch(url);
+            const versionsRes = await window.fetchWithTimeout(url);
             if (!versionsRes.ok) throw new Error(`Modrinth API HTTP ${versionsRes.status}`);
             const versions = await versionsRes.json();
             if (versions.length === 0) {
@@ -231,7 +231,7 @@ function setupMods() {
               statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
               const safeTempName = sanitizeFilename(file.filename || "modpack.mrpack");
               const tempPath = path.join(store.dataDir, safeTempName);
-              const dlRes = await fetch(file.url);
+              const dlRes = await window.fetchWithTimeout(file.url);
               if (!dlRes.ok) throw new Error(`Téléchargement modpack HTTP ${dlRes.status}`);
               const buffer = await dlRes.arrayBuffer();
               fs.writeFileSync(tempPath, new Uint8Array(buffer));
@@ -255,7 +255,7 @@ function setupMods() {
                 if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
                 return;
               }
-              const dlModRes = await fetch(file.url);
+              const dlModRes = await window.fetchWithTimeout(file.url);
               if (!dlModRes.ok) throw new Error(`Téléchargement fichier HTTP ${dlModRes.status}`);
               const buffer = await dlModRes.arrayBuffer();
               if (file.hashes?.sha1) {
@@ -323,7 +323,7 @@ function setupMods() {
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
             if (!fs.existsSync(filePath)) {
-              const dlRes = await fetch(downloadUrl);
+              const dlRes = await window.fetchWithTimeout(downloadUrl);
 const buffer = await dlRes.arrayBuffer();
 const fileBytes = new Uint8Array(buffer);
 if (fileData.hashes && fileData.hashes.length > 0) {
@@ -650,7 +650,7 @@ const queue = [...modsToDownload];
                 try {
                     let apiUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(mod.id)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}`;
                     if (mod.type === "mod") apiUrl += `&loaders=${encodeURIComponent('["' + loader + '"]')}`;
-                    const vRes = await fetch(apiUrl);
+                    const vRes = await window.fetchWithTimeout(apiUrl);
                     if (!vRes.ok) throw new Error(`API ${vRes.status}`);
                     const versionsData = await vRes.json();
                     if (!Array.isArray(versionsData) || versionsData.length === 0) {
@@ -671,7 +671,7 @@ const queue = [...modsToDownload];
                     const dlTimeout = setTimeout(() => dlController.abort(), 30000);
                     let dlRes;
                     try {
-                        dlRes = await fetch(fileObj.url, { signal: dlController.signal });
+                        dlRes = await window.fetchWithTimeout(fileObj.url, { signal: dlController.signal });
                     } finally {
                         clearTimeout(dlTimeout);
                     }
@@ -701,10 +701,10 @@ const queue = [...modsToDownload];
 window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         store.allInstances.push(newInst);
         const instJsonPath = path.join(instDir, "instance.json");
-        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch(e) {}
+        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
-        window.safeWriteJSON(store.instanceFile, store.allInstances);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         window.hideLoading();
         window.renderUI();
         if (failed.length > 0) {
@@ -719,7 +719,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         if (!inst || !inst.modrinthId) return;
         try {
             const url = `https://api.modrinth.com/v2/project/${encodeURIComponent(inst.modrinthId)}/version?game_versions=${encodeURIComponent('["' + inst.version + '"]')}&loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`;
-            const res = await fetch(url);
+            const res = await window.fetchWithTimeout(url);
             if (!res.ok) return;
             const versions = await res.json();
             if (versions.length > 0) {
@@ -742,7 +742,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             window.showLoading(t("msg_dl_mp", "Téléchargement de la mise à jour..."), 0);
             const safeTempName = sanitizeFilename(filename || "modpack.mrpack");
             const tempPath = path.join(store.dataDir, safeTempName);
-            const dlRes = await fetch(url);
+            const dlRes = await window.fetchWithTimeout(url);
             if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
             const buffer = await dlRes.arrayBuffer();
             fs.writeFileSync(tempPath, new Uint8Array(buffer));

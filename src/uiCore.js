@@ -60,7 +60,7 @@ export function setupUICore() {
                         }
                     }
                     if (changed) {
-                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                         if (window.setUIState) window.setUIState();
                         if (window.renderUI)   window.renderUI();
                         if (window.updateRPC)  window.updateRPC();
@@ -69,7 +69,7 @@ export function setupUICore() {
                         clearInterval(_restorePollInterval);
                         _restorePollInterval = null;
                     }
-                } catch(e) { }
+                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in uiCore.js:", e); }
             }, 5000);
         } catch(e) {
             console.error("Erreur restauration instances actives:", e);
@@ -96,6 +96,32 @@ export function setupUICore() {
             arrow.style.transform = 'rotate(-90deg)'; 
             store.globalSettings.collapsedGroups[groupName] = true;
         }
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        if (window.safeWriteJSONAsync) {
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        }
+    };
+
+    window.activeModal = null;
+    window.openModal = (modalId) => {
+        if (window.activeModal && window.activeModal !== modalId) {
+            window.closeModal(window.activeModal);
+        }
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.style.display = "block";
+            window.activeModal = modalId;
+        }
+    };
+    
+    window.closeModal = (modalId) => {
+        const id = modalId || window.activeModal;
+        if (!id) return;
+        const modal = document.getElementById(id);
+        if (modal) {
+            modal.style.display = "none";
+        }
+        if (window.activeModal === id) {
+            window.activeModal = null;
+        }
     };
 }

@@ -31,7 +31,7 @@ export function setupSettings() {
                         try {
                             const dirs = fs.readdirSync(bp);
                             if (dirs.some(d => d.includes(v.toString()))) isSystemInstalled = true;
-                        } catch(e) {}
+                        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
                     }
                 }
             }
@@ -118,7 +118,7 @@ export function setupSettings() {
         document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
         document.getElementById("modal-settings").style.display = "none";
     };
-    window.saveGlobalSettings = () => {
+    window.saveGlobalSettings = async () => {
         let rawRam = parseInt(document.getElementById("global-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024;
         store.globalSettings.defaultRam = Math.max(1024, rawRam);
@@ -134,15 +134,29 @@ export function setupSettings() {
         store.globalSettings.offlineMode = document.getElementById("global-offline-mode").value === "true";
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
         let bgPath = document.getElementById("global-bg-path").value.trim();
-        const allowedBgExts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
-        if (bgPath && fs.existsSync(bgPath)) {
-            if (!allowedBgExts.includes(path.extname(bgPath).toLowerCase())) {
-                window.showToast(t("msg_err_bg_type", "Format d'image non supporté."), "error");
-                bgPath = store.globalSettings.theme?.bg || "";
-            } else if (!bgPath.startsWith(store.dataDir)) {
-                const ext = path.extname(bgPath);
-                const newBgPath = path.join(store.dataDir, "background_copy" + ext);
-                try { fs.copyFileSync(bgPath, newBgPath); bgPath = newBgPath; } catch(e) {}
+        const prevBg = store.globalSettings.theme?.bg || "";
+        if (bgPath) {
+            if (bgPath.startsWith(store.dataDir)) {
+                // Image déjà dans le sandbox — rien à copier
+            } else {
+                // Image hors-sandbox (ex: C:\Users\...\Pictures\) — copier via le main process
+                // Le main process valide l'extension et la signature magique du fichier.
+                const result = await window.api.copyImageToSandbox(bgPath, 'background_copy');
+                if (result.success) {
+                    // Supprimer l'ancien fichier copié si différent du nouveau
+                    if (prevBg && prevBg.startsWith(store.dataDir) && prevBg !== result.destPath) {
+                        try { fs.unlinkSync(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                    }
+                    bgPath = result.destPath;
+                } else {
+                    window.showToast(t("msg_err_bg_type", "Format d'image non supporté ou invalide."), "error");
+                    bgPath = prevBg;
+                }
+            }
+        } else {
+            // L'utilisateur a vidé le champ (clear) → supprimer le fichier copié dans le sandbox
+            if (prevBg && prevBg.startsWith(store.dataDir)) {
+                try { fs.unlinkSync(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
             }
         }
         const rawAccent = document.getElementById("global-accent").value;
@@ -157,7 +171,7 @@ export function setupSettings() {
             blur:         Math.max(0, Math.min(50,   isNaN(rawBlur) ? 5   : rawBlur)),
             panelOpacity: Math.max(0.1, Math.min(1,  isNaN(rawOp)   ? 0.6 : rawOp)),
         };
-        window.safeWriteJSON(store.settingsFile, store.globalSettings);
+        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         if (window.updateNetworkUI) window.updateNetworkUI();
         if(store.selectedInstanceIdx !== null) window.selectInstance(store.selectedInstanceIdx);
         else if(window.applyTheme) window.applyTheme();
@@ -169,7 +183,7 @@ export function setupSettings() {
             const defaultOpt = path.join(store.dataDir, "default_options.txt");
             if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
             store.globalSettings.defaultOptionsInstance = null;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
@@ -179,7 +193,7 @@ export function setupSettings() {
         if (fs.existsSync(sourceOpt)) {
             fs.copyFileSync(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_options_saved"), "success");
         } else {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
@@ -191,7 +205,7 @@ export function setupSettings() {
             const defaultSrv = path.join(store.dataDir, "default_servers.dat");
             if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
             store.globalSettings.defaultServersInstance = null;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
@@ -202,7 +216,7 @@ export function setupSettings() {
         if (fs.existsSync(sourceDat)) {
             fs.copyFileSync(sourceDat, path.join(store.dataDir, "default_servers.dat"));
             store.globalSettings.defaultServersInstance = inst.name;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
         } else {
             window.showToast(t("msg_no_options_found", "Aucun servers.dat trouvé. Lancez le jeu au moins une fois !"), "error");
@@ -282,9 +296,9 @@ export function setupSettings() {
                             selectEl.appendChild(opt);
                             found++;
                         }
-                    } catch(errStat) {}
+                    } catch (errStat) { if (errStat && errStat.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", errStat); }
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
         const searchPromises = basePaths.map(async (bp) => {
             if (window.api.fs.existsSync(bp)) {
@@ -322,7 +336,7 @@ export function setupSettings() {
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
-                    window.safeWriteJSON(store.settingsFile, store.globalSettings);
+                    window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
                 }
                 window.showToast(t("msg_java_deleted", "Java {version} a été supprimé.").replace("{version}", version), "success");
                 window.updateJavaButtonsDisplay();
@@ -340,7 +354,9 @@ export function setupSettings() {
         window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
-        if (!fs.existsSync(javaDir)) fs.mkdirSync(javaDir, { recursive: true });
+        if (!(await fs.promises.access(javaDir).then(() => true).catch(() => false))) {
+            await fs.promises.mkdir(javaDir, { recursive: true });
+        }
         try {
             const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
             const rawArch = window.api.arch || "x64";
@@ -349,16 +365,18 @@ export function setupSettings() {
             const archivePath = path.join(javaDir, `${type}${version}${ext}`);
             const baseParams = `${version}/ga/${platform}/${arch}/${type}/hotspot/normal/eclipse`;
             const url         = `https://api.adoptium.net/v3/binary/latest/${baseParams}`;
-            const checksumUrl = `https://api.adoptium.net/v3/checksum/latest/${baseParams}`;
+            const assetsUrl   = `https://api.adoptium.net/v3/assets/latest/${version}/hotspot?architecture=${arch}&image_type=${type}&os=${platform}&vendor=eclipse`;
             let expectedSha256 = null;
             try {
-                const shaRes = await fetch(checksumUrl);
-                if (shaRes.ok) {
-                    const shaText = (await shaRes.text()).trim();
-                    expectedSha256 = shaText.split(/\s+/)[0].toLowerCase();
+                const assetsRes = await window.fetchWithTimeout(assetsUrl, { timeout: 15000 });
+                if (assetsRes.ok) {
+                    const assets = await assetsRes.json();
+                    if (Array.isArray(assets) && assets[0]?.binary?.package?.checksum) {
+                        expectedSha256 = assets[0].binary.package.checksum.toLowerCase();
+                    }
                 }
-            } catch (e) {}
-            const res = await fetch(url);
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
+            const res = await window.fetchWithTimeout(url, { timeout: 15000 });
             if (!res.ok) throw new Error(`Version de Java ${type.toUpperCase()} introuvable sur les serveurs.`);
             const contentLength = res.headers.get('content-length');
             const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
@@ -396,36 +414,41 @@ export function setupSettings() {
                 }
             }
             const tmpArchivePath = archivePath + ".tmp";
-            fs.writeFileSync(tmpArchivePath, fileBytes);
-            fs.renameSync(tmpArchivePath, archivePath);
+            await fs.promises.writeFile(tmpArchivePath, fileBytes);
+            await fs.promises.rename(tmpArchivePath, archivePath);
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
             const extractDir = path.join(javaDir, `${type}${version}`);
-            if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+            if (await fs.promises.access(extractDir).then(() => true).catch(() => false)) {
+                await fs.promises.rm(extractDir, { recursive: true, force: true });
+            }
             if (platform === "windows") {
                 await window.api.invoke("extract-zip", { zipPath: archivePath, destDir: extractDir }); 
             } else {
-                fs.mkdirSync(extractDir, { recursive: true });
+                await fs.promises.mkdir(extractDir, { recursive: true });
                 const extractRes = await window.api.tools.extractTar(archivePath, extractDir);
                 if (!extractRes.success) throw new Error(extractRes.error);
             }
-            fs.unlinkSync(archivePath);
+            await fs.promises.unlink(archivePath);
             const javaExe = (platform === "windows") ? "javaw.exe" : "java";
-            function findExe(dir, depth = 0) {
+            async function findExe(dir, depth = 0) {
                 if (depth > 8) return null; 
-                for (let f of fs.readdirSync(dir)) {
-                    const full = path.join(dir, f);
-                    const stat = fs.statSync(full);
-                    if (stat.isDirectory) { const r = findExe(full, depth + 1); if (r) return r; }
-                    else if (f.toLowerCase() === javaExe) return full;
-                }
+                try {
+                    const entries = await fs.promises.readdir(dir);
+                    for (let f of entries) {
+                        const full = path.join(dir, f);
+                        const stat = await fs.promises.stat(full);
+                        if (stat.isDirectory()) { const r = await findExe(full, depth + 1); if (r) return r; }
+                        else if (f.toLowerCase() === javaExe) return full;
+                    }
+                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
                 return null;
             }
-            const exePath = findExe(extractDir);
+            const exePath = await findExe(extractDir);
             if (exePath) {
                 if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
                 store.globalSettings.defaultJavaPath = exePath;
-                window.safeWriteJSON(store.settingsFile, store.globalSettings);
+                window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
                 window.showToast(t("msg_java_installed_success"), "success");
                 window.updateJavaButtonsDisplay();
                 if (window.scanJavaVersions) {
@@ -483,7 +506,7 @@ window.refreshHorizonUI = async () => {
                 if (window.api.fs.existsSync(htmlCachePath)) {
                     window._lastCloudGridHtml = window.api.fs.readFileSync(htmlCachePath, "utf8");
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
         if (!window._lastQuotaHtml) {
             try {
@@ -492,7 +515,7 @@ window.refreshHorizonUI = async () => {
                 if (window.api.fs.existsSync(quotaHtmlCachePath)) {
                     window._lastQuotaHtml = window.api.fs.readFileSync(quotaHtmlCachePath, "utf8");
                 }
-            } catch(e) {}
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
         const status = await window.api.invoke("check-horizon-status");
         if (!status.installed) {
@@ -500,8 +523,9 @@ window.refreshHorizonUI = async () => {
                 <div style="text-align: center; padding: 40px 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;">
                     <h2 style="color: var(--text-light); margin-bottom: 10px;">${t("horizon_not_installed", "Module Cloud non détecté")}</h2>
                     <p style="opacity: 0.7; margin-bottom: 30px; font-size: 0.9rem;">${t("horizon_install_desc", "Installez Gens Horizon pour sauvegarder automatiquement vos mondes.")}</p>
-                    <button class="btn-primary" onclick="handleHorizonInstall()" style="padding: 10px 25px;">${t("btn_install_horizon", "Installer Horizon")}</button>
+                    <button id="btn-horizon-install-cta" class="btn-primary" style="padding: 10px 25px;">${t("btn_install_horizon", "Installer Horizon")}</button>
                 </div>`;
+            container.querySelector('#btn-horizon-install-cta')?.addEventListener('click', () => handleHorizonInstall());
             return;
         }
         let hSettings = await window.api.invoke("get-horizon-settings");
@@ -538,14 +562,14 @@ window.refreshHorizonUI = async () => {
             linkBtnHTML = `
                 <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;"> 
                     </div>
-                    <button class="btn-secondary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; color: #f87171; border-color: #f87171; flex-shrink: 0;" onclick="disconnectHorizon()">
+                    <button id="btn-horizon-disconnect" class="btn-secondary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; color: #f87171; border-color: #f87171; flex-shrink: 0;">
                         ${t("btn_horizon_disconnect", "Déconnecter")}
                     </button>
                 </div>
             `;
         } else {
             linkBtnHTML = `
-                <button class="btn-primary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; flex-shrink: 0; white-space: nowrap; box-sizing: border-box; margin-left: auto;" onclick="runHorizonLogin(document.getElementById('horizon-provider-select').value)">
+                <button id="btn-horizon-link" class="btn-primary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; flex-shrink: 0; white-space: nowrap; box-sizing: border-box; margin-left: auto;">
                     ${t("btn_horizon_link", "Associer un compte")}
                 </button>
             `;
@@ -575,7 +599,7 @@ window.refreshHorizonUI = async () => {
                     for (const f of cacheFiles) {
                         const p = window.api.path.join(binPath, f);
                         if (window.api.fs.existsSync(p)) {
-                            try { window.api.fs.unlinkSync(p); } catch(_) {}
+                            try { window.api.fs.unlinkSync(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
                         }
                     }
 
@@ -587,8 +611,8 @@ window.refreshHorizonUI = async () => {
             }
         };
         const updateBtnHTML = (status.needsUpdate && !status.offline)
-            ? `<button class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;" onclick="handleHorizonInstall()">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
-            : `<button class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;" onclick="handleHorizonInstall()">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+            ? `<button id="btn-horizon-update" class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
+            : `<button id="btn-horizon-update" class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
         let html = `
             <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
@@ -596,7 +620,7 @@ window.refreshHorizonUI = async () => {
                         <span style="width: 10px; height: 10px; min-width: 10px; background: ${statusColor}; border-radius: 50%;"></span>
                         <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${statusText}</strong>
                     </div>
-                    <select onchange="saveHorizonConfig('systemEnabled', this.value)" style="width: 110px; height: 28px; font-size: 0.8rem; flex-shrink: 0; margin-left: auto;">
+                    <select id="select-horizon-system-enabled" style="width: 110px; height: 28px; font-size: 0.8rem; flex-shrink: 0; margin-left: auto;">
                         <option value="true" ${isEnabled ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                         <option value="false" ${!isEnabled ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                     </select>
@@ -614,7 +638,7 @@ window.refreshHorizonUI = async () => {
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
                         <span style="font-size: 0.85rem; color: var(--text-light); font-weight: bold;">${t("lbl_active_cloud", "Cloud Actif :")}</span>
-                        <select id="horizon-provider-select" onchange="changeHorizonProvider(this.value)" style="width: 130px; height: 28px; font-size: 0.8rem;">
+                        <select id="horizon-provider-select" style="width: 130px; height: 28px; font-size: 0.8rem;">
                             <option value="google" ${currentProvider === "google" ? "selected" : ""}>Google Drive</option>
                             <option value="dropbox" ${currentProvider === "dropbox" ? "selected" : ""}>Dropbox</option>
                             <option value="onedrive" ${currentProvider === "onedrive" ? "selected" : ""}>OneDrive</option>
@@ -628,7 +652,7 @@ window.refreshHorizonUI = async () => {
             <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 15px;">
                 <div style="font-weight: bold; color: var(--text-light); margin-bottom: 15px; font-size: 0.95rem;">${t("horizon_settings_title", "Paramètres du Cloud")}</div>
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
-                <select id="horizon-select-syncmode" onchange="saveHorizonConfig('syncMode', this.value); toggleDeltaThresholdRow();" style="width: 100%; margin-bottom: 12px;">
+                <select id="select-horizon-sync-mode" style="width: 100%; margin-bottom: 12px;">
                     <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_mode_smart", "Smart (Incrémentiel - Recommandé)")}</option>
                     <option value="FULL" ${hSettings.syncMode === "FULL" ? "selected" : ""}>${t("horizon_mode_full", "Classique (Archive complète)")}</option>
                 </select>
@@ -648,19 +672,18 @@ window.refreshHorizonUI = async () => {
                             min="3" max="50"
                             value="${hSettings.deltaCleanupThreshold || 10}"
                             style="width: 70px;"
-                            onchange="saveHorizonConfig('deltaCleanupThreshold', parseInt(this.value) || 10)"
                         >
                         <span style="font-size: 0.8rem; color: #888;">${t("horizon_delta_threshold_unit", "deltas → full repack")}</span>
                     </div>
                     <div style="font-size: 0.72rem; color: #666; margin-top: 4px;">${t("horizon_delta_threshold_hint", "Min: 3 · Max: 50 · Recommended: 10")}</div>
                 </div>
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
-                <select onchange="saveHorizonConfig('autoSync', this.value)" style="width: 100%; margin-bottom: 12px;">
+                <select id="select-horizon-auto-sync" style="width: 100%; margin-bottom: 12px;">
                     <option value="true" ${hSettings.autoSync === true || hSettings.autoSync === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                     <option value="false" ${hSettings.autoSync === false || hSettings.autoSync === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                 </select>
                 <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_upload", "Envoi auto. (Upload)")}</label>
-                <select onchange="saveHorizonConfig('autoUpload', this.value)" style="width: 100%; margin-bottom: 12px;">
+                <select id="select-horizon-auto-upload" style="width: 100%; margin-bottom: 12px;">
                     <option value="true" ${hSettings.autoUpload === true || hSettings.autoUpload === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                     <option value="false" ${hSettings.autoUpload === false || hSettings.autoUpload === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                 </select>
@@ -669,7 +692,6 @@ window.refreshHorizonUI = async () => {
                     <input type="number" id="horizon-max-retries"
                         min="0" max="10" step="1"
                         value="${hSettings.maxRetries ?? 3}"
-                        onchange="saveHorizonConfig('maxRetries', Math.max(0, Math.min(10, parseInt(this.value) || 0)))"
                         style="width:70px; height:28px; text-align:center; font-size:0.85rem;">
                     <span style="font-size: 0.8rem; color: #888;">${t("horizon_retry_unit", "retry(s) max")}</span>
                 </div>
@@ -688,11 +710,24 @@ window.refreshHorizonUI = async () => {
             </div>`;
         }
         container.innerHTML = html;
+        // ── Attacher tous les événements après injection HTML (remplace les handlers inline) ──
+        container.querySelector('#btn-horizon-disconnect')?.addEventListener('click', () => disconnectHorizon());
+        container.querySelector('#btn-horizon-link')?.addEventListener('click', () => runHorizonLogin(document.getElementById('horizon-provider-select')?.value));
+        container.querySelector('#btn-horizon-update')?.addEventListener('click', () => handleHorizonInstall());
+        container.querySelector('#select-horizon-system-enabled')?.addEventListener('change', (e) => saveHorizonConfig('systemEnabled', e.target.value));
+        container.querySelector('#horizon-provider-select')?.addEventListener('change', (e) => changeHorizonProvider(e.target.value));
+        container.querySelector('#select-horizon-sync-mode')?.addEventListener('change', (e) => { saveHorizonConfig('syncMode', e.target.value); toggleDeltaThresholdRow(); });
+        container.querySelector('#horizon-delta-threshold')?.addEventListener('change', (e) => saveHorizonConfig('deltaCleanupThreshold', parseInt(e.target.value) || 10));
+        container.querySelector('#select-horizon-auto-sync')?.addEventListener('change', (e) => saveHorizonConfig('autoSync', e.target.value));
+        container.querySelector('#select-horizon-auto-upload')?.addEventListener('change', (e) => saveHorizonConfig('autoUpload', e.target.value));
+        container.querySelector('#horizon-max-retries')?.addEventListener('change', (e) => saveHorizonConfig('maxRetries', Math.max(0, Math.min(10, parseInt(e.target.value) || 0))));
         if (isEnabled && status.linked) {
             if (window.horizonScheduleCloudRefresh) {
                 window.horizonScheduleCloudRefresh({ refreshQuota: true });
             } else {
-                window.api.invoke("call-horizon", ['--sync', '--list']);
+                window.api.invoke("call-horizon", ['--sync', '--list']).catch(e => {
+                    if (typeof sysLog !== 'undefined') sysLog("Erreur Horizon sync list: " + e.message, true);
+                });
             }
         } else if (isEnabled && !status.linked) {
             const grid = document.getElementById("horizon-cloud-grid");
@@ -717,7 +752,7 @@ window.refreshHorizonUI = async () => {
         for (const f of cacheFiles) {
             const p = window.api.path.join(binPath, f);
             if (window.api.fs.existsSync(p)) {
-                try { window.api.fs.unlinkSync(p); } catch(_) {}
+                try { window.api.fs.unlinkSync(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
             }
         }
         
@@ -792,7 +827,7 @@ window.runHorizonLogin = async (provider) => {
         const content = document.getElementById(tabId);
         if (content) content.classList.add("active");
         const btnId = "tab-btn-glob-" + tabId.split("-").pop();
-        const btn = document.querySelector(`.tab-btn-glob[onclick="switchTabGlob('${tabId}')"]`);
+        const btn = document.getElementById(btnId);
         if (btn) btn.classList.add("active");
         
         if (window.applyTranslations) window.applyTranslations();

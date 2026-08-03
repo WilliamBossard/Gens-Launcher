@@ -35,13 +35,13 @@ module.exports = function setupGameHandlers(context) {
                         await fs.promises.access(jsonPath);
                         const data = JSON.parse(await fs.promises.readFile(jsonPath, 'utf8'));
                         if (data.name) instanceId = data.name;
-                    } catch (_) { }
+                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _); }
                     stillAlive.push(instanceId);
                 } catch (e) {
-                    try { await fs.promises.unlink(lockFile); } catch (_) { }
+                    try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _); }
                 }
             }
-        } catch (e) { }
+        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
         return stillAlive;
     }
 
@@ -138,7 +138,7 @@ module.exports = function setupGameHandlers(context) {
         if (clientData) {
             if (clientData.process) {
                 if (process.platform === 'win32') {
-                    try { require('child_process').execFile('taskkill', ['/pid', clientData.process.pid.toString(), '/T', '/F'], () => {}); } catch(e){}
+                    try { require('child_process').execFile('taskkill', ['/pid', clientData.process.pid.toString(), '/T', '/F'], () => {}); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
                 } else {
                     clientData.process.kill("SIGKILL");
                 }
@@ -169,8 +169,7 @@ module.exports = function setupGameHandlers(context) {
                 mainLog(`force-stop: PID ${pid} déjà mort pour [${instanceId}]`);
             }
             await fs.promises.unlink(lockFile);
-        } catch (e) {
-        }
+        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
         if (mainWindow) mainWindow.webContents.send("mc-close", { instanceId, code: -1 });
         return { success: true };
     });

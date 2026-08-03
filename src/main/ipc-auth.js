@@ -141,7 +141,7 @@ module.exports = function setupAuthHandlers(context) {
                     await fs.promises.access(cacheDir);
                     await fs.promises.rm(cacheDir, { recursive: true, force: true });
                     mainLog(`Ancien Cache MSA supprimé pour : ${sessionLabel}`);
-                } catch(err2) {}
+                } catch (err2) { if (err2 && err2.code !== 'ENOENT') console.warn("Ignored error in ipc-auth.js:", err2); }
             }
         } catch (e) { mainLog("Erreur suppression cache MSA : " + e.message); }
     });

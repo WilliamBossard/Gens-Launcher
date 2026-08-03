@@ -29,7 +29,7 @@ export function setup() {
             }
             const modsDir = path.join(instDir, "mods");
             if (fs.existsSync(modsDir)) {
-                try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch(_) {}
+                try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             }
             fs.mkdirSync(modsDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
@@ -40,7 +40,7 @@ export function setup() {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
                     if (fs.existsSync(destPath)) {
-                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch(_) {}
+                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
                     fs.renameSync(path.join(srcOverrides, item), destPath);
                 }
@@ -68,19 +68,19 @@ export function setup() {
                                 throw new Error(dlRes.error || "Erreur de téléchargement");
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
                     downloadedCount++;
                     window.updateLoadingPercent(Math.round((downloadedCount / total) * 100), t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${downloadedCount}/${total})...`);
                 }
             });
             await Promise.all(workers);
-            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch(e) {}
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             window.showToast("Modpack mis à jour avec succès !", "success");
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {
-            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
@@ -182,17 +182,17 @@ export function setup() {
             }
             store.allInstances.push(instData);
             if (window.updateIconCache) window.updateIconCache(instData);
-            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch(e) {}
+            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
-            window.safeWriteJSON(store.settingsFile, store.globalSettings);
-            window.safeWriteJSON(store.instanceFile, store.allInstances);
+            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         } finally {
-            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch(_) {}
+            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }

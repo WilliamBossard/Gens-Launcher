@@ -23,16 +23,22 @@ export function setup() {
                 const decoration = isEnabled ? "none" : "line-through";
                 const fileJson = safeAttrJson(file);
                 shadersHtml += `
-                <div class="mod-item">
+                <div class="mod-item" data-shader-file="${window.escapeHTML(file)}" data-enabled="${isEnabled ? '1' : '0'}">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                     <div style="display:flex; gap:8px; align-items: center;">
-                        <input type="checkbox" ${isEnabled ? "checked" : ""} onchange='toggleShader(${fileJson}, this.checked)' title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
-                        <button class="btn-secondary" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" onclick='deleteShader(${fileJson})' title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                        <input type="checkbox" ${isEnabled ? "checked" : ""} title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
+                        <button class="btn-secondary shader-delete-btn" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
         });
         listDiv.innerHTML = shadersHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
+        // Délégation d'événements — remplace les handlers inline
+        listDiv.querySelectorAll('.mod-item[data-shader-file]').forEach(item => {
+            const filename = item.dataset.shaderFile;
+            item.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => toggleShader(filename, e.target.checked));
+            item.querySelector('.shader-delete-btn')?.addEventListener('click', () => deleteShader(filename));
+        });
     };
     window.toggleShader = (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
