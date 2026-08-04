@@ -7,7 +7,7 @@ const path = window.api.path;
 const shell = window.api.shell;
 const _screenshotCache = new Map();
 const SCREENSHOT_CACHE_TTL = 86400000; 
-function getCachedScreenshot(inst) {
+async function getCachedScreenshot(inst) {
     const safeDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
     const cached = _screenshotCache.get(inst.name);
     if (cached && cached.dir === safeDir && (Date.now() - cached.ts) < SCREENSHOT_CACHE_TTL) {
@@ -15,8 +15,8 @@ function getCachedScreenshot(inst) {
     }
     let file = null;
     try {
-        if (fs.existsSync(safeDir)) {
-            const files = fs.readdirSync(safeDir).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
+        if (await fs.promises.exists(safeDir)) {
+            const files = (await fs.promises.readdir(safeDir)).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
             if (files.length > 0) file = path.join(safeDir, files[Math.floor(Math.random() * files.length)]);
         }
     } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
@@ -114,7 +114,7 @@ export function setupInstances() {
             select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
         }
     };
-    window.selectInstance = (i) => {
+    window.selectInstance = async (i) => {
         const isNewInstance = store.selectedInstanceIdx !== i;
         store.selectedInstanceIdx = i;
         const inst = store.allInstances[i];
@@ -139,7 +139,7 @@ export function setupInstances() {
             : t("lbl_never", "Jamais");
         const appBg = document.getElementById("app-background");
         const root = document.documentElement;
-        const imgPath = getCachedScreenshot(inst);
+        const imgPath = await getCachedScreenshot(inst);
         if (imgPath) {
             const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
             const disableTransp = store.globalSettings.disableTransparency;
@@ -181,7 +181,7 @@ export function setupInstances() {
         const descEl = document.getElementById("jvm-desc-" + val);
         if (descEl) descEl.style.display = "block";
     };
-    window.openEditModal = (targetTab = "tab-general") => {
+    window.openEditModal = async (targetTab = "tab-general") => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
         if (ramMB < 128) ramMB = ramMB * 1024;
@@ -202,9 +202,9 @@ export function setupInstances() {
         const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
         let resolvedIcon = inst.icon;
         if (!resolvedIcon || resolvedIcon === "") {
-            if (fs.existsSync(path.join(instFolder, "icon.png"))) {
+            if (await fs.promises.exists(path.join(instFolder, "icon.png"))) {
                 resolvedIcon = window.pathToFileUrl(path.join(instFolder, "icon.png").replace(/\\/g, "/"));
-            } else if (fs.existsSync(path.join(instFolder, "icon.jpg"))) {
+            } else if (await fs.promises.exists(path.join(instFolder, "icon.jpg"))) {
                 resolvedIcon = window.pathToFileUrl(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
             } else {
                 resolvedIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
@@ -373,9 +373,9 @@ export function setupInstances() {
         sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})`);
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (fs.existsSync(defaultOpt)) { try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
+        if (await fs.promises.exists(defaultOpt)) { try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-        if (fs.existsSync(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
+        if (await fs.promises.exists(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
         try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         window.renderUI();
         window.closeInstanceModal();
@@ -575,7 +575,7 @@ export function setupInstances() {
                     if (!iconPathToUse || iconPathToUse.startsWith("data:image/svg+xml")) {
                         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
                         const pngPath = window.api.path.join(instFolder, "icon.png");
-                        if (window.api.fs.existsSync(pngPath)) {
+                        if (await window.api.fs.promises.access(pngPath).then(() => true).catch(() => false)) {
                             iconPathToUse = "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
                         }
                     }
@@ -600,9 +600,9 @@ export function setupInstances() {
         if (iconWasChanged && window.checkAchievement) window.checkAchievement("artist");
         window.closeEditModal();
     };
-    window.openDir = (f) => {
+    window.openDir = async (f) => {
         const dir = path.join(store.instancesRoot, window.safeDir(store.allInstances[store.selectedInstanceIdx].name), f);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        if (!(await fs.promises.exists(dir))) await fs.promises.mkdir(dir, { recursive: true });
         shell.openPath(dir);
     };
     window.copyInstance = async () => {
@@ -622,7 +622,7 @@ export function setupInstances() {
         try {
             const oldPath = path.join(store.instancesRoot, window.safeDir(oldInst.name));
             const newPath = path.join(store.instancesRoot, window.safeDir(inst.name));
-            if (fs.existsSync(oldPath)) {
+            if (await fs.promises.exists(oldPath)) {
                 let totalBytes = 0;
                 let copiedBytes = 0;
                 async function calcSize(dir) {
@@ -639,7 +639,7 @@ export function setupInstances() {
                 await calcSize(oldPath);
 
                 async function doCopy(s, d) {
-                    fs.mkdirSync(d, { recursive: true });
+                    await fs.promises.mkdir(d, { recursive: true });
                     const entries = await fs.promises.readdir(s);
                     for (const entry of entries) {
                         const srcPath = path.join(s, entry);
@@ -649,7 +649,7 @@ export function setupInstances() {
                             if (stat.isDirectory) {
                                 await doCopy(srcPath, destPath);
                             } else {
-                                fs.copyFileSync(srcPath, destPath);
+                                await fs.promises.copyFile(srcPath, destPath);
                                 copiedBytes += stat.size;
                                 if (totalBytes > 0 && window.updateLoadingPercent) {
                                     window.updateLoadingPercent(Math.min(100, Math.floor((copiedBytes / totalBytes) * 100)));
@@ -675,7 +675,7 @@ export function setupInstances() {
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-            try { fs.writeFileSync(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+            try { await fs.promises.writeFile(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         } catch(e) { sysLog("Erreur Copie: " + e, true); }
         window.hideLoading();
         window.renderUI();
@@ -697,7 +697,7 @@ export function setupInstances() {
                 if (store.horizonActive) {
                     const binDir = path.join(store.dataDir, "bin");
                     const metaPath = path.join(binDir, `meta_${safeName}.json`);
-                    const onCloud = (window._cloudInstances && window._cloudInstances.includes(safeName)) || fs.existsSync(metaPath);
+                    const onCloud = (window._cloudInstances && window._cloudInstances.includes(safeName)) || await fs.promises.exists(metaPath);
                     if (onCloud) {
                         const confirmMsg = t("msg_also_delete_cloud", 'Voulez-vous ÉGALEMENT supprimer "{name}" du Cloud ?').replace("{name}", instName);
                         deleteCloudToo = await window.showCustomConfirm(confirmMsg, true);
@@ -727,7 +727,7 @@ export function setupInstances() {
             }
             const instFolder = path.join(store.instancesRoot, safeName);
             try {
-                if (fs.existsSync(instFolder)) {
+                if (await fs.promises.exists(instFolder)) {
                     await fs.promises.rm(instFolder, { recursive: true, force: true });
                 }
                 invalidateScreenshotCache(instName);
@@ -800,7 +800,7 @@ export function setupInstances() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => window.renderUI(), 200);
     };
-    window.updateIconCache = (inst) => {
+    window.updateIconCache = async (inst) => {
         if (!store.defaultIcons) return;
         const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
         let iconSrc = fallbackIcon;
@@ -815,7 +815,7 @@ export function setupInstances() {
             let foundIconPath = null;
             for (const ext of ICON_EXTS) {
                 const candidate = window.api.path.join(instFolder, 'icon' + ext);
-                if (window.api.fs.existsSync(candidate)) {
+                if (await window.api.fs.promises.exists(candidate)) {
                     foundIconPath = candidate;
                     break;
                 }
@@ -827,7 +827,7 @@ export function setupInstances() {
                 const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
                 const mime = mimeMap[ext] || 'image/png';
                 iconSrc = inst._iconCacheBuster
-                    ? `data:${mime};base64,${window.api.fs.readFileSync(foundIconPath, 'base64')}`
+                    ? `data:${mime};base64,${await window.api.fs.promises.readFile(foundIconPath, 'base64')}`
                     : window.pathToFileUrl(foundIconPath);
                 // Mettre à jour inst.icon si stale (pointe vers un fichier différent ou supprimé)
                 const expectedUrl = window.pathToFileUrl(foundIconPath);
@@ -853,16 +853,21 @@ export function setupInstances() {
             container.innerHTML = `
             <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa; gap:15px;">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                <div style="font-size: 1.3rem; font-weight:bold; color:var(--text-light); text-align:center;">
+                <div style="font-size: 1.3rem; font-weight:bold; color:var(--text-light); text-align:center;" data-i18n="msg_welcome_title">
                     ${t("msg_welcome_title", "Bienvenue sur Gens Launcher !")}
                 </div>
-                <div style="font-size: 0.9rem; text-align:center; max-width: 400px;">
+                <div style="font-size: 0.9rem; text-align:center; max-width: 400px;" data-i18n="msg_welcome_desc">
                     ${t("msg_welcome_desc", "Vous n'avez pas encore d'instance. Créez-en une nouvelle ou téléchargez un Modpack pour commencer à jouer.")}
                 </div>
-                <button id="btn-welcome-add-instance" class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);">
+                <button id="btn-welcome-add-instance" class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);" data-i18n="toolbar_add">
                     ${t("toolbar_add", "Ajouter une instance")}
                 </button>
             </div>`;
+            const btnWelcome = document.getElementById('btn-welcome-add-instance');
+            if (btnWelcome) {
+                // S'assurer que le bouton fonctionne bien
+                btnWelcome.onclick = (e) => { e.preventDefault(); window.openInstanceModal(); };
+            }
             return;
         }
         const search = document.getElementById("search-bar").value.toLowerCase();
@@ -955,9 +960,6 @@ const groups = {};
             fullHtml += html;
         }
         container.innerHTML = fullHtml;
-        // Bouton d'accueil (écran vide)
-        const btnWelcome = document.getElementById('btn-welcome-add-instance');
-        if (btnWelcome) btnWelcome.addEventListener('click', () => openInstanceModal());
         // Fallback icônes manquantes
         container.querySelectorAll('.instance-icon[data-fallback]').forEach(img => {
             img.addEventListener('error', function() {
@@ -1090,18 +1092,18 @@ const groups = {};
             try {
                 if (ext === ".jar") {
                     const modsDir = path.join(instFolder, "mods");
-                    if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
+                    if (!(await fs.promises.exists(modsDir))) await fs.promises.mkdir(modsDir, { recursive: true });
                     await fs.promises.copyFile(filePath, path.join(modsDir, file.name));
                     added++;
                 } else if (ext === ".zip") {
                     const nameLower = file.name.toLowerCase();
                     if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
                         const shadersDir = path.join(instFolder, "shaderpacks");
-                        if (!fs.existsSync(shadersDir)) fs.mkdirSync(shadersDir, { recursive: true });
+                        if (!(await fs.promises.exists(shadersDir))) await fs.promises.mkdir(shadersDir, { recursive: true });
                         await fs.promises.copyFile(filePath, path.join(shadersDir, file.name));
                     } else {
                         const rpDir = path.join(instFolder, "resourcepacks");
-                        if (!fs.existsSync(rpDir)) fs.mkdirSync(rpDir, { recursive: true });
+                        if (!(await fs.promises.exists(rpDir))) await fs.promises.mkdir(rpDir, { recursive: true });
                         await fs.promises.copyFile(filePath, path.join(rpDir, file.name));
                     }
                     added++;
@@ -1248,7 +1250,7 @@ document.addEventListener("click", () => {
     async function getOrGenerateIconPath(inst) {
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
         const pngPath = window.api.path.join(instFolder, "icon.png");
-        if (window.api.fs.existsSync(pngPath)) {
+        if (await window.api.fs.promises.exists(pngPath)) {
             return "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
         }
         if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
@@ -1257,7 +1259,7 @@ document.addEventListener("click", () => {
         const svgData = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
         return new Promise((resolve) => {
             const img = new Image();
-            img.onload = () => {
+            img.onload = async () => {
                 const canvas = document.createElement("canvas");
                 canvas.width = 256; 
                 canvas.height = 256;
@@ -1266,7 +1268,7 @@ document.addEventListener("click", () => {
                 const base64Png = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
                 try {
                     const buffer = Uint8Array.from(atob(base64Png), c => c.charCodeAt(0));
-                    window.api.fs.writeFileSync(pngPath, buffer);
+                    await window.api.fs.promises.writeFile(pngPath, buffer);
                     resolve("file:///" + encodeURI(pngPath.replace(/\\/g, "/")));
                 } catch(e) { resolve(null); }
             };

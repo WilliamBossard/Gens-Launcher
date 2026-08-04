@@ -1,4 +1,4 @@
-﻿# Gens-Launcher — Guide de Développement Complet
+# Gens-Launcher — Guide de Développement Complet
 
 Ce document décrit l'architecture, le modèle de sécurité, les flux de données et les bonnes pratiques de développement du projet **Gens-Launcher**. Il sert de référence technique (Single Source of Truth) pour tout contributeur ou auditeur de sécurité.
 
@@ -52,9 +52,8 @@ L'application a été auditée et respecte le principe de la **Défense en Profo
 1. **Context Isolation** : Toujours activé (`contextIsolation: true`). Le prototype Javascript du Renderer est isolé de celui du Main.
 2. **IPC Sandboxing** : `sandbox: false` natif est utilisé (nécessaire pour l'accès Node.js du preload), mais compensé par un sandboxing applicatif hyper-strict dans `preload.js`. Seules les lectures dans `.minecraft/` ou les répertoires Java sont tolérées en dehors de `GensLauncher/`.
 3. **Architecture CSP à "Double Couche" (Dual-Layer CSP)** :
-   - *Couche 1 (main.js)* : L'en-tête HTTP positionne `script-src 'self' 'unsafe-inline'`. `'unsafe-inline'` est conservé car `index.html` utilise des handlers inline (`onclick="..."`). Le gain clé est la suppression de `http://*` : toutes les images et connexions sont limitées à **HTTPS uniquement**.
+    - *Couche 1 (main.js)* : L'en-tête HTTP applique `script-src 'self'` (sans `unsafe-inline` ni `unsafe-eval`). Toutes les images et connexions sont limitées à **HTTPS uniquement**.
    - *Couche 2 (index.html)* : La balise `<meta>` du DOM applique la même politique. Les deux couches sont alignées.
-   - *Note pour les contributeurs* : La suppression future de `'unsafe-inline'` nécessitera de refactoriser tous les `onclick=""` de `index.html` vers des `addEventListener()`. C'est un chantier planifié.
 4. **Chiffrement** : Les tokens d'authentification Microsoft locaux sont chiffrés. Le système privilégie `safeStorage` (Keychain OS natif). S'il n'est pas disponible, un fallback **AES-256-GCM** est utilisé avec une clé dérivée via **PBKDF2** (100 000 itérations, salt dédié de 16 bytes aléatoires stocké dans `.key_salt`). Les données chiffrées avec l'ancien algorithme (SHA-256 simple) sont migrées automatiquement et silencieusement au premier déchiffrement.
 5. **Whitelist IPC** : Tous les canaux de communication (send, invoke, receive) sont statiquement listés dans `preload.js`. Toute tentative d'appel hors-liste est rejetée, prévenant l'exploitation de canaux obscurs d'Electron.
 6. **HTTPS Uniquement** : Le module `http` n'est pas importé dans `main.js`. La fonction `downloadFile()` rejette tout URL non-HTTPS et applique une liste blanche de domaines autorisés (`github.com`, `mojang.com`, `modrinth.com`, etc.).
@@ -65,7 +64,7 @@ L'application a été auditée et respecte le principe de la **Défense en Profo
 ## 4. Communication IPC (Best Practices)
 
 - **Asynchronisme** : Utilisez toujours `ipcRenderer.invoke` (côté Renderer) et `ipcMain.handle` (côté Main) pour les tâches bloquantes. L'UI ne doit jamais geler.
-- **Éviter `sendSync`** : Son usage est strictement réservé aux appels cryptographiques critiques ne pouvant être asynchronisés sans refonte majeure du DOM (ex: le fallback `legacy-decrypt-sync`), bien qu'il faille tendre à sa disparition.
+- **Pas de `sendSync`** : Le seul `sendSync` qui existait (`get-paths-sync` dans `preload.js`) a été supprimé et remplacé par `BrowserWindow.additionalArguments`. L'injection de données système (appData, platform, arch, version) se fait désormais sans bloquer le thread. Le handler `ipcMain.on('get-paths-sync')` est conservé comme fallback legacy.
 
 ---
 
@@ -74,4 +73,4 @@ L'application a été auditée et respecte le principe de la **Défense en Profo
 Le Launcher est packagé à l'aide d'`electron-builder` au travers des GitHub Actions.
 - **Plateformes cibles** : Windows (`.exe` NSIS) et MacOS (`.dmg`).
 - **Signature Code (Code Signing)** : *Non applicable — Gens Launcher est un projet open-source gratuit et ne possède pas de certificat de signature commerciale (EV Code Signing, ~300€/an). Sur Windows, SmartScreen peut afficher un avertissement lors de la première installation. Les utilisateurs peuvent cliquer sur "Plus d'infos" → "Exécuter quand même" pour procéder. Le code source étant entièrement public sur GitHub, tout utilisateur peut auditer et compiler lui-même l'application.*
-- **Tests** : L'intégration continue déclenche automatiquement `npm test` pour s'assurer que les primitives cryptographiques et les APIs restent stables avant chaque nouvelle publication sur la branche `main`.
+- **Tests** : L'intégration continue déclenche automatiquement `npm test` pour s'assurer que les primitives cryptographiques et les APIs restent stables avant chaque nouvelle publication sur la branche `main`. Note : `crypto-utils.js` expose certaines fonctions internes de test uniquement lorsque la variable d'environnement `NODE_ENV` est définie à `'test'`.

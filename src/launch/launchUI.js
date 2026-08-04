@@ -106,7 +106,7 @@ export function setupLauncher() {
         const dStr = payload.data.toString().trim();
         if (!dStr) return;
         if (window._gameLogFiles && window._gameLogFiles[instanceId]) {
-            window.api.fs.appendFileSync(window._gameLogFiles[instanceId], `[${new Date().toLocaleTimeString()}] ${dStr}\n`);
+            window.api.fs.promises.appendFile(window._gameLogFiles[instanceId], `[${new Date().toLocaleTimeString()}] ${dStr}\n`).catch(() => {});
         } else {
             sysLog(`GAME [${instanceId}]: ` + dStr);
         }
@@ -210,8 +210,8 @@ export function setupLauncher() {
             try {
                 const instDir = path.join(store.instancesRoot, window.safeDir(closedInst.name));
                 const datPath = path.join(instDir, "servers.dat");
-                if (fs.existsSync(datPath)) {
-                    const { parsed } = await window.api.nbt.parse(fs.readFileSync(datPath));
+                if (await fs.promises.access(datPath).then(()=>true).catch(()=>false)) {
+                    const { parsed } = await window.api.nbt.parse(await fs.promises.readFile(datPath));
                     const serverList = parsed?.value?.servers?.value?.value || [];
                     const ips = serverList
                         .map(s => s?.ip?.value)

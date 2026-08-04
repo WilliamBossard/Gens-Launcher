@@ -13,21 +13,21 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - name: Récupération du code
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Installation des dépendances
+      - name: Install Dependencies
         run: npm install
 
-      - name: ExǸcution des tests
+      - name: Execute Tests
         run: npm test
 
-      - name: Compilation et Publication
+      - name: Build and Publish Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --publish always

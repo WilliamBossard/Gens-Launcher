@@ -35,7 +35,18 @@ function writeString(str) {
 
 function resolveSrv(host) {
     return new Promise((resolve) => {
+        let resolved = false;
+        const timer = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                resolve({ host, port: 25565 });
+            }
+        }, 1500);
+
         dns.resolveSrv(`_minecraft._tcp.${host}`, (err, addresses) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
             if (err || !addresses || addresses.length === 0) {
                 resolve({ host, port: 25565 });
             } else {

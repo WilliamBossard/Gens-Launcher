@@ -48,36 +48,35 @@ module.exports = function setupGameHandlers(context) {
     ipcMain.handle("get-still-running", async () => sendStillRunningInstances());
 
     ipcMain.handle("check-java", async (_, javaPath) => {
-        return new Promise((resolve) => {
-            const baseName = path.basename(javaPath).toLowerCase().trim();
-            const isValid = baseName === "java" || baseName === "java.exe" ||
-                baseName === "javaw" || baseName === "javaw.exe";
-            if (!isValid) {
-                resolve({ err: { message: "Chemin Java invalide bloqué.", code: "SEC_ERR" }, stdout: "", stderr: "" });
-                return;
+        // AUDIT-27 : new Promise(async ...) antipattern remplac\u00e9 par async function pure
+        const baseName = path.basename(javaPath).toLowerCase().trim();
+        const isValid = baseName === "java" || baseName === "java.exe" ||
+            baseName === "javaw" || baseName === "javaw.exe";
+        if (!isValid) {
+            return { err: { message: "Chemin Java invalide bloqu\u00e9.", code: "SEC_ERR" }, stdout: "", stderr: "" };
+        }
+        if (javaPath !== "java" && javaPath !== "javaw" && javaPath !== "java.exe" && javaPath !== "javaw.exe") {
+            try {
+                const stat = await fs.promises.stat(javaPath);
+                if (!stat.isFile()) throw new Error("Not a file");
+            } catch (e) {
+                return { err: { message: "Fichier Java introuvable.", code: "SEC_ERR" }, stdout: "", stderr: "" };
             }
-            if (javaPath !== "java" && javaPath !== "javaw" && javaPath !== "java.exe" && javaPath !== "javaw.exe") {
-                try {
-                    const stat = fs.statSync(javaPath);
-                    if (!stat.isFile()) throw new Error("Not a file");
-                } catch (e) {
-                    resolve({ err: { message: "Fichier Java introuvable.", code: "SEC_ERR" }, stdout: "", stderr: "" });
-                    return;
-                }
-            }
-            const isWin = process.platform === 'win32';
-            const jPathComp = isWin ? javaPath.toLowerCase() : javaPath;
-            const tmpDir = isWin ? os.tmpdir().toLowerCase() : os.tmpdir();
-            const dlDir = isWin ? path.join(os.homedir(), 'Downloads').toLowerCase() : path.join(os.homedir(), 'Downloads');
+        }
+        const isWin = process.platform === 'win32';
+        const jPathComp = isWin ? javaPath.toLowerCase() : javaPath;
+        const tmpDir = isWin ? os.tmpdir().toLowerCase() : os.tmpdir();
+        const dlDir = isWin ? path.join(os.homedir(), 'Downloads').toLowerCase() : path.join(os.homedir(), 'Downloads');
 
-            if (jPathComp.startsWith(tmpDir) || jPathComp.startsWith(dlDir) || 
-                jPathComp.includes(path.sep + (isWin ? 'temp' : 'Temp') + path.sep)) {
-                resolve({ err: { message: "Exécution de Java depuis un dossier temporaire ou de téléchargement bloquée.", code: "SEC_ERR" }, stdout: "", stderr: "" });
-                return;
-            }
+        if (jPathComp.startsWith(tmpDir) || jPathComp.startsWith(dlDir) ||
+            jPathComp.includes(path.sep + (isWin ? 'temp' : 'Temp') + path.sep)) {
+            return { err: { message: "Ex\u00e9cution de Java depuis un dossier temporaire ou de t\u00e9l\u00e9chargement bloqu\u00e9e.", code: "SEC_ERR" }, stdout: "", stderr: "" };
+        }
+        return new Promise((resolve) => {
             execFile(javaPath, ["-version"], (err, stdout, stderr) => {
                 resolve({ err: err ? { message: err.message, code: err.code } : null, stdout: stdout || "", stderr: stderr || "" });
             });
+
         });
     });
 
@@ -193,7 +192,7 @@ module.exports = function setupGameHandlers(context) {
         launcher.on("data", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
         launcher.on("debug", (e) => mainWindow?.webContents.send("mc-data", { instanceId, data: e.toString() }));
 
-        launcher.launch(opts).then((mcProcess) => {
+        launcher.launch(opts).then(async (mcProcess) => {
             if (!mcProcess) {
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
@@ -203,14 +202,14 @@ module.exports = function setupGameHandlers(context) {
             }
             const lockFile = path.join(opts.root, "instance.lock");
             if (mcProcess.pid) {
-                fs.writeFileSync(lockFile, mcProcess.pid.toString(), 'utf8');
+                await fs.promises.writeFile(lockFile, mcProcess.pid.toString(), 'utf8');
             } else {
                 mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
             }
             activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
             mainWindow?.webContents.send("mc-started", { instanceId });
-            mcProcess.on("close", (code) => {
-                if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+            mcProcess.on("close", async (code) => {
+                if (await fs.promises.access(lockFile).then(()=>true).catch(()=>false)) await fs.promises.unlink(lockFile);
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
                     mainWindow?.webContents.send("mc-close", { instanceId, code: code });

@@ -17,7 +17,7 @@ export function setup() {
         try {
             const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tempExtractDir });
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
-            const manifestText = fs.readFileSync(path.join(tempExtractDir, "manifest.json"), "utf8");
+            const manifestText = await fs.promises.readFile(path.join(tempExtractDir, "manifest.json"), "utf8");
             const manifest = JSON.parse(manifestText);
             inst.version = manifest.minecraft.version;
             if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
@@ -28,21 +28,21 @@ export function setup() {
                 else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
             }
             const modsDir = path.join(instDir, "mods");
-            if (fs.existsSync(modsDir)) {
-                try { fs.rmSync(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            if (await fs.promises.access(modsDir).then(()=>true).catch(()=>false)) {
+                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             }
-            fs.mkdirSync(modsDir, { recursive: true });
+            await fs.promises.mkdir(modsDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
             const srcOverrides = path.join(tempExtractDir, overridesDir);
-            if (fs.existsSync(srcOverrides)) {
-                const items = fs.readdirSync(srcOverrides);
+            if (await fs.promises.access(srcOverrides).then(()=>true).catch(()=>false)) {
+                const items = await fs.promises.readdir(srcOverrides);
                 for (const item of items) {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
-                    if (fs.existsSync(destPath)) {
-                        try { fs.rmSync(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+                    if (await fs.promises.access(destPath).then(()=>true).catch(()=>false)) {
+                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
-                    fs.renameSync(path.join(srcOverrides, item), destPath);
+                    await fs.promises.rename(path.join(srcOverrides, item), destPath);
                 }
             }
             const filesToDownload = manifest.files;
@@ -74,13 +74,13 @@ export function setup() {
                 }
             });
             await Promise.all(workers);
-            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             window.showToast("Modpack mis à jour avec succès !", "success");
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {
-            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await fs.promises.access(tempExtractDir).then(()=>true).catch(()=>false)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
@@ -95,27 +95,28 @@ export function setup() {
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
             let extractRoot = tempExtractDir;
             let instanceJsonPath = path.join(extractRoot, "instance.json");
-            if (!fs.existsSync(instanceJsonPath)) {
-                const items = fs.readdirSync(tempExtractDir);
+            if (!(await fs.promises.access(instanceJsonPath).then(()=>true).catch(()=>false))) {
+                const items = await fs.promises.readdir(tempExtractDir);
                 if (items.length === 1) {
                     const subDir = path.join(tempExtractDir, items[0]);
-                    if (fs.statSync(subDir).isDirectory()) {
+                    const stat = await fs.promises.stat(subDir);
+                    if (stat.isDirectory()) {
                         extractRoot = subDir;
                         instanceJsonPath = path.join(extractRoot, "instance.json");
                     }
                 }
             }
-            if (!fs.existsSync(instanceJsonPath)) {
+            if (!(await fs.promises.access(instanceJsonPath).then(()=>true).catch(()=>false))) {
                 const manifestPath = path.join(extractRoot, "manifest.json");
-                if (fs.existsSync(manifestPath)) {
-                    const manifestText = fs.readFileSync(manifestPath, "utf8");
+                if (await fs.promises.access(manifestPath).then(()=>true).catch(()=>false)) {
+                    const manifestText = await fs.promises.readFile(manifestPath, "utf8");
                     sysLog(`[IMPORT] Redirection vers l'importateur CurseForge.`);
                     window.hideLoading();
                     return await window.handleCurseForgeImport(zipPath, manifestText);
                 }
                 throw new Error(t("msg_err_import_invalid", "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher."));
             }
-            const rawData = JSON.parse(fs.readFileSync(instanceJsonPath, "utf8"));
+            const rawData = JSON.parse(await fs.promises.readFile(instanceJsonPath, "utf8"));
             const originalName = String(rawData.name || t("lbl_instance_imported", "Instance Importée")).substring(0, 128);
             let finalName = originalName;
             let counter = 1;
@@ -127,7 +128,7 @@ export function setup() {
             let detectedLoader        = SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla";
             let detectedLoaderVersion = String(rawData.loaderVersion || "").substring(0, 64);
             if (detectedLoader === "vanilla" && !rawData.loader) {
-                const filesDirFallback = fs.existsSync(path.join(extractRoot, "files"))
+                const filesDirFallback = await fs.promises.access(path.join(extractRoot, "files")).then(()=>true).catch(()=>false)
                     ? path.join(extractRoot, "files")
                     : extractRoot;
                 const detected = detectLoaderFromFolder(filesDirFallback);
@@ -161,28 +162,28 @@ export function setup() {
                 backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
-            if (!fs.existsSync(instDir)) fs.mkdirSync(instDir, { recursive: true });
+            if (!(await fs.promises.access(instDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(instDir, { recursive: true });
             const filesDir = path.join(extractRoot, "files");
-            if (fs.existsSync(filesDir)) {
-                const items = fs.readdirSync(filesDir);
+            if (await fs.promises.access(filesDir).then(()=>true).catch(()=>false)) {
+                const items = await fs.promises.readdir(filesDir);
                 for (let item of items) {
                     const destPath = path.join(instDir, item);
-                    if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
-                    fs.renameSync(path.join(filesDir, item), destPath);
+                    if (await fs.promises.access(destPath).then(()=>true).catch(()=>false)) await fs.promises.rm(destPath, { recursive: true, force: true });
+                    await fs.promises.rename(path.join(filesDir, item), destPath);
                 }
             } else {
-                const items = fs.readdirSync(extractRoot);
+                const items = await fs.promises.readdir(extractRoot);
                 for (let item of items) {
                     if (item !== "instance.json") {
                         const destPath = path.join(instDir, item);
-                        if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
-                        fs.renameSync(path.join(extractRoot, item), destPath);
+                        if (await fs.promises.access(destPath).then(()=>true).catch(()=>false)) await fs.promises.rm(destPath, { recursive: true, force: true });
+                        await fs.promises.rename(path.join(extractRoot, item), destPath);
                     }
                 }
             }
             store.allInstances.push(instData);
             if (window.updateIconCache) window.updateIconCache(instData);
-            try { fs.writeFileSync(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -192,7 +193,7 @@ export function setup() {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         } finally {
-            try { if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await fs.promises.access(tempExtractDir).then(()=>true).catch(()=>false)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }

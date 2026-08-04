@@ -23,7 +23,7 @@ module.exports = function setupAuthHandlers(context) {
 
         const sessionLabel = `gens-${crypto.randomUUID()}`;
         const cacheDir = path.join(safeDataDir, "msa-cache");
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        if (!(await fs.promises.access(cacheDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(cacheDir, { recursive: true });
 
         try {
             const auth = new MicrosoftAuth();
@@ -43,8 +43,8 @@ module.exports = function setupAuthHandlers(context) {
             if (!profile?.name || !profile?.id) return { success: false, errorCode: "ERR_NO_MC_PROFILE", error: profile?.errorMessage || "Pas de profil Minecraft" };
 
             if (response.msaRefreshToken) {
-                const encryptedToken = encryptText(response.msaRefreshToken);
-                fs.writeFileSync(path.join(cacheDir, sessionLabel + '.json'), JSON.stringify({ refreshToken: encryptedToken }));
+                const encryptedToken = await encryptText(response.msaRefreshToken);
+                await fs.promises.writeFile(path.join(cacheDir, sessionLabel + '.json'), JSON.stringify({ refreshToken: encryptedToken }));
             }
 
             mainLog(`Authentification réussie : ${profile.name}`);
@@ -98,13 +98,13 @@ module.exports = function setupAuthHandlers(context) {
             const MicrosoftAuth = require("../gens-core/components/auth.js");
             const cacheFile = path.join(safeDataDir, "msa-cache", sessionLabel + '.json');
             
-            if (!fs.existsSync(cacheFile)) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
-            const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+            if (!(await fs.promises.access(cacheFile).then(()=>true).catch(()=>false))) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
+            const cache = JSON.parse(await fs.promises.readFile(cacheFile, 'utf8'));
             if (!cache.refreshToken) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
 
             let decryptedToken;
             try {
-                decryptedToken = decryptText(cache.refreshToken);
+                decryptedToken = await decryptText(cache.refreshToken); // AUDIT-13 : await manquant corrigé
                 if (!decryptedToken) throw new Error("Token déchiffré nul");
             } catch (e) {
                 throw new Error("Impossible de déchiffrer le token de rafraîchissement.");
@@ -114,8 +114,8 @@ module.exports = function setupAuthHandlers(context) {
             const response = await auth.flowRefresh(decryptedToken);
             
             if (response.msaRefreshToken) {
-                const encryptedToken = encryptText(response.msaRefreshToken);
-                fs.writeFileSync(cacheFile, JSON.stringify({ refreshToken: encryptedToken }));
+                const encryptedToken = await encryptText(response.msaRefreshToken);
+                await fs.promises.writeFile(cacheFile, JSON.stringify({ refreshToken: encryptedToken }));
             }
 
             mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
@@ -126,7 +126,7 @@ module.exports = function setupAuthHandlers(context) {
         }
     });
 
-    ipcMain.on("delete-msa-cache", async (_, sessionLabel) => {
+    ipcMain.handle("delete-msa-cache", async (_, sessionLabel) => { // AUDIT-28 : on→handle pour retourner un résultat
         try {
             if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) { mainLog(`Suppression cache MSA bloquée : label invalide`); return; }
             const cacheFile = path.join(safeDataDir, "msa-cache", sessionLabel + '.json');

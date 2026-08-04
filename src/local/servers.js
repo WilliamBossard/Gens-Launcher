@@ -11,7 +11,7 @@ export function setup() {
     async function syncServersDat(inst) {
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
-            if (!fs.existsSync(instDir)) return;
+            if (!(await fs.promises.access(instDir).then(()=>true).catch(()=>false))) return;
             const datPath = path.join(instDir, "servers.dat");
             const serverEntries = (inst.servers || []).map(ip => ({
                 name: { type: "string", value: ip },
@@ -31,8 +31,8 @@ export function setup() {
                 }
             };
             const tmpPath = datPath + ".tmp";
-fs.writeFileSync(tmpPath, window.api.nbt.write(nbtRoot));
-fs.renameSync(tmpPath, datPath);
+            await fs.promises.writeFile(tmpPath, window.api.nbt.write(nbtRoot));
+            await fs.promises.rename(tmpPath, datPath);
         } catch(e) {
             sysLog("Erreur sync servers.dat : " + (e.message || e), true);
         }
@@ -89,8 +89,8 @@ fs.renameSync(tmpPath, datPath);
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const datPath = path.join(instDir, "servers.dat");
-            if (!fs.existsSync(datPath)) return false;
-            const buffer = fs.readFileSync(datPath);
+            if (!(await fs.promises.access(datPath).then(()=>true).catch(()=>false))) return false;
+            const buffer = await fs.promises.readFile(datPath);
             const { parsed } = await window.api.nbt.parse(buffer);
             const entries = parsed?.value?.servers?.value?.value || [];
             if (!Array.isArray(entries) || entries.length === 0) return false;

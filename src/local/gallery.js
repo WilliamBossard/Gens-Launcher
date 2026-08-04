@@ -4,14 +4,15 @@ const fs = window.api.fs;
 const path = window.api.path;
 
 export function setup() {
-window.openGalleryModal = () => {
+    window.openGalleryModal = async () => {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
         const grid = document.getElementById("gallery-grid");
         grid.innerHTML = "";
-        if (fs.existsSync(screensDir)) {
-            const files = fs.readdirSync(screensDir).filter((f) => f.endsWith(".png")).reverse();
+        if (await fs.promises.access(screensDir).then(()=>true).catch(()=>false)) {
+            const allFiles = await fs.promises.readdir(screensDir);
+            const files = allFiles.filter((f) => f.endsWith(".png")).reverse();
             if (files.length === 0) {
                 grid.innerHTML = `<div style='grid-column: 1 / -1; text-align: center; color: #888;'>${t("msg_no_screen", "Aucune capture d'écran.")}</div>`;
             } else {
@@ -41,8 +42,8 @@ window.deleteScreenshot = async (filename) => {
             const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
             const filePath = path.join(screensDir, filename);
             try {
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
+                if (await fs.promises.access(filePath).then(()=>true).catch(()=>false)) {
+                    await fs.promises.unlink(filePath);
                     window.showToast(t("msg_screen_deleted", "Capture d'écran supprimée."), "success");
                     window.openGalleryModal();
                 }

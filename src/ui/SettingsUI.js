@@ -9,12 +9,12 @@ export function setupSettings() {
     window.showJavaTypeModal = (version) => {
         return showJavaTypeModal(version, window.t);
     };
-    window.updateJavaButtonsDisplay = () => {
-        [25, 21, 17, 8].forEach(v => {
+    window.updateJavaButtonsDisplay = async () => {
+        for (const v of [25, 21, 17, 8]) {
             const btn = document.getElementById("btn-dl-java-" + v);
-            if (!btn) return;
-            const launcherJre = fs.existsSync(path.join(store.dataDir, "java", `jre${v}`));
-            const launcherJdk = fs.existsSync(path.join(store.dataDir, "java", `jdk${v}`));
+            if (!btn) continue;
+            const launcherJre = await fs.promises.exists(path.join(store.dataDir, "java", `jre${v}`));
+            const launcherJdk = await fs.promises.exists(path.join(store.dataDir, "java", `jdk${v}`));
             const isLauncherInstalled = launcherJre || launcherJdk;
             let isSystemInstalled = false;
             if (!isLauncherInstalled) {
@@ -27,9 +27,9 @@ export function setupSettings() {
                     basePaths = ["/Library/Java/JavaVirtualMachines"];
                 }
                 for (let bp of basePaths) {
-                    if (fs.existsSync(bp)) {
+                    if (await fs.promises.exists(bp)) {
                         try {
-                            const dirs = fs.readdirSync(bp);
+                            const dirs = await fs.promises.readdir(bp);
                             if (dirs.some(d => d.includes(v.toString()))) isSystemInstalled = true;
                         } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
                     }
@@ -60,7 +60,7 @@ export function setupSettings() {
                 btn.style.cursor = "pointer";  
                 btn.onclick = () => window.downloadJavaAuto(v);
             }
-        });
+        }
     };
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
@@ -145,7 +145,7 @@ export function setupSettings() {
                 if (result.success) {
                     // Supprimer l'ancien fichier copié si différent du nouveau
                     if (prevBg && prevBg.startsWith(store.dataDir) && prevBg !== result.destPath) {
-                        try { fs.unlinkSync(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                        try { await fs.promises.unlink(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
                     }
                     bgPath = result.destPath;
                 } else {
@@ -156,7 +156,7 @@ export function setupSettings() {
         } else {
             // L'utilisateur a vidé le champ (clear) → supprimer le fichier copié dans le sandbox
             if (prevBg && prevBg.startsWith(store.dataDir)) {
-                try { fs.unlinkSync(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                try { await fs.promises.unlink(prevBg); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
             }
         }
         const rawAccent = document.getElementById("global-accent").value;
@@ -177,11 +177,11 @@ export function setupSettings() {
         else if(window.applyTheme) window.applyTheme();
         window.closeGlobalSettings();
     };
-    window.saveDefaultOptions = () => {
+    window.saveDefaultOptions = async () => {
         const idx = document.getElementById("global-options-source").value;
         if (idx === "none") {
             const defaultOpt = path.join(store.dataDir, "default_options.txt");
-            if (fs.existsSync(defaultOpt)) fs.unlinkSync(defaultOpt);
+            if (await fs.promises.exists(defaultOpt)) await fs.promises.unlink(defaultOpt);
             store.globalSettings.defaultOptionsInstance = null;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
@@ -190,8 +190,8 @@ export function setupSettings() {
         if (idx === "") return;
         const inst = store.allInstances[idx];
         const sourceOpt = path.join(store.instancesRoot, window.safeDir(inst.name), "options.txt");
-        if (fs.existsSync(sourceOpt)) {
-            fs.copyFileSync(sourceOpt, path.join(store.dataDir, "default_options.txt"));
+        if (await fs.promises.exists(sourceOpt)) {
+            await fs.promises.copyFile(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_options_saved"), "success");
@@ -199,11 +199,11 @@ export function setupSettings() {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
         }
     };
-    window.saveDefaultServers = () => {
+    window.saveDefaultServers = async () => {
         const idx = document.getElementById("global-servers-source").value;
         if (idx === "none") {
             const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-            if (fs.existsSync(defaultSrv)) fs.unlinkSync(defaultSrv);
+            if (await fs.promises.exists(defaultSrv)) await fs.promises.unlink(defaultSrv);
             store.globalSettings.defaultServersInstance = null;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
@@ -213,8 +213,8 @@ export function setupSettings() {
         const inst = store.allInstances[parseInt(idx)];
         if (!inst) return;
         const sourceDat = path.join(store.instancesRoot, window.safeDir(inst.name), "servers.dat");
-        if (fs.existsSync(sourceDat)) {
-            fs.copyFileSync(sourceDat, path.join(store.dataDir, "default_servers.dat"));
+        if (await fs.promises.exists(sourceDat)) {
+            await fs.promises.copyFile(sourceDat, path.join(store.dataDir, "default_servers.dat"));
             store.globalSettings.defaultServersInstance = inst.name;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
@@ -301,13 +301,13 @@ export function setupSettings() {
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
         const searchPromises = basePaths.map(async (bp) => {
-            if (window.api.fs.existsSync(bp)) {
+            if (await window.api.fs.promises.access(bp).then(() => true).catch(() => false)) {
                 await findJavaAsync(bp);
             }
         });
         await Promise.all(searchPromises);
         
-        if (savedValue && savedValue !== "javaw" && savedValue !== "" && window.api.fs.existsSync(savedValue)) {
+        if (savedValue && savedValue !== "javaw" && savedValue !== "" && await window.api.fs.promises.access(savedValue).then(() => true).catch(() => false)) {
             const exists = Array.from(selectEl.options).some(o => o.value === savedValue);
             if (!exists) {
                 let opt = document.createElement("option");
@@ -331,8 +331,8 @@ export function setupSettings() {
             try {
                 const jrePath = path.join(store.dataDir, "java", `jre${version}`);
                 const jdkPath = path.join(store.dataDir, "java", `jdk${version}`);
-                if (fs.existsSync(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
-                if (fs.existsSync(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+                if (await fs.promises.access(jrePath).then(()=>true).catch(()=>false)) await fs.promises.rm(jrePath, { recursive: true, force: true });
+                if (await fs.promises.access(jdkPath).then(()=>true).catch(()=>false)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
@@ -503,8 +503,8 @@ window.refreshHorizonUI = async () => {
             try {
                 const binDir = window.api.path.join(store.dataDir, "bin");
                 const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
-                if (window.api.fs.existsSync(htmlCachePath)) {
-                    window._lastCloudGridHtml = window.api.fs.readFileSync(htmlCachePath, "utf8");
+                if (await window.api.fs.promises.exists(htmlCachePath)) {
+                    window._lastCloudGridHtml = await window.api.fs.promises.readFile(htmlCachePath, "utf8");
                 }
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
@@ -512,8 +512,8 @@ window.refreshHorizonUI = async () => {
             try {
                 const binDir = window.api.path.join(store.dataDir, "bin");
                 const quotaHtmlCachePath = window.api.path.join(binDir, "horizon_quota_html_cache.txt");
-                if (window.api.fs.existsSync(quotaHtmlCachePath)) {
-                    window._lastQuotaHtml = window.api.fs.readFileSync(quotaHtmlCachePath, "utf8");
+                if (await window.api.fs.promises.exists(quotaHtmlCachePath)) {
+                    window._lastQuotaHtml = await window.api.fs.promises.readFile(quotaHtmlCachePath, "utf8");
                 }
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
@@ -582,11 +582,11 @@ window.refreshHorizonUI = async () => {
                     const binPath = window.api.path.join(store.dataDir, "bin");
                     const tokenPath = window.api.path.join(binPath, `token_${provider}.json`);
                     const legacyPath = window.api.path.join(binPath, "token.json");
-                    if (window.api.fs.existsSync(tokenPath)) {
-                        window.api.fs.unlinkSync(tokenPath);
+                    if (await window.api.fs.promises.exists(tokenPath)) {
+                        await window.api.fs.promises.unlink(tokenPath);
                     }
-                    if (provider === "google" && window.api.fs.existsSync(legacyPath)) {
-                        window.api.fs.unlinkSync(legacyPath);
+                    if (provider === "google" && await window.api.fs.promises.exists(legacyPath)) {
+                        await window.api.fs.promises.unlink(legacyPath);
                     }
                     
                     // Clear stale UI caches so we don't display the previous provider's data
@@ -598,8 +598,8 @@ window.refreshHorizonUI = async () => {
                     ];
                     for (const f of cacheFiles) {
                         const p = window.api.path.join(binPath, f);
-                        if (window.api.fs.existsSync(p)) {
-                            try { window.api.fs.unlinkSync(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                        if (await window.api.fs.promises.exists(p)) {
+                            try { await window.api.fs.promises.unlink(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
                         }
                     }
 
@@ -751,8 +751,8 @@ window.refreshHorizonUI = async () => {
         ];
         for (const f of cacheFiles) {
             const p = window.api.path.join(binPath, f);
-            if (window.api.fs.existsSync(p)) {
-                try { window.api.fs.unlinkSync(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+            if (await window.api.fs.promises.access(p).then(() => true).catch(() => false)) {
+                try { await window.api.fs.promises.unlink(p); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
             }
         }
         

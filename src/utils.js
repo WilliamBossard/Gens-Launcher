@@ -23,34 +23,63 @@ window.openSystemPath = (p) => {
         shell.openPath(p);
     }
 };
-if (!fs.existsSync(store.logsDir)) fs.mkdirSync(store.logsDir, { recursive: true });
-const allLogs = fs
-    .readdirSync(store.logsDir)
-    .filter(f => f.endsWith(".log"))
-    .map(f => ({ file: f, time: fs.statSync(path.join(store.logsDir, f)).mtime.getTime() }))
-    .sort((a, b) => b.time - a.time);
+(async () => {
+    try {
+        if (!(await fs.promises.access(store.logsDir).then(()=>true).catch(()=>false))) {
+            await fs.promises.mkdir(store.logsDir, { recursive: true });
+        }
+        const files = await fs.promises.readdir(store.logsDir);
+        const allLogs = await Promise.all(
+            files.filter(f => f.endsWith(".log"))
+                 .map(async f => ({ file: f, time: (await fs.promises.stat(path.join(store.logsDir, f))).mtime.getTime() }))
+        );
+        allLogs.sort((a, b) => b.time - a.time);
 
-const launcherLogs = allLogs.filter(l => l.file.startsWith("launcher_"));
-if (launcherLogs.length > 4) {
-    for (let i = 4; i < launcherLogs.length; i++) {
-        try { fs.unlinkSync(path.join(store.logsDir, launcherLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
-    }
-}
+        const launcherLogs = allLogs.filter(l => l.file.startsWith("launcher_"));
+        if (launcherLogs.length > 4) {
+            for (let i = 4; i < launcherLogs.length; i++) {
+                try { await fs.promises.unlink(path.join(store.logsDir, launcherLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+            }
+        }
 
-const gameLogs = allLogs.filter(l => l.file.startsWith("game_"));
-if (gameLogs.length > 5) {
-    for (let i = 5; i < gameLogs.length; i++) {
-        try { fs.unlinkSync(path.join(store.logsDir, gameLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+        const gameLogs = allLogs.filter(l => l.file.startsWith("game_"));
+        if (gameLogs.length > 5) {
+            for (let i = 5; i < gameLogs.length; i++) {
+                try { await fs.promises.unlink(path.join(store.logsDir, gameLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+            }
+        }
+    } catch (e) {
+        console.warn("Erreur asynchrone nettoyage logs :", e);
     }
-}
+})();
 const currentLogFile = path.join(
     store.logsDir,
     `launcher_${new Date().toISOString().replace(/[:.]/g, "-")}.log`
 );
-fs.writeFileSync(currentLogFile, `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`);
+
+let logQueue = `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`;
+let isWriting = false;
+
+async function flushLogQueue() {
+    if (isWriting || !logQueue) return;
+    isWriting = true;
+    const toWrite = logQueue;
+    logQueue = "";
+    try {
+        await fs.promises.appendFile(currentLogFile, toWrite);
+    } catch (e) {
+        logQueue = toWrite + logQueue;
+    } finally {
+        isWriting = false;
+        if (logQueue) flushLogQueue();
+    }
+}
+flushLogQueue();
+
 function sysLog(msg, isError = false) {
     const line = `[${new Date().toLocaleTimeString()}] ${isError ? "ERROR" : "INFO"}: ${msg}\n`;
-    fs.appendFileSync(currentLogFile, line);
+    logQueue += line;
+    flushLogQueue();
 }
 
 const originalLog = console.log;
@@ -89,14 +118,7 @@ window.copyLogs = () => {
     }
 };
 window.safeWriteJSON = (filePath, data) => {
-    const tmp = filePath + ".tmp";
-    try {
-        fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-        fs.renameSync(tmp, filePath);
-    } catch (e) {
-        sysLog("safeWriteJSON ERREUR sur " + filePath + " : " + e.message, true);
-        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
-    }
+    return window.safeWriteJSONAsync(filePath, data);
 };
 
 const _writeQueues = {};

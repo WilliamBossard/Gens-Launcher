@@ -44,14 +44,14 @@ async function compressFolder({ src, dest, exclude }) {
             parentPort.postMessage({ type: 'log', message: `Warning: ${err.message}` });
         });
 
-        archive.on('error', (err) => {
-            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+        archive.on('error', async (err) => {
+            try { if (await fs.promises.access(dest).then(() => true).catch(() => false)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
-        output.on('error', (err) => {
+        output.on('error', async (err) => {
             archive.destroy();
-            try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+            try { if (await fs.promises.access(dest).then(() => true).catch(() => false)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 

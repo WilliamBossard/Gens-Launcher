@@ -15,6 +15,10 @@ import { setupInstances } from "./src/ui/InstancesUI.js";
 import { setupUICore } from "./src/uiCore.js";
 import { checkAchievement, ACHIEVEMENTS } from "./src/achievements.js";
 import { setupWorldsAndGallery } from "./src/worlds.js";
+import { setupNews } from "./src/ui/news.js";
+import { setupTheme } from "./src/ui/theme.js";
+import { setupServer } from "./src/ui/ServerUI.js";
+import { setupCloud } from "./src/ui/CloudUI.js";
 window.checkAchievement = checkAchievement;
 window.ACHIEVEMENTS = ACHIEVEMENTS;
 const ipcRenderer = window.api;
@@ -22,21 +26,25 @@ const fs = window.api.fs;
 const os = window.api.os;
 const path = window.api.path;
 const _setupFunctions = [
-    ["initRPC",              initRPC],
-    ["setupAuth",            setupAuth],
-    ["setupMods",            setupMods],
-    ["setupLauncher",        setupLauncher],
-    ["setupArchives",        setupArchives],
-    ["setupLang",            setupLang],
-    ["setupAccountUI",       setupAccountUI],
-    ["setupSettings",        setupSettings],
+    ["initRPC", initRPC],
+    ["setupAuth", setupAuth],
+    ["setupMods", setupMods],
+    ["setupLauncher", setupLauncher],
+    ["setupArchives", setupArchives],
+    ["setupLang", setupLang],
+    ["setupAccountUI", setupAccountUI],
+    ["setupSettings", setupSettings],
     ["setupHorizonSettings", setupHorizonSettings],
-    ["setupStats",           setupStats],
-    ["setupLocalManagers",   setupLocalManagers],
-    ["setupInstances",       setupInstances],
-    ["setupUICore",          setupUICore],
-    ["setupStorage",         setupStorage],
+    ["setupStats", setupStats],
+    ["setupLocalManagers", setupLocalManagers],
+    ["setupInstances", setupInstances],
+    ["setupUICore", setupUICore],
+    ["setupStorage", setupStorage],
     ["setupWorldsAndGallery", setupWorldsAndGallery],
+    ["setupNews", setupNews],
+    ["setupTheme", setupTheme],
+    ["setupServer", setupServer],
+    ["setupCloud", setupCloud],
 ];
 for (const [name, fn] of _setupFunctions) {
     try {
@@ -61,7 +69,7 @@ ipcRenderer.on("update-available-prompt", async (info) => {
     if (window.renderUpdateTab) window.renderUpdateTab();
     if (store.globalSettings.autoDownloadUpdates) {
         window.showToast(t("msg_update_found_bg", "Mise à jour trouvée ! Téléchargement en arrière-plan..."), "info");
-        ipcRenderer.send("download-update"); 
+        ipcRenderer.send("download-update");
     } else {
         const title = t("lbl_new_version", "Nouvelle version disponible :");
         window.showToast(`${title} v${info.version}`, "success");
@@ -101,36 +109,7 @@ document.getElementById("console-filter")?.addEventListener("input", (e) => {
         line.style.display = text.includes(filter) ? "block" : "none";
     });
 });
-window.applyTheme = function() {
-    const root = document.documentElement;
-    const th = store.globalSettings.theme || { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
-    const accentRaw = String(th.accent || "#007acc");
-    const accent = /^#[0-9a-fA-F]{3,8}$/.test(accentRaw) ? accentRaw : "#007acc";
-    root.style.setProperty("--accent", accent);
-    const disableTransp = store.globalSettings.disableTransparency;
-    const rawOp = th.panelOpacity !== undefined ? parseFloat(th.panelOpacity) : 0.6;
-    const op = disableTransp ? 1 : Math.max(0.1, Math.min(1, isNaN(rawOp) ? 0.6 : rawOp));
-    root.style.setProperty("--panel-opacity", op);
-    root.style.setProperty("--bg-main",    `rgba(30, 30, 30, ${Math.max(0, op - 0.2)})`);
-    root.style.setProperty("--bg-panel",   `rgba(45, 45, 48, ${op})`);
-    root.style.setProperty("--bg-toolbar", `rgba(51, 51, 55, ${Math.min(1, op + 0.05)})`);
-    const appBg = document.getElementById("app-background");
-    if (appBg) {
-        if (th.bg && fs.existsSync(th.bg)) {
-            const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(th.dim))  ? 0.5 : parseFloat(th.dim)));
-            const blur = Math.max(0, Math.min(50,   isNaN(parseInt(th.blur))   ? 5   : parseInt(th.blur)));
-            appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;
-            appBg.style.filter = disableTransp ? "none" : `brightness(${1 - dim}) blur(${blur}px)`;
-        } else {
-            appBg.style.backgroundImage = "";
-            appBg.style.filter = "";
-        }
-    }
-    if (store.globalSettings.disableAnimations) document.body.classList.add("no-animations");
-    else document.body.classList.remove("no-animations");
-    if (disableTransp) document.body.classList.add("no-transparency");
-    else document.body.classList.remove("no-transparency");
-};
+
 window.copyCrashLog = () => {
     if (window._currentCrashLog) {
         navigator.clipboard.writeText(window._currentCrashLog).then(() => {
@@ -143,163 +122,8 @@ window.copyCrashLog = () => {
         window.showToast("Aucun log à copier.", "error");
     }
 };
-let _newsLoaded = false;
-async function loadNews() {
-    if (_newsLoaded) return;
-    try {
-        const newsController = new AbortController();
-        const newsTimeout = setTimeout(() => newsController.abort(), 8000);
-        const res = await fetch("https://launchercontent.mojang.com/v2/news.json", { signal: newsController.signal });
-        clearTimeout(newsTimeout);
-        if (!res.ok) throw new Error(`News HTTP ${res.status}`);
-        const data = await res.json();
-        const container = document.getElementById("news-container");
-        if (!data || !Array.isArray(data.entries)) return;
-        container.style.display = "block";
-        const isCollapsed = store.globalSettings.newsCollapsed;
-        const toggleText = isCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
-        let html = `
-        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
-            <div style="font-weight: bold; color: var(--text-light);">${t("lbl_news", "Actualités Minecraft")}</div>
-            <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
-        </div>
-        <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
-        data.entries.slice(0, 6).forEach(news => {
-            const rawImgUrl = news.playPageImage?.url || "";
-            const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
-            const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
-            const safeTitle = window.escapeHTML(news.title);
-            const safeCategory = window.escapeHTML(news.category);
-            const safeLink = window.escapeHTML(link);
-            const safeImgUrl = window.escapeHTML(imgUrl);
-            html += `<div class="news-card" data-link="${safeLink}">
-                <img src="${safeImgUrl}" class="news-img">
-                <div class="news-content">
-                    <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
-                    <div style="font-size: 0.7rem; color: var(--accent);">${safeCategory}</div>
-                </div>
-            </div>`;
-        });
-        html += `</div>`;
-        container.innerHTML = html;
-        container.querySelector('#btn-toggle-news')?.addEventListener('click', () => toggleNews());
-        container.querySelectorAll('.news-card[data-link]').forEach(card => {
-            card.addEventListener('click', () => window.api.openExternal(card.dataset.link));
-        });
-        _newsLoaded = true;
-    } catch(e) {
-        console.warn("loadNews failed:", e.message);
-    }
-}
-window.toggleNews = () => {
-    store.globalSettings.newsCollapsed = !store.globalSettings.newsCollapsed;
-    window.safeWriteJSON(store.settingsFile, store.globalSettings);
-    const wrapper = document.getElementById("news-content-wrapper");
-    const btn = document.getElementById("btn-toggle-news");
-    if (store.globalSettings.newsCollapsed) {
-        wrapper.style.display = "none";
-        btn.innerText = store.currentLangObj?.btn_show || "Afficher";
-    } else {
-        wrapper.style.display = "block";
-        btn.innerText = store.currentLangObj?.btn_hide || "Masquer";
-    }
-};
-window.checkServerStatus = async () => {
-    const ip = store.globalSettings.serverIp ? store.globalSettings.serverIp.trim() : "";
-    const banner = document.getElementById("server-banner-container");
-    if (!ip) {
-        banner.style.display = "none";
-        return;
-    }
-    banner.style.display = "flex";
-    if (banner.innerHTML === "") {
-        banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
-    }
-    try {
-        const res = await window.api.invoke("ping-server", ip);
-        if (!res.success) throw new Error(`ping HTTP ${res.error}`);
-        const data = res.data;
-        if (data.online) {
-            const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
-            let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
-            let motdHtml = "Serveur Minecraft";
-if (data.motd && data.motd.html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(data.motd.html, 'text/html');
-    const clean = document.createElement('div');
-    function processNode(src, dest) {
-        for (const child of src.childNodes) {
-            if (child.nodeType === Node.TEXT_NODE) {
-                dest.appendChild(document.createTextNode(child.textContent));
-            } else if (child.nodeType === Node.ELEMENT_NODE) {
-                if (child.tagName === 'BR') {
-                    dest.appendChild(document.createElement('br'));
-                } else if (child.tagName === 'SPAN') {
-                    const span = document.createElement('span');
-                    const rawStyle = child.getAttribute('style') || '';
-                    const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
-                    if (safeStyle) span.setAttribute('style', safeStyle);
-                    processNode(child, span);
-                    dest.appendChild(span);
-                } else {
-                    processNode(child, dest);
-                }
-            }
-        }
-    }
-    processNode(doc.body, clean);
-    motdHtml = clean.innerHTML;
-}
-            banner.innerHTML = `
-            ${iconHtml}
-            <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
-                <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; line-height: 1.2;">${motdHtml}</div>
-            </div>
-            <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
-                <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${t("msg_online", "En ligne")}</div>
-                <div style="color: var(--text-light);">${data.players?.online ?? "?"} / ${data.players?.max ?? "?"} ${t("lbl_players", "joueurs")}</div>
-            </div>`;
-        } else {
-            banner.innerHTML = `
-            <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
-            <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
-                <div style="font-size: 0.85rem; color: #f87171;">${t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
-            </div>`;
-        }
-    } catch (e) {
-        banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
-    }
-};
-async function checkCloudAtStartup() {
-    try {
-        const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const setPath = window.api.path.join(binPath, "horizon_settings.json");
-        let systemEnabled = false;
-        let autoSyncEnabled = false; 
-        if (window.api.fs.existsSync(setPath)) {
-            const raw = window.api.fs.readFileSync(setPath, 'utf8');
-            const parsed = JSON.parse(raw);
-            systemEnabled = (parsed.systemEnabled === true || parsed.systemEnabled === "true");
-            autoSyncEnabled = (parsed.autoSync === true || parsed.autoSync === "true");
-        } else {
-            return;
-        }
-        if (!systemEnabled) {
-            return; 
-        }
-        if (!autoSyncEnabled) return;
-        const status = await window.api.invoke("check-horizon-status");
-        if (status.installed && !status.offline) {
-            const checkResult = await window.api.invoke("call-horizon", ["--check"]);
-            const payload = checkResult?.lastJson || checkResult;
-            if (payload && (payload.status === "UPDATE_AVAILABLE" || (payload.type === "CHECK_RESULT" && payload.status === "UPDATE_AVAILABLE"))) {
-                window.showToast(t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
-            }
-        }
-    } catch (e) { console.error("🚨 Erreur démarrage :", e); }
-}
+
+
 async function init() {
     try {
         const totalRamMB = Math.floor(os.totalmem() / (1024 * 1024));
@@ -318,16 +142,16 @@ async function init() {
         window.applyTheme();
         if (window.populateLangDropdown) window.populateLangDropdown();
         if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";
-        else if (window.loadLanguage) window.loadLanguage(store.globalSettings.language);
+        else if (window.loadLanguage) await window.loadLanguage(store.globalSettings.language);
         window.renderUI();
         if (window.renderAccountManager) window.renderAccountManager();
         if (window.updateAccountDropdown) window.updateAccountDropdown();
         window.api.send('show-window');
         window.dispatchEvent(new Event('resize'));
         if (window.restoreRunningInstances) window.restoreRunningInstances();
-        loadNews();
-        checkCloudAtStartup();
-        setTimeout(() => checkHorizonUpdateAtStartup(), 0);
+        if (window.loadNews) window.loadNews();
+        if (window.checkCloudAtStartup) window.checkCloudAtStartup();
+        setTimeout(() => { if (window.checkHorizonUpdateAtStartup) window.checkHorizonUpdateAtStartup(); }, 0);
         window.checkServerStatus();
         window._serverStatusInterval = setInterval(() => {
             if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
@@ -337,25 +161,24 @@ async function init() {
             const data = await res.json();
             if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
             store.rawVersions = data.versions;
-            window.safeWriteJSON(path.join(store.dataDir, "versions_cache.json"), data.versions);
+            window.safeWriteJSONAsync(path.join(store.dataDir, "versions_cache.json"), data.versions);
             if (window.updateVersionList) window.updateVersionList(false);
         } catch (e) {
             const cachePath = path.join(store.dataDir, "versions_cache.json");
-            if (fs.existsSync(cachePath)) {
-                try {
-                    store.rawVersions = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-                    if (window.updateVersionList) window.updateVersionList(false);
-                } catch(err) {}
-            }
+            try {
+                await fs.promises.access(cachePath);
+                store.rawVersions = JSON.parse(await fs.promises.readFile(cachePath, "utf8"));
+                if (window.updateVersionList) window.updateVersionList(false);
+            } catch (err) { }
         }
-    } catch(e) {
+    } catch (e) {
         console.error("Critical error in init():", e);
         window.api.send('show-window');
     }
 }
 window.ctxSyncCloud = async () => {
     const inst = store.allInstances[store.selectedInstanceIdx];
-    if(inst) {
+    if (inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
@@ -369,7 +192,7 @@ window.ctxSyncCloud = async () => {
 };
 window.ctxUploadCloud = async () => {
     const inst = store.allInstances[store.selectedInstanceIdx];
-    if(inst) {
+    if (inst) {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
@@ -380,17 +203,16 @@ window.ctxUploadCloud = async () => {
     }
 };
 window.api.on("horizon-status", async (data) => {
-    const getRealName = (safeName) => {
+    const getRealName = async (safeName) => {
         if (!safeName) return "";
         const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
         if (localInst) return localInst.name;
         try {
             const metaPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", `meta_${safeName}.json`);
-            if (window.api.fs.existsSync(metaPath)) {
-                const meta = JSON.parse(window.api.fs.readFileSync(metaPath, "utf8"));
-                if (meta.realName) return meta.realName;
-            }
-        } catch(e) {}
+            await window.api.fs.promises.access(metaPath);
+            const meta = JSON.parse(await window.api.fs.promises.readFile(metaPath, "utf8"));
+            if (meta.realName) return meta.realName;
+        } catch (e) { }
         return safeName;
     };
     if (data.type === "CHECK_RESULT") {
@@ -412,18 +234,18 @@ window.api.on("horizon-status", async (data) => {
         (data.richData || []).forEach(r => { richIndex[r.name] = r; });
         const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
         let html = "";
-        data.data.forEach(instName => {
+        for (const instName of data.data) {
             const localInst = store.allInstances.find(i => window.safeDir(i.name) === instName || i.name === instName);
             const isLocal = !!localInst;
-            const rich = richIndex[instName]; 
+            const rich = richIndex[instName];
             const displayName = isLocal ? localInst.name : (rich?.realName || instName);
             const statusColor = isLocal ? "#17B139" : "#aaa";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
             let metaLine = "";
             if (rich) {
-                const sizeMB  = rich.sizeBytes > 0 ? (rich.sizeBytes / (1024 * 1024)).toFixed(1) + " Mo" : "";
+                const sizeMB = rich.sizeBytes > 0 ? (rich.sizeBytes / (1024 * 1024)).toFixed(1) + " Mo" : "";
                 const safeRichDeltaCount = parseInt(rich.deltaCount, 10) || 0;
-                const deltas  = safeRichDeltaCount > 0 ? `${safeRichDeltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
+                const deltas = safeRichDeltaCount > 0 ? `${safeRichDeltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
                 const dateStr = rich.lastBackup ? new Date(rich.lastBackup).toLocaleDateString() : "";
                 const deltaColor = safeRichDeltaCount >= 8 ? "#f48a21" : "#666";
                 metaLine = `<div style="font-size:0.65rem; color:${deltaColor}; margin-top:2px;">${deltas}${sizeMB ? " · " + sizeMB : ""}${dateStr ? " · " + dateStr : ""}</div>`;
@@ -432,7 +254,9 @@ window.api.on("horizon-status", async (data) => {
             if (isLocal) {
                 const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                 const customIcon = localInst.icon || "";
-                
+
+                const fileExists = async (p) => { try { await window.api.fs.promises.access(p); return true; } catch (e) { return false; } };
+
                 if (localInst._iconCacheBuster) {
                     const pngPath = window.api.path.join(instFolder, "icon.png");
                     const jpgPath = window.api.path.join(instFolder, "icon.jpg");
@@ -440,14 +264,14 @@ window.api.on("horizon-status", async (data) => {
                     if (customIcon && customIcon.startsWith("file://")) {
                         targetPath = decodeURI(customIcon.replace(/file:\/\/\/?/, ""));
                     } else if (!customIcon) {
-                        if (window.api.fs.existsSync(pngPath)) targetPath = pngPath;
-                        else if (window.api.fs.existsSync(jpgPath)) targetPath = jpgPath;
+                        if (await fileExists(pngPath)) targetPath = pngPath;
+                        else if (await fileExists(jpgPath)) targetPath = jpgPath;
                     }
-                    if (targetPath && window.api.fs.existsSync(targetPath)) {
+                    if (targetPath && await fileExists(targetPath)) {
                         try {
                             const mime = targetPath.toLowerCase().endsWith('.jpg') ? 'image/jpeg' : 'image/png';
-                            iconSrc = `data:${mime};base64,${window.api.fs.readFileSync(targetPath, 'base64')}`;
-                        } catch(e) { iconSrc = customIcon || window.pathToFileUrl(pngPath.replace(/\\/g, "/")); }
+                            iconSrc = `data:${mime};base64,${await window.api.fs.promises.readFile(targetPath, 'base64')}`;
+                        } catch (e) { iconSrc = customIcon || window.pathToFileUrl(pngPath.replace(/\\/g, "/")); }
                     } else if (customIcon) {
                         iconSrc = customIcon;
                     } else {
@@ -456,9 +280,9 @@ window.api.on("horizon-status", async (data) => {
                 } else {
                     if (customIcon) {
                         iconSrc = customIcon;
-                    } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.png"))) {
+                    } else if (await fileExists(window.api.path.join(instFolder, "icon.png"))) {
                         iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png").replace(/\\/g, "/"));
-                    } else if (window.api.fs.existsSync(window.api.path.join(instFolder, "icon.jpg"))) {
+                    } else if (await fileExists(window.api.path.join(instFolder, "icon.jpg"))) {
                         iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
                     } else {
                         iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
@@ -481,7 +305,7 @@ window.api.on("horizon-status", async (data) => {
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
             </div>`;
-        });
+        }
         window._lastCloudGridHtml = html;
         grid.innerHTML = html;
         grid.querySelectorAll('.instance-card[data-name]').forEach(card => {
@@ -491,12 +315,12 @@ window.api.on("horizon-status", async (data) => {
         });
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
-            if (!window.api.fs.existsSync(binDir)) window.api.fs.mkdirSync(binDir, { recursive: true });
+            try { await window.api.fs.promises.access(binDir); } catch (e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
             const cachePath = window.api.path.join(binDir, "horizon_cloud_cache.json");
-            window.api.fs.writeFileSync(cachePath, JSON.stringify(data), "utf8");
+            await window.api.fs.promises.writeFile(cachePath, JSON.stringify(data), "utf8");
             const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
-            window.api.fs.writeFileSync(htmlCachePath, html, "utf8");
-        } catch(e) {}
+            await window.api.fs.promises.writeFile(htmlCachePath, html, "utf8");
+        } catch (e) { }
         return;
     }
     if (data.type === "LOG") {
@@ -523,7 +347,7 @@ window.api.on("horizon-status", async (data) => {
             if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " Go";
             return (b / 1048576).toFixed(1) + " Mo";
         }
-        const usedPct  = data.totalBytes > 0 ? Math.min(100, Math.round((data.usedBytes   / data.totalBytes) * 100)) : 0;
+        const usedPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.usedBytes / data.totalBytes) * 100)) : 0;
         const horizPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.horizonBytes / data.totalBytes) * 100)) : 0;
         const barColor = usedPct >= 90 ? "#f87171" : usedPct >= 70 ? "#f48a21" : "var(--accent)";
         const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
@@ -531,7 +355,7 @@ window.api.on("horizon-status", async (data) => {
         const instances = (data.instances || []).sort((a, b) => b.bytes - a.bytes);
         let instRows = "";
         for (const inst of instances.slice(0, 8)) {
-            const rowDisplayName = getRealName(inst.name); 
+            const rowDisplayName = await getRealName(inst.name);
             const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
             const safeInstDeltaCount = parseInt(inst.deltaCount, 10) || 0;
             const deltaInfo = safeInstDeltaCount > 0 ? ` · ${safeInstDeltaCount} delta(s)` : "";
@@ -576,12 +400,12 @@ window.api.on("horizon-status", async (data) => {
         el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
-            if (!window.api.fs.existsSync(binDir)) window.api.fs.mkdirSync(binDir, { recursive: true });
+            try { await window.api.fs.promises.access(binDir); } catch (e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
             const quotaCachePath = window.api.path.join(binDir, "horizon_quota_cache.json");
-            window.api.fs.writeFileSync(quotaCachePath, JSON.stringify(data), "utf8");
+            await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
             const quotaHtmlCachePath = window.api.path.join(binDir, "horizon_quota_html_cache.txt");
-            window.api.fs.writeFileSync(quotaHtmlCachePath, el.innerHTML, "utf8");
-        } catch(e) {}
+            await window.api.fs.promises.writeFile(quotaHtmlCachePath, el.innerHTML, "utf8");
+        } catch (e) { }
         return;
     }
     if (data.type === "ROLLBACK_LIST") {
@@ -600,15 +424,15 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
     const cards = document.querySelectorAll('.instance-card');
-    let targetCards = []; 
+    let targetCards = [];
     cards.forEach(c => {
         const nameEl = c.querySelector('.instance-name');
         if (nameEl && data.instance && (nameEl.innerText.trim() === data.instance.trim() || window.safeDir(nameEl.innerText.trim()) === data.instance.trim())) {
-            targetCards.push(c); 
+            targetCards.push(c);
         }
     });
     if (data.type === "PROGRESS") {
-        const realName = getRealName(data.instance); 
+        const realName = await getRealName(data.instance);
         if (data.step === "EXTRACTING" && data.value === 0) {
             window.showToast(`${t("msg_extract", "Extraction...")} ${realName}`, "info");
         } else if (data.step === "APPLYING_DELTA" && data.value === 0) {
@@ -627,10 +451,10 @@ window.api.on("horizon-status", async (data) => {
             if (circleContainer && textInfo) {
                 circleContainer.style.display = "flex";
                 if (data.step === "CHECKING") {
-                    textInfo.innerText = "..."; 
+                    textInfo.innerText = "...";
                     textInfo.style.fontSize = "0.7rem";
                 } else {
-                    textInfo.innerText = val + "%"; 
+                    textInfo.innerText = val + "%";
                     textInfo.style.fontSize = "0.65rem";
                 }
             }
@@ -654,19 +478,19 @@ window.api.on("horizon-status", async (data) => {
         if (globalBar) globalBar.style.width = val + "%";
         if (globalPerc) globalPerc.innerText = val + "%";
         if (globalStep) {
-            const realName = getRealName(data.instance);
+            const realName = await getRealName(data.instance);
             if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${realName}...`;
             else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${realName}...`;
             else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${realName}...`;
             else if (data.step === "UPLOADING") globalStep.innerText = `Upload ${realName}...`;
             else globalStep.innerText = `${t("msg_loading", "Traitement...")}...`;
         }
-    } 
+    }
     else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
         if (data.type === "ERROR" && data.hasRollback) {
             setTimeout(async () => {
                 const msg = t("horizon_rollback_prompt", "La mise à jour a échoué.\n\nVoulez-vous restaurer instantanément la version précédente de cette instance ?\n\n⚠️ Cette action remplacera les fichiers actuels par la sauvegarde automatique.");
-                const wantsRollback = await window.showCustomConfirm(msg, true); 
+                const wantsRollback = await window.showCustomConfirm(msg, true);
                 if (wantsRollback) {
                     window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."), 0);
                     await window.api.invoke("call-horizon", ['--rollback', data.instance]);
@@ -691,15 +515,15 @@ window.api.on("horizon-status", async (data) => {
             }
         }
         else if (data.errorCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
-            if (!window._isManualHorizon) return;  
+            if (!window._isManualHorizon) return;
             finalMsg = t("msg_not_on_cloud", "Cette instance n'existe pas sur le Cloud.");
         }
         else if (finalMsg.includes("introuvable localement")) {
-            if (!window._isManualHorizon) return;     
+            if (!window._isManualHorizon) return;
             finalMsg = t("msg_err_local_not_found", "Instance introuvable localement.");
         }
         else if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
-            const portMatch = finalMsg.match(/\d{4,5}/); 
+            const portMatch = finalMsg.match(/\d{4,5}/);
             finalMsg = t("horizon_login_error_port", "Port déjà utilisé").replace("{port}", portMatch ? portMatch[0] : "");
         }
         else if (finalMsg.includes("Serveur Horizon prêt")) {
@@ -727,7 +551,7 @@ window.api.on("horizon-status", async (data) => {
             }
         }
         if (data.type !== "INFO" || finalMsg.includes(t("horizon_login_ready", "Prêt").split('(')[0])) {
-            const realName = getRealName(data.instance);
+            const realName = await getRealName(data.instance);
             const prefixName = realName ? `${realName} : ` : "";
             window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
         }
@@ -740,9 +564,11 @@ window.api.on("horizon-status", async (data) => {
                 try {
                     const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                     const jsonPath = window.api.path.join(instFolder, "instance.json");
-                    if (window.api.fs.existsSync(jsonPath)) {
-                        const parsed = JSON.parse(window.api.fs.readFileSync(jsonPath, "utf8"));
-                        
+                    let exists = false;
+                    try { await window.api.fs.promises.access(jsonPath); exists = true; } catch (e) { /* ignore */ }
+                    if (exists) {
+                        const parsed = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
+
                         const oldRam = localInst.ram;
                         const oldJava = localInst.javaPath;
                         const oldArgs = localInst.customArgs;
@@ -757,10 +583,10 @@ window.api.on("horizon-status", async (data) => {
                         if (oldWidth !== undefined) localInst.windowWidth = oldWidth;
                         if (oldHeight !== undefined) localInst.windowHeight = oldHeight;
 
-                        window.safeWriteJSON(store.instanceFile, store.allInstances);
+                        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                     }
-                } catch(e) { console.error("Erreur màj instance.json après sync:", e); }
-                
+                } catch (e) { console.error("Erreur màj instance.json après sync:", e); }
+
                 localInst._iconCacheBuster = Date.now();
                 if (window.renderUI) window.renderUI();
                 if (window.selectInstance && store.allInstances[store.selectedInstanceIdx] === localInst) {
@@ -770,7 +596,7 @@ window.api.on("horizon-status", async (data) => {
             window.horizonScheduleCloudRefresh({ refreshQuota });
         }
     }
-}); 
+});
 window.openCloudContextMenu = (e, instName, isLocal) => {
     e.preventDefault();
     e.stopPropagation();
@@ -778,24 +604,24 @@ window.openCloudContextMenu = (e, instName, isLocal) => {
     const menu = document.getElementById("cloud-only-context-menu");
     if (!menu) return;
     const restoreItem = document.getElementById("ctx-cloud-restore-item");
-    const syncItem    = document.getElementById("ctx-cloud-sync-item");
-    const uploadItem  = document.getElementById("ctx-cloud-upload-item");
+    const syncItem = document.getElementById("ctx-cloud-sync-item");
+    const uploadItem = document.getElementById("ctx-cloud-upload-item");
     if (isLocal) {
         if (restoreItem) restoreItem.style.display = "none";
-        if (syncItem)    syncItem.style.display    = "flex";
-        if (uploadItem)  uploadItem.style.display  = "flex";
+        if (syncItem) syncItem.style.display = "flex";
+        if (uploadItem) uploadItem.style.display = "flex";
     } else {
         if (restoreItem) restoreItem.style.display = "flex";
-        if (syncItem)    syncItem.style.display    = "none";
-        if (uploadItem)  uploadItem.style.display  = "none";
+        if (syncItem) syncItem.style.display = "none";
+        if (uploadItem) uploadItem.style.display = "none";
     }
     menu.style.display = "flex";
     let x = e.clientX;
     let y = e.clientY;
-    if (x + menu.offsetWidth > window.innerWidth)   x = window.innerWidth  - menu.offsetWidth  - 5;
+    if (x + menu.offsetWidth > window.innerWidth) x = window.innerWidth - menu.offsetWidth - 5;
     if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 5;
     menu.style.left = x + "px";
-    menu.style.top  = y + "px";
+    menu.style.top = y + "px";
 };
 /**
      * ==============================================================================
@@ -822,7 +648,7 @@ window.ctxRestoreCloud = async () => {
     if (!store.allInstances.some(i => i.name === targetName)) {
         const phantom = {
             name: targetName,
-            version: "...", 
+            version: "...",
             loader: loader,
             icon: iconData,
             ram: store.globalSettings.defaultRam.toString(),
@@ -830,14 +656,14 @@ window.ctxRestoreCloud = async () => {
         };
         store.allInstances.push(phantom);
         if (window.updateIconCache) window.updateIconCache(phantom);
-        window.renderUI(); 
+        window.renderUI();
     }
     window._isManualHorizon = true;
     const syncResult = await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName), '--force']);
     window._isManualHorizon = false;
     if (window.horizonOpFailed(syncResult)) {
         const idx = store.allInstances.findIndex(i => i.name === targetName && i.version === "...");
-        if (idx !== -1) store.allInstances.splice(idx, 1); 
+        if (idx !== -1) store.allInstances.splice(idx, 1);
         window.renderUI();
         const errMsg = syncResult?.lastJson?.message || "Erreur lors de la restauration du Cloud.";
         window.showToast(errMsg, "error");
@@ -849,9 +675,10 @@ window.ctxRestoreCloud = async () => {
     const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(targetName));
     const jsonPath = window.api.path.join(instFolder, "instance.json");
     let realInst = null;
-    if (window.api.fs.existsSync(jsonPath)) {
-        try { realInst = JSON.parse(window.api.fs.readFileSync(jsonPath, "utf8")); } catch(e) {}
-    }
+    try {
+        await window.api.fs.promises.access(jsonPath);
+        realInst = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
+    } catch (e) { }
     if (realInst) {
         realInst._iconCacheBuster = Date.now();
         const phantomInst = store.allInstances[idx];
@@ -862,11 +689,13 @@ window.ctxRestoreCloud = async () => {
     } else {
         let dVer = "1.20.4", dLoader = "vanilla", dLoaderVer = "";
         const vDir = window.api.path.join(instFolder, "versions");
-        if (window.api.fs.existsSync(vDir)) {
+        let vDirExists = false;
+        try { await window.api.fs.promises.access(vDir); vDirExists = true; } catch (e) { }
+        if (vDirExists) {
             try {
-                const subDirs = window.api.fs.readdirSync(vDir);
+                const subDirs = await window.api.fs.promises.readdir(vDir);
                 if (subDirs.length > 0) {
-                    const vName = subDirs[0].toLowerCase(); 
+                    const vName = subDirs[0].toLowerCase();
                     const matchMC = vName.match(/(?:^|[^.\\d])(1\\.\\d+(?:\\.\\d+)?)(?:[^.\\d]|$)/);
                     if (matchMC) dVer = matchMC[1];
                     if (vName.includes("fabric")) dLoader = "fabric";
@@ -874,25 +703,25 @@ window.ctxRestoreCloud = async () => {
                     else if (vName.includes("forge")) dLoader = "forge";
                     else if (vName.includes("quilt")) dLoader = "quilt";
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
         store.allInstances[idx] = {
             name: targetName,
             version: dVer,
             loader: loader !== "vanilla" ? loader : dLoader,
-            loaderVersion: dLoaderVer, 
+            loaderVersion: dLoaderVer,
             ram: store.globalSettings.defaultRam.toString(),
-            javaPath: "", jvmArgs: "", jvmProfile: "none", 
+            javaPath: "", jvmArgs: "", jvmProfile: "none",
             notes: t("msg_old_cloud_backup", "Ancienne sauvegarde Cloud auto-détectée."),
-            icon: iconData, resW: "", resH: "", playTime: 0, lastPlayed: 0, 
+            icon: iconData, resW: "", resH: "", playTime: 0, lastPlayed: 0,
             sessionHistory: [], group: t("lbl_group_general", "Général"), servers: [], backupMode: "none", backupLimit: 5
         };
-        try { window.api.fs.writeFileSync(jsonPath, JSON.stringify(store.allInstances[idx], null, 2)); } catch(e){}
+        try { window.safeWriteJSONAsync(jsonPath, store.allInstances[idx]); } catch (e) { }
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
     if (window.updateIconCache) window.updateIconCache(store.allInstances[idx]);
-    window.safeWriteJSON(store.instanceFile, store.allInstances);
-    window.renderUI(); 
+    window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+    window.renderUI();
 };
 window.ctxDeleteCloudOnly = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
@@ -911,7 +740,7 @@ window.ctxSyncCloudFromMenu = async () => {
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
-        await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]); 
+        await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]);
         const inst = store.allInstances.find(i => window.safeDir(i.name) === window.safeDir(targetName));
         if (inst) {
             inst._iconCacheBuster = Date.now();
@@ -929,7 +758,7 @@ window.ctxUploadCloudFromMenu = async () => {
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
-        await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]); 
+        await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]);
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     } finally {
         window._isManualHorizon = false;
@@ -939,51 +768,7 @@ document.addEventListener("click", () => {
     const menuCloud = document.getElementById("cloud-only-context-menu");
     if (menuCloud) menuCloud.style.display = "none";
 });
-async function checkHorizonUpdateAtStartup() {
-    try {
-        const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        const isWin = window.api.platform === 'win32';
-        const exeName = isWin ? "Horizon.exe" : "Horizon";
-        const exePath = window.api.path.join(binPath, exeName);
-        const setPath = window.api.path.join(binPath, "horizon_settings.json");
-        const isInstalled = window.api.fs.existsSync(exePath);
-        let systemEnabled = false;
-        if (isInstalled && window.api.fs.existsSync(setPath)) {
-            try {
-                const raw = window.api.fs.readFileSync(setPath, 'utf8');
-                const parsed = JSON.parse(raw);
-                systemEnabled = parsed.systemEnabled === true || parsed.systemEnabled === "true";
-            } catch (_) {}
-        }
-        store.horizonActive = isInstalled && systemEnabled;
-        console.log(`[Horizon] Détection OK : Installé=${isInstalled}, Activé=${systemEnabled}, OS=${isWin ? "Windows" : "Linux/Mac"}`);
-    } catch (e) {
-        console.error("[Horizon] Erreur fatale de détection :", e);
-        store.horizonActive = false;
-    }
-    try {
-        const status = await window.api.invoke("check-horizon-status");
-        const isActive = status.installed && !status.offline;
-        if (isActive) {
-            try {
-                const setPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", "horizon_settings.json");
-                if (window.api.fs.existsSync(setPath)) {
-                    const parsed = JSON.parse(window.api.fs.readFileSync(setPath, 'utf8'));
-                    store.horizonActive = parsed.systemEnabled === true || parsed.systemEnabled === "true";
-                }
-            } catch (_) {}
-        }
-        if (!status.installed || status.offline || !status.needsUpdate) return;
-        const horizonBadge = document.getElementById("horizon-update-badge");
-        if (horizonBadge) horizonBadge.style.display = "block";
-        const tabBadge = document.getElementById("horizon-tab-badge");
-        if (tabBadge) tabBadge.style.display = "block";
-        const msg = t("horizon_update_toast", "Gens Horizon a une mise à jour disponible ({version}). Ouvrez les Paramètres → Horizon pour l'installer.").replace("{version}", status.latestVersion || "");
-        window.showToast(msg, "info");
-    } catch (e) {
-        console.log("[Horizon] Vérification MAJ démarrage échouée :", e.message);
-    }
-}
+
 window.clearHorizonUpdateBadges = () => {
     const horizonBadge = document.getElementById("horizon-update-badge");
     if (horizonBadge) horizonBadge.style.display = "none";
@@ -1014,13 +799,14 @@ window.refreshHorizonQuota = async () => {
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
             const quotaCachePath = window.api.path.join(binDir, "horizon_quota_cache.json");
-            if (window.api.fs.existsSync(quotaCachePath)) {
-                const cached = JSON.parse(window.api.fs.readFileSync(quotaCachePath, "utf8"));
+            try {
+                await window.api.fs.promises.access(quotaCachePath);
+                const cached = JSON.parse(await window.api.fs.promises.readFile(quotaCachePath, "utf8"));
                 if (cached && cached.type === "QUOTA") {
                     window.api.on && setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
                 }
-            }
-        } catch(_) {}
+            } catch (e) { }
+        } catch (_) { }
     }
     if (!window._lastQuotaHtml) {
         el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">
@@ -1035,4 +821,4 @@ window.refreshHorizonQuota = async () => {
 window.refreshHorizonQuotaSilent = async () => {
     await window.api.invoke("call-horizon", ["--quota"]);
 };
-init().catch(e => console.error('[INIT FATAL]', e));
+init().catch(e => console.error('[INIT FATAL]', e));

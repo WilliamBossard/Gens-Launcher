@@ -38,33 +38,36 @@ let mainWindow;
 let tray = null;
 let linuxUpdatePath = null;
 const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
-if (!fs.existsSync(safeDataDir)) {
-    fs.mkdirSync(safeDataDir, { recursive: true });
-}
-try {
-    const files = fs.readdirSync(safeDataDir);
-    for (const file of files) {
-        if (file.startsWith("horizon_") && (file.endsWith(".html") || file.endsWith(".json") || file.endsWith(".txt"))) {
-            const filePath = path.join(safeDataDir, file);
-            if (fs.statSync(filePath).isFile()) fs.unlinkSync(filePath);
-        }
-    }
-} catch (e) { }
+fs.mkdirSync(safeDataDir, { recursive: true }); // AUDIT-04 : existsSync redondant supprimé (mkdirSync recursive ignore les dossiers existants)
 const logsDir = path.join(safeDataDir, "logs");
-if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+fs.mkdirSync(logsDir, { recursive: true }); // AUDIT-04
 
-try {
-    const mainLogs = fs.readdirSync(logsDir)
-        .filter(f => f.startsWith("main-process_") && f.endsWith(".log"))
-        .map(f => ({ file: f, time: fs.statSync(path.join(logsDir, f)).mtime.getTime() }))
-        .sort((a, b) => b.time - a.time);
-
-    if (mainLogs.length > 4) {
-        for (let i = 4; i < mainLogs.length; i++) {
-            try { fs.unlinkSync(path.join(logsDir, mainLogs[i].file)); } catch (_) { }
+setTimeout(async () => {
+    try {
+        const files = await fs.promises.readdir(safeDataDir);
+        for (const file of files) {
+            if (file.startsWith("horizon_") && (file.endsWith(".html") || file.endsWith(".json") || file.endsWith(".txt"))) {
+                const filePath = path.join(safeDataDir, file);
+                if ((await fs.promises.stat(filePath)).isFile()) await fs.promises.unlink(filePath);
+            }
         }
-    }
-} catch (e) { }
+    } catch (e) { }
+
+    try {
+        const files = await fs.promises.readdir(logsDir);
+        const mainLogs = await Promise.all(
+            files.filter(f => f.startsWith("main-process_") && f.endsWith(".log"))
+                 .map(async f => ({ file: f, time: (await fs.promises.stat(path.join(logsDir, f))).mtime.getTime() }))
+        );
+        mainLogs.sort((a, b) => b.time - a.time);
+
+        if (mainLogs.length > 4) {
+            for (let i = 4; i < mainLogs.length; i++) {
+                try { await fs.promises.unlink(path.join(logsDir, mainLogs[i].file)); } catch (_) { }
+            }
+        }
+    } catch (e) { }
+}, 0);
 
 const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
 fs.writeFileSync(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
@@ -73,9 +76,7 @@ const isWin = process.platform === "win32";
 const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
 const horizonExePath = path.join(horizonBinDir, horizonBinName);
 const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
-if (!fs.existsSync(horizonBinDir)) {
-    fs.mkdirSync(horizonBinDir, { recursive: true });
-}
+fs.mkdirSync(horizonBinDir, { recursive: true }); // AUDIT-04
 /**
  * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
  * tournent dans le main process — on re-valide ici les chemins sensibles.
@@ -128,40 +129,17 @@ process.on('unhandledRejection', (reason, promise) => {
     mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason.stack || reason));
 });
 
-function decryptSettingsMainProc(text) {
+async function decryptSettingsMainProc(text) { // AUDIT-14 : rendu async pour utiliser await
     try {
-        const decrypted = decryptText(text);
+        const decrypted = await decryptText(text);
         if (decrypted !== null) return decrypted;
         
-        const leg = legacyDecryptText(text);
+        const leg = await legacyDecryptText(text);
         if (leg !== null) return leg;
     } catch (e) { }
     return text;
 }
-function readSettingsMainProc(settingsPath) {
-    if (!fs.existsSync(settingsPath)) return {};
-    try {
-        const raw = fs.readFileSync(settingsPath, "utf8").trim();
-        if (raw.startsWith('{') || raw.startsWith('[')) {
-            return JSON.parse(raw);
-        }
-        const decrypted = decryptSettingsMainProc(raw);
-        if (decrypted) return JSON.parse(decrypted);
-    } catch (e) {
-        mainLog("Avertissement : impossible de lire settings.json dans main process : " + e.message);
-    }
-    return {};
-}
-function writeJsonAtomicSync(filePath, data) {
-    const tempPath = filePath + ".tmp." + Date.now() + "_" + Math.random().toString(36).substring(2, 11);
-    try {
-        fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
-        fs.renameSync(tempPath, filePath);
-    } catch (e) {
-        if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch (_) { }
-        mainLog("Erreur critique lors de l'écriture atomique de " + filePath + " : " + e.message);
-    }
-}
+
 function createWindow() {
     const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'assets', iconExt);
@@ -181,7 +159,14 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            preload: path.join(__dirname, "preload.js")
+            preload: path.join(__dirname, "preload.js"),
+            // Injection des chemins système via additionalArguments (remplace sendSync 'get-paths-sync')
+            additionalArguments: [
+                `--app-data=${app.getPath('appData')}`,
+                `--app-platform=${process.platform}`,
+                `--app-arch=${process.arch}`,
+                `--app-version=${app.getVersion()}`
+            ]
         },
     });
     mainWindow.setMenuBarVisibility(false);
@@ -229,7 +214,8 @@ app.whenReady().then(() => {
                 ...details.responseHeaders,
                 // Tous les handlers inline (onclick/onchange) ont été migrés vers event-listeners.js.
                 // 'unsafe-inline' n'est plus nécessaire pour script-src.
-                'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
+                // 'unsafe-eval' supprimé (SEC-03) — aucune utilisation d'eval() détectée dans le code source.
+                'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
             }
         });
     });
@@ -310,13 +296,13 @@ app.whenReady().then(() => {
         });
     }, 3000);
 });
-ipcMain.on("restart_app", () => {
+ipcMain.on("restart_app", async () => {
     if (process.platform === 'linux') {
         if (process.env.APPIMAGE) { autoUpdater.quitAndInstall(); return; }
-        if (linuxUpdatePath && fs.existsSync(linuxUpdatePath)) {
+        if (linuxUpdatePath && await fs.promises.access(linuxUpdatePath).then(()=>true).catch(()=>false)) {
             try {
                 const destPath = path.join(app.getPath("downloads"), "GensLauncher-MiseAJour.deb");
-                fs.copyFileSync(linuxUpdatePath, destPath);
+                await fs.promises.copyFile(linuxUpdatePath, destPath);
                 mainLog("Fichier .deb copié dans : " + destPath);
                 execFile("pkexec", ["dpkg", "-i", destPath], (err) => {
                     if (!err) { app.relaunch(); app.exit(0); return; }
@@ -408,10 +394,10 @@ function downloadFile(url, dest, redirectCount = 0) {
             reject(err);
         });
 
-        req.setTimeout(30000, () => {
+        req.setTimeout(30000, async () => {
             req.destroy();
-            if (fs.existsSync(dest)) {
-                try { fs.unlinkSync(dest); } catch (_) {}
+            if (await fs.promises.access(dest).then(()=>true).catch(()=>false)) {
+                try { await fs.promises.unlink(dest); } catch (_) {}
             }
             reject(new Error("Timeout de téléchargement (30s)."));
         });
@@ -452,10 +438,10 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         }
 
         // 2. Valider la signature magique du fichier
-        const fd = fs.openSync(srcPath, 'r');
+        const fd = await fs.promises.open(srcPath, 'r');
         const magicBuf = Buffer.alloc(8);
-        fs.readSync(fd, magicBuf, 0, 8, 0);
-        fs.closeSync(fd);
+        await fd.read(magicBuf, 0, 8, 0);
+        await fd.close();
 
         const sig = MAGIC_SIGNATURES.find(s => s.ext.includes(ext));
         if (sig) {
@@ -474,10 +460,10 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             assertPathUnderSandbox(candidate); // lève une erreur si hors-sandbox
             destDir = candidate;
         }
-        fs.mkdirSync(destDir, { recursive: true });
+        await fs.promises.mkdir(destDir, { recursive: true });
         const destPath = path.join(destDir, safeName + ext);
         assertPathUnderSandbox(destPath); // double vérification
-        fs.copyFileSync(srcPath, destPath);
+        await fs.promises.copyFile(srcPath, destPath);
 
         return { success: true, destPath };
     } catch (err) {
@@ -492,8 +478,8 @@ ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
         const safeName = String(instanceName).replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
         const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
         const targetFile = `${safeName}.${ext}`.toLowerCase();
-        if (fs.existsSync(desktopPath)) {
-            const files = fs.readdirSync(desktopPath);
+        if (await fs.promises.access(desktopPath).then(()=>true).catch(()=>false)) {
+            const files = await fs.promises.readdir(desktopPath);
             for (let file of files) {
                 if (file.toLowerCase() === targetFile) {
                     const fullPath = path.join(desktopPath, file);
@@ -521,26 +507,26 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                 mainLog("Erreur décodage URL icône : " + e.message);
             }
         }
-        if (!localIconPath || !fs.existsSync(localIconPath)) {
+        if (!localIconPath || !(await fs.promises.access(localIconPath).then(()=>true).catch(()=>false))) {
             const png = path.join(instFolder, "icon.png");
-            if (fs.existsSync(png)) localIconPath = png;
+            if (await fs.promises.access(png).then(()=>true).catch(()=>false)) localIconPath = png;
         }
         let finalIconPath = process.execPath;
         if (process.platform === 'win32') {
-            if (localIconPath && localIconPath.toLowerCase().endsWith('.png') && fs.existsSync(localIconPath)) {
+            if (localIconPath && localIconPath.toLowerCase().endsWith('.png') && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
                 try {
                     let isPng = false;
                     try {
-                        const fd = fs.openSync(localIconPath, 'r');
+                        const fd = await fs.promises.open(localIconPath, 'r');
                         const magic = Buffer.alloc(8);
-                        fs.readSync(fd, magic, 0, 8, 0);
-                        fs.closeSync(fd);
+                        await fd.read(magic, 0, 8, 0);
+                        await fd.close();
                         isPng = magic.toString('hex') === '89504e470d0a1a0a';
                     } catch (magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
                     if (isPng) {
                         const { nativeImage } = require("electron");
                         const nImg = nativeImage.createFromPath(localIconPath);
-                        let pngData = fs.readFileSync(localIconPath);
+                        let pngData = await fs.promises.readFile(localIconPath);
                         if (!nImg.isEmpty()) {
                             const resized = nImg.resize({ width: 256, height: 256, quality: 'best' });
                             pngData = resized.toPNG();
@@ -560,24 +546,24 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                             header.writeUInt16LE(0, 12);
                             header.writeUInt32LE(pngData.length, 14);
                             header.writeUInt32LE(22, 18);
-                            fs.writeFileSync(icoPath, Buffer.concat([header, pngData]));
+                            await fs.promises.writeFile(icoPath, Buffer.concat([header, pngData]));
                             finalIconPath = icoPath;
                         }
                     }
                 } catch (e) {
                     mainLog("Erreur de conversion PNG vers ICO : " + e.message);
                 }
-            } else if (localIconPath && localIconPath.toLowerCase().endsWith('.ico') && fs.existsSync(localIconPath)) {
+            } else if (localIconPath && localIconPath.toLowerCase().endsWith('.ico') && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
                 finalIconPath = localIconPath;
             }
         } else {
-            if (localIconPath && fs.existsSync(localIconPath)) {
+            if (localIconPath && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
                 finalIconPath = localIconPath;
             }
         }
-        const alreadyExists = fs.existsSync(
+        const alreadyExists = await fs.promises.access(
             path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command'}`)
-        );
+        ).then(()=>true).catch(()=>false);
         if (process.platform === 'win32') {
             const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
             const mode = alreadyExists ? 'update' : 'create';
@@ -605,14 +591,14 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                 'Categories=Game;',
                 ''
             ].join('\n');
-            fs.writeFileSync(shortcutPath, desktopFile, { encoding: 'utf8' });
-            fs.chmodSync(shortcutPath, 0o755);
+            await fs.promises.writeFile(shortcutPath, desktopFile, { encoding: 'utf8' });
+            await fs.promises.chmod(shortcutPath, 0o755);
             try {
                 const appsDir = path.join(app.getPath("home"), ".local", "share", "applications");
-                if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+                if (!(await fs.promises.access(appsDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(appsDir, { recursive: true });
                 const appsPath = path.join(appsDir, `genslauncher-${safeName}.desktop`);
-                fs.writeFileSync(appsPath, desktopFile, { encoding: 'utf8' });
-                fs.chmodSync(appsPath, 0o755);
+                await fs.promises.writeFile(appsPath, desktopFile, { encoding: 'utf8' });
+                await fs.promises.chmod(appsPath, 0o755);
             } catch (err) {
                 mainLog("Erreur création raccourci applications Linux : " + err.message);
             }
@@ -626,8 +612,8 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                 `"${process.execPath}" "--auto-launch=${escapedInstanceName}" &`,
                 ''
             ].join('\n');
-            fs.writeFileSync(shortcutPath, script, { encoding: 'utf8' });
-            fs.chmodSync(shortcutPath, 0o755);
+            await fs.promises.writeFile(shortcutPath, script, { encoding: 'utf8' });
+            await fs.promises.chmod(shortcutPath, 0o755);
             return { success: true, updated: alreadyExists };
         }
         return { success: false, reason: 'unsupported_platform' };
@@ -640,7 +626,7 @@ ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
     const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
     const safe = sanitizeShortcutName(safeName);
     const shortcutPath = path.join(desktopPath, `${safe}.${ext}`);
-    return fs.existsSync(shortcutPath);
+    return await fs.promises.access(shortcutPath).then(()=>true).catch(()=>false);
 });
 
 ipcMain.on("set-taskbar-progress", (_, val) => {
@@ -730,9 +716,29 @@ ipcMain.handle('encrypt-string', async (event, text) => {
 ipcMain.handle('decrypt-string', async (event, hexText) => {
     return decryptText(hexText);
 });
+// AUDIT-02 : handler 'legacy-decrypt' supprimé — la migration est gérée en interne par decryptText() via _tryDecrypt
 
-ipcMain.handle('legacy-decrypt', async (event, text) => {
-    return legacyDecryptText(text);
+/**
+ * AUDIT-06 : Handler hash-file — remplace fs.readFileSync bloquant dans le Renderer.
+ * Stream SHA-256 async : ne bloque pas le thread de rendu, même sur de gros JARs (200+ Mo).
+ */
+ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
+    const ALLOWED_ALGOS = ['sha1', 'sha256', 'sha512', 'md5'];
+    if (!ALLOWED_ALGOS.includes(algo)) return { success: false, error: `Algorithme non autorisé : ${algo}` };
+    try {
+        const safePath = assertPathUnderSandbox(filePath);
+        const hash = crypto.createHash(algo);
+        await new Promise((resolve, reject) => {
+            const stream = fs.createReadStream(safePath);
+            stream.on('data', chunk => hash.update(chunk));
+            stream.on('end', resolve);
+            stream.on('error', reject);
+        });
+        return { success: true, hash: hash.digest('hex') };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 });
+
 app.on('before-quit', () => { try { _logStream.end(); } catch (_) { } });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

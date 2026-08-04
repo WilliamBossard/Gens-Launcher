@@ -12,8 +12,9 @@ export function setup() {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
         let reqs = {};
-        if (!fs.existsSync(modsPath)) return {};
-        const files = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
+        if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) return {};
+        const allFiles = await fs.promises.readdir(modsPath);
+        const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
         for (const f of files) {
             try {
                 const fullPath = path.join(modsPath, f);
@@ -64,8 +65,9 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!fs.existsSync(modsPath)) fs.mkdirSync(modsPath, { recursive: true });
-        const files = fs.readdirSync(modsPath).filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
+        if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(modsPath, { recursive: true });
+        const allFiles = await fs.promises.readdir(modsPath);
+        const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
         const warnings = await getModWarnings(inst);
         let hasMods = files.length > 0;
         let htmlBuilder = ""; 
@@ -113,10 +115,10 @@ export function setup() {
             item.style.display = text.includes(filter) ? "flex" : "none";
         });
     };
-    window.toggleMod = (filename, isEnabled) => {
+    window.toggleMod = async (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        fs.renameSync(
+        await fs.promises.rename(
             path.join(modsPath, filename),
             path.join(modsPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
         );
@@ -128,8 +130,8 @@ export function setup() {
             const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
             try {
                 const filePath = path.join(modsPath, filename);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
+                if (await fs.promises.access(filePath).then(()=>true).catch(()=>false)) {
+                    await fs.promises.unlink(filePath);
                     window.showToast(t("msg_mod_deleted", "Mod supprimé !"), "success");
                     window.renderModsManager(); 
                 }

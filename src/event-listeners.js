@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-account-modal')?.addEventListener('click', () => closeAccountModal());
 
     // ── TOOLBAR ────────────────────────────────────────────────
-    document.getElementById('btn-open-instance-modal')?.addEventListener('click', () => openInstanceModal());
+    document.getElementById('btn-open-instance-modal')?.addEventListener('click', () => window.openInstanceModal());
     document.getElementById('btn-toolbar-builder')?.addEventListener('click', () => openBuilderModal());
     document.getElementById('btn-import-upload')?.addEventListener('click', () => document.getElementById('import-upload').click());
     document.getElementById('btn-toolbar-catalog')?.addEventListener('click', () => openCatalogModal());

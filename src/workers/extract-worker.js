@@ -13,7 +13,7 @@ async function extractArchive({ archivePath, destDir, isWin }) {
                 const total = zipfile.entryCount;
                 let processed = 0;
                 zipfile.readEntry();
-                zipfile.on("entry", (entry) => {
+                zipfile.on("entry", async (entry) => {
                     const dest = path.join(destDir, entry.fileName);
                     const resDest = path.resolve(dest);
                     if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
@@ -22,10 +22,10 @@ async function extractArchive({ archivePath, destDir, isWin }) {
                         return;
                     }
                     if (/\/$/.test(entry.fileName)) {
-                        fs.mkdirSync(dest, { recursive: true });
+                        await fs.promises.mkdir(dest, { recursive: true });
                         zipfile.readEntry();
                     } else {
-                        fs.mkdirSync(path.dirname(dest), { recursive: true });
+                        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
                         zipfile.openReadStream(entry, (err, readStream) => {
                             if (err) { 
                                 zipfile.close(); 

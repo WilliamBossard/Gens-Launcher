@@ -3,7 +3,7 @@ import { store } from "../store.js";
 const fs = window.api.fs;
 
 export function setupTheme() {
-    window.applyTheme = function() {
+    window.applyTheme = async function() {
         const root = document.documentElement;
         const th = store.globalSettings.theme || { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 };
         const accentRaw = String(th.accent || "#007acc");
@@ -27,7 +27,7 @@ export function setupTheme() {
                 ? window.api.path.join(window.api.appData, 'GensLauncher')
                 : null;
             const isSandboxed = th.bg && safeDataDir && th.bg.startsWith(safeDataDir);
-            if (isSandboxed && fs.existsSync(th.bg)) {
+            if (isSandboxed && await fs.promises.access(th.bg).then(()=>true).catch(()=>false)) {
                 const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(th.dim))  ? 0.5 : parseFloat(th.dim)));
                 const blur = Math.max(0, Math.min(50,   isNaN(parseInt(th.blur))   ? 5   : parseInt(th.blur)));
                 appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;

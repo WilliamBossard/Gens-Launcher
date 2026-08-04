@@ -205,7 +205,11 @@ class NBTWriter {
 
 async function parse(buffer) {
     let buf = buffer;
-    try { buf = zlib.gunzipSync(buffer); } catch (e) { }
+    try { 
+        const util = require('util');
+        const gunzip = util.promisify(zlib.gunzip);
+        buf = await gunzip(buffer); 
+    } catch (e) { }
     const reader = new NBTReader(buf);
     return { parsed: reader.readRoot() };
 }

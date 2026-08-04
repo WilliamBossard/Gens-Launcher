@@ -46,8 +46,8 @@ function setupMods() {
           const inst = store.allInstances[store.selectedInstanceIdx];
           let targetFolder = type === "shader" ? "shaderpacks" : (type === "resourcepack" ? "resourcepacks" : "mods");
           const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-          if (fs.existsSync(destPath)) {
-              installedItems = fs.readdirSync(destPath).map(f => f.toLowerCase());
+          if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
+              installedItems = (await fs.promises.readdir(destPath)).map(f => f.toLowerCase());
           }
       }
       try {
@@ -234,11 +234,11 @@ function setupMods() {
               const dlRes = await window.fetchWithTimeout(file.url);
               if (!dlRes.ok) throw new Error(`Téléchargement modpack HTTP ${dlRes.status}`);
               const buffer = await dlRes.arrayBuffer();
-              fs.writeFileSync(tempPath, new Uint8Array(buffer));
+              await fs.promises.writeFile(tempPath, new Uint8Array(buffer));
               statusText.innerText = t("msg_install_mp", "Installation du modpack...");
               window.closeCatalogModal();
               await window.handleMrPackImport(tempPath, projectId);
-              fs.unlinkSync(tempPath);
+              await fs.promises.unlink(tempPath);
               return;
             }
             let targetFolder = "mods";
@@ -246,10 +246,10 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+            if (!(await fs.promises.access(destPath).then(() => true).catch(() => false))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
-            if (!fs.existsSync(filePath)) {
+            if (!(await fs.promises.access(filePath).then(() => true).catch(() => false))) {
               if (!file.url || !/^https:\/\//i.test(file.url)) {
                 sysLog(`URL rejetée (protocole invalide) : ${file.url}`, true);
                 if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
@@ -319,10 +319,10 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+            if (!(await fs.promises.access(destPath).then(() => true).catch(() => false))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
-            if (!fs.existsSync(filePath)) {
+            if (!(await fs.promises.access(filePath).then(() => true).catch(() => false))) {
               const dlRes = await window.fetchWithTimeout(downloadUrl);
 const buffer = await dlRes.arrayBuffer();
 const fileBytes = new Uint8Array(buffer);
@@ -597,7 +597,7 @@ const iconHtml = safeIconUrl
         };
         try {
             for (const d of Object.values(dirs)) {
-                if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                if (!(await fs.promises.access(d).then(() => true).catch(() => false))) await fs.promises.mkdir(d, { recursive: true });
             }
         } catch (e) {
             sysLog("Erreur création dossiers modpack: " + e, true);
@@ -701,7 +701,7 @@ const queue = [...modsToDownload];
 window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         store.allInstances.push(newInst);
         const instJsonPath = path.join(instDir, "instance.json");
-        try { fs.writeFileSync(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
+        try { await fs.promises.writeFile(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -745,10 +745,10 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             const dlRes = await window.fetchWithTimeout(url);
             if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
             const buffer = await dlRes.arrayBuffer();
-            fs.writeFileSync(tempPath, new Uint8Array(buffer));
+            await fs.promises.writeFile(tempPath, new Uint8Array(buffer));
             window.showLoading(t("msg_install_mp", "Installation..."), 0);
             await window.handleMrPackImport(tempPath, projectId);
-            fs.unlinkSync(tempPath);
+            await fs.promises.unlink(tempPath);
             window.showToast("Mise à jour du Modpack terminée !", "success");
         } catch(e) {
             window.hideLoading();

@@ -3,11 +3,11 @@ const fs = window.api.fs;
 
 export function setupStorage() {
     window.loadStorage = async () => {
-        if (!fs.existsSync(store.dataDir))        fs.mkdirSync(store.dataDir,        { recursive: true });
-        if (!fs.existsSync(store.instancesRoot))  fs.mkdirSync(store.instancesRoot,  { recursive: true });
-        if (!fs.existsSync(store.langDir))        fs.mkdirSync(store.langDir,        { recursive: true });
+        if (!(await fs.promises.access(store.dataDir).then(()=>true).catch(()=>false)))        await fs.promises.mkdir(store.dataDir,        { recursive: true });
+        if (!(await fs.promises.access(store.instancesRoot).then(()=>true).catch(()=>false)))  await fs.promises.mkdir(store.instancesRoot,  { recursive: true });
+        if (!(await fs.promises.access(store.langDir).then(()=>true).catch(()=>false)))        await fs.promises.mkdir(store.langDir,        { recursive: true });
 
-        if (fs.existsSync(store.settingsFile)) {
+        if (await fs.promises.access(store.settingsFile).then(()=>true).catch(()=>false)) {
             try {
                 const settingsContent = await fs.promises.readFile(store.settingsFile, "utf8");
                 if (settingsContent) {
@@ -28,7 +28,7 @@ export function setupStorage() {
             }
         }
 
-        if (fs.existsSync(store.instanceFile)) {
+        if (await fs.promises.access(store.instanceFile).then(()=>true).catch(()=>false)) {
             try {
                 const content = await fs.promises.readFile(store.instanceFile, "utf8");
                 if (content) {
@@ -66,7 +66,7 @@ export function setupStorage() {
         if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
         if (!store.globalSettings.language) store.globalSettings.language = "fr";
 
-        if (store.accountFile && fs.existsSync(store.accountFile)) {
+        if (store.accountFile && await fs.promises.access(store.accountFile).then(()=>true).catch(()=>false)) {
             try {
                 if (window.api.security && typeof window.api.security.readJSONAsync === 'function') {
                     const parsed = await window.api.security.readJSONAsync(store.accountFile);

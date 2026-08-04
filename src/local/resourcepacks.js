@@ -8,14 +8,15 @@ function safeAttrJson(value) {
 }
 
 export function setup() {
-    window.renderResourcePacksManager = function() {
+    window.renderResourcePacksManager = async function() {
         const listDiv = document.getElementById("resourcepacks-list");
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
-        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+        if (!(await fs.promises.access(targetPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(targetPath, { recursive: true });
         let rpHtml = "";
-        fs.readdirSync(targetPath).forEach((file) => {
+        const files = await fs.promises.readdir(targetPath);
+        files.forEach((file) => {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
                 const isEnabled = !file.endsWith(".disabled");
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
@@ -40,10 +41,10 @@ export function setup() {
             item.querySelector('.rp-delete-btn')?.addEventListener('click', () => deleteResourcePack(filename));
         });
     };
-    window.toggleResourcePack = (filename, isEnabled) => {
+    window.toggleResourcePack = async (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
-        fs.renameSync(
+        await fs.promises.rename(
             path.join(targetPath, filename),
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
         );
@@ -54,8 +55,8 @@ export function setup() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks", filename);
             try {
-                if (fs.existsSync(targetPath)) {
-                    fs.unlinkSync(targetPath);
+                if (await fs.promises.access(targetPath).then(()=>true).catch(()=>false)) {
+                    await fs.promises.unlink(targetPath);
                     window.showToast(t("msg_rp_deleted", "Pack supprimé !"), "success");
                     window.renderResourcePacksManager();
                 }

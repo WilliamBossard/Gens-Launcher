@@ -15,16 +15,21 @@ export function setup() {
             return path.join(os.userInfo().homedir || path.join(window.api.appData, "..", ".."), ".minecraft", "saves");
         }
     }
-    window.openImportMCWorldsModal = () => {
+    window.openImportMCWorldsModal = async () => {
         const mcDir = getMinecraftSavesDir();
         const listDiv = document.getElementById("mc-worlds-list");
         listDiv.innerHTML = "";
         document.getElementById("modal-import-mc").style.display = "flex";
-        if (!fs.existsSync(mcDir)) {
+        if (!(await fs.promises.access(mcDir).then(()=>true).catch(()=>false))) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
             return;
         }
-        const folders = fs.readdirSync(mcDir).filter(f => fs.statSync(path.join(mcDir, f)).isDirectory);
+        const files = await fs.promises.readdir(mcDir);
+        const folders = [];
+        for (const f of files) {
+            const stat = await fs.promises.stat(path.join(mcDir, f));
+            if (stat.isDirectory()) folders.push(f);
+        }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
             return;
@@ -51,7 +56,7 @@ export function setup() {
         window.showLoading(t("msg_copy", "Copie en cours..."));
         await yieldUI();
         try {
-            if (!fs.existsSync(path.dirname(targetDir))) fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+            if (!(await fs.promises.access(path.dirname(targetDir)).then(()=>true).catch(()=>false))) await fs.promises.mkdir(path.dirname(targetDir), { recursive: true });
             await fs.promises.cp(mcDir, targetDir, { recursive: true });
             window.showToast(t("msg_world_imported", "Monde importé avec succès !"), "success");
             document.getElementById("modal-import-mc").style.display = "none";
@@ -68,11 +73,16 @@ export function setup() {
         const listDiv = document.getElementById("worlds-list");
         listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_loading", "Chargement...")}</div>`;
         document.getElementById("modal-worlds").style.display = "flex";
-        if (!fs.existsSync(savesDir)) {
+        if (!(await fs.promises.access(savesDir).then(()=>true).catch(()=>false))) {
             listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
         }
-        const folders = fs.readdirSync(savesDir).filter((f) => fs.statSync(path.join(savesDir, f)).isDirectory);
+        const files = await fs.promises.readdir(savesDir);
+        const folders = [];
+        for (const f of files) {
+            const stat = await fs.promises.stat(path.join(savesDir, f));
+            if (stat.isDirectory()) folders.push(f);
+        }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
@@ -80,12 +90,12 @@ export function setup() {
         let html = "";
         for (const f of folders) {
             const folderPath = path.join(savesDir, f);
-            const stats = fs.statSync(folderPath);
+            const stats = await fs.promises.stat(folderPath);
             let worldName = f;
             try {
                 const levelDat = path.join(folderPath, "level.dat");
-                if (fs.existsSync(levelDat)) {
-                    const buffer = fs.readFileSync(levelDat);
+                if (await fs.promises.access(levelDat).then(()=>true).catch(()=>false)) {
+                    const buffer = await fs.promises.readFile(levelDat);
                     const { parsed } = await window.api.nbt.parse(buffer);
                     if (parsed && parsed.value && parsed.value.Data && parsed.value.Data.value && parsed.value.Data.value.LevelName) {
                         worldName = parsed.value.Data.value.LevelName.value;
@@ -124,7 +134,7 @@ export function setup() {
         const src = path.join(savesDir, folderName);
         let destName = folderName + t("lbl_copy_suffix", " - Copie");
         let counter = 2;
-        while (fs.existsSync(path.join(savesDir, destName))) {
+        while (await fs.promises.access(path.join(savesDir, destName)).then(()=>true).catch(()=>false)) {
             destName = `${folderName}${t("lbl_copy_suffix", " - Copie")} (${counter})`;
             counter++;
         }
@@ -163,7 +173,7 @@ export function setup() {
         const savesDir = path.join(instDir, "saves");
         const backupDir = path.join(instDir, "backups");
         const src = path.join(savesDir, folderName);
-        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        if (!(await fs.promises.access(backupDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(backupDir, { recursive: true });
         const zipPath = path.join(backupDir, `${folderName}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`);
         window.showLoading(t("msg_backup", "Création de la sauvegarde..."));
         await yieldUI();
@@ -175,31 +185,35 @@ export function setup() {
         }
         window.hideLoading();
     };
-    window.openRestoreModal = (folderName) => {
+    window.openRestoreModal = async (folderName) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const backupDir = path.join(store.instancesRoot, window.safeDir(inst.name), "backups");
         const listDiv = document.getElementById("restore-list");
         document.getElementById("restore-world-name").innerText = folderName;
         listDiv.innerHTML = "";
-        if (!fs.existsSync(backupDir)) {
+        if (!(await fs.promises.access(backupDir).then(()=>true).catch(()=>false))) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée.")}</div>`;
             document.getElementById("modal-restore").style.display = "flex";
             return;
         }
-        const backups = fs.readdirSync(backupDir)
-            .filter(f => f.startsWith(`${folderName}_backup_`) && f.endsWith(".zip"))
-            .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtime.getTime() }))
-            .sort((a, b) => b.mtime - a.mtime)
-            .map(f => f.name);
+        const backupFiles = await fs.promises.readdir(backupDir);
+        let backupsObj = [];
+        for (const f of backupFiles) {
+            if (f.startsWith(`${folderName}_backup_`) && f.endsWith(".zip")) {
+                const s = await fs.promises.stat(path.join(backupDir, f));
+                backupsObj.push({ name: f, mtime: s.mtime.getTime(), size: s.size, mtimeDate: s.mtime });
+            }
+        }
+        backupsObj.sort((a, b) => b.mtime - a.mtime);
+        const backups = backupsObj.map(b => b.name);
         if (backups.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée pour ce monde.")}</div>`;
         } else {
             let backupsHtml = "";
-            backups.forEach(b => {
-                const stats = fs.statSync(path.join(backupDir, b));
-                const dateStr = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
-                const safeB = window.escapeHTML(b);
+            for (const b of backupsObj) {
+                const dateStr = b.mtimeDate.toLocaleDateString() + " " + b.mtimeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const sizeMB = (b.size / (1024 * 1024)).toFixed(1);
+                const safeB = window.escapeHTML(b.name);
                 backupsHtml += `
                 <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
@@ -208,7 +222,7 @@ export function setup() {
                     </div>
                     <button class="btn-primary btn-restore-backup" data-zip="${safeB}" data-folder="${window.escapeHTML(folderName)}" style="padding: 4px 10px; font-size: 0.8rem;">${t("btn_restore", "Restaurer")}</button>
                 </div>`;
-            });
+            }
             listDiv.innerHTML = backupsHtml;
         }
         document.getElementById("modal-restore").style.display = "flex";
@@ -231,19 +245,19 @@ const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
             try {
 await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
 const extractedWorld = path.join(tmpExtractDir, folderName);
-if (!fs.existsSync(extractedWorld)) {
+if (!(await fs.promises.access(extractedWorld).then(()=>true).catch(()=>false))) {
     throw new Error("L'archive ne contient pas le monde attendu.");
 }
-if (fs.existsSync(targetWorldDir)) {
+if (await fs.promises.access(targetWorldDir).then(()=>true).catch(()=>false)) {
     await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
 }
-fs.renameSync(extractedWorld, targetWorldDir);
+await fs.promises.rename(extractedWorld, targetWorldDir);
                 await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
                 document.getElementById("modal-restore").style.display = "none";
                 window.openWorldsModal(); 
             } catch (e) {
-                if (fs.existsSync(tmpExtractDir)) {
+                if (await fs.promises.access(tmpExtractDir).then(()=>true).catch(()=>false)) {
                     await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 }
                 window.showToast(t("msg_restore_err", "Erreur lors de la restauration : ") + e.message, "error");

@@ -13,8 +13,9 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!fs.existsSync(modsPath)) return;
-        const files = fs.readdirSync(modsPath).filter((f) => f.endsWith(".jar"));
+        if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) return;
+        const allFiles = await fs.promises.readdir(modsPath);
+        const files = allFiles.filter((f) => f.endsWith(".jar"));
         if (files.length === 0) {
             window.showToast(t("msg_no_mods", "Aucun mod local installé."), "info");
             return;
@@ -124,10 +125,10 @@ export function setup() {
                     }
                 }
                 const tmpPath = newPath + ".tmp";
-                fs.writeFileSync(tmpPath, fileBytes);
-                fs.renameSync(tmpPath, newPath);
-                if (oldPath !== newPath && fs.existsSync(oldPath)) {
-                    fs.unlinkSync(oldPath);
+                await fs.promises.writeFile(tmpPath, fileBytes);
+                await fs.promises.rename(tmpPath, newPath);
+                if (oldPath !== newPath && await fs.promises.access(oldPath).then(()=>true).catch(()=>false)) {
+                    await fs.promises.unlink(oldPath);
                 }
                 updatedCount++;
                 window.updateLoadingPercent(

@@ -14,15 +14,15 @@ class Zip {
       yauzl.open(this.zipPath, { lazyEntries: true }, (err, zipfile) => {
         if (err) return reject(err);
         zipfile.readEntry();
-        zipfile.on('entry', (entry) => {
+        zipfile.on('entry', async (entry) => {
           if (entry.fileName.endsWith('/')) {
-            fs.mkdirSync(path.join(dest, entry.fileName), { recursive: true });
+            await fs.promises.mkdir(path.join(dest, entry.fileName), { recursive: true });
             zipfile.readEntry();
           } else {
-            zipfile.openReadStream(entry, (err, readStream) => {
+            zipfile.openReadStream(entry, async (err, readStream) => {
               if (err) return reject(err);
               const destPath = path.join(dest, entry.fileName);
-              fs.mkdirSync(path.dirname(destPath), { recursive: true });
+              await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
               const writeStream = fs.createWriteStream(destPath);
               readStream.pipe(writeStream);
               writeStream.on('close', () => zipfile.readEntry());
@@ -119,7 +119,9 @@ class Handler {
   async downloadAsync(url, directory, name, retry, type) {
     if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
     if (this.options.offline) return path.join(directory, name);
-    fs.mkdirSync(directory, { recursive: true });
+    if (!(await fs.promises.access(directory).then(()=>true).catch(()=>false))) {
+      await fs.promises.mkdir(directory, { recursive: true });
+    }
     let response;
     try {
       response = await fetch(url);
@@ -161,7 +163,7 @@ class Handler {
         resolve({ failed: false, asset: null });
       });
       dest.on('error', async (e) => {
-        if (fs.existsSync(path.join(directory, name))) fs.unlinkSync(path.join(directory, name));
+        if (await fs.promises.access(path.join(directory, name)).then(()=>true).catch(()=>false)) await fs.promises.unlink(path.join(directory, name));
         if (retry) return resolve(await this.downloadAsync(url, directory, name, false, type));
         resolve({ failed: true, asset: null });
       });
@@ -190,8 +192,8 @@ class Handler {
   getVersion() {
     return new Promise(async resolve => {
       const versionJsonPath = this.options.overrides.versionJson || path.join(this.options.directory, `${this.options.version.number}.json`);
-      if (fs.existsSync(versionJsonPath)) {
-        this.version = JSON.parse(fs.readFileSync(versionJsonPath));
+      if (await fs.promises.access(versionJsonPath).then(()=>true).catch(()=>false)) {
+        this.version = JSON.parse(await fs.promises.readFile(versionJsonPath, 'utf8'));
         return resolve(this.version);
       }
 
@@ -199,14 +201,16 @@ class Handler {
       const cache = this.options.cache ? `${this.options.cache}/json` : `${this.options.root}/cache/json`;
 
       try {
-        if (!fs.existsSync(cache)) fs.mkdirSync(cache, { recursive: true });
+        if (!(await fs.promises.access(cache).then(()=>true).catch(()=>false))) {
+          await fs.promises.mkdir(cache, { recursive: true });
+        }
         const manifestBody = await this.fetchText(manifest);
-        fs.writeFileSync(path.join(cache, 'version_manifest.json'), manifestBody);
+        await fs.promises.writeFile(path.join(cache, 'version_manifest.json'), manifestBody);
         const parsed = JSON.parse(manifestBody);
         const desiredVersion = Object.values(parsed.versions).find(version => version.id === this.options.version.number);
         if (desiredVersion) {
           const versionBody = await this.fetchText(desiredVersion.url);
-          fs.writeFileSync(path.join(cache, `${this.options.version.number}.json`), versionBody);
+          await fs.promises.writeFile(path.join(cache, `${this.options.version.number}.json`), versionBody);
           this.version = JSON.parse(versionBody);
           return resolve(this.version);
         } else {
@@ -214,8 +218,8 @@ class Handler {
         }
       } catch (e) {
         try {
-          if (fs.existsSync(path.join(cache, `${this.options.version.number}.json`))) {
-            this.version = JSON.parse(fs.readFileSync(path.join(cache, `${this.options.version.number}.json`)));
+          if (await fs.promises.access(path.join(cache, `${this.options.version.number}.json`)).then(()=>true).catch(()=>false)) {
+            this.version = JSON.parse(await fs.promises.readFile(path.join(cache, `${this.options.version.number}.json`), 'utf8'));
             return resolve(this.version);
           }
         } catch (err) { }
@@ -226,23 +230,23 @@ class Handler {
 
   async getJar() {
     const jarPath = path.join(this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`);
-    if (fs.existsSync(jarPath) && await this.checkSum(this.version.downloads.client.sha1, jarPath)) {
+    if (await fs.promises.access(jarPath).then(()=>true).catch(()=>false) && await this.checkSum(this.version.downloads.client.sha1, jarPath)) {
       this.client.emit('debug', '[Gens-Core]: Using existing version jar');
     } else {
       await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
     }
-    fs.writeFileSync(path.join(this.options.directory, `${this.options.version.number}.json`), JSON.stringify(this.version, null, 4));
+    await fs.promises.writeFile(path.join(this.options.directory, `${this.options.version.number}.json`), JSON.stringify(this.version, null, 4));
     return this.client.emit('debug', '[Gens-Core]: Downloaded version jar and wrote version json');
   }
 
   async getAssets() {
     const assetDirectory = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'))
     const assetId = this.options.version.custom || this.options.version.number
-    if (!fs.existsSync(path.join(assetDirectory, 'indexes', `${assetId}.json`))) {
+    if (!(await fs.promises.access(path.join(assetDirectory, 'indexes', `${assetId}.json`)).then(()=>true).catch(()=>false))) {
       await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
     }
 
-    const index = JSON.parse(fs.readFileSync(path.join(assetDirectory, 'indexes', `${assetId}.json`), { encoding: 'utf8' }))
+    const index = JSON.parse(await fs.promises.readFile(path.join(assetDirectory, 'indexes', `${assetId}.json`), { encoding: 'utf8' }))
 
     this.client.emit('progress', {
       type: 'assets',
@@ -256,7 +260,7 @@ class Handler {
       const subhash = hash.substring(0, 2)
       const subAsset = path.join(assetDirectory, 'objects', subhash)
 
-      if (!fs.existsSync(path.join(subAsset, hash)) || !await this.checkSum(hash, path.join(subAsset, hash))) {
+      if (!(await fs.promises.access(path.join(subAsset, hash)).then(()=>true).catch(()=>false)) || !await this.checkSum(hash, path.join(subAsset, hash))) {
         await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
       }
       counter++
@@ -269,7 +273,7 @@ class Handler {
     counter = 0
 
     if (this.isLegacy()) {
-      if (fs.existsSync(path.join(assetDirectory, 'legacy'))) {
+      if (await fs.promises.access(path.join(assetDirectory, 'legacy')).then(()=>true).catch(()=>false)) {
         this.client.emit('debug', '[Gens-Core]: The \'legacy\' directory is no longer used as Minecraft looks ' +
           'for the resouces folder regardless of what is passed in the assetDirecotry launch option. I\'d ' +
           `recommend removing the directory (${path.join(assetDirectory, 'legacy')})`)
@@ -293,12 +297,12 @@ class Handler {
         const legacyAsset = asset.split('/')
         legacyAsset.pop()
 
-        if (!fs.existsSync(path.join(legacyDirectory, legacyAsset.join('/')))) {
-          fs.mkdirSync(path.join(legacyDirectory, legacyAsset.join('/')), { recursive: true })
+        if (!(await fs.promises.access(path.join(legacyDirectory, legacyAsset.join('/'))).then(()=>true).catch(()=>false))) {
+          await fs.promises.mkdir(path.join(legacyDirectory, legacyAsset.join('/')), { recursive: true })
         }
 
-        if (!fs.existsSync(path.join(legacyDirectory, asset))) {
-          fs.copyFileSync(path.join(subAsset, hash), path.join(legacyDirectory, asset))
+        if (!(await fs.promises.access(path.join(legacyDirectory, asset)).then(()=>true).catch(()=>false))) {
+          await fs.promises.copyFile(path.join(subAsset, hash), path.join(legacyDirectory, asset))
         }
         counter++
         this.client.emit('progress', {
@@ -333,8 +337,13 @@ class Handler {
 
     if (parseInt(this.version.id.split('.')[1]) >= 19) return this.options.overrides.cwd || this.options.root
 
-    if (!fs.existsSync(nativeDirectory) || !fs.readdirSync(nativeDirectory).length) {
-      fs.mkdirSync(nativeDirectory, { recursive: true })
+    let hasNatives = false;
+    if (await fs.promises.access(nativeDirectory).then(()=>true).catch(()=>false)) {
+      const files = await fs.promises.readdir(nativeDirectory);
+      if (files.length > 0) hasNatives = true;
+    }
+    if (!hasNatives) {
+      await fs.promises.mkdir(nativeDirectory, { recursive: true })
 
       const natives = async () => {
         const natives = []
@@ -363,7 +372,7 @@ class Handler {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
         const name = native.path.split('/').pop()
-        if (!fs.existsSync(path.join(nativeDirectory, name)) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
+        if (!(await fs.promises.access(path.join(nativeDirectory, name)).then(()=>true).catch(()=>false)) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
           await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives')
         }
         try {
@@ -371,7 +380,7 @@ class Handler {
         } catch (e) {
           console.warn(e)
         }
-        fs.unlinkSync(path.join(nativeDirectory, name))
+        if (await fs.promises.access(path.join(nativeDirectory, name)).then(()=>true).catch(()=>false)) await fs.promises.unlink(path.join(nativeDirectory, name))
         counter++
         this.client.emit('progress', {
           type: 'natives',
@@ -407,9 +416,9 @@ class Handler {
     let json = null
     let installerJson = null
     const versionPath = path.join(this.options.root, 'forge', `${this.version.id}`, 'version.json')
-    if (fs.existsSync(versionPath)) {
+    if (await fs.promises.access(versionPath).then(()=>true).catch(()=>false)) {
       try {
-        json = JSON.parse(fs.readFileSync(versionPath))
+        json = JSON.parse(await fs.promises.readFile(versionPath, 'utf8'))
         if (!json.forgeWrapperVersion || !(json.forgeWrapperVersion === this.options.overrides.fw.version)) {
           this.client.emit('debug', '[Gens-Core]: Old ForgeWrapper has generated this version JSON, re-generating')
         } else {
@@ -522,10 +531,10 @@ class Handler {
 
     json.forgeWrapperVersion = this.options.overrides.fw.version
 
-    if (!fs.existsSync(path.join(this.options.root, 'forge', this.version.id))) {
-      fs.mkdirSync(path.join(this.options.root, 'forge', this.version.id), { recursive: true })
+    if (!(await fs.promises.access(path.join(this.options.root, 'forge', this.version.id)).then(()=>true).catch(()=>false))) {
+      await fs.promises.mkdir(path.join(this.options.root, 'forge', this.version.id), { recursive: true })
     }
-    fs.writeFileSync(versionPath, JSON.stringify(json, null, 4))
+    await fs.promises.writeFile(versionPath, JSON.stringify(json, null, 4))
 
     if (this.isModernForge(json)) this.options.forge = null
 
@@ -560,7 +569,7 @@ class Handler {
         }
       }
 
-      if (!fs.existsSync(path.join(jarPath, name))) await downloadLibrary(library)
+      if (!(await fs.promises.access(path.join(jarPath, name)).then(()=>true).catch(()=>false))) await downloadLibrary(library)
       if (library.downloads && library.downloads.artifact) {
         if (!await this.checkSum(library.downloads.artifact.sha1, path.join(jarPath, name))) await downloadLibrary(library)
       }
@@ -785,7 +794,9 @@ class Handler {
       options.clientPackage = path.join(options.root, 'clientPackage.zip')
     }
     await new Zip(options.clientPackage).extractAllTo(options.root, true)
-    if (options.removePackage) fs.unlinkSync(options.clientPackage)
+    if (options.removePackage) {
+      if (await fs.promises.access(options.clientPackage).then(()=>true).catch(()=>false)) await fs.promises.unlink(options.clientPackage)
+    }
 
     return this.client.emit('package-extract', true)
   }

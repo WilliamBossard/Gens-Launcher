@@ -1,6 +1,6 @@
 module.exports = function setupHorizonHandlers(context) {
     const {
-        ipcMain, safeDataDir, mainLog, path, fs, crypto, spawn,
+        ipcMain, safeDataDir, mainLog, path, fs, crypto, spawn, app,
         horizonBinDir, horizonExePath, horizonVersionPath, isWin, safeSend
     } = context;
 
@@ -13,18 +13,67 @@ module.exports = function setupHorizonHandlers(context) {
     const HASH_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 heures — aligné sur le cache GitHub
     const githubCacheFile = path.join(safeDataDir, 'github_release_cache.json');
 
-    try {
-        if (fs.existsSync(githubCacheFile)) {
-            const parsed = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
-            if (parsed && parsed.time && parsed.data) {
-                githubReleaseCacheTime = parsed.time;
-                githubReleaseCache = parsed.data;
-            }
-            if (parsed && parsed.hash) {
-                cachedExpectedHash = parsed.hash;
-            }
+    // Cache du hash local de Horizon.exe — invalidé si mtime ou size change
+    let _localHashCache = null;
+    let _localHashCacheMtime = 0;
+    let _localHashCacheSize = 0;
+
+    /**
+     * Calcule le SHA-256 de l'exécutable Horizon via stream asynchrone.
+     * Résultat mis en cache (invalidé si mtime ou taille changent).
+     * Évite le readFileSync bloquant sur un binaire de ~50 Mo.
+     */
+    async function getLocalHorizonHash(exePath) {
+        const stat = await fs.promises.stat(exePath);
+        if (_localHashCache &&
+            stat.mtimeMs === _localHashCacheMtime &&
+            stat.size === _localHashCacheSize) {
+            return _localHashCache;
         }
-    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        const hash = crypto.createHash('sha256');
+        await new Promise((resolve, reject) => {
+            const stream = fs.createReadStream(exePath);
+            stream.on('data', chunk => hash.update(chunk));
+            stream.on('end', resolve);
+            stream.on('error', reject);
+        });
+        _localHashCache = hash.digest('hex');
+        _localHashCacheMtime = stat.mtimeMs;
+        _localHashCacheSize = stat.size;
+        return _localHashCache;
+    }
+
+    /**
+     * Fetch avec timeout via AbortController.
+     */
+    async function fetchWithTimeout(url, timeoutMs = 5000) {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { signal: controller.signal });
+        } finally {
+            clearTimeout(id);
+        }
+    }
+
+    (async () => {
+        try {
+            if (await fs.promises.access(githubCacheFile).then(()=>true).catch(()=>false)) {
+                const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
+                if (parsed && parsed.time && parsed.data) {
+                    githubReleaseCacheTime = parsed.time;
+                    githubReleaseCache = parsed.data;
+                }
+                // AUDIT-12 : validation du format sha256 avant utilisation du hash en cache
+                if (parsed && parsed.hash && isValidSha256(parsed.hash)) {
+                    cachedExpectedHash = parsed.hash.toLowerCase();
+                }
+            }
+        } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+    })();
+
+    // AUDIT-12 : validation du hash avant utilisation pour éviter l'injection d'un hash malformé depuis le cache local
+    function isValidSha256(h) { return typeof h === 'string' && /^[a-f0-9]{64}$/i.test(h); }
 
     async function fetchLatestHorizonRelease(forceBypassCache = false) {
         if (!forceBypassCache && githubReleaseCache && Date.now() - githubReleaseCacheTime < 2 * 60 * 60 * 1000) {
@@ -32,13 +81,18 @@ module.exports = function setupHorizonHandlers(context) {
         }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { signal: controller.signal });
+        // AUDIT-20 : version dynamique via app.getVersion() au lieu de la valeur hardcodée
+        const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.8.4';
+        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
+            headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
+            signal: controller.signal 
+        });
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error("Erreur fetch Github");
         const data = await res.json();
         githubReleaseCache = data;
         githubReleaseCacheTime = Date.now();
-        try { fs.writeFileSync(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
         return data;
     }
 
@@ -54,10 +108,13 @@ module.exports = function setupHorizonHandlers(context) {
         const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
         
         const isSafeCommand = _lockArgs.length > 0 && ALLOWED_COMMANDS.includes(_lockArgs[0]);
-        const isSafeChars = _lockArgs.every(arg =>
-            /^[a-zA-Z0-9_\-\.\=\/ \(\)\[\]\u00C0-\u017F]+$/.test(arg) &&
-            !arg.includes('..')
-        );
+        // AUDIT-11 : validation durcie des arguments — les arguments positionnels (noms d'instance) n'acceptent plus '/' ni '.'
+        const isSafeChars = _lockArgs.every((arg, i) => {
+            if (i === 0) return ALLOWED_COMMANDS.includes(arg); // commande principale déjà validée ci-dessus
+            if (arg.startsWith('--')) return /^--[a-zA-Z\-]+(=[a-zA-Z0-9]+)?$/.test(arg); // flags booléens ou simples
+            // Argument positionnel (nom d'instance) : pas de slash, pas de point, pas de séquence ..
+            return /^[a-zA-Z0-9_\-\u00C0-\u017F ]+$/.test(arg) && !arg.includes('..');
+        });
         
         if (!isSafeCommand || !isSafeChars) {
             mainLog(`SÉCURITÉ : Arguments Horizon rejetés : ${_lockArgs.join(' ')}`);
@@ -66,7 +123,7 @@ module.exports = function setupHorizonHandlers(context) {
 
         const isWriteOp = isHorizonWriteOp(_lockArgs);
 
-        if (fs.existsSync(horizonExePath)) {
+        if (await fs.promises.access(horizonExePath).then(()=>true).catch(()=>false)) {
             let expectedHash = null;
             const hashIsStale = !cachedExpectedHash || (Date.now() - cachedExpectedHashTime > HASH_CACHE_TTL_MS);
             if (!hashIsStale) {
@@ -78,28 +135,35 @@ module.exports = function setupHorizonHandlers(context) {
                     if (asset) {
                         const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
                         if (shaAsset) {
-                            const hashRes = await fetch(shaAsset.browser_download_url);
+                            const hashRes = await fetchWithTimeout(shaAsset.browser_download_url, 5000);
                             if (hashRes.ok) {
                                 expectedHash = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
                                 cachedExpectedHash = expectedHash;
                                 cachedExpectedHashTime = Date.now(); // TTL: re-fetch après 2h
                                 try {
                                     let c = {};
-                                    if (fs.existsSync(githubCacheFile)) c = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
+                                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { }
                                     c.hash = expectedHash;
-                                    fs.writeFileSync(githubCacheFile, JSON.stringify(c));
+                                    await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
                                 } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                             }
                         }
                     }
                 } catch(e) {
                     mainLog("Erreur vérification SHA256 (réseau): " + e.message);
+                    if (cachedExpectedHash) {
+                        mainLog("Utilisation du hash en cache (obsolète) suite à l'erreur réseau.");
+                        expectedHash = cachedExpectedHash;
+                    } else {
+                        mainLog("SÉCURITÉ : Exécution de Horizon sans vérification de hash (Mode Hors Ligne complet).");
+                    }
                 }
             }
 
             if (expectedHash) {
                 try {
-                    const actualHash = crypto.createHash('sha256').update(fs.readFileSync(horizonExePath)).digest('hex');
+                    // Stream async — ne bloque pas le Main Process (remplace readFileSync sur ~50 Mo)
+                    const actualHash = await getLocalHorizonHash(horizonExePath);
                     if (actualHash !== expectedHash) {
                         mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
                         if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
@@ -113,30 +177,25 @@ module.exports = function setupHorizonHandlers(context) {
 
         if (isWriteOp) {
             const lockFile = path.join(horizonBinDir, 'horizon.lock');
+            // AUDIT-18 : polling simplifié — une seule tentative suffit car ENOENT signifie pas de lock actif
             let rawPid = NaN;
-            for (let i = 0; i < 5; i++) {
-                try {
-                    const content = fs.readFileSync(lockFile, 'utf8').trim();
-                    if (content) {
-                        rawPid = parseInt(content, 10);
-                        break;
-                    }
-                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
-                await new Promise(r => setTimeout(r, 100));
-            }
+            try {
+                const content = (await fs.promises.readFile(lockFile, 'utf8')).trim();
+                if (content) rawPid = parseInt(content, 10);
+            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
             if (!isNaN(rawPid)) {
                 let alive = false;
                 try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
                     if (killErr.code === 'EPERM') {
                         try {
-                            const age = Date.now() - fs.statSync(lockFile).mtimeMs;
+                            const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
                             if (age > 2 * 60 * 60 * 1000) {
-                                fs.unlinkSync(lockFile);
+                                await fs.promises.unlink(lockFile);
                             } else {
                                 alive = true;
                             }
                         } catch (_) {
-                            try { fs.unlinkSync(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                            try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                         }
                     }
                 }
@@ -145,7 +204,7 @@ module.exports = function setupHorizonHandlers(context) {
                     safeSend(event, 'horizon-status', msg);
                     return Promise.resolve({ exitCode: -1, lastJson: msg });
                 } else {
-                    try { fs.unlinkSync(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                    try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 }
             }
         }
@@ -356,13 +415,13 @@ module.exports = function setupHorizonHandlers(context) {
                 });
             } catch (err) {
                 fileStream.destroy();
-                try { fs.unlinkSync(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 throw err;
             }
 
             const sha256Asset = data.assets.find(a => a.name === asset.name + ".sha256");
             if (!sha256Asset) {
-                try { fs.unlinkSync(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 throw new Error("SÉCURITÉ CRITIQUE : Fichier .sha256 introuvable sur la release GitHub. L'intégrité de l'exécutable ne peut être garantie.");
             }
             try {
@@ -377,13 +436,13 @@ module.exports = function setupHorizonHandlers(context) {
                 cachedExpectedHash = expected;
                 try {
                     let c = {};
-                    if (fs.existsSync(githubCacheFile)) c = JSON.parse(fs.readFileSync(githubCacheFile, 'utf8'));
+                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { }
                     c.hash = expected;
-                    fs.writeFileSync(githubCacheFile, JSON.stringify(c));
+                    await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
                 } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch (hashErr) {
-                try { fs.unlinkSync(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${hashErr.message}`);
             }
 

@@ -10,39 +10,41 @@ function scheduleSaveAccounts() {
 export function setupAccountUI() {
     const skinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'skin-cache.json');
     let _skinCache = null;
-    function getSkinCache() {
+    async function getSkinCache() {
         if (_skinCache !== null) return _skinCache;
         try {
-            const raw = window.api.fs.readFileSync(skinCacheFile, 'utf8');
+            const raw = await window.api.fs.promises.readFile(skinCacheFile, 'utf8');
             _skinCache = JSON.parse(raw);
         } catch (e) { _skinCache = {}; }
         return _skinCache;
     }
-    function saveSkin(name, b64) {
-        const cache = getSkinCache();
+    async function saveSkin(name, b64) {
+        const cache = await getSkinCache();
         cache[name] = b64;
         window.safeWriteJSONAsync(skinCacheFile, cache);
     }
-    function getCachedSkin(name) {
-        return getSkinCache()[name] || null;
+    async function getCachedSkin(name) {
+        const cache = await getSkinCache();
+        return cache[name] || null;
     }
     const customSkinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
     let _customSkinCache = null;
-    function getCustomSkinCache() {
+    async function getCustomSkinCache() {
         if (_customSkinCache !== null) return _customSkinCache;
         try {
-            const raw = window.api.fs.readFileSync(customSkinCacheFile, 'utf8');
+            const raw = await window.api.fs.promises.readFile(customSkinCacheFile, 'utf8');
             _customSkinCache = JSON.parse(raw);
         } catch (e) { _customSkinCache = {}; }
         return _customSkinCache;
     }
-    function saveCustomSkin(name, b64) {
-        const cache = getCustomSkinCache();
+    async function saveCustomSkin(name, b64) {
+        const cache = await getCustomSkinCache();
         cache[name] = b64;
         window.safeWriteJSONAsync(customSkinCacheFile, cache);
     }
-    window.getCustomSkin = function (name) {
-        return getCustomSkinCache()[name] || null;
+    window.getCustomSkin = async function (name) {
+        const cache = await getCustomSkinCache();
+        return cache[name] || null;
     };
     (async function migrateSkins() {
         let changed = false;
@@ -78,7 +80,7 @@ export function setupAccountUI() {
         store.uiSelectedAccRow = store.selectedAccountIdx;
         window.renderAccountManager();
     };
-    window.renderAccountManager = function () {
+    window.renderAccountManager = async function () {
         const list = document.getElementById("account-list");
         list.innerHTML = "";
         const btnUse = document.getElementById("btn-use-acc");
@@ -96,7 +98,8 @@ export function setupAccountUI() {
         if (btnDel) btnDel.disabled = (store.uiSelectedAccRow === null);
         if (btnSkin) btnSkin.disabled = (store.uiSelectedAccRow === null);
         let rowsHtml = "";
-        store.allAccounts.forEach((acc, i) => {
+        for (let i = 0; i < store.allAccounts.length; i++) {
+            const acc = store.allAccounts[i];
             const isSelected = store.uiSelectedAccRow === i;
             const isActive = store.selectedAccountIdx === i;
             const typeText = acc.type === "microsoft" ? t("lbl_ms_account", "Compte Microsoft") : t("lbl_offline_account", "Hors-Ligne (Crack)");
@@ -104,8 +107,8 @@ export function setupAccountUI() {
             const safeName = window.escapeHTML(acc.name);
             const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
             const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
-            const cachedSkin = getCachedSkin(acc.name);
-            const customSkin = getCustomSkin(acc.name);
+            const cachedSkin = await getCachedSkin(acc.name);
+            const customSkin = await window.getCustomSkin(acc.name);
             const imgSrc = customSkin || cachedSkin || fallbackUrl;
             if (!cachedSkin && !acc._fetchingSkin && window.navigator.onLine) {
                 acc._fetchingSkin = true;
@@ -114,7 +117,11 @@ export function setupAccountUI() {
                     if (b64) {
                         saveSkin(acc.name, b64);
                         const imgEl = document.getElementById(`acc-img-${i}`);
-                        if (imgEl && !getCustomSkin(acc.name)) imgEl.src = b64;
+                        if (imgEl) {
+                            window.getCustomSkin(acc.name).then(cs => {
+                                if (!cs) imgEl.src = b64;
+                            });
+                        }
                     }
                 });
             }
@@ -127,7 +134,7 @@ export function setupAccountUI() {
                 </div>
                 <div class="mmc-active-label">${activeText}</div>
             </div>`;
-        });
+        }
         list.innerHTML = rowsHtml;
         // Délégation d'événements — remplace onclick/ondblclick inline (CSP)
         list.querySelectorAll('.mmc-account-item').forEach(el => {
@@ -136,7 +143,7 @@ export function setupAccountUI() {
             el.addEventListener('dblclick', () => window.useSelectedRow());
         });
     };
-    window.selectAccountRow = (index) => {
+    window.selectAccountRow = async (index) => {
         store.uiSelectedAccRow = index;
         window.renderAccountManager();
     };
@@ -206,7 +213,7 @@ export function setupAccountUI() {
     window.closeAccountModal = () => {
         document.getElementById("modal-account").style.display = "none";
     };
-    window.updateAccountDropdown = () => {
+    window.updateAccountDropdown = async () => {
         const dropdown = document.getElementById("account-dropdown");
         const skinImg = document.getElementById("active-skin");
         if (!dropdown) return;
@@ -227,7 +234,7 @@ export function setupAccountUI() {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
             const id = (activeAcc.type === "microsoft" && activeAcc.uuid) ? activeAcc.uuid : activeAcc.name;
             const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
-            const activeSkin = getCachedSkin(activeAcc.name);
+            const activeSkin = await getCachedSkin(activeAcc.name);
             if (!activeSkin && !activeAcc._fetchingSkin && window.navigator.onLine) {
                 activeAcc._fetchingSkin = true;
                 fetchSkinBase64(activeAcc).then(b64 => {
@@ -257,7 +264,7 @@ export function setupAccountUI() {
         }
     };
     let fullscreenSkinViewer = null;
-    window.openSkinModal = () => {
+    window.openSkinModal = async () => {
         if (store.uiSelectedAccRow === null) return;
         const acc = store.allAccounts[store.uiSelectedAccRow];
         const btnUpload = document.getElementById("btn-upload-skin");
@@ -266,7 +273,7 @@ export function setupAccountUI() {
         const titleName = document.getElementById("skin-modal-name");
         titleName.innerText = acc.name;
         document.getElementById("modal-skin").style.display = "flex";
-        const cachedSkin = getCachedSkin(acc.name);
+        const cachedSkin = await getCachedSkin(acc.name);
         if (acc.type === "offline") {
             btnUpload.style.display = "block";
             btnUpload.innerText = t("btn_test_skin", "Charger un Skin Local");
@@ -302,7 +309,7 @@ export function setupAccountUI() {
             throw new Error(res.error || "Profile not found");
         }
         const STEVE_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAFDUlEQVR42u2a20sUURzH97G0LKMotPuWbVpslj1olJXdjCgyisowsSjzgrB0gSKyC5UF1ZNQWEEQSBQ9dHsIe+zJ/+nXfM/sb/rN4ZwZ96LOrnPgyxzP/M7Z+X7OZc96JpEISfWrFhK0YcU8knlozeJKunE4HahEqSc2nF6zSEkCgGCyb+82enyqybtCZQWAzdfVVFgBJJNJn1BWFgC49/VpwGVlD0CaxQiA5HSYEwBM5sMAdKTqygcAG9+8coHKY/XXAZhUNgDYuBSPjJL/GkzVVhAEU5tqK5XZ7cnFtHWtq/TahdSw2l0HUisr1UKIWJQBAMehDuqiDdzndsP2EZECAG1ZXaWMwOCODdXqysLf++uXUGv9MhUHIByDOijjdiSAoH3ErANQD73C7TXXuGOsFj1d4YH4OTJAEy8y9Hd0mCaeZ5z8dfp88zw1bVyiYhCLOg1ZeAqC0ybaDttHRGME1DhDeVWV26u17lRAPr2+mj7dvULfHw2q65fhQRrLXKDfIxkau3ZMCTGIRR3URR5toU38HbaPiMwUcKfBAkoun09PzrbQ2KWD1JJaqswjdeweoR93rirzyCMBCmIQizqoizZkm2H7iOgAcHrMHbbV9KijkUYv7qOn55sdc4fo250e+vUg4329/Xk6QB/6DtOws+dHDGJRB3XRBve+XARt+4hIrAF4UAzbnrY0ve07QW8uHfB+0LzqanMM7qVb+3f69LJrD90/1axiEIs6qIs21BTIToewfcSsA+Bfb2x67OoR1aPPzu2i60fSNHRwCw221Suz0O3jO+jh6V1KyCMGse9721XdN5ePutdsewxS30cwuMjtC860T5JUKpXyKbSByUn7psi5l+juDlZYGh9324GcPKbkycaN3jUSAGxb46IAYPNZzW0AzgiQ5tVnzLUpUDCAbakMQXXrOtX1UMtHn+Q9/X5L4wgl7t37r85OSrx+TYl379SCia9KXjxRpiTjIZTBFOvrV1f8ty2eY/T7XJ81FQAwmA8ASH1ob68r5PnBsxA88/xAMh6SpqW4HRnLBrkOA9Xv5wPAZjAUgOkB+SHxgBgR0qSMh0zmZRsmwDJm1gFg2PMDIC8/nAHIMls8x8GgzOsG5WiaqREgYzDvpTwjLDy8NM15LpexDEA3LepjU8Z64my+8PtDCmUyRr+fFwA2J0eAFYA0AxgSgMmYBMZTwFQnO9RNAEaHOj2DXF5UADmvAToA2ftyxZYA5BqgmZZApDkdAK4mAKo8GzPlr8G8AehzMAyA/i1girUA0HtYB2CaIkUBEHQ/cBHSvwF0AKZFS5M0ZwMQtEaEAmhtbSUoDADH9ff3++QZ4o0I957e+zYAMt6wHkhzpjkuAcgpwNcpA7AZDLsvpwiuOkBvxygA6Bsvb0HlaeKIF2EbADZpGiGzBsA0gnwQHGOhW2snRpbpPexbAB2Z1oicAMQpTnGKU5ziFKc4xSlOcYpTnOIUpzgVmgo+XC324WfJAdDO/+ceADkCpuMFiFKbApEHkOv7BfzfXt+5gpT8V7rpfYJcDz+jAsB233r6yyBsJ0mlBCDofuBJkel4vOwBFPv8fyYAFPJ+wbSf/88UANNRVy4Awo6+Ig2gkCmgA5DHWjoA+X7AlM//owLANkX0w0359od++pvX8fdMAcj3/QJ9iJsAFPQCxHSnQt8vMJ3v2wCYpkhkAOR7vG7q4aCXoMoSgG8hFAuc/grMdAD4B/kHl9da7Ne9AAAAAElFTkSuQmCC";
-        const customSkin = getCustomSkin(acc.name);
+        const customSkin = await window.getCustomSkin(acc.name);
         let currentSkinUrl = customSkin || STEVE_URL;
         async function applyTextures() {
             let capeUrl = null;
@@ -453,7 +460,7 @@ export function setupAccountUI() {
                 const cacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
                 try {
                     let cache = {};
-                    if (window.api.fs.existsSync(cacheFile)) cache = JSON.parse(window.api.fs.readFileSync(cacheFile, 'utf8'));
+                    if (await window.api.fs.promises.exists(cacheFile)) cache = JSON.parse(await window.api.fs.promises.readFile(cacheFile, 'utf8'));
                     delete cache[acc.name];
                     window.safeWriteJSONAsync(cacheFile, cache);
                 } catch (err) { if (err && err.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", err); }

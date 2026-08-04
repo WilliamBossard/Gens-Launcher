@@ -19,7 +19,9 @@ export function setup() {
     const safeName = window.safeDir(inst.name);
     const sourceFolder = path.join(store.instancesRoot, safeName);
     const exportDir = path.join(store.dataDir, "exports");
-    if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
+    if (!(await fs.promises.access(exportDir).then(()=>true).catch(()=>false))) {
+      await fs.promises.mkdir(exportDir, { recursive: true });
+    }
     if (type === "zip_light" || type === "zip_full") {
       const zipPath = path.join(exportDir, `${safeName}${type === "zip_light" ? "_light" : "_full"}.zip`);
       window.showLoading(t("msg_compress", "Compression de l'archive..."), 0);

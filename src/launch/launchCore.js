@@ -27,10 +27,12 @@ export async function performAutoBackup(inst, mode, ui) {
     const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
     const savesDir = path.join(instDir, "saves");
     const backupDir = path.join(instDir, "backups");
-    if (!fs.existsSync(savesDir)) { inst._backupRunning = false; return; }
-    const saves = fs.readdirSync(savesDir);
+    if (!(await fs.promises.access(savesDir).then(()=>true).catch(()=>false))) { inst._backupRunning = false; return; }
+    const saves = await fs.promises.readdir(savesDir);
     if (saves.length === 0) { inst._backupRunning = false; return; }
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    if (!(await fs.promises.access(backupDir).then(()=>true).catch(()=>false))) {
+        await fs.promises.mkdir(backupDir, { recursive: true });
+    }
     
     if (ui && ui.showLoading) ui.showLoading(window.t("msg_autobackup_running", "Auto-Backup en cours..."));
     await yieldUI();
@@ -39,13 +41,18 @@ export async function performAutoBackup(inst, mode, ui) {
         const zipPath = path.join(backupDir, `auto_saves_${timestamp}.zip`);
         await window.api.invoke("compress-folder", { src: savesDir, dest: zipPath });
         const limit = inst.backupLimit || 5;
-        const backups = fs.readdirSync(backupDir)
-            .filter(f => f.startsWith("auto_saves_") && f.endsWith(".zip"))
-            .map(f => ({ name: f, time: fs.statSync(path.join(backupDir, f)).mtime.getTime() }))
-            .sort((a, b) => b.time - a.time);
+        const allBackups = await fs.promises.readdir(backupDir);
+        let backups = [];
+        for (const f of allBackups) {
+            if (f.startsWith("auto_saves_") && f.endsWith(".zip")) {
+                const stat = await fs.promises.stat(path.join(backupDir, f));
+                backups.push({ name: f, time: stat.mtime.getTime() });
+            }
+        }
+        backups.sort((a, b) => b.time - a.time);
         if (backups.length > limit) {
             for (let i = limit; i < backups.length; i++) {
-                fs.unlinkSync(path.join(backupDir, backups[i].name));
+                await fs.promises.unlink(path.join(backupDir, backups[i].name));
             }
         }
         sysLog(`Auto-backup créé : ${zipPath}`);
@@ -89,7 +96,7 @@ export async function analyzeCrash(instanceName) {
     let latestReport = "";
     let logData = "";
     try {
-        if (fs.existsSync(crashDir)) {
+        if (await fs.promises.access(crashDir).then(()=>true).catch(()=>false)) {
             try {
                 const reports = (await fs.promises.readdir(crashDir)).filter(f => f.endsWith(".txt"));
                 if (reports.length > 0) {
@@ -100,7 +107,7 @@ export async function analyzeCrash(instanceName) {
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         const logPath = path.join(instDir, "logs", "latest.log");
-        if (fs.existsSync(logPath)) {
+        if (await fs.promises.access(logPath).then(()=>true).catch(()=>false)) {
             try {
                 logData = await fs.promises.readFile(logPath, 'utf8');
                 if (logData.length > 200000) {

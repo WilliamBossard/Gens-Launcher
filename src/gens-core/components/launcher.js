@@ -35,7 +35,7 @@ class MCLCore extends EventEmitter {
 
       this.handler = new Handler(this)
 
-      this.printVersion()
+      await this.printVersion()
 
       const java = await this.handler.checkJava(this.options.javaPath || 'java')
       if (!java.run) {
@@ -44,8 +44,8 @@ class MCLCore extends EventEmitter {
         return null
       }
 
-      this.createRootDirectory()
-      this.createGameDirectory()
+      await this.createRootDirectory()
+      await this.createGameDirectory()
 
       await this.extractPackage()
 
@@ -59,7 +59,7 @@ class MCLCore extends EventEmitter {
       this.options.mcPath = mcPath
       const nativePath = await this.handler.getNatives()
 
-      if (!fs.existsSync(mcPath) && !this.options.offline) {
+      if (!(await fs.promises.access(mcPath).then(()=>true).catch(()=>false)) && !this.options.offline) {
         this.emit('debug', '[Gens-Core]: Attempting to download Minecraft version jar')
         await this.handler.getJar()
       }
@@ -109,7 +109,7 @@ class MCLCore extends EventEmitter {
       const separator = this.handler.getOS() === 'windows' ? ';' : ':'
       this.emit('debug', `[Gens-Core]: Using ${separator} to separate class paths`)
       const file = modifyJson || versionFile
-      const jar = fs.existsSync(mcPath)
+      const jar = await fs.promises.access(mcPath).then(()=>true).catch(()=>false)
         ? `${separator}${mcPath}`
         : `${separator}${path.join(directory, `${this.options.version.number}.jar`)}`
       classPaths.push(`${this.options.forge ? this.options.forge + separator : ''}${classes.join(separator)}${jar}`)
@@ -138,25 +138,25 @@ class MCLCore extends EventEmitter {
     this.aborted = true
   }
 
-  printVersion() {
-    if (fs.existsSync(path.join(__dirname, '..', 'package.json'))) {
+  async printVersion() {
+    if (await fs.promises.access(path.join(__dirname, '..', 'package.json')).then(()=>true).catch(()=>false)) {
       const { version } = require('../package.json')
       this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
     } else { this.emit('debug', '[Gens-Core]: Package JSON not found, skipping MCLC version check.') }
   }
 
-  createRootDirectory() {
-    if (!fs.existsSync(this.options.root)) {
+  async createRootDirectory() {
+    if (!(await fs.promises.access(this.options.root).then(()=>true).catch(()=>false))) {
       this.emit('debug', '[Gens-Core]: Attempting to create root folder')
-      fs.mkdirSync(this.options.root)
+      await fs.promises.mkdir(this.options.root, { recursive: true })
     }
   }
 
-  createGameDirectory() {
+  async createGameDirectory() {
     if (this.options.overrides.gameDirectory) {
       this.options.overrides.gameDirectory = path.resolve(this.options.overrides.gameDirectory)
-      if (!fs.existsSync(this.options.overrides.gameDirectory)) {
-        fs.mkdirSync(this.options.overrides.gameDirectory, { recursive: true })
+      if (!(await fs.promises.access(this.options.overrides.gameDirectory).then(()=>true).catch(()=>false))) {
+        await fs.promises.mkdir(this.options.overrides.gameDirectory, { recursive: true })
       }
     }
   }
@@ -177,7 +177,7 @@ class MCLCore extends EventEmitter {
       modifyJson = await this.handler.getForgedWrapped()
     } else if (this.options.version.custom) {
       this.emit('debug', '[Gens-Core]: Detected custom in options, setting custom version file')
-      modifyJson = modifyJson || JSON.parse(fs.readFileSync(path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.json`), { encoding: 'utf8' }))
+      modifyJson = modifyJson || JSON.parse(await fs.promises.readFile(path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.json`), { encoding: 'utf8' }))
     }
 
     return modifyJson

@@ -8,7 +8,7 @@ export function setupNews() {
         if (store.globalSettings.offlineMode || !navigator.onLine) return;
         try {
             const newsController = new AbortController();
-            const newsTimeout = setTimeout(() => newsController.abort(), 8000);
+            const newsTimeout = setTimeout(() => newsController.abort(new Error("Timeout")), 5000);
             const res = await fetch("https://launchercontent.mojang.com/v2/news.json", { signal: newsController.signal });
             clearTimeout(newsTimeout);
             if (!res.ok) throw new Error(`News HTTP ${res.status}`);
@@ -47,11 +47,15 @@ export function setupNews() {
             // Délégation d'événements post-injection
             container.querySelector('#btn-toggle-news')?.addEventListener('click', () => toggleNews());
             container.querySelectorAll('.news-card[data-link]').forEach(card => {
-                card.addEventListener('click', () => window.api.openExternal(card.dataset.link));
+                card.addEventListener('click', () => window.api.shell.openExternal(card.dataset.link));
             });
             _newsLoaded = true;
         } catch(e) {
-            console.warn("loadNews failed:", e.message);
+            if (e.name === 'AbortError' || e.message === 'Timeout' || e.message.includes('aborted')) {
+                console.warn("[News] Mojang API unreachable or timed out.");
+            } else {
+                console.warn("[News] loadNews failed:", e.message);
+            }
         }
     };
 

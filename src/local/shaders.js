@@ -8,14 +8,15 @@ function safeAttrJson(value) {
 }
 
 export function setup() {
-    window.renderShadersManager = function() {
+    window.renderShadersManager = async function() {
         const listDiv = document.getElementById("shaders-list");
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
-        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+        if (!(await fs.promises.access(targetPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(targetPath, { recursive: true });
         let shadersHtml = "";
-        fs.readdirSync(targetPath).forEach((file) => {
+        const files = await fs.promises.readdir(targetPath);
+        files.forEach((file) => {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
                 const isEnabled = !file.endsWith(".disabled");
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
@@ -40,10 +41,10 @@ export function setup() {
             item.querySelector('.shader-delete-btn')?.addEventListener('click', () => deleteShader(filename));
         });
     };
-    window.toggleShader = (filename, isEnabled) => {
+    window.toggleShader = async (filename, isEnabled) => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
-        fs.renameSync(
+        await fs.promises.rename(
             path.join(targetPath, filename),
             path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
         );
@@ -54,8 +55,8 @@ export function setup() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks", filename);
             try {
-                if (fs.existsSync(targetPath)) {
-                    fs.unlinkSync(targetPath);
+                if (await fs.promises.access(targetPath).then(()=>true).catch(()=>false)) {
+                    await fs.promises.unlink(targetPath);
                     window.showToast(t("msg_shader_deleted", "Shader supprimé !"), "success");
                     window.renderShadersManager();
                 }

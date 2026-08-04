@@ -103,23 +103,25 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
         try {
             mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
+            zipPath = assertPathUnderSandbox(zipPath); // AUDIT-15 : défense en profondeur — re-validation côté Main
             destDir = assertPathUnderSandbox(destDir);
+
             
             return await new Promise((resolve) => {
                 const yauzl = require("yauzl");
-                yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+                yauzl.open(zipPath, { lazyEntries: true }, async (err, zipfile) => {
                     if (err) {
                         mainLog(`[extract-zip] Erreur ouverture zip: ${err.message}`);
                         return resolve({ success: false, error: err.message });
                     }
                     
-                    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+                    if (!(await fs.promises.access(destDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destDir, { recursive: true });
                     const total = zipfile.entryCount;
                     let processed = 0;
                     let lastProgress = -1;
 
                     zipfile.readEntry();
-                    zipfile.on("entry", (entry) => {
+                    zipfile.on("entry", async (entry) => {
                         const destPath = path.join(destDir, entry.fileName);
                         const resDest = path.resolve(destPath);
                         const resolvedTarget = path.resolve(destDir);
@@ -130,11 +132,11 @@ module.exports = function setupSystemHandlers(context) {
                         }
 
                         if (/\/$/.test(entry.fileName)) {
-                            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+                            if (!(await fs.promises.access(destPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destPath, { recursive: true });
                             processed++;
                             zipfile.readEntry();
                         } else {
-                            if (!fs.existsSync(path.dirname(destPath))) fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                            if (!(await fs.promises.access(path.dirname(destPath)).then(()=>true).catch(()=>false))) await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
                             zipfile.openReadStream(entry, (err, readStream) => {
                                 if (err) {
                                     processed++;
@@ -182,7 +184,7 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("ping-server", async (event, ip) => {
         try {
             const { Ping } = require('../gens-core');
-            const data = await Ping.pingServer(ip, 5000);
+            const data = await Ping.pingServer(ip, 2000);
             
             const mcColorMap = {
                 'black': '#000000', 'dark_blue': '#0000AA', 'dark_green': '#00AA00', 'dark_aqua': '#00AAAA',

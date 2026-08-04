@@ -10,7 +10,7 @@ export function setupStats() {
         let totalSize = 0;
         const checkDir = async (dir, condition) => {
             try {
-                if (!fs.existsSync(dir)) return;
+                if (!(await fs.promises.access(dir).then(() => true).catch(() => false))) return;
                 const files = await fs.promises.readdir(dir);
                 for (const file of files) {
                     const filePath = path.join(dir, file);
@@ -60,15 +60,15 @@ export function setupStats() {
         for (const inst of store.allInstances) {
             try {
                 const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
-                if (!fs.existsSync(savesDir)) continue;
+                if (!(await fs.promises.access(savesDir).then(() => true).catch(() => false))) continue;
                 const worlds = await fs.promises.readdir(savesDir);
                 for (const world of worlds) {
                     try {
                         const vanillaStatsDir = path.join(savesDir, world, "stats");
                         const moddedStatsDir = path.join(savesDir, world, "players", "stats");
                         let statsDirToUse = null;
-                        if (fs.existsSync(vanillaStatsDir)) statsDirToUse = vanillaStatsDir;
-                        else if (fs.existsSync(moddedStatsDir)) statsDirToUse = moddedStatsDir;
+                        if (await fs.promises.access(vanillaStatsDir).then(() => true).catch(() => false)) statsDirToUse = vanillaStatsDir;
+                        else if (await fs.promises.access(moddedStatsDir).then(() => true).catch(() => false)) statsDirToUse = moddedStatsDir;
                         if (!statsDirToUse) continue;
                         const statFiles = await fs.promises.readdir(statsDirToUse);
                         for (const file of statFiles) {
@@ -166,8 +166,8 @@ window.openStatsModal = async () => {
                     if (s.ms > longestSessionMs) longestSessionMs = s.ms;
                 }
                 const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-                if (fs.existsSync(modsPath)) {
-                    const files = fs.readdirSync(modsPath);
+                if (await fs.promises.access(modsPath).then(() => true).catch(() => false)) {
+                    const files = await fs.promises.readdir(modsPath);
                     totalMods += files.filter((f) => f.endsWith(".jar") || f.endsWith(".jar.disabled")).length;
                 }
             }

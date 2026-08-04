@@ -17,7 +17,18 @@ const path = require("path");
 const os = require("os");
 const nbt = require("./src/gens-core/components/nbt.js");
 const crypto = require("crypto");
-const _appPaths = ipcRenderer.sendSync("get-paths-sync");
+// Lecture des chemins système injectés par BrowserWindow.additionalArguments (sans sendSync)
+function _getArgValue(key) {
+    const prefix = `--${key}=`;
+    const arg = process.argv.find(a => a.startsWith(prefix));
+    return arg ? arg.slice(prefix.length) : null;
+}
+const _appPaths = {
+    appData: _getArgValue('app-data') || require('electron').ipcRenderer.sendSync('get-paths-sync').appData,
+    platform: _getArgValue('app-platform') || process.platform,
+    arch: _getArgValue('app-arch') || process.arch,
+    version: _getArgValue('app-version') || ''
+};
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 /**
  * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
@@ -30,14 +41,18 @@ function enforceReadSandbox(p, silent = false) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
     const resolved = path.resolve(p);
     const isInDataDir = resolved.startsWith(safeDataDir + path.sep) || resolved === safeDataDir;
-    const pathParts = resolved.split(path.sep);
-    const isAppdataMinecraft = resolved.startsWith(path.join(_appPaths.appData, '.minecraft') + path.sep) || resolved === path.join(_appPaths.appData, '.minecraft');
-    const isMinecraftDir = isAppdataMinecraft || (pathParts.some(p => p === '.minecraft' || p.toLowerCase() === 'minecraft') && !resolved.toLowerCase().includes(path.sep + 'windows' + path.sep) && !resolved.toLowerCase().includes(path.sep + 'system32' + path.sep) && !/\.(env|key|pem|pfx|p12|cert)$/i.test(resolved));
-    const isJavaDir = pathParts.some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
+    // AUDIT-10 : isMinecraftDir restreint aux chemins .minecraft connus (AppData, macOS, Linux)
+    // pour éviter que tout dossier nommé 'minecraft' dans n'importe quel chemin bypasse le sandbox.
+    const KNOWN_MC_PATHS = [
+        path.join(_appPaths.appData, '.minecraft'),                                      // Windows / AppData
+        path.join(os.homedir(), 'Library', 'Application Support', 'minecraft'),          // macOS
+        path.join(os.homedir(), '.minecraft'),                                           // Linux
+    ];
+    const isMinecraftDir = KNOWN_MC_PATHS.some(mc =>
+        resolved.startsWith(mc + path.sep) || resolved === mc
+    );
+    const isJavaDir = resolved.split(path.sep).some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
     const isTempDir = resolved.startsWith(path.join(os.tmpdir(), "GensLauncher"));
-    // SÉCURITÉ : Le bypass par extension d'image (isSafeExt) a été supprimé.
-    // Les images de fond d'écran sont copiées dans GensLauncher/ avant usage,
-    // elles passent donc par isInDataDir. Aucune fonctionnalité n'est perdue.
     if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
@@ -60,11 +75,9 @@ function safeExternalUrl(url) {
     }
     return url;
 }
-function deobfuscateDataAsync(text) {
-    return ipcRenderer.invoke('legacy-decrypt', text);
-}
-const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "delete-msa-cache", "set-taskbar-progress", "overlay-ready"];
-const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "encrypt-string", "decrypt-string", "legacy-decrypt"];
+// Note : deobfuscateDataAsync a été supprimé (SEC-02) — 'decrypt-string' gère déjà le fallback legacy en cascade.
+const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready"];
+const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "delete-msa-cache", "hash-file"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
@@ -108,22 +121,19 @@ contextBridge.exposeInMainWorld("api", {
             const raw = await fs.promises.readFile(safePath, 'utf8');
             let parsedData = null;
             let needsMigration = false;
+            // AUDIT-03 : correction du double appel identique decrypt-string.
+            // La cascade PBKDF2 -> AES-CBC est gérée en interne par decryptText() côté Main Process.
             if (raw.startsWith('{') || raw.startsWith('[')) {
+                // Fichier non chiffré (données héritées) — migration automatique
                 parsedData = JSON.parse(raw);
                 needsMigration = true;
             } else {
-                const decryptedNew = await ipcRenderer.invoke('decrypt-string', raw);
-                if (decryptedNew) {
-                    parsedData = JSON.parse(decryptedNew);
-                    if (raw.startsWith('aes:')) {
-                        needsMigration = true;
-                    }
-                } else {
-                    const decryptedOld = await deobfuscateDataAsync(raw);
-                    if (decryptedOld) {
-                        parsedData = JSON.parse(decryptedOld);
-                        needsMigration = true;
-                    }
+                // Tentative de déchiffrement (PBKDF2 puis fallback AES-CBC en cascade interne)
+                const decrypted = await ipcRenderer.invoke('decrypt-string', raw);
+                if (decrypted) {
+                    parsedData = JSON.parse(decrypted);
+                    // Fichier AES-CBC (format legacy) : migration vers AES-GCM
+                    if (raw.startsWith('aes:')) needsMigration = true;
                 }
             }
             if (parsedData && needsMigration) {
@@ -145,10 +155,14 @@ contextBridge.exposeInMainWorld("api", {
         };
     })(),
     tools: {
-        hashFile: (filePath, algo) => {
+        // AUDIT-06 : hashFile migré vers un appel IPC async dans le Main Process.
+        // Remplace fs.readFileSync bloquant qui gelait le thread de rendu sur de gros fichiers JAR.
+        hashFile: async (filePath, algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
-            return crypto.createHash(algo).update(fs.readFileSync(enforceSandbox(filePath))).digest("hex");
+            const result = await ipcRenderer.invoke('hash-file', { filePath: enforceSandbox(filePath), algo });
+            if (!result.success) throw new Error(result.error);
+            return result.hash;
         },
         hashBuffer: (arr, algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
@@ -216,8 +230,10 @@ contextBridge.exposeInMainWorld("api", {
             chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode),
             mkdir: (p, opts) => fs.promises.mkdir(enforceSandbox(p), opts),
             rename: (oldP, newP) => fs.promises.rename(enforceSandbox(oldP), enforceSandbox(newP)),
+            appendFile: (p, d) => fs.promises.appendFile(enforceSandbox(p), d),
             access: (p, mode) => fs.promises.access(enforceReadSandbox(p), mode),
-            copyFile: (src, dest) => fs.promises.copyFile(enforceReadSandbox(src), enforceSandbox(dest))
+            copyFile: (src, dest) => fs.promises.copyFile(enforceReadSandbox(src), enforceSandbox(dest)),
+            exists: async (p) => { try { await fs.promises.access(enforceReadSandbox(p, true)); return true; } catch { return false; } }
         }
     },
     os: {
