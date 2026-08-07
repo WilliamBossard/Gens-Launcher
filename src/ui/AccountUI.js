@@ -402,7 +402,7 @@ export function setupAccountUI() {
                             if (skinImg) skinImg.src = e.target.result;
                         }
                     }
-                    if (window.showToast) window.showToast(t("msg_skin_preview", "Skin chargÃ© et sauvegardÃ© localement !"), "info");
+                    if (window.showToast) window.showToast(window.t("msg_skin_preview", "Skin chargé et sauvegardé localement !"), "info");
                 }
             };
             img.src = e.target.result;
@@ -427,10 +427,10 @@ export function setupAccountUI() {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            if (window.showToast) window.showToast(t("msg_skin_exported", "Skin exportÃ© avec succÃ¨s !"), "success");
+            if (window.showToast) window.showToast(window.t("msg_skin_exported", "Skin exporté avec succès !"), "success");
         } catch (e) {
             console.error(e);
-            if (window.showToast) window.showToast(t("msg_err_skin_export", "Erreur lors de l'exportation du skin."), "error");
+            if (window.showToast) window.showToast(window.t("msg_err_skin_export", "Erreur lors de l'exportation du skin."), "error");
         }
     };
     window.uploadSkinToMojang = async (input) => {
@@ -439,11 +439,11 @@ export function setupAccountUI() {
         if (store.uiSelectedAccRow === null) return;
         const acc = store.allAccounts[store.uiSelectedAccRow];
         if (acc.type !== "microsoft" || !acc.mclcAuth) {
-            if (window.showToast) window.showToast("Compte invalide.", "error");
+            if (window.showToast) window.showToast(window.t("msg_err_invalid_acc", "Compte invalide."), "error");
             return;
         }
         const variant = document.getElementById("skin-variant-select").value || "classic";
-        if (window.showToast) window.showToast(t("msg_skin_uploading", "Envoi vers Mojang en cours..."), "info");
+        if (window.showToast) window.showToast(window.t("msg_skin_uploading", "Envoi vers Mojang en cours..."), "info");
         try {
             const refreshRes = await window.api.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
             if (refreshRes.success && refreshRes.access_token) {
@@ -456,7 +456,7 @@ export function setupAccountUI() {
                 variant: variant
             });
             if (res.success) {
-                if (window.showToast) window.showToast(t("msg_skin_uploaded", "Skin mis Ã  jour avec succÃ¨s sur Mojang !"), "success");
+                if (window.showToast) window.showToast(window.t("msg_skin_uploaded", "Skin mis à jour avec succès sur Mojang !"), "success");
                 const cacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
                 try {
                     let cache = {};

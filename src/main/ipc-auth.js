@@ -108,7 +108,7 @@ module.exports = function setupAuthHandlers(context) {
                 decryptedToken = await decryptText(cache.refreshToken); // AUDIT-13 : await manquant corrigé
                 if (!decryptedToken) throw new Error("Token déchiffré nul");
             } catch (e) {
-                throw new Error("Impossible de déchiffrer le token de rafraîchissement.");
+                throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
             }
 
             const auth = new MicrosoftAuth();

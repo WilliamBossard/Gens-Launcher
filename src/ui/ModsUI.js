@@ -757,10 +757,10 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             }
             
             await fs.promises.unlink(tempPath);
-            window.showToast("Mise à jour du Modpack terminée !", "success");
-        } catch(e) {
-            window.hideLoading();
-            window.showToast("Erreur de mise à jour: " + e.message, "error");
+            window.showToast(window.t("msg_modpack_updated", "Mise à jour du Modpack terminée !"), "success");
+        } catch (e) {
+            console.error(e);
+            window.showToast(window.t("msg_err_update", "Erreur de mise à jour: ") + e.message, "error");
         }
     };
 }

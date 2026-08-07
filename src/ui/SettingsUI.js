@@ -613,7 +613,7 @@ window.refreshHorizonUI = async () => {
                     window.showToast(t("horizon_disconnected_success", "Compte Cloud déconnecté avec succès."), "success");
                     await window.refreshHorizonUI();
                 } catch(e) {
-                    window.showToast("Erreur lors de la déconnexion : " + e.message, "error");
+                    window.showToast(window.t("msg_err_disconnect", "Erreur lors de la déconnexion : ") + e.message, "error");
                 }
             }
         };

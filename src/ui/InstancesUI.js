@@ -745,7 +745,7 @@ export function setupInstances() {
                     }
                 } catch(cloudErr) {
                     sysLog(`[CLOUD] Échec de la suppression Cloud pour ${instName}: ${cloudErr.message}`, true);
-                    window.showToast("Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée.", "code");
+                    window.showToast(window.t("msg_warn_cloud_del", "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."), "code");
                 }
             }
             const instFolder = path.join(store.instancesRoot, safeName);

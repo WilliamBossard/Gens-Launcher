@@ -116,10 +116,10 @@ window.copyCrashLog = () => {
             window.showToast(t("msg_logs_copied", "Logs copiés dans le presse-papier !"), "success");
         }).catch(err => {
             console.error('Failed to copy text: ', err);
-            window.showToast("Erreur lors de la copie.", "error");
+            window.showToast(window.t("msg_err_copy", "Erreur lors de la copie."), "error");
         });
     } else {
-        window.showToast("Aucun log à copier.", "error");
+        window.showToast(window.t("msg_no_logs", "Aucun log à copier."), "error");
     }
 };
 

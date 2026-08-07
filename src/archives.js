@@ -25,7 +25,7 @@ export function setupArchives() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         
         if (store.activeInstances && store.activeInstances.has(inst.name)) {
-            window.showToast("Impossible de mettre à jour une instance en cours d'exécution.", "error");
+            window.showToast(window.t("msg_err_update_running", "Impossible de mettre à jour une instance en cours d'exécution."), "error");
             return;
         }
 

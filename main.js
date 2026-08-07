@@ -46,6 +46,7 @@ const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
 const horizonExePath = path.join(horizonBinDir, horizonBinName);
 const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
 let _logStream = null;
+let _logStreamBytes = 0;
 
 const mainInitPromise = (async () => {
     await fs.promises.mkdir(safeDataDir, { recursive: true });
@@ -53,6 +54,7 @@ const mainInitPromise = (async () => {
     await fs.promises.mkdir(horizonBinDir, { recursive: true });
     await fs.promises.writeFile(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
     _logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    _logStreamBytes = 0;
 
     try {
         const files = await fs.promises.readdir(safeDataDir);
@@ -107,7 +109,18 @@ function mainResolveInstanceFolder(nameOrFolder) {
 }
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-    if (_logStream && _logStream.writable) _logStream.write(line);
+    if (_logStream && _logStream.writable) {
+        const buf = Buffer.from(line, 'utf8');
+        _logStream.write(buf);
+        _logStreamBytes += buf.length;
+        if (_logStreamBytes > 5 * 1024 * 1024) {
+            _logStream.end();
+            const newLogPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
+            _logStream = fs.createWriteStream(newLogPath, { flags: 'a' });
+            _logStreamBytes = 0;
+            _logStream.write(`--- Gens Launcher Main Log (Rotation) - ${new Date().toLocaleString()} ---\n`);
+        }
+    }
     console.log(msg);
 }
 

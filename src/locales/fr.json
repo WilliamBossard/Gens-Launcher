@@ -644,5 +644,15 @@
   "msg_err_java_version": "Version de Java {version} non trouvée pour {platform}",
   "msg_offline_short": "Hors ligne",
   "msg_error_short": "Erreur",
-  "msg_analyzing": "Analyse en cours..."
+  "msg_analyzing": "Analyse en cours...",
+  "msg_err_copy_logs": "Erreur lors de la copie des logs.",
+  "msg_err_copy": "Erreur lors de la copie.",
+  "msg_no_logs": "Aucun log à copier.",
+  "msg_err_invalid_acc": "Compte invalide.",
+  "msg_err_disconnect": "Erreur lors de la déconnexion : ",
+  "msg_err_skin_invalid": "Erreur: Le fichier doit être une image de Skin Minecraft valide (64x64 pixels).",
+  "msg_modpack_updated": "Modpack mis à jour avec succès !",
+  "msg_err_update": "Erreur de mise à jour: ",
+  "msg_err_update_running": "Impossible de mettre à jour une instance en cours d'exécution.",
+  "msg_warn_cloud_del": "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."
 }

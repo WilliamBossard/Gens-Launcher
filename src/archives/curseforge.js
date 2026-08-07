@@ -76,7 +76,7 @@ export function setup() {
             await Promise.all(workers);
             try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-            window.showToast("Modpack mis à jour avec succès !", "success");
+            window.showToast(window.t("msg_modpack_updated", "Modpack mis à jour avec succès !"), "success");
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {

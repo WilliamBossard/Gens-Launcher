@@ -114,7 +114,7 @@ window.copyLogs = () => {
         window.api.clipboard.writeText(text);
         window.showToast(t("msg_logs_copied", "Logs copiés dans le presse-papier !"), "success");
     } catch (e) {
-        window.showToast("Erreur lors de la copie des logs.", "error");
+        window.showToast(t("msg_err_copy_logs", "Erreur lors de la copie des logs."), "error");
     }
 };
 window.safeWriteJSON = (filePath, data) => {

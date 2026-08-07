@@ -346,7 +346,7 @@ module.exports = function setupHorizonHandlers(context) {
         catch (e) { return { success: false, error: e.message }; }
     });
 
-    ipcMain.handle("check-horizon-status", async () => {
+    ipcMain.handle("check-horizon-status", async (event, forceBypassCache = false) => {
         let currentProvider = "google";
         const hSettingsPath = path.join(horizonBinDir, "horizon_settings.json");
 
@@ -377,7 +377,7 @@ module.exports = function setupHorizonHandlers(context) {
         } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
 
         try {
-            const data = await fetchLatestHorizonRelease();
+            const data = await fetchLatestHorizonRelease(forceBypassCache);
             return { installed: isInstalled, localVersion, latestVersion: data.tag_name, needsUpdate: data.tag_name !== localVersion, linked: isLinked, provider: currentProvider };
         } catch (e) {
             return { installed: isInstalled, localVersion, latestVersion: null, needsUpdate: false, offline: true, linked: isLinked, provider: currentProvider };
