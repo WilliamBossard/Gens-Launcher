@@ -284,7 +284,7 @@ export function setupSettings() {
         let found = 0;
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
         async function findJavaAsync(dir, depth = 0) {
-            if (depth > 3) return;
+            if (depth > 6) return;
             try {
                 const entries = await window.api.fs.promises.readdir(dir);
                 for (const entryName of entries) {
