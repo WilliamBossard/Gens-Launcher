@@ -655,5 +655,7 @@
   "crash_glfw_mac_action": "On Mac, this display error (GLFW) occurs if the Java version used is not perfectly adapted to this game version. Please use the recommended version.",
   "btn_auto_install_java": "Automatically install Java {0}",
   "btn_auto_use_java": "Use Java {0} automatically",
-  "btn_auto_install_java_generic": "Automatically install the correct Java version"
+  "btn_auto_install_java_generic": "Automatically install the correct Java version",
+  "crash_vk_cause": "Graphics Error (Vulkan unsupported)",
+  "crash_vk_action": "Your graphics card or virtual machine does not support Vulkan, which is required for this game. If you are on a VM (like Proxmox), a real GPU (Passthrough) is necessary."
 }
