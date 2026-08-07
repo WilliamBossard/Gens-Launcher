@@ -237,7 +237,7 @@ function setupMods() {
               await fs.promises.writeFile(tempPath, new Uint8Array(buffer));
               statusText.innerText = t("msg_install_mp", "Installation du modpack...");
               window.closeCatalogModal();
-              await window.handleMrPackImport(tempPath, projectId);
+              await window.handleMrPackImport(tempPath, projectId, null, fileData.version_number);
               await fs.promises.unlink(tempPath);
               return;
             }

@@ -82,8 +82,6 @@ export function setupLauncher() {
     window.api.on("mc-started", (payload) => {
         const instanceId = payload.instanceId;
         if (window._isAutoLaunch) {
-            const overlay = document.getElementById("auto-launch-overlay");
-            if (overlay) overlay.style.display = "none";
             ipcRenderer.send("hide-window");
         } else if (store.globalSettings.launcherVisibility === "hide") {
             ipcRenderer.send("hide-window");
@@ -241,6 +239,7 @@ export function setupLauncher() {
                 document.body.classList.remove("is-auto-launch");
                 const overlay = document.getElementById("auto-launch-overlay");
                 if (overlay) overlay.style.display = "none";
+                ipcRenderer.send("restore-main-window");
                 window.selectInstance(closedInstIndex);
             }
             if (store.selectedInstanceIdx === closedInstIndex) {
@@ -309,8 +308,6 @@ export function setupLauncher() {
             }
         }
         if (isAutoClose) {
-            window._isAutoLaunch = false;
-            document.body.classList.remove("is-auto-launch");
             setAutoStatus(t("msg_auto_closing", "Fermeture..."));
             setTimeout(() => { window.close(); }, 800);
         }

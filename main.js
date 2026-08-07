@@ -671,6 +671,16 @@ ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; })
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
 ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
 ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
+ipcMain.on("restore-main-window", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setResizable(true);
+        mainWindow.setMaximizable(true);
+        mainWindow.setMinimumSize(1000, 600);
+        mainWindow.setSize(1200, 800);
+        mainWindow.center();
+        mainWindow.show();
+    }
+});
 autoUpdater.on("update-available", (info) => { mainWindow?.webContents.send("update-available-prompt", info); });
 autoUpdater.on("update-not-available", () => { 
     if (isManualUpdateCheck) {

@@ -85,7 +85,7 @@ export function setup() {
          window.renderUI();
       }
     };
-    window.handleMrPackImport = async function(packPath, projectId = null, updateTargetInstIdx = null) {
+    window.handleMrPackImport = async function(packPath, projectId = null, updateTargetInstIdx = null, versionNumber = null) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
@@ -136,6 +136,7 @@ export function setup() {
             };
         }
         if (projectId) newInst.modrinthId = projectId;
+        if (versionNumber) newInst.modpackVersion = versionNumber;
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!(await fs.promises.access(instDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(instDir, { recursive: true });
         const processOverrides = async (folderName) => {
