@@ -255,10 +255,9 @@ app.whenReady().then(async () => {
     createWindow();
     mainWindow.once('ready-to-show', () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        // En mode normal : la fenêtre est affichée par le renderer via IPC 'show-window'.
-        // Safety fallback : si le renderer ne répond pas dans 3s, on affiche quand même.
         setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+                if (parseAutoLaunchArg(process.argv)) return;
                 console.log('[Main] Safety show (renderer timeout)');
                 mainWindow.show();
             }
