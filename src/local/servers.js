@@ -166,7 +166,7 @@ export function setup() {
         const instName = inst.name;
         const servers  = [...inst.servers];
 
-        const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+        const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
         if (isOffline) {
             for (let i = 0; i < servers.length; i++) {
                 const statusDiv = document.getElementById(`srv-ping-${i}`);

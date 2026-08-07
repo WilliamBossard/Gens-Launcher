@@ -5,7 +5,7 @@ export let _newsLoaded = false;
 export function setupNews() {
     window.loadNews = async function() {
         if (_newsLoaded) return;
-        if (store.globalSettings.offlineMode || !navigator.onLine) return;
+        if (store.globalSettings.offlineMode || !window.isTrulyOnline) return;
         try {
             const newsController = new AbortController();
             const newsTimeout = setTimeout(() => newsController.abort(new Error("Timeout")), 5000);

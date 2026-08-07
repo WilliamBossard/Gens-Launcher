@@ -125,8 +125,29 @@ export function setupUICore() {
         }
     };
 
+    window.isTrulyOnline = navigator.onLine;
+    window.checkRealInternet = async () => {
+        if (!navigator.onLine) {
+            if (window.isTrulyOnline) {
+                window.isTrulyOnline = false;
+                window.updateOfflineUIState();
+            }
+            return;
+        }
+        try {
+            const isOnline = await window.api.invoke("check-internet");
+            if (window.isTrulyOnline !== isOnline) {
+                window.isTrulyOnline = isOnline;
+                window.updateOfflineUIState();
+                if (isOnline && window.checkServerStatus) window.checkServerStatus();
+            }
+        } catch(e) {}
+    };
+    setInterval(window.checkRealInternet, 5000);
+    setTimeout(window.checkRealInternet, 1000);
+
     window.updateOfflineUIState = () => {
-        const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+        const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
         const elementsToDisable = [
             "btn-toolbar-catalog",
             "btn-toolbar-builder",
@@ -179,6 +200,6 @@ export function setupUICore() {
         }
     };
 
-    window.addEventListener('online', () => { window.updateOfflineUIState(); if(window.checkServerStatus) window.checkServerStatus(); });
-    window.addEventListener('offline', () => { window.updateOfflineUIState(); if(window.checkServerStatus) window.checkServerStatus(); });
+    window.addEventListener('online', () => { window.checkRealInternet(); });
+    window.addEventListener('offline', () => { window.checkRealInternet(); });
 }

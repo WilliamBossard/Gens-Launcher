@@ -2,7 +2,7 @@ import { store } from "../store.js";
 
 export function setupCloud() {
     window.checkCloudAtStartup = async () => {
-        if (store.globalSettings.offlineMode || !navigator.onLine) return;
+        if (store.globalSettings.offlineMode || !window.isTrulyOnline) return;
         try {
             const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
             const setPath = window.api.path.join(binPath, "horizon_settings.json");
@@ -34,7 +34,7 @@ export function setupCloud() {
     };
 
     window.checkHorizonUpdateAtStartup = async () => {
-        if (store.globalSettings.offlineMode || !navigator.onLine) {
+        if (store.globalSettings.offlineMode || !window.isTrulyOnline) {
             store.horizonActive = false;
             return;
         }

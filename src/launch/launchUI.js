@@ -286,7 +286,7 @@ export function setupLauncher() {
                     } else {
                         document.getElementById("status-text").innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
                     }
-                    const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+                    const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
                     if (!isOffline) {
                         window._isManualHorizon = false;
                         const hRes = await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);

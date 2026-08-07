@@ -7,7 +7,7 @@
 document.addEventListener('DOMContentLoaded', () => {
 
     const checkOffline = (e) => {
-        if (store.globalSettings.offlineMode || !navigator.onLine) {
+        if (store.globalSettings.offlineMode || !window.isTrulyOnline) {
             if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
             if (e) { e.preventDefault(); e.stopPropagation(); }
             return true;

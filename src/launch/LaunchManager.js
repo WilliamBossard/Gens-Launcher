@@ -21,7 +21,7 @@ export async function launchInstance(inst, acc, ui) {
     }
 
     const instancePath = path.join(store.instancesRoot, window.safeDir(inst.name));
-    const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+    const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
 
     await performAutoBackup(inst, "on_launch", { showLoading: ui.showLoading, hideLoading: ui.hideLoading });
 

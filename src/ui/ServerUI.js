@@ -4,7 +4,7 @@ export function setupServer() {
     window.checkServerStatus = async () => {
         const ip = store.globalSettings.serverIp ? store.globalSettings.serverIp.trim() : "";
         const banner = document.getElementById("server-banner-container");
-        if (!ip || store.globalSettings.offlineMode || !navigator.onLine) {
+        if (!ip || store.globalSettings.offlineMode || !window.isTrulyOnline) {
             banner.style.display = "none";
             return;
         }

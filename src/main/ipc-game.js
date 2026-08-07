@@ -223,4 +223,13 @@ module.exports = function setupGameHandlers(context) {
             mainWindow?.webContents.send("mc-close", { instanceId, code: 1 });
         });
     });
+
+    ipcMain.handle("check-internet", async () => {
+        try {
+            await require("dns").promises.resolve("google.com");
+            return true;
+        } catch (e) {
+            return false;
+        }
+    });
 };

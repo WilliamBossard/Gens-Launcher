@@ -268,7 +268,7 @@ window.fetchWithTimeout = async (resource, options = {}) => {
 export { sysLog, yieldUI };
 
 window.reconnectDiscord = async () => {
-    if (store.globalSettings.offlineMode || !navigator.onLine) {
+    if (store.globalSettings.offlineMode || !window.isTrulyOnline) {
         window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
         return;
     }

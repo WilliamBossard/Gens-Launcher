@@ -17,7 +17,7 @@ async function _getModCount(inst) {
 }
 window.invalidateModCountCache = (inst) => { if (inst) delete inst._modCountCache; };
 async function updateRPC(inst, customState) {
-    if (store.globalSettings.disableRPC || store.globalSettings.offlineMode || !navigator.onLine) {
+    if (store.globalSettings.disableRPC || store.globalSettings.offlineMode || !window.isTrulyOnline) {
         ipcRenderer.send("update-discord", "clear");
         return; 
     }

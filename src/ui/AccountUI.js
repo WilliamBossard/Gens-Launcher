@@ -110,7 +110,7 @@ export function setupAccountUI() {
             const cachedSkin = await getCachedSkin(acc.name);
             const customSkin = await window.getCustomSkin(acc.name);
             const imgSrc = customSkin || cachedSkin || fallbackUrl;
-            if (!cachedSkin && !acc._fetchingSkin && window.navigator.onLine) {
+            if (!cachedSkin && !acc._fetchingSkin && window.isTrulyOnline) {
                 acc._fetchingSkin = true;
                 fetchSkinBase64(acc).then(b64 => {
                     acc._fetchingSkin = false;
@@ -235,7 +235,7 @@ export function setupAccountUI() {
             const id = (activeAcc.type === "microsoft" && activeAcc.uuid) ? activeAcc.uuid : activeAcc.name;
             const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
             const activeSkin = await getCachedSkin(activeAcc.name);
-            if (!activeSkin && !activeAcc._fetchingSkin && window.navigator.onLine) {
+            if (!activeSkin && !activeAcc._fetchingSkin && window.isTrulyOnline) {
                 activeAcc._fetchingSkin = true;
                 fetchSkinBase64(activeAcc).then(b64 => {
                     activeAcc._fetchingSkin = false;
