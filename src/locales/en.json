@@ -657,5 +657,6 @@
   "btn_auto_use_java": "Use Java {0} automatically",
   "btn_auto_install_java_generic": "Automatically install the correct Java version",
   "crash_vk_cause": "Graphics Error (Vulkan unsupported)",
-  "crash_vk_action": "Your graphics card or virtual machine does not support Vulkan, which is required for this game. If you are on a VM (like Proxmox), a real GPU (Passthrough) is necessary."
+  "crash_vk_action": "Your graphics card or virtual machine does not support Vulkan, which is required for this game. If you are on a VM (like Proxmox), a real GPU (Passthrough) is necessary.",
+  "msg_java_updated": "The instance now uses Java {0}"
 }

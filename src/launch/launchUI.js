@@ -301,7 +301,7 @@ export function setupLauncher() {
                         if (closedInst && existingJavaPath) {
                             closedInst.javaPath = existingJavaPath;
                             await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
-                            window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java " + targetVerStr), "success");
+                            window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", targetVerStr), "success");
                         }
                     });
 
