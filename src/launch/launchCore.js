@@ -165,6 +165,12 @@ export async function analyzeCrash(instanceName) {
             result.logExcerpt = combinedLog.match(/.*InaccessibleObjectException.*/g)?.join('\n') || "InaccessibleObjectException détecté";
             return result;
         }
+        if (combinedLog.includes("GLFW may only be used on the main thread")) {
+            result.cause = window.t("crash_glfw_mac_cause", "Erreur d'affichage macOS (GLFW Thread)");
+            result.action = window.t("crash_glfw_mac_action", "Sur Mac, le jeu doit démarrer sur le processus principal avec l'argument '-XstartOnFirstThread'. Le launcher est censé l'ajouter automatiquement, mais la version de Java utilisée peut bloquer cela.");
+            result.logExcerpt = combinedLog.match(/.*GLFW may only be used on the main thread.*/g)?.join('\n') || "Erreur GLFW macOS détectée";
+            return result;
+        }
         if (combinedLog.includes("GLFW error 65542") || combinedLog.includes("does not appear to support OpenGL")) {
             result.cause = window.t("crash_gl_cause", "Erreur Graphique (OpenGL non supporté)");
             result.action = window.t("crash_gl_action", "Vos pilotes graphiques sont obsolètes ou non installés. Veuillez les mettre à jour, ou votre carte graphique est trop ancienne pour cette version de Minecraft.");
