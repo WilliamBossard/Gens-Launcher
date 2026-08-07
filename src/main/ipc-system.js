@@ -104,14 +104,14 @@ module.exports = function setupSystemHandlers(context) {
                 const resolvedTarget = path.resolve(destDir);
 
                 for await (const entry of zipfile) {
-                    const destPath = path.join(destDir, entry.fileName);
+                    const destPath = path.join(destDir, entry.filename);
                     const resDest = path.resolve(destPath);
                     
                     if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
                         continue;
                     }
 
-                    if (/\/$/.test(entry.fileName)) {
+                    if (/\/$/.test(entry.filename)) {
                         if (!(await fs.promises.access(destPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destPath, { recursive: true });
                         processed++;
                     } else {
@@ -121,7 +121,7 @@ module.exports = function setupSystemHandlers(context) {
                             const writeStream = fs.createWriteStream(destPath);
                             await pipeline(readStream, writeStream);
                         } catch (streamErr) {
-                            mainLog(`[extract-zip] Erreur sur l'entrée ${entry.fileName}: ${streamErr.message}`);
+                            mainLog(`[extract-zip] Erreur sur l'entrée ${entry.filename}: ${streamErr.message}`);
                         }
                         processed++;
                         

@@ -16,8 +16,8 @@ class Zip {
     const zipfile = await yauzl.open(this.zipPath);
     try {
       for await (const entry of zipfile) {
-        const destPath = path.join(dest, entry.fileName);
-        if (entry.fileName.endsWith('/')) {
+        const destPath = path.join(dest, entry.filename);
+        if (entry.filename.endsWith('/')) {
           await fs.promises.mkdir(destPath, { recursive: true });
         } else {
           await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
@@ -36,7 +36,7 @@ class Zip {
       const zipfile = await yauzl.open(this.zipPath);
       try {
         for await (const entry of zipfile) {
-          if (entry.fileName === fileName) {
+          if (entry.filename === fileName) {
             const readStream = await entry.openReadStream();
             let data = '';
             for await (const chunk of readStream) {
