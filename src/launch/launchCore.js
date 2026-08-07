@@ -166,8 +166,9 @@ export async function analyzeCrash(instanceName) {
             return result;
         }
         if (combinedLog.includes("GLFW may only be used on the main thread")) {
-            result.cause = window.t("crash_glfw_mac_cause", "Erreur d'affichage macOS (GLFW Thread)");
-            result.action = window.t("crash_glfw_mac_action", "Sur Mac, le jeu doit démarrer sur le processus principal avec l'argument '-XstartOnFirstThread'. Le launcher est censé l'ajouter automatiquement, mais la version de Java utilisée peut bloquer cela.");
+            result.cause = window.t("crash_glfw_mac_cause", "Version de Java incompatible (macOS GLFW)");
+            result.action = window.t("crash_glfw_mac_action", "Sur Mac, cette erreur d'affichage (GLFW) survient si la version de Java utilisée n'est pas parfaitement adaptée à cette version du jeu. Veuillez installer et utiliser la version recommandée.");
+            result.javaNeeded = "auto";
             result.logExcerpt = combinedLog.match(/.*GLFW may only be used on the main thread.*/g)?.join('\n') || "Erreur GLFW macOS détectée";
             return result;
         }
