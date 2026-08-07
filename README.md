@@ -1,6 +1,6 @@
 # Gens Launcher
 
-Gens Launcher is a modern, secure, and highly customizable Minecraft launcher built with Electron and Node.js. Designed to offer a seamless experience, it features advanced instance management, integrated mod downloading, and performance optimization tools.
+Modern and lightweight open-source Minecraft launcher based on Electron. Integrates a native catalog mod,shader,texture (Modrinth), secure Microsoft authentication, and advanced instance management inspired by MultiMC (Fabric/Forge, import/export, Java auto-detection).
 
 <img width="884" height="593" alt="image" src="https://github.com/user-attachments/assets/a9d5026b-2db1-411d-9d77-03930b884fa0" />
 
@@ -42,55 +42,67 @@ Welcome to Gens Launcher! Here is how to install the software on your PC in just
 **🔹 For Linux (.deb):**
 1. Once the `.deb` file is downloaded, double-click it to open your distribution's Software Center (like Ubuntu Software) and click **"Install"**.
 2. *Alternatively, via terminal:* Open your terminal in the downloads folder and run:
+   ```bash
    sudo apt install ./GensLauncher-1.5.0-amd64.deb
-   
-Step 3: Play!
-Open Gens Launcher using the new shortcut on your Desktop or in your application menu.
+   ```
 
-Click on the Microsoft button to log in securely with your Minecraft account.
+### Step 3: Play!
+- Open Gens Launcher using the new shortcut on your Desktop or in your application menu.
+- Click on the Microsoft button to log in securely with your Minecraft account.
+- Create your first instance, download your mods, and enjoy the game!
 
-Create your first instance, download your mods, and enjoy the game!
+## Advanced Features
 
-Installation & Build Guide (DEV)
-Prerequisites
-Node.js (version 18 or higher recommended)
+- **Offline Mode:** Gens Launcher features a smart offline mode. When it detects no internet connection, it dynamically disables network-dependent actions (like Java downloads, Mod catalog, Horizon updates, and Discord RPC background pings) while allowing you to fully play your previously downloaded instances offline.
+- **Horizon Cloud Sync Integration:** Seamlessly sync your instances across devices using the headless **Gens-Horizon** cloud engine. Connect your Google Drive, Dropbox, or OneDrive directly from the launcher to back up and restore your game data effortlessly using advanced Delta Sync technology.
 
-A Microsoft account with a valid Minecraft Java Edition license
+## Installation & Build Guide (DEV)
 
-Local Development
+### Prerequisites
+- **Node.js** (version 18 or higher recommended)
+- A Microsoft account with a valid Minecraft Java Edition license
+
+### Local Development
 Clone the repository:
-
-Bash
-git clone [https://github.com/YourUsername/gens-launcher.git](https://github.com/YourUsername/gens-launcher.git)
+```bash
+git clone https://github.com/YourUsername/gens-launcher.git
 cd gens-launcher
+```
+
 Install the dependencies:
-
-Bash
+```bash
 npm install
-Run the launcher in development mode:
+```
 
-Bash
+Run the launcher in development mode:
+```bash
 npm start
-Compiling the App (Windows & Linux)
+```
+
+### Compiling the App (Windows & Linux)
 To generate the final professional installers ready to be distributed to players, run the following commands based on your target OS:
 
-For Windows (.exe):
-
+**For Windows (.exe):**
+```bash
 npm run dist:win
+```
 
-For Linux (.deb & .AppImage):
-
+**For Linux (.deb & .AppImage):**
+```bash
 npm run dist:linux
+```
 
-For all platforms:
-
+**For all platforms:**
+```bash
 npm run dist:all
+```
 
-The generated executables will be located in the dist/ folder.
+The generated executables will be located in the `dist/` folder.
 
-Contributing
+## Contributing
 Contributions are always welcome! Feel free to open an Issue to report a bug or suggest a feature, or submit a Pull Request.
 
-License
+## License
 This project is licensed under the MIT License. See the LICENSE file for more details.
-(Note: Minecraft is a trademark of Mojang Synergies AB. This project is not affiliated with Mojang or Microsoft).
+
+*(Note: Minecraft is a trademark of Mojang Synergies AB. This project is not affiliated with Mojang or Microsoft).*

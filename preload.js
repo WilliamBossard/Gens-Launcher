@@ -24,7 +24,7 @@ function _getArgValue(key) {
     return arg ? arg.slice(prefix.length) : null;
 }
 const _appPaths = {
-    appData: _getArgValue('app-data') || require('electron').ipcRenderer.sendSync('get-paths-sync').appData,
+    appData: _getArgValue('app-data') || '',
     platform: _getArgValue('app-platform') || process.platform,
     arch: _getArgValue('app-arch') || process.arch,
     version: _getArgValue('app-version') || ''
@@ -179,33 +179,6 @@ contextBridge.exposeInMainWorld("api", {
         basename: (p, ext) => path.basename(p, ext),
     },
     fs: {
-        existsSync: (p) => {
-            try { enforceReadSandbox(p, true); } catch (_) { return false; }
-            return fs.existsSync(p);
-        },
-        readFileSync: (p, enc) => fs.readFileSync(enforceReadSandbox(p), enc),
-        readdirSync: (p) => fs.readdirSync(enforceReadSandbox(p)),
-        statSync: (p) => {
-            const s = fs.statSync(enforceReadSandbox(p));
-            return { isDirectory: s.isDirectory(), isFile: s.isFile(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
-        },
-        writeFileSync: (p, d) => {
-            const safePath = enforceSandbox(p);
-            const tempPath = safePath + '.tmp.' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
-            try {
-                fs.writeFileSync(tempPath, d);
-                fs.renameSync(tempPath, safePath);
-            } catch (e) {
-                if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch (_) {}
-                throw e;
-            }
-        },
-        mkdirSync: (p, opts) => fs.mkdirSync(enforceSandbox(p), opts),
-        renameSync: (oldP, newP) => fs.renameSync(enforceSandbox(oldP), enforceSandbox(newP)),
-        unlinkSync: (p) => fs.unlinkSync(enforceSandbox(p)),
-        rmSync: (p, opts) => fs.rmSync(enforceSandbox(p), opts),
-        copyFileSync: (src, dest) => fs.copyFileSync(enforceReadSandbox(src), enforceSandbox(dest)),
-        appendFileSync: (p, d) => fs.appendFileSync(enforceSandbox(p), d),
         promises: {
             readFile: (p, enc) => fs.promises.readFile(enforceReadSandbox(p), enc),
             readdir: (p) => fs.promises.readdir(enforceReadSandbox(p)),

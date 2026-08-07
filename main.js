@@ -290,7 +290,10 @@ app.whenReady().then(() => {
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
     autoUpdater.autoDownload = false;
     setTimeout(() => {
-
+        if (globalOfflineMode) {
+            mainLog("Info : Vérification des MAJ annulée (offlineMode actif).");
+            return;
+        }
         autoUpdater.checkForUpdates().catch(() => {
             mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
         });
@@ -633,20 +636,38 @@ ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
 });
+let isManualUpdateCheck = false;
+let globalOfflineMode = false;
+
+ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
+
 ipcMain.handle("check-for-updates", async () => {
-    try { const result = await autoUpdater.checkForUpdates(); return { success: true, version: result?.updateInfo?.version || null }; }
-    catch (e) { return { success: false, error: e.message }; }
+    isManualUpdateCheck = true;
+    try { 
+        const result = await autoUpdater.checkForUpdates(); 
+        isManualUpdateCheck = false;
+        return { success: true, version: result?.updateInfo?.version || null }; 
+    } catch (e) { 
+        isManualUpdateCheck = false;
+        return { success: false, error: e.message }; 
+    }
 });
 ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
 ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
 ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
 autoUpdater.on("update-available", (info) => { mainWindow?.webContents.send("update-available-prompt", info); });
-autoUpdater.on("update-not-available", () => { mainWindow?.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); });
+autoUpdater.on("update-not-available", () => { 
+    if (isManualUpdateCheck) {
+        mainWindow?.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); 
+    }
+});
 autoUpdater.on("download-progress", (progress) => { mainWindow?.webContents.send("update-progress", Math.round(progress.percent)); });
 autoUpdater.on("error", (err) => {
     mainLog(`[AutoUpdater] Erreur : ${err.message}`);
-    mainWindow?.webContents.send("update-msg", { key: "msg_update_error", text: "Erreur lors de la vérification des mises à jour.", type: "error" });
+    if (isManualUpdateCheck) {
+        mainWindow?.webContents.send("update-msg", { key: "msg_update_error", text: "Erreur lors de la vérification des mises à jour.", type: "error" });
+    }
 });
 autoUpdater.on("update-downloaded", (info) => {
     if (info?.downloadedFile) { linuxUpdatePath = info.downloadedFile; mainLog("MAJ téléchargée : " + linuxUpdatePath); }
@@ -685,14 +706,32 @@ function applyDiscordData(data) {
     }
 }
 
-rpc.connect().then(success => {
-    if (success) {
-        mainLog('Discord RPC connecté.');
-        if (lastDiscordData) applyDiscordData(lastDiscordData);
+let shouldConnectDiscord = true;
+try {
+    const fs = require('fs');
+    const path = require('path');
+    const settingsPath = path.join(safeDataDir, 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        if (settings.disableRPC === true || settings.offlineMode === true) {
+            shouldConnectDiscord = false;
+        }
     }
-    else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
-});
+} catch (e) {
+    // Ignore read errors
+}
 
+if (shouldConnectDiscord) {
+    rpc.connect().then(success => {
+        if (success) {
+            mainLog('Discord RPC connecté.');
+            if (lastDiscordData) applyDiscordData(lastDiscordData);
+        }
+        else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
+    });
+} else {
+    mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
+}
 ipcMain.handle("reconnect-discord", async () => {
     rpc.disconnect();
     const success = await rpc.connect();

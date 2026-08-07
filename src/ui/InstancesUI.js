@@ -220,15 +220,22 @@ export function setupInstances() {
         if (versionSelect) {
             const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
             const frag = document.createDocumentFragment();
+            let foundVer = false;
             (store.rawVersions || []).forEach(v => {
                 if (showBeta || v.type === "release") {
                     const opt = document.createElement("option");
                     opt.value = v.id;
                     opt.textContent = v.id;
-                    if (v.id === inst.version) opt.selected = true;
+                    if (v.id === inst.version) { opt.selected = true; foundVer = true; }
                     frag.appendChild(opt);
                 }
             });
+            if (!foundVer && inst.version) {
+                const opt = document.createElement("option");
+                opt.value = inst.version; opt.textContent = inst.version;
+                opt.selected = true;
+                frag.insertBefore(opt, frag.firstChild);
+            }
             versionSelect.innerHTML = "";
             versionSelect.appendChild(frag);
         }
@@ -267,12 +274,21 @@ export function setupInstances() {
                 loaderVerSelect.innerHTML = `<option value="">${t("msg_no_loader_compat", "Incompatible avec cette version")}</option>`;
             } else {
                 const frag = document.createDocumentFragment();
+                let foundLoader = false;
+                const currentLoaderVer = inst ? (inst.loaderVersion || "") : "";
                 versions.forEach(v => {
                     const opt = document.createElement("option");
                     opt.value = v; opt.textContent = v;
-                    if (inst && v === inst.loaderVersion) opt.selected = true;
+                    if (v === currentLoaderVer) { opt.selected = true; foundLoader = true; }
                     frag.appendChild(opt);
                 });
+                if (!foundLoader && inst) {
+                    const opt = document.createElement("option");
+                    opt.value = currentLoaderVer;
+                    opt.textContent = currentLoaderVer || t("msg_unknown_version", "Inconnue (Local)");
+                    opt.selected = true;
+                    frag.insertBefore(opt, frag.firstChild);
+                }
                 loaderVerSelect.appendChild(frag);
             }
         } catch(e) {
@@ -480,7 +496,8 @@ export function setupInstances() {
             const newVersion   = editVersionEl.value;
             const newLoader    = editLoaderEl.value;
             const newLoaderVer = editLoaderVerEl ? editLoaderVerEl.value : "";
-            const loaderVerEmpty = !newLoaderVer && newLoader !== "vanilla";
+            const isUnknownLocal = editLoaderVerEl && editLoaderVerEl.options[editLoaderVerEl.selectedIndex]?.textContent.includes("Local");
+            const loaderVerEmpty = !newLoaderVer && newLoader !== "vanilla" && !isUnknownLocal;
             if (loaderVerEmpty) {
                 window.showToast(t("msg_loader_no_compat", `Le loader ${newLoader} n'est pas encore disponible pour MC ${newVersion}. Passé en Vanilla.`), "error");
                 inst.loader = "vanilla";
@@ -490,7 +507,10 @@ export function setupInstances() {
                 if (newLoaderVer.includes("Incompatible")) {
                     window.showToast(t("msg_loader_no_compat", `Ce loader n'est pas compatible avec cette version.`), "error");
                 }
-                if (!isLoadingVer && (newVersion !== inst.version || newLoader !== inst.loader || (newLoader !== 'vanilla' && newLoaderVer !== inst.loaderVersion))) {
+                const safeOldVersion = inst.version || "";
+                const safeOldLoader = inst.loader || "vanilla";
+                const safeOldLoaderVer = inst.loaderVersion || "";
+                if (!isLoadingVer && (newVersion !== safeOldVersion || newLoader !== safeOldLoader || (newLoader !== 'vanilla' && newLoaderVer !== safeOldLoaderVer))) {
                     const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
                     for (const dir of ["versions", "libraries"]) {
                         const dirPath = path.join(instFolder, dir);
@@ -826,12 +846,16 @@ export function setupInstances() {
                 const ext = window.api.path.extname(foundIconPath).toLowerCase();
                 const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
                 const mime = mimeMap[ext] || 'image/png';
+                const stat = await window.api.fs.promises.stat(foundIconPath).catch(() => null);
+                const mtime = stat ? Math.floor(stat.mtimeMs) : Date.now();
+                const expectedUrl = window.pathToFileUrl(foundIconPath);
+                
                 iconSrc = inst._iconCacheBuster
                     ? `data:${mime};base64,${await window.api.fs.promises.readFile(foundIconPath, 'base64')}`
-                    : window.pathToFileUrl(foundIconPath);
-                // Mettre à jour inst.icon si stale (pointe vers un fichier différent ou supprimé)
-                const expectedUrl = window.pathToFileUrl(foundIconPath);
-                if (inst.icon && inst.icon !== iconSrc && inst.icon !== expectedUrl) {
+                    : `${expectedUrl}?t=${mtime}`;
+
+                // Mettre à jour inst.icon si stale (pointe vers un fichier différent ou supprimé, ou est vide)
+                if ((!inst.icon) || (inst.icon !== iconSrc && inst.icon !== expectedUrl && !inst.icon.startsWith(expectedUrl))) {
                     inst.icon = expectedUrl;
                 }
             } else if (inst.icon && inst.icon.startsWith("file://")) {

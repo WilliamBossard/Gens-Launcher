@@ -1,76 +1,77 @@
-# Gens-Launcher — Guide de Développement Complet
+# Gens-Launcher — Comprehensive Development Guide
 
-Ce document décrit l'architecture, le modèle de sécurité, les flux de données et les bonnes pratiques de développement du projet **Gens-Launcher**. Il sert de référence technique (Single Source of Truth) pour tout contributeur ou auditeur de sécurité.
-
----
-
-## 1. Vue d'Ensemble & Architecture Globale
-Gens-Launcher est l'interface utilisateur (GUI) officielle de l'écosystème Gens. Basé sur Electron, il a pour rôle de :
-1. Gérer l'authentification sécurisée des joueurs via l'API Microsoft/Xbox.
-2. Télécharger, vérifier et lancer le jeu Minecraft (via `gens-core`).
-3. Interagir de manière asynchrone avec **Gens-Horizon**, le moteur de synchronisation cloud "headless" de l'écosystème.
-
-L'architecture suit scrupuleusement le modèle natif d'Electron en séparant l'application en deux univers distincts et isolés : le **Processus Principal (Main)** et le **Processus de Rendu (Renderer)**.
+This document describes the architecture, security model, data flows, and development best practices for the **Gens-Launcher** project. It serves as a technical reference (Single Source of Truth) for any contributor or security auditor.
 
 ---
 
-## 2. Topologie des Composants
+## 1. Overview & Global Architecture
+Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on Electron, its role is to:
+1. Manage secure player authentication via the Microsoft/Xbox API.
+2. Download, verify, and launch the Minecraft game (via `gens-core`).
+3. Asynchronously interact with **Gens-Horizon**, the headless cloud synchronization engine of the ecosystem.
 
-### 2.1 Processus Principal (Main)
-Il s'exécute dans un contexte Node.js complet. Il a accès au système de fichiers, au réseau bas-niveau et contrôle le cycle de vie de l'application.
-- **`main.js`** : Point d'entrée de l'application. Initialise les fenêtres (`BrowserWindow`), met en place la `Content-Security-Policy` (CSP) globale et centralise l'import des modules IPC.
-- **`src/main/ipc-auth.js`** : Gère les flux OAuth2 Microsoft (Device Code ou web flow) en s'appuyant sur `prismarine-auth`. Expose les tokens sécurisés pour le Renderer. Il fait également office de proxy sécurisé pour interroger l'API Mojang (Skins/Capes), contournant les restrictions CORS.
-- **`src/main/ipc-game.js`** : Moteur de lancement. Prépare les paramètres JVM, télécharge les assets via `gens-core` et utilise `child_process.execFile` pour garantir une exécution exempte d'injections shell.
-- **`src/main/ipc-horizon.js`** : Pont de communication exclusif avec `Horizon.exe`.
-  - *Intégrité* : Télécharge la signature SHA-256 de la release GitHub officielle et valide l'exécutable Horizon local avant tout lancement. Le hash est mis en cache 2h pour éviter les requêtes réseau répétées.
-  - *Sécurité* : Valide les arguments via une **Whitelist** stricte (`--sync`, `--check`, etc.) couplée à un filtre Regex limitant les caractères autorisés.
-- **`src/main/ipc-system.js`** : Centralise les interactions OS natives (Rich Presence Discord, archivage, barre des tâches Windows).
-- **`src/main/crypto-utils.js`** : Primitives cryptographiques du Main Process. La clé AES-256-GCM est dérivée via **PBKDF2** (100 000 itérations, salt aléatoire 16 bytes stocké dans `.key_salt`). Gère la migration transparente des données chiffrées avec l'ancienne clé SHA-256 simple vers le nouveau format PBKDF2.
-
-### 2.1.1 Écosystème Interne (Gens-Core Components)
-Afin de limiter la surface d'attaque et de réduire drastiquement le poids de l'application, l'usage de dépendances tierces est banni au profit d'implémentations maisons 100% natives (in-house) :
-- **`discord.js`** : Implémentation native des Named Pipes pour le Discord Rich Presence. Inclut un parseur IPC natif, un système de Timeout, et un limiteur de requêtes (Rate Limiter) robuste. Remplace intégralement `@xhayper/discord-rpc`.
-- **`nbt.js`** : Parseur et constructeur binaire natif NBT (utilisant `zlib`). Assure une lecture et écriture sans perte du fichier `servers.dat` de Minecraft. Remplace intégralement `prismarine-nbt`.
-- **`auth.js`** : Module natif d'authentification Microsoft (OAuth2 Device Code Flow). Gère les requêtes `login.live.com`, l'échange Xbox Live, le jeton XSTS et l'acquisition du Token Minecraft. Remplace intégralement `prismarine-auth`.
-
-### 2.2 Le Pont de Sécurité (Preload)
-- **`preload.js`** : S'exécute dans le Renderer mais conserve un accès à certaines APIs Node.js avant de "fermer" la porte.
-  - Expose un objet sécurisé `window.api` au DOM.
-  - Implémente le **Bouclier de Sécurité Logiciel** : Ses fonctions `enforceSandbox()` et `enforceReadSandbox()` vérifient mathématiquement tous les chemins pour éviter les attaques `Zip Slip` ou `Path Traversal`. L'écriture est strictement bloquée en dehors de `%AppData%\GensLauncher`.
-  - La lecture est restreinte aux répertoires légitimes : `GensLauncher/`, `.minecraft/`, dossiers Java détectés, et `tmp/GensLauncher`. Toute lecture hors-périmètre est bloquée silencieusement (sans log d'erreur pour éviter le bruit).
-  - Expose `window.api.copyImageToSandbox(srcPath, destName, subDir?)` : permet à l'UI de demander la copie sécurisée d'une image (fond d'écran, icône d'instance) depuis n'importe quel chemin vers le sandbox. La validation (extension + **signature magique binaire** PNG/JPEG/GIF/WEBP/BMP/ICO) et la copie sont effectuées exclusivement dans le Main Process.
-
-### 2.3 Processus de Rendu (Renderer)
-- **`renderer.js` / HTML / CSS** : L'interface Vanilla JS. Ne possède aucun accès à `require()`. Toute interaction système se fait en appelant les canaux asynchrones de `window.api.invoke()`.
+The architecture strictly follows Electron's native model by separating the application into two distinct and isolated realms: the **Main Process** and the **Renderer Process**.
 
 ---
 
-## 3. Modèle de Sécurité (Security Design)
+## 2. Component Topology
 
-L'application a été auditée et respecte le principe de la **Défense en Profondeur** :
+### 2.1 Main Process
+It runs in a full Node.js context. It has access to the file system, low-level network, and controls the application's lifecycle.
+- **`main.js`**: Application entry point. Initializes windows (`BrowserWindow`), sets up the global `Content-Security-Policy` (CSP), and centralizes IPC module imports.
+- **`src/main/ipc-auth.js`**: Manages Microsoft OAuth2 flows (Device Code or web flow) relying on `prismarine-auth`. Exposes secure tokens for the Renderer. It also acts as a secure proxy to query the Mojang API (Skins/Capes), bypassing CORS restrictions.
+- **`src/main/ipc-game.js`**: Launch engine. Prepares JVM parameters, downloads assets via `gens-core`, and uses `child_process.execFile` to guarantee execution free of shell injections.
+- **`src/main/ipc-horizon.js`**: Exclusive communication bridge with `Horizon.exe`.
+  - *Integrity*: Downloads the SHA-256 signature from the official GitHub release and validates the local Horizon executable before any launch. The hash is cached for 2h to avoid repeated network requests. *(Note: In a local development environment `!app.isPackaged`, hash errors are ignored to allow free testing of locally compiled versions).*
+  - *Security*: Validates arguments via a strict **Whitelist** (`--sync`, `--check`, etc.) coupled with a Regex filter limiting allowed characters.
+- **`src/main/ipc-system.js`**: Centralizes native OS interactions (Discord Rich Presence, archiving, Windows taskbar).
+- **`src/main/crypto-utils.js`**: Cryptographic primitives of the Main Process. The AES-256-GCM key is derived via **PBKDF2** (100,000 iterations, random 16 bytes salt stored in `.key_salt`). Manages seamless migration of encrypted data from the old simple SHA-256 key to the new PBKDF2 format.
 
-1. **Context Isolation** : Toujours activé (`contextIsolation: true`). Le prototype Javascript du Renderer est isolé de celui du Main.
-2. **IPC Sandboxing** : `sandbox: false` natif est utilisé (nécessaire pour l'accès Node.js du preload), mais compensé par un sandboxing applicatif hyper-strict dans `preload.js`. Seules les lectures dans `.minecraft/` ou les répertoires Java sont tolérées en dehors de `GensLauncher/`.
-3. **Architecture CSP à "Double Couche" (Dual-Layer CSP)** :
-    - *Couche 1 (main.js)* : L'en-tête HTTP applique `script-src 'self'` (sans `unsafe-inline` ni `unsafe-eval`). Toutes les images et connexions sont limitées à **HTTPS uniquement**.
-   - *Couche 2 (index.html)* : La balise `<meta>` du DOM applique la même politique. Les deux couches sont alignées.
-4. **Chiffrement** : Les tokens d'authentification Microsoft locaux sont chiffrés. Le système privilégie `safeStorage` (Keychain OS natif). S'il n'est pas disponible, un fallback **AES-256-GCM** est utilisé avec une clé dérivée via **PBKDF2** (100 000 itérations, salt dédié de 16 bytes aléatoires stocké dans `.key_salt`). Les données chiffrées avec l'ancien algorithme (SHA-256 simple) sont migrées automatiquement et silencieusement au premier déchiffrement.
-5. **Whitelist IPC** : Tous les canaux de communication (send, invoke, receive) sont statiquement listés dans `preload.js`. Toute tentative d'appel hors-liste est rejetée, prévenant l'exploitation de canaux obscurs d'Electron.
-6. **HTTPS Uniquement** : Le module `http` n'est pas importé dans `main.js`. La fonction `downloadFile()` rejette tout URL non-HTTPS et applique une liste blanche de domaines autorisés (`github.com`, `mojang.com`, `modrinth.com`, etc.).
-7. **Intégrité des images** : Le handler `copy-image-to-sandbox` valide l'extension du fichier ET ses octets magiques (signature binaire). Un fichier `.jpg` avec un contenu malveillant serait rejeté.
+### 2.1.1 Internal Ecosystem (Gens-Core Components)
+To limit the attack surface and drastically reduce application weight, the use of third-party dependencies is banned in favor of 100% native in-house implementations:
+- **`discord.js`**: Native Named Pipes implementation for Discord Rich Presence. Includes a native IPC parser, a Timeout system, and a robust Rate Limiter. Fully replaces `@xhayper/discord-rpc`. It also strictly blocks auto-connection at launch by reading `settings.json` locally when in Offline Mode to prevent zombie requests.
+- **`nbt.js`**: Native binary NBT parser and builder (using `zlib`). Ensures lossless reading and writing of the Minecraft `servers.dat` file. Fully replaces `prismarine-nbt`.
+- **`auth.js`**: Native Microsoft authentication module (OAuth2 Device Code Flow). Manages `login.live.com` requests, Xbox Live exchange, XSTS token, and Minecraft Token acquisition. Fully replaces `prismarine-auth`.
+
+### 2.2 The Security Bridge (Preload)
+- **`preload.js`**: Runs in the Renderer but retains access to certain Node.js APIs before "closing" the door.
+  - Exposes a secure `window.api` object to the DOM.
+  - Implements the **Software Security Shield**: Its `enforceSandbox()` and `enforceReadSandbox()` functions mathematically verify all paths to prevent `Zip Slip` or `Path Traversal` attacks. Writing is strictly blocked outside of `%AppData%\GensLauncher`.
+  - Reading is restricted to legitimate directories: `GensLauncher/`, `.minecraft/`, detected Java folders, and `tmp/GensLauncher`. Any out-of-scope read is silently blocked (without error logs to avoid noise).
+  - Exposes `window.api.copyImageToSandbox(srcPath, destName, subDir?)`: allows the UI to request a secure copy of an image (wallpaper, instance icon) from any path to the sandbox. Validation (extension + **binary magic signature** PNG/JPEG/GIF/WEBP/BMP/ICO) and copying are performed exclusively in the Main Process.
+
+### 2.3 Renderer Process
+- **`renderer.js` / HTML / CSS**: The Vanilla JS interface. Has no access to `require()`. All system interactions are done by calling the asynchronous `window.api.invoke()` channels.
 
 ---
 
-## 4. Communication IPC (Best Practices)
+## 3. Security Design
 
-- **Asynchronisme** : Utilisez toujours `ipcRenderer.invoke` (côté Renderer) et `ipcMain.handle` (côté Main) pour les tâches bloquantes. L'UI ne doit jamais geler.
-- **Pas de `sendSync`** : Le seul `sendSync` qui existait (`get-paths-sync` dans `preload.js`) a été supprimé et remplacé par `BrowserWindow.additionalArguments`. L'injection de données système (appData, platform, arch, version) se fait désormais sans bloquer le thread. Le handler `ipcMain.on('get-paths-sync')` est conservé comme fallback legacy.
+The application has been audited and follows the **Defense in Depth** principle:
+
+1. **Context Isolation**: Always enabled (`contextIsolation: true`). The Javascript prototype of the Renderer is isolated from that of the Main.
+2. **IPC Sandboxing**: Native `sandbox: false` is used (required for preload's Node.js access), but compensated by hyper-strict application sandboxing in `preload.js`. Only reads in `.minecraft/` or Java directories are tolerated outside of `GensLauncher/`.
+3. **Dual-Layer CSP Architecture**:
+    - *Layer 1 (main.js)*: The HTTP header applies `script-src 'self'` (without `unsafe-inline` or `unsafe-eval`). All images and connections are limited to **HTTPS only**.
+   - *Layer 2 (index.html)*: The DOM `<meta>` tag applies the same policy. Both layers are aligned.
+4. **Encryption**: Local Microsoft authentication tokens are encrypted. The system favors `safeStorage` (native OS Keychain). If unavailable, an **AES-256-GCM** fallback is used with a key derived via **PBKDF2** (100,000 iterations, dedicated random 16 bytes salt stored in `.key_salt`). Data encrypted with the old algorithm (simple SHA-256) is automatically and silently migrated upon the first successful decryption.
+5. **IPC Whitelist**: All communication channels (send, invoke, receive) are statically listed in `preload.js`. Any out-of-list call attempt is rejected, preventing the exploitation of obscure Electron channels.
+6. **HTTPS Only**: The `http` module is not imported in `main.js`. The `downloadFile()` function rejects any non-HTTPS URL and applies a whitelist of authorized domains (`github.com`, `mojang.com`, `modrinth.com`, etc.).
+7. **Image Integrity**: The `copy-image-to-sandbox` handler validates the file extension AND its magic bytes (binary signature). A `.jpg` file with malicious content would be rejected.
+8. **Smart Offline Mode**: A centralized system (`uiCore.js`) dynamically reacts to `online/offline` events. When no connection is detected, the application physically locks the GUI (Java downloads, Horizon updates, Mods catalogs) and defuses asynchronous background pings to prevent silent Timeout errors and block unnecessary communications.
 
 ---
 
-## 5. Déploiement et CI/CD
+## 4. IPC Communication (Best Practices)
 
-Le Launcher est packagé à l'aide d'`electron-builder` au travers des GitHub Actions.
-- **Plateformes cibles** : Windows (`.exe` NSIS) et MacOS (`.dmg`).
-- **Signature Code (Code Signing)** : *Non applicable — Gens Launcher est un projet open-source gratuit et ne possède pas de certificat de signature commerciale (EV Code Signing, ~300€/an). Sur Windows, SmartScreen peut afficher un avertissement lors de la première installation. Les utilisateurs peuvent cliquer sur "Plus d'infos" → "Exécuter quand même" pour procéder. Le code source étant entièrement public sur GitHub, tout utilisateur peut auditer et compiler lui-même l'application.*
-- **Tests** : L'intégration continue déclenche automatiquement `npm test` pour s'assurer que les primitives cryptographiques et les APIs restent stables avant chaque nouvelle publication sur la branche `main`. Note : `crypto-utils.js` expose certaines fonctions internes de test uniquement lorsque la variable d'environnement `NODE_ENV` est définie à `'test'`.
+- **Asynchronicity**: Always use `ipcRenderer.invoke` (Renderer side) and `ipcMain.handle` (Main side) for blocking tasks. The UI should never freeze.
+- **No `sendSync`**: The only `sendSync` that existed (`get-paths-sync` in `preload.js`) was removed and replaced by `BrowserWindow.additionalArguments`. System data injection (appData, platform, arch, version) is now done without blocking the thread. The `ipcMain.on('get-paths-sync')` handler is kept as a legacy fallback.
+
+---
+
+## 5. Deployment and CI/CD
+
+The Launcher is packaged using `electron-builder` through GitHub Actions.
+- **Target platforms**: Windows (`.exe` NSIS) and MacOS (`.dmg`).
+- **Code Signing**: *Not applicable — Gens Launcher is a free open-source project and does not possess a commercial signing certificate (EV Code Signing, ~$300/year). On Windows, SmartScreen may display a warning upon first installation. Users can click on "More info" → "Run anyway" to proceed. As the source code is entirely public on GitHub, any user can audit and compile the application themselves.*
+- **Testing**: Continuous Integration automatically triggers `npm test` to ensure cryptographic primitives and APIs remain stable before each new release on the `main` branch. Note: `crypto-utils.js` exposes certain internal test functions only when the `NODE_ENV` environment variable is set to `'test'`.

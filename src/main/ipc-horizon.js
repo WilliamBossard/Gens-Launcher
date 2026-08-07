@@ -165,9 +165,13 @@ module.exports = function setupHorizonHandlers(context) {
                     // Stream async — ne bloque pas le Main Process (remplace readFileSync sur ~50 Mo)
                     const actualHash = await getLocalHorizonHash(horizonExePath);
                     if (actualHash !== expectedHash) {
-                        mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
-                        if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
-                        return Promise.resolve({ exitCode: -1, lastJson: null });
+                        if (!app.isPackaged) {
+                            mainLog(`SÉCURITÉ IGNORÉE (DEV) : Le hash de Horizon.exe ne correspond pas.`);
+                        } else {
+                            mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
+                            if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
+                            return Promise.resolve({ exitCode: -1, lastJson: null });
+                        }
                     }
                 } catch (hashReadErr) {
                     mainLog(`Erreur lecture Horizon.exe pour hash : ${hashReadErr.message}`);

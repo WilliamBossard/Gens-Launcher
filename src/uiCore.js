@@ -124,4 +124,61 @@ export function setupUICore() {
             window.activeModal = null;
         }
     };
+
+    window.updateOfflineUIState = () => {
+        const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+        const elementsToDisable = [
+            "btn-toolbar-catalog",
+            "btn-toolbar-builder",
+            "btn-open-catalog-mods",
+            "btn-open-catalog-shaders",
+            "btn-open-catalog-resourcepacks",
+            "btn-update-modpack",
+            "btn-check-mod-updates",
+            "btn-check-launcher",
+            "btn-ms-login",
+            "btn-horizon-update",
+            "btn-skin-acc",
+            "settings-horizon-content"
+        ];
+        
+        elementsToDisable.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                if (isOffline) {
+                    el.classList.add("offline-disabled");
+                    if (id === "settings-horizon-content") {
+                        el.style.pointerEvents = "none";
+                    }
+                } else {
+                    el.classList.remove("offline-disabled");
+                    if (id === "settings-horizon-content") {
+                        el.style.pointerEvents = "auto";
+                    }
+                }
+            }
+        });
+
+        document.querySelectorAll('[id^="btn-dl-java-"]').forEach(btn => {
+            if (btn.getAttribute("data-i18n") === "btn_java_dl") {
+                if (isOffline) {
+                    btn.classList.add("offline-disabled");
+                    btn.onclick = (e) => {
+                        if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
+                    };
+                } else {
+                    btn.classList.remove("offline-disabled");
+                    const v = btn.id.replace("btn-dl-java-", "");
+                    btn.onclick = () => { if (window.downloadJavaAuto) window.downloadJavaAuto(parseInt(v)); };
+                }
+            }
+        });
+
+        if (!isOffline && window.loadNews) {
+            window.loadNews();
+        }
+    };
+
+    window.addEventListener('online', () => { window.updateOfflineUIState(); if(window.checkServerStatus) window.checkServerStatus(); });
+    window.addEventListener('offline', () => { window.updateOfflineUIState(); if(window.checkServerStatus) window.checkServerStatus(); });
 }

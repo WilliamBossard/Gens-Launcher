@@ -6,6 +6,15 @@
  */
 document.addEventListener('DOMContentLoaded', () => {
 
+    const checkOffline = (e) => {
+        if (store.globalSettings.offlineMode || !navigator.onLine) {
+            if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            return true;
+        }
+        return false;
+    };
+
     // ── PREMIER LANCEMENT ──────────────────────────────────────
     document.getElementById('btn-save-first-launch')?.addEventListener('click', () => saveFirstLaunch());
 
@@ -13,19 +22,25 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-updates-modal')?.addEventListener('click', () => { window.closeModal('modal-updates'); });
 
     // ── COMPTE MICROSOFT ──────────────────────────────────────
-    document.getElementById('btn-ms-login')?.addEventListener('click', () => loginMicrosoft());
+    document.getElementById('btn-ms-login')?.addEventListener('click', (e) => { if(!checkOffline(e)) loginMicrosoft(); });
     document.getElementById('btn-toggle-offline')?.addEventListener('click', () => toggleOfflineInput());
     document.getElementById('btn-save-offline')?.addEventListener('click', () => saveOfflineAccount());
     document.getElementById('btn-use-acc')?.addEventListener('click', () => useSelectedRow());
-    document.getElementById('btn-skin-acc')?.addEventListener('click', () => openSkinModal());
+    document.getElementById('btn-skin-acc')?.addEventListener('click', (e) => { if (checkOffline(e)) return; openSkinModal(); });
     document.getElementById('btn-del-acc')?.addEventListener('click', () => deleteSelectedRow());
     document.getElementById('btn-close-account-modal')?.addEventListener('click', () => closeAccountModal());
 
     // ── TOOLBAR ────────────────────────────────────────────────
     document.getElementById('btn-open-instance-modal')?.addEventListener('click', () => window.openInstanceModal());
-    document.getElementById('btn-toolbar-builder')?.addEventListener('click', () => openBuilderModal());
+    document.getElementById('btn-toolbar-builder')?.addEventListener('click', (e) => {
+        if (checkOffline(e)) return;
+        openBuilderModal();
+    });
     document.getElementById('btn-import-upload')?.addEventListener('click', () => document.getElementById('import-upload').click());
-    document.getElementById('btn-toolbar-catalog')?.addEventListener('click', () => openCatalogModal());
+    document.getElementById('import-upload')?.addEventListener('change', (e) => {
+        if (window.handleImport) window.handleImport(e.target);
+    });
+    document.getElementById('btn-toolbar-catalog')?.addEventListener('click', (e) => { if(!checkOffline(e)) openCatalogModal(); });
     document.getElementById('btn-open-global-settings')?.addEventListener('click', () => openGlobalSettings());
     document.getElementById('btn-show-console')?.addEventListener('click', () => { document.getElementById('console-container').style.display = 'block'; });
     document.getElementById('btn-open-stats')?.addEventListener('click', () => openStatsModal());
@@ -44,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-delete')?.addEventListener('click', () => deleteInstance());
     document.getElementById('btn-copy')?.addEventListener('click', () => copyInstance());
     document.getElementById('btn-export')?.addEventListener('click', () => exportInstance());
-    document.getElementById('btn-update-modpack')?.addEventListener('click', () => document.getElementById('update-modpack-input').click());
+    document.getElementById('btn-update-modpack')?.addEventListener('click', (e) => { if(!checkOffline(e)) document.getElementById('update-modpack-input').click(); });
     document.getElementById('btn-clean-cache')?.addEventListener('click', () => cleanCache());
 
     // ── MODAL STATISTIQUES ────────────────────────────────────
@@ -86,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-bg-upload')?.addEventListener('click', () => document.getElementById('bg-upload').click());
     document.getElementById('btn-clear-bg')?.addEventListener('click', () => { document.getElementById('global-bg-path').value = ''; });
     document.getElementById('btn-start-update')?.addEventListener('click', () => startLauncherUpdate());
-    document.getElementById('btn-check-launcher')?.addEventListener('click', () => checkLauncherUpdates());
+    document.getElementById('btn-check-launcher')?.addEventListener('click', (e) => { if (checkOffline(e)) return; checkLauncherUpdates(); });
     // Les boutons btn-dl-java-* sont gérés dynamiquement par SettingsUI.updateJavaButtonsDisplay() via btn.onclick.
     // NE PAS ajouter addEventListener ici (conflits double-déclenchement).
     document.getElementById('btn-close-global-settings')?.addEventListener('click', () => closeGlobalSettings());
@@ -104,13 +119,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-edit-icon-upload')?.addEventListener('click', () => document.getElementById('edit-icon-upload').click());
     document.getElementById('btn-open-icon-gallery')?.addEventListener('click', () => openIconGallery());
     document.getElementById('btn-force-inject-options')?.addEventListener('click', () => forceInjectOptions());
-    document.getElementById('btn-check-mod-updates')?.addEventListener('click', () => checkModUpdates());
+    document.getElementById('btn-check-mod-updates')?.addEventListener('click', (e) => { if (checkOffline(e)) return; checkModUpdates(); });
     document.getElementById('btn-open-dir-mods')?.addEventListener('click', () => openDir('mods'));
-    document.getElementById('btn-open-catalog-mods')?.addEventListener('click', () => { closeEditModal(); document.getElementById('catalog-type').value = 'mod'; openCatalogModal(); });
+    document.getElementById('btn-open-catalog-mods')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'mod'; openCatalogModal(); });
     document.getElementById('btn-open-dir-shaderpacks')?.addEventListener('click', () => openDir('shaderpacks'));
-    document.getElementById('btn-open-catalog-shaders')?.addEventListener('click', () => { closeEditModal(); document.getElementById('catalog-type').value = 'shader'; openCatalogModal(); });
+    document.getElementById('btn-open-catalog-shaders')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'shader'; openCatalogModal(); });
     document.getElementById('btn-open-dir-resourcepacks')?.addEventListener('click', () => openDir('resourcepacks'));
-    document.getElementById('btn-open-catalog-resourcepacks')?.addEventListener('click', () => { closeEditModal(); document.getElementById('catalog-type').value = 'resourcepack'; openCatalogModal(); });
+    document.getElementById('btn-open-catalog-resourcepacks')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'resourcepack'; openCatalogModal(); });
     document.getElementById('btn-add-server')?.addEventListener('click', () => addServer());
     document.getElementById('btn-open-dir-backups-edit')?.addEventListener('click', () => openDir('backups'));
     document.getElementById('btn-scan-java-edit')?.addEventListener('click', () => scanJavaVersions());

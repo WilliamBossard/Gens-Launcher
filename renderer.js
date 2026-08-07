@@ -136,6 +136,9 @@ async function init() {
         document.getElementById("app-version").innerText = "v" + window.api.version;
         await window.loadStorage();
         window._isStorageLoaded = true;
+        window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
+        window.api.send("set-offline-mode", store.globalSettings.offlineMode);
+        if (window.updateOfflineUIState) window.updateOfflineUIState();
         if (window._pendingAutoLaunch && window.processAutoLaunch) {
             window.processAutoLaunch(window._pendingAutoLaunch);
         }
@@ -588,6 +591,7 @@ window.api.on("horizon-status", async (data) => {
                 } catch (e) { console.error("Erreur màj instance.json après sync:", e); }
 
                 localInst._iconCacheBuster = Date.now();
+                if (window.updateIconCache) await window.updateIconCache(localInst);
                 if (window.renderUI) window.renderUI();
                 if (window.selectInstance && store.allInstances[store.selectedInstanceIdx] === localInst) {
                     window.selectInstance(store.selectedInstanceIdx);

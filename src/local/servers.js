@@ -165,6 +165,15 @@ export function setup() {
         const signal = _pingAbortController.signal;
         const instName = inst.name;
         const servers  = [...inst.servers];
+
+        const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+        if (isOffline) {
+            for (let i = 0; i < servers.length; i++) {
+                const statusDiv = document.getElementById(`srv-ping-${i}`);
+                if (statusDiv) statusDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
+            }
+            return;
+        }
         const pingOne = async (ip, i) => {
             const statusDiv = document.getElementById(`srv-ping-${i}`);
             if (!statusDiv || signal.aborted) return;

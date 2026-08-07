@@ -268,6 +268,10 @@ window.fetchWithTimeout = async (resource, options = {}) => {
 export { sysLog, yieldUI };
 
 window.reconnectDiscord = async () => {
+    if (store.globalSettings.offlineMode || !navigator.onLine) {
+        window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
+        return;
+    }
     window.showToast(t("msg_rpc_connecting", "Connexion à Discord en cours..."));
     try {
         const res = await window.api.invoke("reconnect-discord");

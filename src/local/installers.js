@@ -31,6 +31,7 @@ export function setup() {
             algorithm: "sha1",
             loaders: [loader],
             game_versions: [inst.version],
+            version_types: ["release", "beta", "alpha"]
         };
         window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
         await yieldUI();

@@ -61,6 +61,7 @@ export function setupSettings() {
                 btn.onclick = () => window.downloadJavaAuto(v);
             }
         }
+        if (window.updateOfflineUIState) window.updateOfflineUIState();
     };
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";
@@ -133,6 +134,9 @@ export function setupSettings() {
         store.globalSettings.disableTransparency = document.getElementById("global-disable-transparency").value === "true";
         store.globalSettings.offlineMode = document.getElementById("global-offline-mode").value === "true";
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
+        window.api.send("set-offline-mode", store.globalSettings.offlineMode);
+        if (window.updateOfflineUIState) window.updateOfflineUIState();
+        if (window.checkServerStatus) window.checkServerStatus();
         let bgPath = document.getElementById("global-bg-path").value.trim();
         const prevBg = store.globalSettings.theme?.bg || "";
         if (bgPath) {
@@ -553,9 +557,11 @@ window.refreshHorizonUI = async () => {
                 row.style.display = modeSelect.value === "FULL" ? "none" : "block";
             }
         };
-        const isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
+        let isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
+        const isOffline = store.globalSettings.offlineMode || !navigator.onLine;
+        if (isOffline) isEnabled = false;
         const statusColor = isEnabled ? "#17B139" : "#f87171";
-        const statusText = isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif");
+        const statusText = isOffline ? t("horizon_offline", "Désactivé (Hors-Ligne)") : (isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif"));
         const currentProvider = status.provider || "google";
         let linkBtnHTML = "";
         if (status.linked) {
@@ -611,8 +617,8 @@ window.refreshHorizonUI = async () => {
             }
         };
         const updateBtnHTML = (status.needsUpdate && !status.offline)
-            ? `<button id="btn-horizon-update" class="btn-primary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
-            : `<button id="btn-horizon-update" class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+            ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
+            : `<button id="btn-horizon-update" class="btn-secondary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
         let html = `
             <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
@@ -713,7 +719,7 @@ window.refreshHorizonUI = async () => {
         // ── Attacher tous les événements après injection HTML (remplace les handlers inline) ──
         container.querySelector('#btn-horizon-disconnect')?.addEventListener('click', () => disconnectHorizon());
         container.querySelector('#btn-horizon-link')?.addEventListener('click', () => runHorizonLogin(document.getElementById('horizon-provider-select')?.value));
-        container.querySelector('#btn-horizon-update')?.addEventListener('click', () => handleHorizonInstall());
+        container.querySelector('#btn-horizon-update')?.addEventListener('click', (e) => { if (window.checkOffline && window.checkOffline(e)) return; handleHorizonInstall(); });
         container.querySelector('#select-horizon-system-enabled')?.addEventListener('change', (e) => saveHorizonConfig('systemEnabled', e.target.value));
         container.querySelector('#horizon-provider-select')?.addEventListener('change', (e) => changeHorizonProvider(e.target.value));
         container.querySelector('#select-horizon-sync-mode')?.addEventListener('change', (e) => { saveHorizonConfig('syncMode', e.target.value); toggleDeltaThresholdRow(); });
