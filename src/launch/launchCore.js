@@ -128,7 +128,7 @@ export async function analyzeCrash(instanceName) {
         }
         const combinedLog = (latestReport + "\n\n" + logData + "\n\n" + uiLogs).substring(0, 200000);
         
-        const classVerMatch = uiLogs.match(/class file version (\d+\.\d+), this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/) || combinedLog.match(/class file version (\d+\.\d+), this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/);
+        const classVerMatch = uiLogs.match(/class file version (\d+\.\d+).*?this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/) || combinedLog.match(/class file version (\d+\.\d+).*?this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/);
         if (uiLogs.includes("UnsupportedClassVersionError") || combinedLog.includes("UnsupportedClassVersionError") || classVerMatch) {
             result.cause = window.t("crash_java_ver_cause", "Version de Java incompatible");
             let needed = "plus récente";
