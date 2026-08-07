@@ -60,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-delete')?.addEventListener('click', () => deleteInstance());
     document.getElementById('btn-copy')?.addEventListener('click', () => copyInstance());
     document.getElementById('btn-export')?.addEventListener('click', () => exportInstance());
-    document.getElementById('btn-update-modpack')?.addEventListener('click', (e) => { if(!checkOffline(e)) document.getElementById('update-modpack-input').click(); });
     document.getElementById('btn-clean-cache')?.addEventListener('click', () => cleanCache());
 
     // ── MODAL STATISTIQUES ────────────────────────────────────

@@ -724,20 +724,22 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             const versions = await res.json();
             if (versions.length > 0) {
                 const latest = versions[0];
+                if (inst.modpackVersion === latest.version_number) return;
                 const updateBtn = document.getElementById("btn-update-modpack");
                 if (updateBtn && latest.files && latest.files.length > 0) {
                     const mrpackFile = latest.files.find((f) => f.filename.endsWith(".mrpack")) || latest.files[0];
+                    updateBtn.style.display = "inline-block";
                     updateBtn.style.background = "#f48a21"; 
                     updateBtn.style.color = "#fff";
                     updateBtn.innerHTML = `Mettre à jour (${latest.version_number})`;
-                    updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId);
+                    updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId, latest.version_number, store.selectedInstanceIdx);
                 }
             }
         } catch (e) {
             sysLog("Erreur vérification MAJ modpack: " + e.message, true);
         }
     };
-    window.performModpackUpdate = async (url, filename, projectId) => {
+    window.performModpackUpdate = async (url, filename, projectId, versionNumber, targetInstIdx) => {
         try {
             window.showLoading(t("msg_dl_mp", "Téléchargement de la mise à jour..."), 0);
             const safeTempName = sanitizeFilename(filename || "modpack.mrpack");
@@ -747,7 +749,13 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             const buffer = await dlRes.arrayBuffer();
             await fs.promises.writeFile(tempPath, new Uint8Array(buffer));
             window.showLoading(t("msg_install_mp", "Installation..."), 0);
-            await window.handleMrPackImport(tempPath, projectId);
+            await window.handleMrPackImport(tempPath, projectId, targetInstIdx);
+            
+            if (targetInstIdx !== null && store.allInstances[targetInstIdx]) {
+                store.allInstances[targetInstIdx].modpackVersion = versionNumber;
+                window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            }
+            
             await fs.promises.unlink(tempPath);
             window.showToast("Mise à jour du Modpack terminée !", "success");
         } catch(e) {

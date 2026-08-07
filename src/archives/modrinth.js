@@ -85,7 +85,7 @@ export function setup() {
          window.renderUI();
       }
     };
-    window.handleMrPackImport = async function(packPath, projectId = null) {
+    window.handleMrPackImport = async function(packPath, projectId = null, updateTargetInstIdx = null) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
@@ -106,18 +106,35 @@ export function setup() {
         else if (index.dependencies.forge) { loaderType = "forge"; loaderVer = index.dependencies.forge; } 
         else if (index.dependencies.neoforge) { loaderType = "neoforge"; loaderVer = index.dependencies.neoforge; }
         let finalName = packName;
-        let counter = 1;
-        while (store.allInstances.some((i) => i.name === finalName)) {
-          finalName = `${packName} (${counter})`;
-          counter++;
+        if (updateTargetInstIdx !== null) {
+            finalName = store.allInstances[updateTargetInstIdx].name;
+            const targetDir = path.join(store.instancesRoot, window.safeDir(finalName));
+            const modsDir = path.join(targetDir, "mods");
+            if (await fs.promises.access(modsDir).then(()=>true).catch(()=>false)) {
+                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch(e){}
+            }
+        } else {
+            let counter = 1;
+            while (store.allInstances.some((i) => i.name === finalName)) {
+              finalName = `${packName} (${counter})`;
+              counter++;
+            }
         }
-        const newInst = {
-          name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
-          ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
-          jvmProfile: "none", sessionHistory: [],
-          notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
-          lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
-        };
+        let newInst;
+        if (updateTargetInstIdx !== null) {
+            newInst = store.allInstances[updateTargetInstIdx];
+            newInst.version = mcVer;
+            newInst.loader = loaderType;
+            newInst.loaderVersion = loaderVer;
+        } else {
+            newInst = {
+              name: finalName, version: mcVer, loader: loaderType, loaderVersion: loaderVer,
+              ram: store.globalSettings.defaultRam.toString(), javaPath: "", jvmArgs: "",
+              jvmProfile: "none", sessionHistory: [],
+              notes: "Modpack: " + packName, icon: "", resW: "", resH: "", playTime: 0,
+              lastPlayed: 0, group: t("opt_modpack", "Modpacks"), servers: [], backupMode: "none", backupLimit: 5,
+            };
+        }
         if (projectId) newInst.modrinthId = projectId;
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!(await fs.promises.access(instDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(instDir, { recursive: true });
@@ -186,10 +203,12 @@ export function setup() {
         if (await fs.promises.access(defaultOpt).then(()=>true).catch(()=>false) && !(await fs.promises.access(instOpt).then(()=>true).catch(()=>false))) {
             try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         }
-        store.allInstances.push(newInst);
+        if (updateTargetInstIdx === null) {
+            store.allInstances.push(newInst);
+            store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
+        }
         if (window.updateIconCache) window.updateIconCache(newInst);
         try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
-        store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");

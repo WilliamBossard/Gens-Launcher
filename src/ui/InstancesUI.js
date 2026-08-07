@@ -126,7 +126,7 @@ export function setupInstances() {
         document.getElementById("panel-stats").style.display = "block";
         const updateBtn = document.getElementById("btn-update-modpack");
         if (updateBtn) {
-            updateBtn.style.display = inst.modrinthId ? "inline-block" : "none";
+            updateBtn.style.display = "none";
             if (inst.modrinthId && isNewInstance && window.checkModpackUpdate) {
                 window.checkModpackUpdate(inst);
             }
