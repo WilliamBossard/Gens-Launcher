@@ -90,6 +90,9 @@ export function getRequiredJavaVersion(mcVersion) {
 }
 
 export async function analyzeCrash(instanceName) {
+    // Wait for all IPC log events and DOM updates to finish (fixes race conditions)
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     const instDir = path.join(store.instancesRoot, window.safeDir(instanceName));
     const crashDir = path.join(instDir, "crash-reports");
     let result = { cause: window.t("cause_unknown", "Raison inconnue"), action: window.t("action_unknown", "Aucune action spécifique recommandée. Vérifiez les logs complets."), logExcerpt: "", mod: null };
