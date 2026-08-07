@@ -27,37 +27,37 @@ require.cache[require.resolve('electron')] = {
 process.env.NODE_ENV = 'test';
 const { encryptText, decryptText, legacyDecryptText, _getMainProcSecretKey } = require('../src/main/crypto-utils.js');
 
-test('Crypto Utils - safeStorage (mocked)', (t) => {
+test('Crypto Utils - safeStorage (mocked)', async (t) => {
     const text = 'hello world';
-    const encrypted = encryptText(text);
+    const encrypted = await encryptText(text);
 
     assert.ok(encrypted.startsWith('safeStorage:'), 'Devrait utiliser safeStorage');
 
-    const decrypted = decryptText(encrypted);
+    const decrypted = await decryptText(encrypted);
     assert.strictEqual(decrypted, text, 'Le déchiffrement doit correspondre au texte original');
 });
 
-test('Crypto Utils - AES fallback', (t) => {
+test('Crypto Utils - AES fallback', async (t) => {
     mockElectron.safeStorage.isEncryptionAvailable = () => false;
 
     const text = 'my super secret string';
-    const encrypted = encryptText(text);
+    const encrypted = await encryptText(text);
 
     assert.ok(encrypted.startsWith('aes-gcm:'), 'Devrait utiliser le fallback AES-GCM');
 
-    const decrypted = decryptText(encrypted);
+    const decrypted = await decryptText(encrypted);
     assert.strictEqual(decrypted, text, 'Le déchiffrement AES doit correspondre au texte original');
 });
 
-test('Crypto Utils - Legacy AES', (t) => {
+test('Crypto Utils - Legacy AES', async (t) => {
     mockElectron.safeStorage.isEncryptionAvailable = () => false;
 
-    const key = _getMainProcSecretKey();
+    const key = await _getMainProcSecretKey();
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
     let enc = cipher.update('legacy string', 'utf8', 'hex') + cipher.final('hex');
     const legacyHex = iv.toString('hex') + ':' + enc;
 
-    const decrypted = legacyDecryptText(legacyHex);
+    const decrypted = await legacyDecryptText(legacyHex);
     assert.strictEqual(decrypted, 'legacy string', 'Le déchiffrement legacy doit fonctionner');
 });
