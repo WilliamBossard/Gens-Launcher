@@ -102,7 +102,10 @@ export async function analyzeCrash(instanceName) {
                 if (reports.length > 0) {
                     const stats = await Promise.all(reports.map(async f => ({ file: f, stat: await fs.promises.stat(path.join(crashDir, f)) })));
                     stats.sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
-                    latestReport = await fs.promises.readFile(path.join(crashDir, stats[0].file), 'utf8');
+                    const now = Date.now();
+                    if (now - stats[0].stat.mtime.getTime() < 60000) {
+                        latestReport = await fs.promises.readFile(path.join(crashDir, stats[0].file), 'utf8');
+                    }
                 }
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }

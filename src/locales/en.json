@@ -654,5 +654,6 @@
   "crash_glfw_mac_cause": "Incompatible Java version (macOS GLFW)",
   "crash_glfw_mac_action": "On Mac, this display error (GLFW) occurs if the Java version used is not perfectly adapted to this game version. Please use the recommended version.",
   "btn_auto_install_java": "Automatically install Java {0}",
-  "btn_auto_use_java": "Use Java {0} automatically"
+  "btn_auto_use_java": "Use Java {0} automatically",
+  "btn_auto_install_java_generic": "Automatically install the correct Java version"
 }
