@@ -181,6 +181,13 @@ export async function analyzeCrash(instanceName) {
             result.logExcerpt = combinedLog.match(/.*GLFW error.*/g)?.join('\n') || "Erreur OpenGL détectée";
             return result;
         }
+        if (combinedLog.includes("VK_ERROR_INCOMPATIBLE_DRIVER") || combinedLog.includes("BackendCreationException")) {
+            result.cause = window.t("crash_vk_cause", "Erreur Graphique (Vulkan non supporté)");
+            result.action = window.t("crash_vk_action", "Votre carte graphique ou votre machine virtuelle ne supporte pas Vulkan, qui est requis pour l'affichage de ce jeu. Si vous êtes sur une machine virtuelle (comme Proxmox), une vraie carte graphique (GPU Passthrough) est nécessaire.");
+            const vkMatch = combinedLog.match(/.*BackendCreationException.*/) || combinedLog.match(/.*VK_ERROR_INCOMPATIBLE_DRIVER.*/);
+            result.logExcerpt = vkMatch ? vkMatch[0] : "Erreur d'initialisation Vulkan détectée";
+            return result;
+        }
         if (combinedLog.includes("EXCEPTION_ACCESS_VIOLATION") || combinedLog.includes("Problematic frame")) {
             result.cause = window.t("crash_driver_cause", "Crash Graphique / Driver (Access Violation)");
             result.action = window.t("crash_driver_action", "Mettez à jour vos pilotes graphiques. Si le problème persiste, désactivez les mods d'optimisation graphique.");
