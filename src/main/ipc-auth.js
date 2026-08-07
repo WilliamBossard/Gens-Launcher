@@ -45,6 +45,7 @@ module.exports = function setupAuthHandlers(context) {
             if (response.msaRefreshToken) {
                 const encryptedToken = await encryptText(response.msaRefreshToken);
                 await fs.promises.writeFile(path.join(cacheDir, sessionLabel + '.json'), JSON.stringify({ refreshToken: encryptedToken }));
+                response.msaRefreshToken = null;
             }
 
             mainLog(`Authentification réussie : ${profile.name}`);
@@ -116,7 +117,9 @@ module.exports = function setupAuthHandlers(context) {
             if (response.msaRefreshToken) {
                 const encryptedToken = await encryptText(response.msaRefreshToken);
                 await fs.promises.writeFile(cacheFile, JSON.stringify({ refreshToken: encryptedToken }));
+                response.msaRefreshToken = null;
             }
+            decryptedToken = null;
 
             mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
             return { success: true, access_token: response.mcToken };

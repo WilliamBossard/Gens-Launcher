@@ -258,12 +258,13 @@ module.exports = function setupHorizonHandlers(context) {
                                 if (!settled) {
                                     mainLog(`[Horizon] Arrêt forcé (SIGKILL) après inactivité.`);
                                     try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                                    finish(-1);
                                 }
                             }, 2000);
                         } catch (_) {
                             try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                            finish(-1);
                         }
-                        finish(-1);
                     }
                 }, timeoutMs);
             };
