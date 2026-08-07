@@ -4,6 +4,7 @@
  * Généré automatiquement lors du refactoring CSP (suppression unsafe-inline)
  * ============================================================
  */
+import { store } from "./store.js";
 document.addEventListener('DOMContentLoaded', () => {
 
     const checkOffline = (e) => {
