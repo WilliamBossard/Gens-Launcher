@@ -5,52 +5,38 @@ const { execFile } = require('child_process');
 
 async function extractArchive({ archivePath, destDir, isWin }) {
     if (isWin && archivePath.endsWith(".zip")) {
-        const yauzl = require("yauzl");
-        return new Promise((resolve, reject) => {
+        const yauzl = require("yauzl-promise");
+        const { pipeline } = require("stream/promises");
+        let zipfile;
+        try {
+            zipfile = await yauzl.open(archivePath);
+            const total = zipfile.entryCount;
+            let processed = 0;
             const resolvedTarget = path.resolve(destDir);
-            yauzl.open(archivePath, { lazyEntries: true }, (err, zipfile) => {
-                if (err) return reject(err);
-                const total = zipfile.entryCount;
-                let processed = 0;
-                zipfile.readEntry();
-                zipfile.on("entry", async (entry) => {
-                    const dest = path.join(destDir, entry.fileName);
-                    const resDest = path.resolve(dest);
-                    if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
-                        parentPort.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entry.fileName });
-                        zipfile.readEntry(); 
-                        return;
-                    }
-                    if (/\/$/.test(entry.fileName)) {
-                        await fs.promises.mkdir(dest, { recursive: true });
-                        zipfile.readEntry();
-                    } else {
-                        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-                        zipfile.openReadStream(entry, (err, readStream) => {
-                            if (err) { 
-                                zipfile.close(); 
-                                return reject(err); 
-                            }
-                            const writeStream = fs.createWriteStream(dest);
-                            readStream.pipe(writeStream);
-                            writeStream.on("close", () => {
-                                processed++;
-                                const progress = Math.min(100, Math.round((processed / total) * 100));
-                                parentPort.postMessage({ type: 'progress', progress });
-                                zipfile.readEntry();
-                            });
-                            writeStream.on("error", (wErr) => {
-                                readStream.destroy();
-                                zipfile.close();
-                                reject(wErr);
-                            });
-                        });
-                    }
-                });
-                zipfile.on("end", () => resolve(true));
-                zipfile.on("error", (zErr) => reject(zErr));
-            });
-        });
+
+            for await (const entry of zipfile) {
+                const dest = path.join(destDir, entry.fileName);
+                const resDest = path.resolve(dest);
+                if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                    parentPort.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entry.fileName });
+                    continue;
+                }
+                if (/\/$/.test(entry.fileName)) {
+                    await fs.promises.mkdir(dest, { recursive: true });
+                } else {
+                    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+                    const readStream = await entry.openReadStream();
+                    const writeStream = fs.createWriteStream(dest);
+                    await pipeline(readStream, writeStream);
+                    processed++;
+                    const progress = Math.min(100, Math.round((processed / total) * 100));
+                    parentPort.postMessage({ type: 'progress', progress });
+                }
+            }
+            return true;
+        } finally {
+            if (zipfile) await zipfile.close();
+        }
     }
 
     return new Promise((resolve, reject) => {

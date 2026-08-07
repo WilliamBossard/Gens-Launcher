@@ -4,61 +4,56 @@ const crypto = require('crypto')
 const child = require('child_process')
 let counter = 0
 
-const yauzl = require('yauzl');
+const yauzl = require('yauzl-promise');
+const { pipeline } = require('stream/promises');
+
 class Zip {
   constructor(zipPath) {
     this.zipPath = zipPath;
   }
-  extractAllTo(dest, overwrite) {
-    return new Promise((resolve, reject) => {
-      yauzl.open(this.zipPath, { lazyEntries: true }, (err, zipfile) => {
-        if (err) return reject(err);
-        zipfile.readEntry();
-        zipfile.on('entry', async (entry) => {
-          if (entry.fileName.endsWith('/')) {
-            await fs.promises.mkdir(path.join(dest, entry.fileName), { recursive: true });
-            zipfile.readEntry();
-          } else {
-            zipfile.openReadStream(entry, async (err, readStream) => {
-              if (err) return reject(err);
-              const destPath = path.join(dest, entry.fileName);
-              await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-              const writeStream = fs.createWriteStream(destPath);
-              readStream.pipe(writeStream);
-              writeStream.on('close', () => zipfile.readEntry());
-              writeStream.on('error', (e) => { readStream.destroy(); reject(e); });
-              readStream.on('error', (e) => { writeStream.destroy(); reject(e); });
-            });
-          }
-        });
-        zipfile.on('error', (e) => reject(e));
-        zipfile.on('end', () => resolve());
-      });
-    });
+  
+  async extractAllTo(dest, overwrite) {
+    const zipfile = await yauzl.open(this.zipPath);
+    try {
+      for await (const entry of zipfile) {
+        const destPath = path.join(dest, entry.fileName);
+        if (entry.fileName.endsWith('/')) {
+          await fs.promises.mkdir(destPath, { recursive: true });
+        } else {
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+          const readStream = await entry.openReadStream();
+          const writeStream = fs.createWriteStream(destPath);
+          await pipeline(readStream, writeStream);
+        }
+      }
+    } finally {
+      await zipfile.close();
+    }
   }
-  readAsText(fileName) {
-    return new Promise((resolve, reject) => {
-      yauzl.open(this.zipPath, { lazyEntries: true }, (err, zipfile) => {
-        if (err) return resolve(null);
-        zipfile.readEntry();
-        zipfile.on('entry', (entry) => {
+  
+  async readAsText(fileName) {
+    try {
+      const zipfile = await yauzl.open(this.zipPath);
+      try {
+        for await (const entry of zipfile) {
           if (entry.fileName === fileName) {
-            zipfile.openReadStream(entry, (err, readStream) => {
-              if (err) { zipfile.close(); return resolve(null); }
-              let data = '';
-              readStream.on('data', chunk => data += chunk);
-              readStream.on('end', () => { zipfile.close(); resolve(data); });
-              readStream.on('error', () => { zipfile.close(); resolve(null); });
-            });
-          } else {
-            zipfile.readEntry();
+            const readStream = await entry.openReadStream();
+            let data = '';
+            for await (const chunk of readStream) {
+              data += chunk;
+            }
+            return data;
           }
-        });
-        zipfile.on('error', () => resolve(null));
-        zipfile.on('end', () => resolve(null));
-      });
-    });
+        }
+        return null;
+      } finally {
+        await zipfile.close();
+      }
+    } catch (e) {
+      return null;
+    }
   }
+  
   getEntry(fileName) {
     return true;
   }

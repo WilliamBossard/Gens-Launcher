@@ -633,5 +633,6 @@
   "msg_connection_lost": "Connection lost: Offline mode enabled",
   "msg_connection_restored": "Connection restored: Online mode enabled",
   "err_offline_first_launch": "Internet is required for the first launch to download game files.",
-  "msg_disabled_offline": "This action is disabled in offline mode."
+  "msg_disabled_offline": "This action is disabled in offline mode.",
+  "msg_err_offline": "This feature requires an internet connection."
 }

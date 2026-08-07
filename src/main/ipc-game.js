@@ -226,8 +226,9 @@ module.exports = function setupGameHandlers(context) {
 
     ipcMain.handle("check-internet", async () => {
         try {
-            await require("dns").promises.resolve("google.com");
-            return true;
+            const res = await fetch("http://captive.apple.com/hotspot-detect.html", { signal: AbortSignal.timeout(3000) });
+            const text = await res.text();
+            return text.includes("Success");
         } catch (e) {
             return false;
         }

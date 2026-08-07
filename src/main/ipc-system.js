@@ -59,45 +59,30 @@ module.exports = function setupSystemHandlers(context) {
     });
 
     ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
-        const yauzl = require("yauzl");
-        return new Promise((resolve) => {
+        const yauzl = require("yauzl-promise");
+        try {
+            zipPath = assertPathUnderSandbox(zipPath);
+            const targets = new Set(entryNames);
+            const zipfile = await yauzl.open(zipPath);
             try {
-                zipPath = assertPathUnderSandbox(zipPath);
-                const targets = new Set(entryNames);
-                yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-                    if (err) return resolve({ success: false });
-                    zipfile.readEntry();
-                    zipfile.on("entry", (entry) => {
-                        try {
-                            if (targets.has(entry.fileName)) {
-                                zipfile.openReadStream(entry, (err, readStream) => {
-                                    if (err) { zipfile.readEntry(); return; }
-                                    let data = '';
-                                    readStream.on("data", chunk => data += chunk);
-                                    readStream.on("end", () => {
-                                        zipfile.close();
-                                        resolve({ success: true, text: data, file: entry.fileName });
-                                    });
-                                });
-                            } else {
-                                zipfile.readEntry();
-                            }
-                        } catch (e) {
-                            mainLog(`[read-zip-text] Exception sur entrée ${entry.fileName} : ${e.message}`);
-                            zipfile.readEntry();
+                for await (const entry of zipfile) {
+                    if (targets.has(entry.fileName)) {
+                        const readStream = await entry.openReadStream();
+                        let data = '';
+                        for await (const chunk of readStream) {
+                            data += chunk;
                         }
-                    });
-                    zipfile.on("end", () => resolve({ success: false }));
-                    zipfile.on("error", (zErr) => {
-                        mainLog(`[read-zip-text] Erreur zipfile : ${zErr.message}`);
-                        resolve({ success: false });
-                    });
-                });
-            } catch (err) {
-                mainLog(`[read-zip-text] Exception critique : ${err.message}`);
-                resolve({ success: false });
+                        return { success: true, text: data, file: entry.fileName };
+                    }
+                }
+                return { success: false };
+            } finally {
+                await zipfile.close();
             }
-        });
+        } catch (err) {
+            mainLog(`[read-zip-text] Exception critique : ${err.message}`);
+            return { success: false };
+        }
     });
 
     ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
@@ -105,76 +90,55 @@ module.exports = function setupSystemHandlers(context) {
             mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
             zipPath = assertPathUnderSandbox(zipPath); // AUDIT-15 : défense en profondeur — re-validation côté Main
             destDir = assertPathUnderSandbox(destDir);
-
             
-            return await new Promise((resolve) => {
-                const yauzl = require("yauzl");
-                yauzl.open(zipPath, { lazyEntries: true }, async (err, zipfile) => {
-                    if (err) {
-                        mainLog(`[extract-zip] Erreur ouverture zip: ${err.message}`);
-                        return resolve({ success: false, error: err.message });
+            const yauzl = require("yauzl-promise");
+            const { pipeline } = require("stream/promises");
+            
+            let zipfile;
+            try {
+                zipfile = await yauzl.open(zipPath);
+                if (!(await fs.promises.access(destDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destDir, { recursive: true });
+                const total = zipfile.entryCount;
+                let processed = 0;
+                let lastProgress = -1;
+                const resolvedTarget = path.resolve(destDir);
+
+                for await (const entry of zipfile) {
+                    const destPath = path.join(destDir, entry.fileName);
+                    const resDest = path.resolve(destPath);
+                    
+                    if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                        continue;
                     }
-                    
-                    if (!(await fs.promises.access(destDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destDir, { recursive: true });
-                    const total = zipfile.entryCount;
-                    let processed = 0;
-                    let lastProgress = -1;
 
-                    zipfile.readEntry();
-                    zipfile.on("entry", async (entry) => {
-                        const destPath = path.join(destDir, entry.fileName);
-                        const resDest = path.resolve(destPath);
-                        const resolvedTarget = path.resolve(destDir);
+                    if (/\/$/.test(entry.fileName)) {
+                        if (!(await fs.promises.access(destPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destPath, { recursive: true });
+                        processed++;
+                    } else {
+                        if (!(await fs.promises.access(path.dirname(destPath)).then(()=>true).catch(()=>false))) await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+                        try {
+                            const readStream = await entry.openReadStream();
+                            const writeStream = fs.createWriteStream(destPath);
+                            await pipeline(readStream, writeStream);
+                        } catch (streamErr) {
+                            mainLog(`[extract-zip] Erreur sur l'entrée ${entry.fileName}: ${streamErr.message}`);
+                        }
+                        processed++;
                         
-                        if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
-                            zipfile.readEntry();
-                            return;
+                        if (total > 0) {
+                            const pct = Math.min(100, Math.round((processed / total) * 100));
+                            if (pct !== lastProgress) {
+                                lastProgress = pct;
+                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
+                            }
                         }
-
-                        if (/\/$/.test(entry.fileName)) {
-                            if (!(await fs.promises.access(destPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destPath, { recursive: true });
-                            processed++;
-                            zipfile.readEntry();
-                        } else {
-                            if (!(await fs.promises.access(path.dirname(destPath)).then(()=>true).catch(()=>false))) await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-                            zipfile.openReadStream(entry, (err, readStream) => {
-                                if (err) {
-                                    processed++;
-                                    zipfile.readEntry();
-                                    return;
-                                }
-                                const writeStream = fs.createWriteStream(destPath);
-                                readStream.pipe(writeStream);
-                                writeStream.on("close", () => {
-                                    processed++;
-                                    if (total > 0) {
-                                        const pct = Math.min(100, Math.round((processed / total) * 100));
-                                        if (pct !== lastProgress) {
-                                            lastProgress = pct;
-                                            try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
-                                        }
-                                    }
-                                    zipfile.readEntry();
-                                });
-                                writeStream.on("error", (wErr) => {
-                                    processed++;
-                                    zipfile.readEntry();
-                                });
-                            });
-                        }
-                    });
-                    
-                    zipfile.on("end", () => {
-                        mainLog(`[extract-zip] Extraction terminée avec succès (${processed}/${total} entrées).`);
-                        resolve({ success: true });
-                    });
-                    
-                    zipfile.on("error", (err) => {
-                        mainLog(`[extract-zip] Erreur extraction: ${err.message}`);
-                        resolve({ success: false, error: err.message });
-                    });
-                });
-            });
+                    }
+                }
+                mainLog(`[extract-zip] Extraction terminée avec succès (${processed}/${total} entrées).`);
+                return { success: true };
+            } finally {
+                if (zipfile) await zipfile.close();
+            }
         } catch (e) {
             mainLog(`[extract-zip] Exception: ${e.message}`);
             return { success: false, error: e.message };

@@ -38,11 +38,22 @@ let mainWindow;
 let tray = null;
 let linuxUpdatePath = null;
 const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
-fs.mkdirSync(safeDataDir, { recursive: true }); // AUDIT-04 : existsSync redondant supprimé (mkdirSync recursive ignore les dossiers existants)
 const logsDir = path.join(safeDataDir, "logs");
-fs.mkdirSync(logsDir, { recursive: true }); // AUDIT-04
+const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
+const horizonBinDir = path.join(safeDataDir, "bin");
+const isWin = process.platform === "win32";
+const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
+const horizonExePath = path.join(horizonBinDir, horizonBinName);
+const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
+let _logStream = null;
 
-setTimeout(async () => {
+const mainInitPromise = (async () => {
+    await fs.promises.mkdir(safeDataDir, { recursive: true });
+    await fs.promises.mkdir(logsDir, { recursive: true });
+    await fs.promises.mkdir(horizonBinDir, { recursive: true });
+    await fs.promises.writeFile(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
+    _logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
     try {
         const files = await fs.promises.readdir(safeDataDir);
         for (const file of files) {
@@ -67,16 +78,7 @@ setTimeout(async () => {
             }
         }
     } catch (e) { }
-}, 0);
-
-const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
-fs.writeFileSync(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
-const horizonBinDir = path.join(safeDataDir, "bin");
-const isWin = process.platform === "win32";
-const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
-const horizonExePath = path.join(horizonBinDir, horizonBinName);
-const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
-fs.mkdirSync(horizonBinDir, { recursive: true }); // AUDIT-04
+})();
 /**
  * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
  * tournent dans le main process — on re-valide ici les chemins sensibles.
@@ -103,10 +105,9 @@ function mainSafeDir(name) {
 function mainResolveInstanceFolder(nameOrFolder) {
     return mainSafeDir(nameOrFolder);
 }
-const _logStream = fs.createWriteStream(logPath, { flags: 'a' });
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-    if (_logStream.writable) _logStream.write(line);
+    if (_logStream && _logStream.writable) _logStream.write(line);
     console.log(msg);
 }
 
@@ -203,7 +204,8 @@ if (!gotTheLock) {
         }
     });
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+    await mainInitPromise;
     app.setAppUserModelId("com.gens.launcher");
     
     let dynamicChromeUA = session.defaultSession.getUserAgent();
@@ -707,31 +709,31 @@ function applyDiscordData(data) {
 }
 
 let shouldConnectDiscord = true;
-try {
-    const fs = require('fs');
-    const path = require('path');
-    const settingsPath = path.join(safeDataDir, 'settings.json');
-    if (fs.existsSync(settingsPath)) {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        if (settings.disableRPC === true || settings.offlineMode === true) {
-            shouldConnectDiscord = false;
+(async () => {
+    try {
+        const settingsPath = path.join(safeDataDir, 'settings.json');
+        if (await fs.promises.access(settingsPath).then(()=>true).catch(()=>false)) {
+            const settings = JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
+            if (settings.disableRPC === true || settings.offlineMode === true) {
+                shouldConnectDiscord = false;
+            }
         }
+    } catch (e) {
+        // Ignore read errors
     }
-} catch (e) {
-    // Ignore read errors
-}
 
-if (shouldConnectDiscord) {
-    rpc.connect().then(success => {
-        if (success) {
-            mainLog('Discord RPC connecté.');
-            if (lastDiscordData) applyDiscordData(lastDiscordData);
-        }
-        else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
-    });
-} else {
-    mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
-}
+    if (shouldConnectDiscord) {
+        rpc.connect().then(success => {
+            if (success) {
+                mainLog('Discord RPC connecté.');
+                if (lastDiscordData) applyDiscordData(lastDiscordData);
+            }
+            else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
+        });
+    } else {
+        mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
+    }
+})();
 ipcMain.handle("reconnect-discord", async () => {
     rpc.disconnect();
     const success = await rpc.connect();
@@ -779,5 +781,5 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
     }
 });
 
-app.on('before-quit', () => { try { _logStream.end(); } catch (_) { } });
+app.on('before-quit', () => { try { if (_logStream) _logStream.end(); } catch (_) { } });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

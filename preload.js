@@ -111,13 +111,13 @@ contextBridge.exposeInMainWorld("api", {
                 await fs.promises.writeFile(tempPath, encrypted, 'utf8');
                 await fs.promises.rename(tempPath, safePath);
             } catch (e) {
-                if (fs.existsSync(tempPath)) try { await fs.promises.unlink(tempPath); } catch (_) {}
+                try { await fs.promises.unlink(tempPath); } catch (_) {}
                 throw e;
             }
         };
         const _readJSONAsync = async (filePath) => {
             const safePath = enforceSandbox(filePath);
-            if (!fs.existsSync(safePath)) return null;
+            if (!(await fs.promises.access(safePath).then(()=>true).catch(()=>false))) return null;
             const raw = await fs.promises.readFile(safePath, 'utf8');
             let parsedData = null;
             let needsMigration = false;
@@ -193,7 +193,7 @@ contextBridge.exposeInMainWorld("api", {
                     await fs.promises.writeFile(tempPath, d);
                     await fs.promises.rename(tempPath, safePath);
                 } catch (e) {
-                    if (fs.existsSync(tempPath)) try { await fs.promises.unlink(tempPath); } catch (_) {}
+                    try { await fs.promises.unlink(tempPath); } catch (_) {}
                     throw e;
                 }
             },
