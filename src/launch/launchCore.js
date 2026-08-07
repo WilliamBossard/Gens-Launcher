@@ -149,11 +149,12 @@ export async function analyzeCrash(instanceName) {
             if (classVerMatch) {
                 const reqVer = parseInt(classVerMatch[1]);
                 const curVer = parseInt(classVerMatch[2]);
-                if (reqVer >= 65) needed = "21"; else if (reqVer >= 61) needed = "17"; else if (reqVer >= 55) needed = "11"; else needed = "8";
-                if (curVer >= 65) current = "21"; else if (curVer >= 61) current = "17"; else if (curVer >= 55) current = "11"; else current = "8";
+                needed = reqVer >= 53 ? (reqVer - 44).toString() : "8";
+                current = curVer >= 53 ? (curVer - 44).toString() : "8";
+                result.javaNeeded = needed;
             }
             result.action = classVerMatch
-                ? window.t("crash_java_ver_exact", "Un mod requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
+                ? window.t("crash_java_ver_exact", "Minecraft (ou un mod) requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
                 : window.t("crash_java_ver_action", "Le mod requiert une version plus récente de Java. Modifiez la version de Java dans les paramètres.");
             result.logExcerpt = combinedLog.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || "UnsupportedClassVersionError détecté";
             return result;

@@ -261,10 +261,17 @@ export function setupLauncher() {
                     if (analysis.mod) {
                         actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
                     }
+                    if (analysis.javaNeeded) {
+                        actionHtml += `<br><button id="btn-crash-download-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${t("btn_auto_install_java", "Installer Java " + analysis.javaNeeded + " automatiquement")}</button>`;
+                    }
                     document.getElementById("crash-action").innerHTML = actionHtml;
                     document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
                         document.getElementById('modal-crash').style.display = 'none';
                         window.openEditModal('tab-mods');
+                    });
+                    document.getElementById("crash-action").querySelector('#btn-crash-download-java')?.addEventListener('click', () => {
+                        document.getElementById('modal-crash').style.display = 'none';
+                        window.downloadJavaAuto(parseInt(analysis.javaNeeded) || 17);
                     });
                     document.getElementById("crash-log-excerpt").innerText = analysis.logExcerpt || "Aucun log disponible.";
                     window._currentCrashLog = analysis.logExcerpt;
