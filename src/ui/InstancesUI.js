@@ -294,7 +294,7 @@ export function setupInstances() {
         } catch(e) {
             const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
             const currentLoaderVer = inst ? (inst.loaderVersion || "") : "";
-            const fallbackText = isOffline ? t("msg_offline_short", "Hors ligne") : t("msg_error_short", "Erreur");
+            const fallbackText = isOffline ? t("msg_offline_short", "Offline") : t("msg_error_short", "Error");
             loaderVerSelect.innerHTML = `<option value="${currentLoaderVer}">${currentLoaderVer ? currentLoaderVer + " (" + fallbackText + ")" : fallbackText}</option>`;
         }
     };

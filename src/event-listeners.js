@@ -254,6 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── TOUCHES ENTRÉE — champs texte ─────────────────────────────────
     document.getElementById('acc-name')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveOfflineAccount(); });
     document.getElementById('catalog-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchGlobalCatalog(); });
+    ['catalog-source', 'catalog-type', 'catalog-loader', 'catalog-version'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', () => { if (typeof window.searchGlobalCatalog === 'function') window.searchGlobalCatalog(); });
+    });
     document.getElementById('new-server-ip')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addServer(); });
 
     // ── EFFETS HOVER export-card (remplace onmouseover/onmouseout) ──────
