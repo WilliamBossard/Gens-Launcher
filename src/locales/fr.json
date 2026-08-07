@@ -654,5 +654,9 @@
   "msg_modpack_updated": "Modpack mis à jour avec succès !",
   "msg_err_update": "Erreur de mise à jour: ",
   "msg_err_update_running": "Impossible de mettre à jour une instance en cours d'exécution.",
-  "msg_warn_cloud_del": "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."
+  "msg_warn_cloud_del": "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée.",
+  "crash_glfw_mac_cause": "Version de Java incompatible (macOS GLFW)",
+  "crash_glfw_mac_action": "Sur Mac, cette erreur d'affichage (GLFW) survient si la version de Java utilis�e n'est pas parfaitement adapt�e � cette version du jeu. Veuillez installer et utiliser la version recommand�e.",
+  "btn_auto_install_java": "Installer automatiquement Java {0}",
+  "btn_auto_use_java": "Utiliser automatiquement Java {0}"
 }

@@ -261,17 +261,45 @@ export function setupLauncher() {
                     if (analysis.mod) {
                         actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
                     }
+                    let existingJavaPath = null;
+                    let targetVerStr = null;
                     if (analysis.javaNeeded) {
-                        const btnText = analysis.javaNeeded === "auto" 
-                            ? "Installer la bonne version de Java automatiquement" 
-                            : "Installer Java " + analysis.javaNeeded + " automatiquement";
-                        actionHtml += `<br><button id="btn-crash-download-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${t("btn_auto_install_java", btnText)}</button>`;
+                        targetVerStr = analysis.javaNeeded === "auto" ? (closedInst?.javaVersion || 25).toString() : analysis.javaNeeded;
+                        const javaSelect = document.getElementById("global-java");
+                        if (javaSelect) {
+                            for (let opt of javaSelect.options) {
+                                if (opt.innerText.includes("Java " + targetVerStr)) {
+                                    existingJavaPath = opt.value;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (existingJavaPath) {
+                            const btnText = t("btn_auto_use_java", "Utiliser automatiquement Java {0}").replace("{0}", targetVerStr);
+                            actionHtml += `<br><button id="btn-crash-use-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${btnText}</button>`;
+                        } else {
+                            const btnText = analysis.javaNeeded === "auto" 
+                                ? t("btn_auto_install_java_generic", "Installer la bonne version de Java automatiquement") 
+                                : t("btn_auto_install_java", "Installer automatiquement Java {0}").replace("{0}", analysis.javaNeeded);
+                            actionHtml += `<br><button id="btn-crash-download-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${btnText}</button>`;
+                        }
                     }
                     document.getElementById("crash-action").innerHTML = actionHtml;
                     document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
                         document.getElementById('modal-crash').style.display = 'none';
                         window.openEditModal('tab-mods');
                     });
+                    
+                    document.getElementById("crash-action").querySelector('#btn-crash-use-java')?.addEventListener('click', async () => {
+                        document.getElementById('modal-crash').style.display = 'none';
+                        if (closedInst && existingJavaPath) {
+                            closedInst.javaPath = existingJavaPath;
+                            await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                            window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java " + targetVerStr), "success");
+                        }
+                    });
+
                     document.getElementById("crash-action").querySelector('#btn-crash-download-java')?.addEventListener('click', () => {
                         document.getElementById('modal-crash').style.display = 'none';
                         let targetVer = parseInt(analysis.javaNeeded);
