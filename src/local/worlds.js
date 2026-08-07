@@ -28,7 +28,7 @@ export function setup() {
         const folders = [];
         for (const f of files) {
             const stat = await fs.promises.stat(path.join(mcDir, f));
-            if (stat.isDirectory()) folders.push(f);
+            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir) folders.push(f);
         }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
@@ -80,8 +80,9 @@ export function setup() {
         const files = await fs.promises.readdir(savesDir);
         const folders = [];
         for (const f of files) {
-            const stat = await fs.promises.stat(path.join(savesDir, f));
-            if (stat.isDirectory()) folders.push(f);
+            const stat = await window.api.fs.promises.stat(path.join(savesDir, f));
+            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
+            if (isDir) folders.push(f);
         }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;

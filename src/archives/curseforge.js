@@ -100,7 +100,7 @@ export function setup() {
                 if (items.length === 1) {
                     const subDir = path.join(tempExtractDir, items[0]);
                     const stat = await fs.promises.stat(subDir);
-                    if (stat.isDirectory()) {
+                    const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir) {
                         extractRoot = subDir;
                         instanceJsonPath = path.join(extractRoot, "instance.json");
                     }

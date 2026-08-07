@@ -381,7 +381,7 @@ export function setupSettings() {
                 }
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
             const res = await window.fetchWithTimeout(url, { timeout: 15000 });
-            if (!res.ok) throw new Error(`Version de Java ${type.toUpperCase()} introuvable sur les serveurs.`);
+            if (!res.ok) throw new Error(t("msg_err_java_version", "Version de Java {version} non trouvée pour {platform}").replace("{version}", type.toUpperCase()).replace("{platform}", `${platform}-${arch}`));
             const contentLength = res.headers.get('content-length');
             const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
             let receivedBytes = 0;
@@ -414,7 +414,7 @@ export function setupSettings() {
                 await yieldUI();
                 const actualSha256 = window.api.tools.hashBuffer(fileBytes, "sha256");
                 if (actualSha256 !== expectedSha256) {
-                    throw new Error("Échec de la vérification SHA256 du binaire Java !");
+                    throw new Error(t("msg_err_java_sha256", "Échec de la vérification SHA256 du binaire Java !"));
                 }
             }
             const tmpArchivePath = archivePath + ".tmp";
@@ -442,7 +442,8 @@ export function setupSettings() {
                     for (let f of entries) {
                         const full = path.join(dir, f);
                         const stat = await fs.promises.stat(full);
-                        if (stat.isDirectory()) { const r = await findExe(full, depth + 1); if (r) return r; }
+                        const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
+                        if (isDir) { const r = await findExe(full, depth + 1); if (r) return r; }
                         else if (f.toLowerCase() === javaExe) return full;
                     }
                 } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
@@ -463,7 +464,7 @@ export function setupSettings() {
                 }
                 return exePath;
             }
-            throw new Error("Exécutable Java introuvable.");
+            throw new Error(t("msg_err_java_not_found", "Exécutable Java introuvable."));
         } catch (e) {
             window.showToast(t("msg_err_java") + " : " + e.message, "error");
             return null;

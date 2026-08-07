@@ -638,5 +638,8 @@
   "msg_connection_restored": "Connexion rétablie : Mode en ligne activé",
   "err_offline_first_launch": "Internet est requis pour le premier lancement afin de télécharger les fichiers du jeu.",
   "msg_disabled_offline": "Cette action est désactivée en mode hors ligne.",
-  "msg_err_offline": "Cette fonctionnalité nécessite une connexion internet."
+  "msg_err_offline": "Cette fonctionnalité nécessite une connexion internet.",
+  "msg_err_java_not_found": "Exécutable Java introuvable.",
+  "msg_err_java_sha256": "Échec de la vérification SHA256 du binaire Java !",
+  "msg_err_java_version": "Version de Java {version} non trouvée pour {platform}"
 }

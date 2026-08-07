@@ -634,5 +634,8 @@
   "msg_connection_restored": "Connection restored: Online mode enabled",
   "err_offline_first_launch": "Internet is required for the first launch to download game files.",
   "msg_disabled_offline": "This action is disabled in offline mode.",
-  "msg_err_offline": "This feature requires an internet connection."
+  "msg_err_offline": "This feature requires an internet connection.",
+  "msg_err_java_not_found": "Java Executable not found.",
+  "msg_err_java_sha256": "Java binary SHA256 verification failed!",
+  "msg_err_java_version": "Java version {version} not found for {platform}"
 }
