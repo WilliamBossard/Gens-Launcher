@@ -243,22 +243,33 @@ export function setupLauncher() {
                 window.selectInstance(closedInstIndex);
             }
             if (store.selectedInstanceIdx === closedInstIndex) {
-                document.getElementById("console-container").style.display = "block";
-                const analysis = await window.analyzeCrash(instanceId);
-                document.getElementById("crash-summary").innerText = t("msg_game_closed_error", "Le jeu s'est arrêté avec une erreur (code {code}).").replace("{code}", code);
-                document.getElementById("crash-cause").innerText = analysis.cause || t("cause_unknown", "Raison inconnue");
-                let actionHtml = analysis.action || "Aucune action spécifique recommandée.";
-                if (analysis.mod) {
-                    actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
+                const logOutputText = document.getElementById("log-output")?.textContent || "";
+                if (logOutputText.match(/spawn java\w* ENOENT/i) || logOutputText.match(/Couldn't start Minecraft due to.*ENOENT.*java/i)) {
+                    window.showCustomConfirm(
+                        t("msg_java_missing_prompt", "Java est introuvable sur votre système (ou le chemin est incorrect).\nCeci est indispensable pour lancer le jeu.\nVoulez-vous le télécharger et l'installer automatiquement ?")
+                    ).then(res => {
+                        if (res) {
+                            window.downloadJavaAuto(closedInst?.javaVersion || 17);
+                        }
+                    });
+                } else {
+                    document.getElementById("console-container").style.display = "block";
+                    const analysis = await window.analyzeCrash(instanceId);
+                    document.getElementById("crash-summary").innerText = t("msg_game_closed_error", "Le jeu s'est arrêté avec une erreur (code {code}).").replace("{code}", code);
+                    document.getElementById("crash-cause").innerText = analysis.cause || t("cause_unknown", "Raison inconnue");
+                    let actionHtml = analysis.action || "Aucune action spécifique recommandée.";
+                    if (analysis.mod) {
+                        actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
+                    }
+                    document.getElementById("crash-action").innerHTML = actionHtml;
+                    document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
+                        document.getElementById('modal-crash').style.display = 'none';
+                        window.openEditModal('tab-mods');
+                    });
+                    document.getElementById("crash-log-excerpt").innerText = analysis.logExcerpt || "Aucun log disponible.";
+                    window._currentCrashLog = analysis.logExcerpt;
+                    document.getElementById("modal-crash").style.display = "flex";
                 }
-                document.getElementById("crash-action").innerHTML = actionHtml;
-                document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
-                    document.getElementById('modal-crash').style.display = 'none';
-                    window.openEditModal('tab-mods');
-                });
-                document.getElementById("crash-log-excerpt").innerText = analysis.logExcerpt || "Aucun log disponible.";
-                window._currentCrashLog = analysis.logExcerpt;
-                document.getElementById("modal-crash").style.display = "flex";
             } else {
                 window.showToast(
                     t("msg_crash_bg", `L'instance "${instanceId}" a planté (code ${code}).`).replace("{name}", instanceId).replace("{code}", code),

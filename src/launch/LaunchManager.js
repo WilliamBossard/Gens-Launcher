@@ -79,6 +79,10 @@ export async function launchInstance(inst, acc, ui) {
         }
     }
 
+    if (window.api.platform === "darwin" && !customArgs.includes("-XstartOnFirstThread")) {
+        customArgs.push("-XstartOnFirstThread");
+    }
+
     let resW = inst.resW ? Math.max(320, Math.min(7680, parseInt(inst.resW) || 854)) : 854;
     let resH = inst.resH ? Math.max(240, Math.min(4320, parseInt(inst.resH) || 480)) : 480;
 
@@ -86,6 +90,7 @@ export async function launchInstance(inst, acc, ui) {
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
 
     if (jPath === "javaw" || jPath === "java" || !jPath) {
+        jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
         const jrePath = path.join(store.dataDir, "java", `jre${requiredJava}`, "bin", javaExeName);
         const jdkPath = path.join(store.dataDir, "java", `jdk${requiredJava}`, "bin", javaExeName);
