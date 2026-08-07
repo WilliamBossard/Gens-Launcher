@@ -8,7 +8,7 @@ let _cachedMainSecretKey = null;
 let _cachedLegacyKey = null; // Ancienne clé SHA-256 simple — pour migration des données existantes
 
 const PBKDF2_SALT_FILE = path.join(app.getPath('appData'), 'GensLauncher', '.key_salt');
-const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_ITERATIONS = 600000;
 
 // Promise mémorisée : PBKDF2 ne s'exécute qu'une seule fois, de façon asynchrone
 // (thread pool Node.js — ne bloque pas le Main Process Electron)
@@ -120,7 +120,12 @@ function _tryDecrypt(hexText, key) {
             const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
             return decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
         }
-    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn('Ignored error in crypto-utils.js:', _); }
+    } catch (err) { 
+        if (err && err.code !== 'ENOENT') {
+            if (['EPERM', 'EACCES'].includes(err.code)) console.error('[Sécurité] Erreur OS critique (Permissions) lors du déchiffrement:', err);
+            else console.warn('Ignored error in crypto-utils.js (_tryDecrypt):', err); 
+        }
+    }
     return null;
 }
 
@@ -136,7 +141,12 @@ async function legacyDecryptText(hexText) {
                 const result = decipher.update(parts.join(':'), 'hex', 'utf8') + decipher.final('utf8');
                 return result;
             }
-        } catch (_) { if (_ && _.code !== 'ENOENT') console.warn('Ignored error in crypto-utils.js:', _); }
+        } catch (err) { 
+            if (err && err.code !== 'ENOENT') {
+                if (['EPERM', 'EACCES'].includes(err.code)) console.error('[Sécurité] Erreur OS critique (Permissions) lors du déchiffrement legacy:', err);
+                else console.warn('Ignored error in crypto-utils.js (legacyDecryptText):', err); 
+            }
+        }
     }
     return null;
 }

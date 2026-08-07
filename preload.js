@@ -51,7 +51,10 @@ function enforceReadSandbox(p, silent = false) {
     const isMinecraftDir = KNOWN_MC_PATHS.some(mc =>
         resolved.startsWith(mc + path.sep) || resolved === mc
     );
-    const isJavaDir = resolved.split(path.sep).some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
+    const _isJavaPathMatch = resolved.split(path.sep).some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
+    const _ext = path.extname(resolved).toLowerCase();
+    // Tolérance pour les dossiers personnalisés (Option 2) : on limite aux dossiers (sans ext) et exécutables Java
+    const isJavaDir = _isJavaPathMatch && (!_ext || ['.exe', '.dll', '.so', '.dylib'].includes(_ext));
     const isTempDir = resolved.startsWith(path.join(os.tmpdir(), "GensLauncher"));
     if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);

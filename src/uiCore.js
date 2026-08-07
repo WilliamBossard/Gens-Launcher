@@ -144,7 +144,7 @@ export function setupUICore() {
         } catch(e) {}
     };
     setInterval(window.checkRealInternet, 5000);
-    setTimeout(window.checkRealInternet, 1000);
+    window.checkRealInternet();
 
     window.updateOfflineUIState = () => {
         const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
@@ -195,8 +195,26 @@ export function setupUICore() {
             }
         });
 
-        if (!isOffline && window.loadNews) {
-            window.loadNews();
+        const newsContainer = document.getElementById('news-container');
+        if (newsContainer) {
+            if (isOffline) {
+                newsContainer.style.display = 'none';
+            } else {
+                if (newsContainer.innerHTML.trim() !== '') {
+                    newsContainer.style.display = 'block';
+                } else if (window.loadNews) {
+                    window.loadNews();
+                }
+            }
+        }
+        
+        const serverBanner = document.getElementById('server-banner-container');
+        if (serverBanner) {
+            if (isOffline) {
+                serverBanner.style.display = 'none';
+            } else if (store.globalSettings.serverIp && store.globalSettings.serverIp.trim() !== '') {
+                if (window.checkServerStatus) window.checkServerStatus();
+            }
         }
     };
 
