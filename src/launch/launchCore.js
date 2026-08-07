@@ -125,6 +125,25 @@ export async function analyzeCrash(instanceName) {
         }
         const combinedLog = (latestReport + "\n\n" + logData + "\n\n" + uiLogs).substring(0, 200000);
         
+        const classVerMatch = uiLogs.match(/class file version (\d+\.\d+), this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/) || combinedLog.match(/class file version (\d+\.\d+), this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/);
+        if (uiLogs.includes("UnsupportedClassVersionError") || combinedLog.includes("UnsupportedClassVersionError") || classVerMatch) {
+            result.cause = window.t("crash_java_ver_cause", "Version de Java incompatible");
+            let needed = "plus récente";
+            let current = "trop ancienne";
+            if (classVerMatch) {
+                const reqVer = parseInt(classVerMatch[1]);
+                const curVer = parseInt(classVerMatch[2]);
+                needed = reqVer >= 53 ? (reqVer - 44).toString() : "8";
+                current = curVer >= 53 ? (curVer - 44).toString() : "8";
+                result.javaNeeded = needed;
+            }
+            result.action = classVerMatch
+                ? window.t("crash_java_ver_exact", "Minecraft (ou un mod) requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
+                : window.t("crash_java_ver_action", "Minecraft (ou un mod) requiert une version de Java plus récente. Mettez à jour la version de Java dans les paramètres de l'instance.");
+            result.logExcerpt = uiLogs.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || combinedLog.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || "UnsupportedClassVersionError détecté";
+            return result;
+        }
+
         if (combinedLog.includes("OutOfMemoryError")) {
             if (combinedLog.includes("Metaspace")) {
                 result.cause = window.t("crash_mem_meta_cause", "Manque de mémoire (Metaspace)");
@@ -142,24 +161,6 @@ export async function analyzeCrash(instanceName) {
             const needed = fabricJavaMatch[1];
             result.action = window.t("crash_java_ver_fabric", "Fabric requiert Java {needed} ou plus. Modifiez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed);
             result.logExcerpt = combinedLog.match(new RegExp(`.*${fabricJavaMatch[0].replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}.*`, 'i'))?.[0] || fabricJavaMatch[0];
-            return result;
-        }
-        const classVerMatch = combinedLog.match(/class file version (\d+\.\d+), this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/);
-        if (combinedLog.includes("UnsupportedClassVersionError") || classVerMatch) {
-            result.cause = window.t("crash_java_ver_cause", "Version de Java incompatible");
-            let needed = "plus récente";
-            let current = "trop ancienne";
-            if (classVerMatch) {
-                const reqVer = parseInt(classVerMatch[1]);
-                const curVer = parseInt(classVerMatch[2]);
-                needed = reqVer >= 53 ? (reqVer - 44).toString() : "8";
-                current = curVer >= 53 ? (curVer - 44).toString() : "8";
-                result.javaNeeded = needed;
-            }
-            result.action = classVerMatch
-                ? window.t("crash_java_ver_exact", "Minecraft (ou un mod) requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
-                : window.t("crash_java_ver_action", "Le mod requiert une version plus récente de Java. Modifiez la version de Java dans les paramètres.");
-            result.logExcerpt = combinedLog.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || "UnsupportedClassVersionError détecté";
             return result;
         }
         if (combinedLog.includes("InaccessibleObjectException")) {
