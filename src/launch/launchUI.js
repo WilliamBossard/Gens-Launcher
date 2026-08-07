@@ -265,6 +265,11 @@ export function setupLauncher() {
                     let targetVerStr = null;
                     if (analysis.javaNeeded) {
                         targetVerStr = analysis.javaNeeded === "auto" ? (closedInst?.javaVersion || 25).toString() : analysis.javaNeeded;
+                        
+                        if (window.scanJavaVersions) {
+                            await window.scanJavaVersions("global-java", true, true);
+                        }
+                        
                         const javaSelect = document.getElementById("global-java");
                         if (javaSelect) {
                             for (let opt of javaSelect.options) {
