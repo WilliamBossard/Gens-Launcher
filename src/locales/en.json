@@ -637,5 +637,8 @@
   "msg_err_offline": "This feature requires an internet connection.",
   "msg_err_java_not_found": "Java Executable not found.",
   "msg_err_java_sha256": "Java binary SHA256 verification failed!",
-  "msg_err_java_version": "Java version {version} not found for {platform}"
+  "msg_err_java_version": "Java version {version} not found for {platform}",
+  "msg_offline_short": "Offline",
+  "msg_error_short": "Error",
+  "msg_analyzing": "Scanning..."
 }

@@ -62,15 +62,20 @@ export function setup() {
     window.renderModsManager = async function() {
         const modsListDiv = document.getElementById("mods-list");
         const savedScroll = modsListDiv.scrollTop;
-        const inst = store.allInstances[store.selectedInstanceIdx];
+        const instIdx = store.selectedInstanceIdx;
+        const inst = store.allInstances[instIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(modsPath, { recursive: true });
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
+        
+        modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_analyzing", "Analyse en cours...")}</div>`;
         const warnings = await getModWarnings(inst);
+        if (store.selectedInstanceIdx !== instIdx) return;
+        
         let hasMods = files.length > 0;
-        let htmlBuilder = ""; 
+        let htmlBuilder = "";
         files.forEach(f => {
             const isEnabled = !f.endsWith(".disabled");
             const displayName = window.escapeHTML(f.replace(".disabled", ""));

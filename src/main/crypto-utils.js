@@ -30,6 +30,7 @@ function _getMainProcSecretKey() {
                 await fs.promises.writeFile(secretPath, secret, { encoding: 'utf8', mode: 0o600 });
             }
         } catch (e) {
+            console.warn(`[Sécurité] AVERTISSEMENT : Création/Lecture de .secret_key échouée (${e.message}). Utilisation du fallback (hostname).`);
             secret = os.hostname() + '_' + (os.userInfo().username || 'user');
         }
 

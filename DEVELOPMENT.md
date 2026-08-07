@@ -25,7 +25,7 @@ It runs in a full Node.js context. It has access to the file system, low-level n
   - *Integrity*: Downloads the SHA-256 signature from the official GitHub release and validates the local Horizon executable before any launch. The hash is cached for 2h to avoid repeated network requests. *(Note: In a local development environment `!app.isPackaged`, hash errors are ignored to allow free testing of locally compiled versions).*
   - *Security*: Validates arguments via a strict **Whitelist** (`--sync`, `--check`, etc.) coupled with a Regex filter limiting allowed characters.
 - **`src/main/ipc-system.js`**: Centralizes native OS interactions (Discord Rich Presence, archiving, Windows taskbar).
-- **`src/main/crypto-utils.js`**: Cryptographic primitives of the Main Process. The AES-256-GCM key is derived via **PBKDF2** (100,000 iterations, random 16 bytes salt stored in `.key_salt`). Manages seamless migration of encrypted data from the old simple SHA-256 key to the new PBKDF2 format.
+- **`src/main/crypto-utils.js`**: Cryptographic primitives of the Main Process. The AES-256-GCM key is derived via **PBKDF2** (600,000 iterations, random 16 bytes salt stored in `.key_salt`). Manages seamless migration of encrypted data from the old simple SHA-256 key to the new PBKDF2 format.
 
 ### 2.1.1 Internal Ecosystem (Gens-Core Components)
 To limit the attack surface and drastically reduce application weight, the use of third-party dependencies is banned in favor of 100% native in-house implementations:
@@ -54,7 +54,7 @@ The application has been audited and follows the **Defense in Depth** principle:
 3. **Dual-Layer CSP Architecture**:
     - *Layer 1 (main.js)*: The HTTP header applies `script-src 'self'` (without `unsafe-inline` or `unsafe-eval`). All images and connections are limited to **HTTPS only**.
    - *Layer 2 (index.html)*: The DOM `<meta>` tag applies the same policy. Both layers are aligned.
-4. **Encryption**: Local Microsoft authentication tokens are encrypted. The system favors `safeStorage` (native OS Keychain). If unavailable, an **AES-256-GCM** fallback is used with a key derived via **PBKDF2** (100,000 iterations, dedicated random 16 bytes salt stored in `.key_salt`). Data encrypted with the old algorithm (simple SHA-256) is automatically and silently migrated upon the first successful decryption.
+4. **Encryption**: Local Microsoft authentication tokens are encrypted. The system favors `safeStorage` (native OS Keychain). If unavailable, an **AES-256-GCM** fallback is used with a key derived via **PBKDF2** (600,000 iterations, dedicated random 16 bytes salt stored in `.key_salt`). Data encrypted with the old algorithm (simple SHA-256) is automatically and silently migrated upon the first successful decryption.
 5. **IPC Whitelist**: All communication channels (send, invoke, receive) are statically listed in `preload.js`. Any out-of-list call attempt is rejected, preventing the exploitation of obscure Electron channels.
 6. **HTTPS Only**: The `http` module is not imported in `main.js`. The `downloadFile()` function rejects any non-HTTPS URL and applies a whitelist of authorized domains (`github.com`, `mojang.com`, `modrinth.com`, etc.).
 7. **Image Integrity**: The `copy-image-to-sandbox` handler validates the file extension AND its magic bytes (binary signature). A `.jpg` file with malicious content would be rejected.

@@ -292,7 +292,10 @@ export function setupInstances() {
                 loaderVerSelect.appendChild(frag);
             }
         } catch(e) {
-            loaderVerSelect.innerHTML = `<option value="">${t("msg_err_loader_versions", "Erreur de chargement")}</option>`;
+            const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
+            const currentLoaderVer = inst ? (inst.loaderVersion || "") : "";
+            const fallbackText = isOffline ? t("msg_offline_short", "Hors ligne") : t("msg_error_short", "Erreur");
+            loaderVerSelect.innerHTML = `<option value="${currentLoaderVer}">${currentLoaderVer ? currentLoaderVer + " (" + fallbackText + ")" : fallbackText}</option>`;
         }
     };
     window.toggleEditSnapshots = () => {

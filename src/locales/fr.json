@@ -641,5 +641,8 @@
   "msg_err_offline": "Cette fonctionnalité nécessite une connexion internet.",
   "msg_err_java_not_found": "Exécutable Java introuvable.",
   "msg_err_java_sha256": "Échec de la vérification SHA256 du binaire Java !",
-  "msg_err_java_version": "Version de Java {version} non trouvée pour {platform}"
+  "msg_err_java_version": "Version de Java {version} non trouvée pour {platform}",
+  "msg_offline_short": "Hors ligne",
+  "msg_error_short": "Erreur",
+  "msg_analyzing": "Analyse en cours..."
 }

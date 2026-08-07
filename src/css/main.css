@@ -1088,4 +1088,5 @@
             opacity: 0.5 !important;
             filter: grayscale(100%) !important;
             cursor: not-allowed !important;
+            pointer-events: none !important;
         }

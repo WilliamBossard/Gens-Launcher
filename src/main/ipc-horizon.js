@@ -208,7 +208,10 @@ module.exports = function setupHorizonHandlers(context) {
                     safeSend(event, 'horizon-status', msg);
                     return Promise.resolve({ exitCode: -1, lastJson: msg });
                 } else {
-                    try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                    try { 
+                        await fs.promises.unlink(lockFile); 
+                        mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
+                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
                 }
             }
         }
