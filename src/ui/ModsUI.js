@@ -79,11 +79,11 @@ function setupMods() {
               const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const isInstalled = installedItems.some(f => {
                   if (searchString) {
-                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   return false;
@@ -152,11 +152,11 @@ function setupMods() {
               const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const isInstalled = installedItems.some(f => {
                   if (searchSlug) {
-                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\d)|\.jar$)", "i");
+                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                       if (regex.test(f)) return true;
                   }
                   return false;
