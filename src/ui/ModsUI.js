@@ -39,6 +39,35 @@ function setupMods() {
       if (!version) version = "1.20.4";
       if (catalogAbortController) catalogAbortController.abort();
       catalogAbortController = new AbortController();
+      
+      const checkInstalled = (title, slug, items) => {
+          const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const searchSlug = slug ? slug.toLowerCase() : "";
+          const searchTitle = title ? title.toLowerCase().replace(/\s+/g, "") : "";
+          const modBaseTitle = title ? title.toLowerCase().replace(/'s/g, "").replace(/[^a-z0-9]/g, "") : "";
+          const modBaseSlug = slug ? slug.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+
+          return items.some(f => {
+              if (searchSlug) {
+                  const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
+                  if (regex.test(f)) return true;
+              }
+              if (searchTitle) {
+                  const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
+                  if (regex.test(f)) return true;
+              }
+              let fileBase = f.toLowerCase().replace(/\.jar$/, "").split(/[-_](fabric|forge|quilt|neoforge|mc|\d)/)[0].replace(/[^a-z0-9]/g, "");
+              if (fileBase.length >= 3) {
+                  if (modBaseTitle === fileBase || modBaseSlug === fileBase) return true;
+              }
+              if (fileBase.length >= 5) {
+                  if (modBaseTitle && modBaseTitle.includes(fileBase)) return true;
+                  if (modBaseSlug && modBaseSlug.includes(fileBase)) return true;
+              }
+              return false;
+          });
+      };
+      
       const signal = catalogAbortController.signal;
       resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>${t("msg_builder_searching", "Recherche en cours...")}</div>`;
       let installedItems = [];
@@ -74,20 +103,7 @@ function setupMods() {
               const safeDesc   = window.escapeHTML(mod.description);
               const safeAuthor = window.escapeHTML(mod.author || t("lbl_author", "Auteur"));
               const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
-              const searchString = mod.slug  ? mod.slug.toLowerCase()  : "";
-              const searchTitle  = mod.title ? mod.title.toLowerCase().replace(/\s+/g, "") : "";
-              const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              const isInstalled = installedItems.some(f => {
-                  if (searchString) {
-                      const regex = new RegExp("^" + escapeRegExp(searchString) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
-                      if (regex.test(f)) return true;
-                  }
-                  if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
-                      if (regex.test(f)) return true;
-                  }
-                  return false;
-              });
+              const isInstalled = checkInstalled(mod.title, mod.slug, installedItems);
               const card = document.createElement("div");
               card.className = "catalog-card";
               card.innerHTML = `
@@ -147,20 +163,7 @@ function setupMods() {
               const safeDesc   = window.escapeHTML(mod.summary);
               const safeAuthor = window.escapeHTML(mod.authors.length > 0 ? mod.authors[0].name : t("lbl_author", "Auteur"));
               const safeCfIcon = (icon && /^https:\/\//i.test(icon)) ? icon : "";
-              const searchSlug = mod.slug ? mod.slug.toLowerCase() : "";
-              const searchTitle = mod.name ? mod.name.toLowerCase().replace(/\s+/g, "") : "";
-              const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              const isInstalled = installedItems.some(f => {
-                  if (searchSlug) {
-                      const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
-                      if (regex.test(f)) return true;
-                  }
-                  if (searchTitle) {
-                      const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
-                      if (regex.test(f)) return true;
-                  }
-                  return false;
-              });
+              const isInstalled = checkInstalled(mod.name, mod.slug, installedItems);
               const card = document.createElement("div");
               card.className = "catalog-card";
               card.innerHTML = `
