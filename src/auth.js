@@ -60,7 +60,7 @@ ipcRenderer.on("microsoft-device-code", (data) => {
       else if (code) shell.openExternal(`https://www.microsoft.com/link?otc=${encodeURIComponent(code)}`);
     };
     window.cancelMsDeviceLogin = () => {
-      ipcRenderer.send("cancel-login-microsoft");
+      window.api.send("cancel-login-microsoft");
       closeMicrosoftDeviceModal();
     };
 window.loginMicrosoft = async () => {

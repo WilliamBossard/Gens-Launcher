@@ -18,7 +18,7 @@ async function _getModCount(inst) {
 window.invalidateModCountCache = (inst) => { if (inst) delete inst._modCountCache; };
 async function updateRPC(inst, customState) {
     if (store.globalSettings.disableRPC || store.globalSettings.offlineMode || !window.isTrulyOnline) {
-        ipcRenderer.send("update-discord", "clear");
+        window.api.send("update-discord", "clear");
         return; 
     }
     if (!store.currentLangObj || Object.keys(store.currentLangObj).length === 0) {
@@ -52,13 +52,13 @@ async function updateRPC(inst, customState) {
                 ]
             };
         }
-        ipcRenderer.send("update-discord", activity);
+        window.api.send("update-discord", activity);
     } catch (e) {
         console.error("Erreur préparation RPC:", e);
     }
 }
 function clearRPC() {
-    ipcRenderer.send("update-discord", "clear");
+    window.api.send("update-discord", "clear");
 }
 window.updateRPC = updateRPC;
 window.clearRPC  = clearRPC;

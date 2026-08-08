@@ -82,9 +82,9 @@ export function setupLauncher() {
     window.api.on("mc-started", (payload) => {
         const instanceId = payload.instanceId;
         if (window._isAutoLaunch) {
-            ipcRenderer.send("hide-window");
+            window.api.send("hide-window");
         } else if (store.globalSettings.launcherVisibility === "hide") {
-            ipcRenderer.send("hide-window");
+            window.api.send("hide-window");
         }
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
         if (selectedInst && selectedInst.name === instanceId) {
@@ -230,7 +230,7 @@ export function setupLauncher() {
             }
         }
         if (!isAutoClose && isLastInstance && store.globalSettings.launcherVisibility === "hide") {
-            ipcRenderer.send("show-window");
+            window.api.send("show-window");
         }
         if (code !== 0 && code !== -1 && closedInstIndex !== -1) {
             if (isAutoClose) {
@@ -239,7 +239,7 @@ export function setupLauncher() {
                 document.body.classList.remove("is-auto-launch");
                 const overlay = document.getElementById("auto-launch-overlay");
                 if (overlay) overlay.style.display = "none";
-                ipcRenderer.send("restore-main-window");
+                window.api.send("restore-main-window");
                 window.selectInstance(closedInstIndex);
             }
             if (store.selectedInstanceIdx === closedInstIndex) {
@@ -334,7 +334,7 @@ export function setupLauncher() {
                     if (isAutoClose) {
                         const overlay = document.getElementById("auto-launch-overlay");
                         if (overlay) overlay.style.display = "flex";
-                        ipcRenderer.send("show-window");
+                        window.api.send("show-window");
                         setAutoStatus(t("msg_cloud_up", "Sauvegarde sur le Cloud..."));
                         const autoBar = document.getElementById("auto-progress-bar");
                         if (autoBar) autoBar.style.width = "0%";
