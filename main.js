@@ -639,6 +639,10 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
                     const { exec } = require('child_process');
                     exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve());
                 });
+                await new Promise((resolve) => {
+                    const { exec } = require('child_process');
+                    exec(`touch "${shortcutPath}"`, () => resolve());
+                });
             }
             return { success: true, updated: alreadyExists };
         }
