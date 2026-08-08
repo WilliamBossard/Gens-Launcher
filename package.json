@@ -66,6 +66,14 @@
         "--disable-setuid-sandbox"
       ]
     },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon-512.png",
+      "category": "public.app-category.games"
+    },
     "deb": {
       "priority": "optional",
       "maintainer": "William Bossard <wbossard@free.fr>"
