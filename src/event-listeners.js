@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return false;
     };
+    window.checkOffline = checkOffline;
 
     // ── PREMIER LANCEMENT ──────────────────────────────────────
     document.getElementById('btn-save-first-launch')?.addEventListener('click', () => saveFirstLaunch());
