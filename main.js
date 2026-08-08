@@ -343,10 +343,11 @@ ipcMain.on("update-jump-list", (event, instances) => {
     if (process.platform === 'win32') {
         const tasks = instances.map(inst => {
             const safeName = sanitizeShortcutName(inst.name);
+            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
             return {
-                program: process.execPath,
+                program: appExecutable,
                 arguments: `--auto-launch="${safeName}"`,
-                iconPath: inst.iconIcoPath || process.execPath,
+                iconPath: inst.iconIcoPath || appExecutable,
                 iconIndex: 0,
                 title: `Lancer ${safeName}`,
                 description: `Démarrer l'instance ${safeName}`
@@ -581,11 +582,12 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         const alreadyExists = await fs.promises.access(
             path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app'}`)
         ).then(()=>true).catch(()=>false);
+        const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
         if (process.platform === 'win32') {
             const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
             const mode = alreadyExists ? 'update' : 'create';
             const options = {
-                target: process.execPath,
+                target: appExecutable,
                 args: `--auto-launch="${safeName}"`,
                 appUserModelId: "com.gens.launcher",
                 description: `Lancer ${safeName}`,
@@ -597,7 +599,8 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         } else if (process.platform === 'linux') {
             const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
             const escapedInstanceName = encodeURIComponent(instanceName);
-            const execLine = `"${process.execPath}" "--auto-launch=${escapedInstanceName}"`;
+            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
+            const execLine = `"${appExecutable}" "--auto-launch=${escapedInstanceName}"`;
             const desktopFile = [
                 '[Desktop Entry]',
                 `Name=${safeName}`,
@@ -623,7 +626,8 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
         } else if (process.platform === 'darwin') {
             const shortcutPath = path.join(desktopPath, `${safeName}.app`);
             const escapedInstanceName = encodeURIComponent(instanceName);
-            const script = `do shell script "\\"${process.execPath}\\" \\"--auto-launch=${escapedInstanceName}\\" > /dev/null 2>&1 &"`;
+            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
+            const script = `do shell script "\\"${appExecutable}\\" \\"--auto-launch=${escapedInstanceName}\\" > /dev/null 2>&1 &"`;
             
             await new Promise((resolve, reject) => {
                 const { exec } = require('child_process');
