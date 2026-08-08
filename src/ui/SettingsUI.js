@@ -497,7 +497,7 @@ export function setupSettings() {
     };
     window.startLauncherUpdate = () => {
         if (window.api.platform === "darwin") {
-            window.api.send("open-external", "https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+            window.api.shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
             document.getElementById("btn-start-update").disabled = true;
         } else {
             window.api.send("download-update");
