@@ -27,24 +27,28 @@ Welcome to Gens Launcher! Here is how to install the software on your PC in just
 ### Step 1: Download the Installer
 1. On this GitHub page, look on the right side under the **"Releases"** section and click on the latest release (e.g., `v1.5.0`).
 2. Scroll down to the "Assets" section at the bottom and download the file for your Operating System:
-   - **For Windows:** Download **`GensLauncher-Setup-1.5.0.exe`**
-   - **For Linux (Debian/Ubuntu):** Download **`GensLauncher-1.5.0-amd64.deb`** *(an .AppImage version is also available).*
+   - **For Windows:** Download **`GensLauncher-Setup-X.X.X.exe`**
+   - **For macOS:** Download **`GensLauncher-X.X.X-mac.dmg`**
+   - **For Linux:** Download **`GensLauncher-X.X.X.AppImage`** *(a `.deb` version is also available for Debian/Ubuntu).*
 
 ### Step 2: Run the Installation
 
-**🔹 For Windows:**
+**🔹 For Windows (.exe):**
 1. Once the download is complete, double-click the `.exe` file to start the installation.
 2. **Important (Windows Alert):** Because this launcher is an independent project, Windows Defender might display a blue screen saying *"Windows protected your PC"*. This is completely normal for unverified indie apps.
    - Simply click on the **"More info"** text.
    - Then click the **"Run anyway"** button.
 3. Follow the on-screen instructions, leave the boxes checked to create shortcuts, and click "Install".
 
-**🔹 For Linux (.deb):**
-1. Once the `.deb` file is downloaded, double-click it to open your distribution's Software Center (like Ubuntu Software) and click **"Install"**.
-2. *Alternatively, via terminal:* Open your terminal in the downloads folder and run:
-   ```bash
-   sudo apt install ./GensLauncher-1.5.0-amd64.deb
-   ```
+**🔹 For macOS (.dmg):**
+1. Double-click the downloaded `.dmg` file to open it.
+2. Drag and drop the **Gens Launcher** icon into the **Applications** folder shortcut.
+3. Go to your Applications folder and launch the app from there! *(Note: The Auto-Updater requires the app to be run from the Applications folder, not directly from the DMG).*
+
+**🔹 For Linux (.AppImage):**
+1. Right-click the `.AppImage` file and select **Properties**.
+2. Go to the **Permissions** tab and check the box **"Allow executing file as program"**.
+3. Double-click the `.AppImage` to launch Gens Launcher! No installation required.
 
 ### Step 3: Play!
 - Open Gens Launcher using the new shortcut on your Desktop or in your application menu.
@@ -79,12 +83,17 @@ Run the launcher in development mode:
 npm start
 ```
 
-### Compiling the App (Windows & Linux)
+### Compiling the App (Windows, macOS & Linux)
 To generate the final professional installers ready to be distributed to players, run the following commands based on your target OS:
 
 **For Windows (.exe):**
 ```bash
 npm run dist:win
+```
+
+**For macOS (.dmg):**
+```bash
+npx electron-builder --mac
 ```
 
 **For Linux (.deb & .AppImage):**
