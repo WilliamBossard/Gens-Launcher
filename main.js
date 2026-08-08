@@ -493,7 +493,7 @@ ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
     try {
         const desktopPath = app.getPath("desktop");
         const safeName = String(instanceName).replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
-        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
+        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
         const targetFile = `${safeName}.${ext}`.toLowerCase();
         if (await fs.promises.access(desktopPath).then(()=>true).catch(()=>false)) {
             const files = await fs.promises.readdir(desktopPath);
@@ -579,7 +579,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             }
         }
         const alreadyExists = await fs.promises.access(
-            path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command'}`)
+            path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app'}`)
         ).then(()=>true).catch(()=>false);
         if (process.platform === 'win32') {
             const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
@@ -621,16 +621,25 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
             }
             return { success: true, updated: alreadyExists };
         } else if (process.platform === 'darwin') {
-            const shortcutPath = path.join(desktopPath, `${safeName}.command`);
+            const shortcutPath = path.join(desktopPath, `${safeName}.app`);
             const escapedInstanceName = encodeURIComponent(instanceName);
-            const script = [
-                '#!/bin/bash',
-                `# Raccourci Gens Launcher — ${safeName}`,
-                `"${process.execPath}" "--auto-launch=${escapedInstanceName}" &`,
-                ''
-            ].join('\n');
-            await fs.promises.writeFile(shortcutPath, script, { encoding: 'utf8' });
-            await fs.promises.chmod(shortcutPath, 0o755);
+            const script = `do shell script "\\"${process.execPath}\\" \\"--auto-launch=${escapedInstanceName}\\" > /dev/null 2>&1 &"`;
+            
+            await new Promise((resolve, reject) => {
+                const { exec } = require('child_process');
+                exec(`osacompile -e '${script.replace(/'/g, "'\\''")}' -o "${shortcutPath}"`, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+
+            if (finalIconPath && finalIconPath.endsWith('.png')) {
+                const appletIcns = path.join(shortcutPath, "Contents", "Resources", "applet.icns");
+                await new Promise((resolve) => {
+                    const { exec } = require('child_process');
+                    exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve());
+                });
+            }
             return { success: true, updated: alreadyExists };
         }
         return { success: false, reason: 'unsupported_platform' };
@@ -640,7 +649,7 @@ ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath
 });
 ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
     const desktopPath = app.getPath("desktop");
-    const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'command';
+    const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
     const safe = sanitizeShortcutName(safeName);
     const shortcutPath = path.join(desktopPath, `${safe}.${ext}`);
     return await fs.promises.access(shortcutPath).then(()=>true).catch(()=>false);

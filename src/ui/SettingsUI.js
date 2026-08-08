@@ -496,8 +496,13 @@ export function setupSettings() {
         }
     };
     window.startLauncherUpdate = () => {
-        window.api.send("download-update");
-        document.getElementById("btn-start-update").disabled = true;
+        if (window.api.platform === "darwin") {
+            window.api.send("open-external", "https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+            document.getElementById("btn-start-update").disabled = true;
+        } else {
+            window.api.send("download-update");
+            document.getElementById("btn-start-update").disabled = true;
+        }
     };
 }
 export function setupHorizonSettings() {
