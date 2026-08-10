@@ -232,6 +232,16 @@ export function setupLauncher() {
         if (!isAutoClose && isLastInstance && store.globalSettings.launcherVisibility === "hide") {
             window.api.send("show-window");
         }
+        // Auto-launch : fermeture normale du jeu (code 0 ou -1 = forcé)
+        if (isAutoClose && (code === 0 || code === -1)) {
+            isAutoClose = false;
+            window._isAutoLaunch = false;
+            document.body.classList.remove("is-auto-launch");
+            const overlay = document.getElementById("auto-launch-overlay");
+            if (overlay) overlay.style.display = "none";
+            window.api.send("restore-main-window");
+        }
+        // Auto-launch : fermeture avec crash
         if (code !== 0 && code !== -1 && closedInstIndex !== -1) {
             if (isAutoClose) {
                 isAutoClose = false;
