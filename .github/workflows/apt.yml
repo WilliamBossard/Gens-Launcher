@@ -3,6 +3,7 @@ on:
   release:
     # Se lance UNIQUEMENT quand tu cliques sur "Publish" depuis ton draft
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
