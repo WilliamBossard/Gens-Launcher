@@ -1,0 +1,60 @@
+name: Build APT Repo from Releases
+on:
+  release:
+    # Se lance UNIQUEMENT quand tu cliques sur "Publish" depuis ton draft
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Installer les outils APT
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Préparer le dossier temporaire
+        run: mkdir -p apt-workspace
+
+      - name: Récupérer le .deb depuis la Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Télécharge le .deb de la release exacte qui vient d'être publiée
+          gh release download "${{ github.event.release.tag_name }}" --pattern "*.deb" --dir apt-workspace
+
+      - name: Ajouter la clé publique
+        run: cp public.key apt-workspace/
+
+      - name: Importer la clé de sécurité
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Générer l'arborescence APT
+        run: |
+          cd apt-workspace
+          dpkg-scanpackages --multiversion . > Packages
+          gzip -k -f Packages
+          apt-ftparchive release . > Release
+          gpg --default-key "${{ env.GPG_FINGERPRINT }}" -abs -o Release.gpg Release
+          gpg --default-key "${{ env.GPG_FINGERPRINT }}" --clearsign -o InRelease Release
+
+      - name: Configurer GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Préparer l'envoi web
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './apt-workspace'
+
+      - name: Mettre en ligne le dépôt
+        id: deployment
+        uses: actions/deploy-pages@v4
