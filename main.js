@@ -296,14 +296,22 @@ app.whenReady().then(async () => {
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); });
     } catch (e) { console.error("Erreur Tray:", e); }
-    autoUpdater.logger = {
-        info: (m) => { if (!m.includes("Skip checkForUpdates")) mainLog(m); },
-        warn: (m) => mainLog("WARN: " + m),
-        error: (m) => mainLog("ERR: " + m)
-    };
-    autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
-    autoUpdater.autoDownload = false;
     const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    if (isLinuxDeb) {
+        // .deb installé via APT : neutralisation complète d'electron-updater pour éviter tout appel pkexec
+        autoUpdater.autoDownload = false;
+        autoUpdater.autoInstallOnAppQuit = false;
+        autoUpdater.checkForUpdates = async () => null;
+        autoUpdater.downloadUpdate = async () => null;
+    } else {
+        autoUpdater.logger = {
+            info: (m) => { if (!m.includes("Skip checkForUpdates")) mainLog(m); },
+            warn: (m) => mainLog("WARN: " + m),
+            error: (m) => mainLog("ERR: " + m)
+        };
+        autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
+        autoUpdater.autoDownload = false;
+    }
     setTimeout(async () => {
         if (globalOfflineMode) {
             mainLog("Info : Vérification des MAJ annulée (offlineMode actif).");

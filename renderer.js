@@ -149,7 +149,9 @@ async function init() {
         window.renderUI();
         if (window.renderAccountManager) window.renderAccountManager();
         if (window.updateAccountDropdown) window.updateAccountDropdown();
-        window.api.send('show-window');
+        if (!window._isAutoLaunch) {
+            window.api.send('show-window');
+        }
         window.dispatchEvent(new Event('resize'));
         if (window.restoreRunningInstances) window.restoreRunningInstances();
         if (window.loadNews) window.loadNews();
