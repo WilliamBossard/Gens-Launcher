@@ -11,7 +11,7 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/crypto-utils.test.js tests/utils.test.js"
   },
   "dependencies": {
     "archiver": "^8.0.0",
