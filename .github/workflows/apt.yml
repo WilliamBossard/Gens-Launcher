@@ -27,8 +27,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Télécharge le .deb de la release exacte qui vient d'être publiée
-          gh release download "${{ github.event.release.tag_name }}" --pattern "*.deb" --dir apt-workspace
+          # Si le script est lancé manuellement, gh télécharge la dernière release dispo
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            gh release download --pattern "*.deb" --dir apt-workspace
+          else
+            gh release download "$TAG" --pattern "*.deb" --dir apt-workspace
+          fi
 
       - name: Ajouter la clé publique
         run: cp public.key apt-workspace/
@@ -45,8 +50,8 @@ jobs:
           dpkg-scanpackages --multiversion . > Packages
           gzip -k -f Packages
           apt-ftparchive release . > Release
-          gpg --default-key "${{ env.GPG_FINGERPRINT }}" -abs -o Release.gpg Release
-          gpg --default-key "${{ env.GPG_FINGERPRINT }}" --clearsign -o InRelease Release
+          gpg --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
+          gpg --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
 
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v4
