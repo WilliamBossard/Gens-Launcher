@@ -377,7 +377,7 @@ export function setupLauncher() {
         if (shouldAutoClose) {
             setAutoStatus(t("msg_auto_closing", "Fermeture..."));
             window.api.send("show-window");
-            setTimeout(() => { window.api.send("hide-window"); app.quit && window.close(); }, 800);
+            setTimeout(() => { window.api.send("quit-app"); }, 800);
         }
     });
     document.getElementById("launch-btn").addEventListener("click", async () => {

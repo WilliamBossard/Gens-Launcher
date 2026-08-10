@@ -705,6 +705,37 @@ ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
 
 ipcMain.handle("check-for-updates", async () => {
     isManualUpdateCheck = true;
+    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    if (isLinuxDeb) {
+        // .deb : check via GitHub API sans electron-updater
+        try {
+            const { net } = require('electron');
+            return await new Promise((resolve) => {
+                const req = net.request({ url: 'https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest', headers: { 'User-Agent': 'Gens-Launcher-AutoUpdater' } });
+                req.on('response', (res) => {
+                    let data = '';
+                    res.on('data', (c) => { data += c; });
+                    res.on('end', () => {
+                        isManualUpdateCheck = false;
+                        try {
+                            const release = JSON.parse(data);
+                            const latestVer = (release.tag_name || '').replace(/^v/, '');
+                            const currentVer = app.getVersion();
+                            if (latestVer && latestVer !== currentVer) {
+                                mainWindow?.webContents.send('update-available-prompt', { version: latestVer });
+                                resolve({ success: true, version: latestVer });
+                            } else {
+                                mainWindow?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
+                                resolve({ success: true, version: null });
+                            }
+                        } catch(e) { resolve({ success: false, error: e.message }); }
+                    });
+                });
+                req.on('error', (e) => { isManualUpdateCheck = false; resolve({ success: false, error: e.message }); });
+                req.end();
+            });
+        } catch(e) { isManualUpdateCheck = false; return { success: false, error: e.message }; }
+    }
     try { 
         const result = await autoUpdater.checkForUpdates(); 
         isManualUpdateCheck = false;
@@ -718,10 +749,14 @@ ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; })
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
 ipcMain.on("hide-window", () => {
     if (mainWindow) {
-        if (process.platform === 'linux') mainWindow.setSkipTaskbar(true);
+        if (process.platform === 'linux') {
+            mainWindow.setSkipTaskbar(true);
+            mainWindow.minimize();
+        }
         mainWindow.hide();
     }
 });
+ipcMain.on("quit-app", () => { app.quit(); });
 ipcMain.on("show-window", () => {
     if (mainWindow) {
         if (process.platform === 'linux') mainWindow.setSkipTaskbar(false);
