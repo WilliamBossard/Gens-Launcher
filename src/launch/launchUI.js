@@ -175,6 +175,7 @@ export function setupLauncher() {
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
         const isLastInstance = store.activeInstances.size === 0;
         let isAutoClose = window._isAutoLaunch && isLastInstance;
+        const shouldAutoClose = isAutoClose; // snapshot avant modification
         function setAutoStatus(text) {
             const el = document.getElementById("auto-status-text");
             if (el) el.textContent = text;
@@ -373,9 +374,10 @@ export function setupLauncher() {
                 }
             }
         }
-        if (isAutoClose) {
+        if (shouldAutoClose) {
             setAutoStatus(t("msg_auto_closing", "Fermeture..."));
-            setTimeout(() => { window.close(); }, 800);
+            window.api.send("show-window");
+            setTimeout(() => { window.api.send("hide-window"); app.quit && window.close(); }, 800);
         }
     });
     document.getElementById("launch-btn").addEventListener("click", async () => {

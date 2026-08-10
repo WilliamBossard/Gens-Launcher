@@ -303,14 +303,41 @@ app.whenReady().then(async () => {
     };
     autoUpdater.requestHeaders = { "User-Agent": "Gens-Launcher-AutoUpdater" };
     autoUpdater.autoDownload = false;
-    setTimeout(() => {
+    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    setTimeout(async () => {
         if (globalOfflineMode) {
             mainLog("Info : Vérification des MAJ annulée (offlineMode actif).");
             return;
         }
-        autoUpdater.checkForUpdates().catch(() => {
-            mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
-        });
+        if (isLinuxDeb) {
+            // .deb via APT : vérification légère via l'API GitHub (sans pkexec)
+            try {
+                const { net } = require('electron');
+                const req = net.request({ url: 'https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest', headers: { 'User-Agent': 'Gens-Launcher-AutoUpdater' } });
+                req.on('response', (res) => {
+                    let data = '';
+                    res.on('data', (chunk) => { data += chunk; });
+                    res.on('end', () => {
+                        try {
+                            const release = JSON.parse(data);
+                            const latestVer = (release.tag_name || '').replace(/^v/, '');
+                            const currentVer = app.getVersion();
+                            if (latestVer && latestVer !== currentVer) {
+                                mainLog(`MAJ disponible: ${currentVer} -> ${latestVer}`);
+                                mainWindow?.webContents.send('update-available-prompt', { version: latestVer });
+                            } else if (isManualUpdateCheck) {
+                                mainWindow?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
+                            }
+                        } catch(e) { mainLog('Erreur parsing release GitHub: ' + e.message); }
+                    });
+                });
+                req.end();
+            } catch(e) { mainLog('Erreur check MAJ .deb: ' + e.message); }
+        } else {
+            autoUpdater.checkForUpdates().catch(() => {
+                mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
+            });
+        }
     }, 3000);
 });
 ipcMain.on("restart_app", async () => {
@@ -689,10 +716,21 @@ ipcMain.handle("check-for-updates", async () => {
 });
 ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
 ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
-ipcMain.on("hide-window", () => { if (mainWindow) mainWindow.hide(); });
-ipcMain.on("show-window", () => { if (mainWindow) mainWindow.show(); });
+ipcMain.on("hide-window", () => {
+    if (mainWindow) {
+        if (process.platform === 'linux') mainWindow.setSkipTaskbar(true);
+        mainWindow.hide();
+    }
+});
+ipcMain.on("show-window", () => {
+    if (mainWindow) {
+        if (process.platform === 'linux') mainWindow.setSkipTaskbar(false);
+        mainWindow.show();
+    }
+});
 ipcMain.on("restore-main-window", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+        if (process.platform === 'linux') mainWindow.setSkipTaskbar(false);
         mainWindow.setResizable(true);
         mainWindow.setMaximizable(true);
         mainWindow.setMinimumSize(1000, 600);
