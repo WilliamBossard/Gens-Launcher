@@ -315,26 +315,30 @@ app.whenReady().then(async () => {
 });
 ipcMain.on("restart_app", async () => {
     if (process.platform === 'linux') {
-        if (process.env.APPIMAGE) { autoUpdater.quitAndInstall(); return; }
-        if (linuxUpdatePath && await fs.promises.access(linuxUpdatePath).then(()=>true).catch(()=>false)) {
-            try {
-                const destPath = path.join(app.getPath("downloads"), "GensLauncher-MiseAJour.deb");
-                await fs.promises.copyFile(linuxUpdatePath, destPath);
-                mainLog("Fichier .deb copié dans : " + destPath);
-                execFile("pkexec", ["dpkg", "-i", destPath], (err) => {
-                    if (!err) { app.relaunch(); app.exit(0); return; }
-                    execFile("xdg-open", [destPath], (err2) => {
-                        if (err2) shell.showItemInFolder(destPath);
-                        setTimeout(() => app.quit(), 1500);
-                    });
-                });
-            } catch (err) {
-                mainLog("Erreur MAJ deb : " + err.message);
-                shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
-            }
-        } else {
-            shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+        if (process.env.APPIMAGE) {
+            // AppImage : electron-updater gère tout nativement
+            autoUpdater.quitAndInstall();
+            return;
         }
+        // .deb installé via APT : on délègue à apt-get pour une mise à jour propre
+        mainLog("MAJ Linux .deb : lancement via pkexec apt-get...");
+        const { exec } = require('child_process');
+        exec('pkexec apt-get install -y gens-launcher', (err, stdout, stderr) => {
+            if (!err) {
+                mainLog("Mise à jour APT réussie. Relancement...");
+                app.relaunch();
+                app.exit(0);
+            } else {
+                mainLog("Erreur MAJ APT : " + stderr);
+                // Fallback : ouvrir un terminal avec la commande
+                exec(`x-terminal-emulator -e 'bash -c "sudo apt update && sudo apt install gens-launcher; read -p \\"Appuyez sur Entree pour fermer...\\" "'`, (err2) => {
+                    if (err2) {
+                        // Dernier recours : ouvrir la page GitHub
+                        shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+                    }
+                });
+            }
+        });
     } else {
         autoUpdater.quitAndInstall();
     }

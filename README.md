@@ -11,6 +11,7 @@ Modern and lightweight open-source Minecraft launcher based on Electron. Integra
 - **Microsoft Multi-Account Support:** Securely log in and manage multiple Microsoft accounts.
 - **Enterprise-Grade Security:** File integrity verification (SHA1), strict HTTPS enforcement, and a "Safe Write" anti-corruption save system.
 - **Windows Integration (Jump List):** Launch your favorite instances directly from the Windows taskbar via right-click.
+- **Linux APT Repository:** Install and update Gens Launcher on Debian/Ubuntu systems using the official signed APT repository.
 - **Total Customization:** Dynamic themes, custom wallpapers, blur effects (Acrylic/Mica), and an option to disable animations for low-end PCs.
 - **Discord Rich Presence:** Show off the instance you are currently playing directly on your Discord profile.
 
@@ -29,26 +30,49 @@ Welcome to Gens Launcher! Here is how to install the software on your PC in just
 2. Scroll down to the "Assets" section at the bottom and download the file for your Operating System:
    - **For Windows:** Download **`GensLauncher-Setup-X.X.X.exe`**
    - **For macOS:** Download **`GensLauncher-X.X.X-mac.dmg`**
-   - **For Linux:** Download **`GensLauncher-X.X.X.AppImage`** *(a `.deb` version is also available for Debian/Ubuntu).*
+   - **For Linux (AppImage):** Download **`GensLauncher-X.X.X.AppImage`** from the Releases section.
+   - **For Linux (Debian/Ubuntu via APT):** Use the official APT repository for the best experience (see below).
 
 ### Step 2: Run the Installation
 
-**🔹 For Windows (.exe):**
+**For Windows (.exe):**
 1. Once the download is complete, double-click the `.exe` file to start the installation.
 2. **Important (Windows Alert):** Because this launcher is an independent project, Windows Defender might display a blue screen saying *"Windows protected your PC"*. This is completely normal for unverified indie apps.
    - Simply click on the **"More info"** text.
    - Then click the **"Run anyway"** button.
 3. Follow the on-screen instructions, leave the boxes checked to create shortcuts, and click "Install".
 
-**🔹 For macOS (.dmg):**
+**For macOS (.dmg):**
 1. Double-click the downloaded `.dmg` file to open it.
 2. Drag and drop the **Gens Launcher** icon into the **Applications** folder shortcut.
 3. Go to your Applications folder and launch the app from there! *(Note: The Auto-Updater requires the app to be run from the Applications folder, not directly from the DMG).*
 
-**🔹 For Linux (.AppImage):**
+**For Linux - Option A: AppImage (universal, no install required)**
 1. Right-click the `.AppImage` file and select **Properties**.
 2. Go to the **Permissions** tab and check the box **"Allow executing file as program"**.
 3. Double-click the `.AppImage` to launch Gens Launcher! No installation required.
+
+**For Linux - Option B: APT Repository (recommended for Debian/Ubuntu)**
+
+This method integrates Gens Launcher into your system's package manager, so it updates automatically with `apt upgrade` like any other application.
+
+Run these 3 commands in your terminal once:
+
+```bash
+# 1. Add the trusted signing key
+curl -fsSL https://williambossard.github.io/Gens-Launcher/public.key | sudo gpg --dearmor -o /usr/share/keyrings/gens-launcher-keyring.gpg
+
+# 2. Add the repository to your sources
+echo "deb [signed-by=/usr/share/keyrings/gens-launcher-keyring.gpg] https://williambossard.github.io/Gens-Launcher/ ./" | sudo tee /etc/apt/sources.list.d/gens-launcher.list
+
+# 3. Install!
+sudo apt update && sudo apt install gens-launcher
+```
+
+To update in the future:
+```bash
+sudo apt update && sudo apt upgrade gens-launcher
+```
 
 ### Step 3: Play!
 - Open Gens Launcher using the new shortcut on your Desktop or in your application menu.
