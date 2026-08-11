@@ -208,17 +208,32 @@ module.exports = function setupGameHandlers(context) {
             }
             activeMinecraftClients.set(instanceId, { process: mcProcess, launcher });
             mainWindow?.webContents.send("mc-started", { instanceId });
+            // Auto-launch : cacher la fenêtre directement depuis le main process (sans dépendre du renderer)
+            const isAutoLaunchMode = process.argv.some(a => a.startsWith('--auto-launch='));
+            mainLog(`[auto-launch] Jeu démarré, isAutoLaunch=${isAutoLaunchMode}`);
+            if (isAutoLaunchMode) {
+                const mw = getMainWindow();
+                if (mw && !mw.isDestroyed()) {
+                    setTimeout(() => {
+                        if (process.platform === 'linux') mw.setSkipTaskbar(true);
+                        mw.hide();
+                        mainLog('[auto-launch] Fenêtre masquée.');
+                    }, 500); // petit délai pour laisser le jeu s'afficher d'abord
+                }
+            }
             mcProcess.on("close", async (code) => {
                 if (await fs.promises.access(lockFile).then(()=>true).catch(()=>false)) await fs.promises.unlink(lockFile);
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
                     mainWindow?.webContents.send("mc-close", { instanceId, code: code });
-                    // Auto-launch : si c'était la dernière instance, quitter l'app depuis le main process
-                    const isAutoLaunch = process.argv.some(a => a.startsWith('--auto-launch='));
-                    mainLog(`[auto-launch] isAutoLaunch=${isAutoLaunch}, activeClients=${activeMinecraftClients.size}`);
-                    if (isAutoLaunch && activeMinecraftClients.size === 0) {
-                        mainLog('[auto-launch] Dernière instance fermée, fermeture dans 1.5s...');
-                        setTimeout(() => { app.quit(); }, 1500);
+                    // Auto-launch : quitter l'app depuis le main process directement
+                    mainLog(`[auto-launch] Jeu fermé. isAutoLaunch=${isAutoLaunchMode}, activeClients=${activeMinecraftClients.size}`);
+                    if (isAutoLaunchMode && activeMinecraftClients.size === 0) {
+                        mainLog('[auto-launch] Dernière instance fermée. Fermeture dans 1.5s...');
+                        setTimeout(() => {
+                            mainLog('[auto-launch] app.exit(0)');
+                            app.exit(0);
+                        }, 1500);
                     }
                 }
             });
