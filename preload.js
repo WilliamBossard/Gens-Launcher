@@ -27,7 +27,8 @@ const _appPaths = {
     appData: _getArgValue('app-data') || '',
     platform: _getArgValue('app-platform') || process.platform,
     arch: _getArgValue('app-arch') || process.arch,
-    version: _getArgValue('app-version') || ''
+    version: _getArgValue('app-version') || '',
+    isAutoLaunch: process.argv.includes('--is-auto-launch')
 };
 const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
 /**
@@ -230,6 +231,7 @@ contextBridge.exposeInMainWorld("api", {
     platform: _appPaths.platform,
     arch: _appPaths.arch,
     version: _appPaths.version,
+    isAutoLaunch: _appPaths.isAutoLaunch,
     getFilePath: (file) => webUtils.getPathForFile(file),
     /**
      * Copie une image depuis n'importe où sur le disque vers le sandbox GensLauncher.

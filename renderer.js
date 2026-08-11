@@ -25,6 +25,11 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
 const path = window.api.path;
+// Initialisation immédiate et synchrone du flag auto-launch (avant tout chargement async)
+if (window.api.isAutoLaunch) {
+    window._isAutoLaunch = true;
+    document.body.classList.add("is-auto-launch");
+}
 const _setupFunctions = [
     ["initRPC", initRPC],
     ["setupAuth", setupAuth],
@@ -149,7 +154,7 @@ async function init() {
         window.renderUI();
         if (window.renderAccountManager) window.renderAccountManager();
         if (window.updateAccountDropdown) window.updateAccountDropdown();
-        if (!window._isAutoLaunch) {
+        if (!window.api.isAutoLaunch) {
             window.api.send('show-window');
         }
         window.dispatchEvent(new Event('resize'));

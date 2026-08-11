@@ -179,7 +179,8 @@ function createWindow() {
                 `--app-data=${app.getPath('appData')}`,
                 `--app-platform=${process.platform}`,
                 `--app-arch=${process.arch}`,
-                `--app-version=${app.getVersion()}`
+                `--app-version=${app.getVersion()}`,
+                ...(isAutoLaunch ? ['--is-auto-launch'] : [])
             ]
         },
     });
