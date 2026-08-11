@@ -67,6 +67,8 @@ ipcRenderer.on("update-msg", (data) => {
 });
 ipcRenderer.on("update-available-prompt", async (info) => {
     store.pendingLauncherUpdate = info;
+    // Ne pas déclencher la MAJ automatique en mode auto-launch (overlay raccourci)
+    if (window.api.isAutoLaunch) return;
     const badge = document.getElementById("settings-update-badge");
     if (badge) badge.style.display = "block";
     const tabBadge = document.getElementById("updates-tab-badge");

@@ -755,7 +755,15 @@ ipcMain.handle("check-for-updates", async () => {
     }
 });
 ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
-ipcMain.on("download-update", () => { autoUpdater.downloadUpdate(); });
+ipcMain.on("download-update", () => {
+    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    if (isLinuxDeb) {
+        // .deb : ne pas déléguer à electron-updater, c'est apt-get qui installe
+        mainLog("[deb] Téléchargement ignoré (géré par APT).");
+        return;
+    }
+    autoUpdater.downloadUpdate();
+});
 ipcMain.on("hide-window", () => {
     if (mainWindow) {
         if (process.platform === 'linux') {
@@ -797,6 +805,12 @@ autoUpdater.on("error", (err) => {
     }
 });
 autoUpdater.on("update-downloaded", (info) => {
+    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    if (isLinuxDeb) {
+        // .deb : ne jamais envoyer update-downloaded au renderer (la mise à jour se fait via APT)
+        mainLog("[deb] update-downloaded ignoré.");
+        return;
+    }
     if (info?.downloadedFile) { linuxUpdatePath = info.downloadedFile; mainLog("MAJ téléchargée : " + linuxUpdatePath); }
     mainWindow?.webContents.send("update-downloaded");
 });
