@@ -80,6 +80,23 @@ const mainInitPromise = (async () => {
             }
         }
     } catch (e) { }
+    // Nettoyage automatique du cache Electron si la version a changé
+    // Évite l'exécution d'ancien bytecode compilé après réinstallation
+    try {
+        const userDataPath = app.getPath('userData');
+        const versionSentinelPath = path.join(userDataPath, '.launcher-version');
+        const currentVersion = app.getVersion();
+        let lastVersion = null;
+        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) {}
+        if (lastVersion !== currentVersion) {
+            const cacheDirs = ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'blob_storage'];
+            for (const dir of cacheDirs) {
+                const dirPath = path.join(userDataPath, dir);
+                try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (_) {}
+            }
+            await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
+        }
+    } catch (e) {}
 })();
 /**
  * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
