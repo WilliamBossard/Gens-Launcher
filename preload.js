@@ -232,7 +232,7 @@ contextBridge.exposeInMainWorld("api", {
     arch: _appPaths.arch,
     version: _appPaths.version,
     isAutoLaunch: _appPaths.isAutoLaunch,
-    isAppImage: process.platform === 'linux' && process.argv.some(a => a.includes('APPIMAGE') || a.endsWith('.AppImage')),
+    isAppImage: process.platform === 'linux' && !!process.env.APPIMAGE,
     getFilePath: (file) => webUtils.getPathForFile(file),
     /**
      * Copie une image depuis n'importe où sur le disque vers le sandbox GensLauncher.
