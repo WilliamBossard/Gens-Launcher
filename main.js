@@ -366,7 +366,14 @@ app.whenReady().then(async () => {
         }
     }, 3000);
 });
+let userConfirmedUpdate = false;
+ipcMain.on("confirm-update", () => { userConfirmedUpdate = true; });
 ipcMain.on("restart_app", async () => {
+    if (process.platform === 'linux' && !process.env.APPIMAGE && !userConfirmedUpdate) {
+        mainLog("[Sécurité] restart_app rejeté : l'utilisateur n'a pas confirmé la mise à jour.");
+        return;
+    }
+    userConfirmedUpdate = false; // reset après usage
     if (process.platform === 'linux') {
         if (process.env.APPIMAGE) {
             // AppImage : electron-updater gère tout nativement

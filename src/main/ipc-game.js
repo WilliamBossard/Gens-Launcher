@@ -1,6 +1,6 @@
 module.exports = function setupGameHandlers(context) {
     const {
-        ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, execFile,
+        app, ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, execFile,
         mainResolveInstanceFolder, safeSend
     } = context;
     const os = require('os');
@@ -213,6 +213,13 @@ module.exports = function setupGameHandlers(context) {
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
                     mainWindow?.webContents.send("mc-close", { instanceId, code: code });
+                    // Auto-launch : si c'était la dernière instance, quitter l'app depuis le main process
+                    const isAutoLaunch = process.argv.some(a => a.startsWith('--auto-launch='));
+                    mainLog(`[auto-launch] isAutoLaunch=${isAutoLaunch}, activeClients=${activeMinecraftClients.size}`);
+                    if (isAutoLaunch && activeMinecraftClients.size === 0) {
+                        mainLog('[auto-launch] Dernière instance fermée, fermeture dans 1.5s...');
+                        setTimeout(() => { app.quit(); }, 1500);
+                    }
                 }
             });
         }).catch(e => {

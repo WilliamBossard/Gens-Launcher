@@ -102,6 +102,7 @@ ipcRenderer.on("update-downloaded", async () => {
     if (overlay) overlay.style.display = "none";
     const msg = t("msg_update_restart", "Mise à jour prête ! Voulez-vous redémarrer maintenant ?");
     if (await window.showCustomConfirm(msg)) {
+        ipcRenderer.send("confirm-update"); // Validation explicite par l'utilisateur
         ipcRenderer.send("restart_app");
     } else {
         const statusDiv = document.getElementById("update-status");
