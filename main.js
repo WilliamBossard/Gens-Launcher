@@ -366,6 +366,50 @@ app.whenReady().then(async () => {
         }
     }, 3000);
 });
+ipcMain.handle("do-deb-update", async () => {
+    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
+    if (!isLinuxDeb) return { success: false, error: 'Not a .deb installation' };
+    mainLog('[deb-update] Démarrage...');
+    const keyPath = '/usr/share/keyrings/gens-launcher-keyring.gpg';
+    const sourcesPath = '/etc/apt/sources.list.d/gens-launcher.list';
+    const keyUrl = 'https://williambossard.github.io/Gens-Launcher/public.key';
+    const repoLine = `deb [signed-by=${keyPath}] https://williambossard.github.io/Gens-Launcher ./`;
+    // Vérifier si le repo est déjà configuré
+    let hasKey = false, hasSources = false;
+    try { await fs.promises.access(keyPath); hasKey = true; } catch(_) {}
+    try { await fs.promises.access(sourcesPath); hasSources = true; } catch(_) {}
+    mainLog(`[deb-update] hasKey=${hasKey}, hasSources=${hasSources}`);
+    // Construire une commande shell unique pour pkexec (un seul mot de passe)
+    let shellCmd;
+    if (!hasKey || !hasSources) {
+        mainLog('[deb-update] Dépôt APT non configuré, ajout automatique...');
+        mainWindow?.webContents.send('update-msg', { key: 'msg_apt_setup', text: 'Configuration du dépôt APT...', type: 'info' });
+        // Tout en un seul pkexec sh -c pour éviter plusieurs demandes de mot de passe
+        const setupParts = [];
+        if (!hasKey) setupParts.push(`curl -fsSL '${keyUrl}' | gpg --dearmor -o '${keyPath}'`);
+        if (!hasSources) setupParts.push(`echo '${repoLine}' > '${sourcesPath}'`);
+        setupParts.push('apt-get update -qq');
+        setupParts.push('apt-get install -y gens-launcher');
+        shellCmd = `pkexec sh -c "${setupParts.join(' && ').replace(/"/g, '\\"')}"`;
+    } else {
+        mainLog('[deb-update] Dépôt configuré, lancement apt-get install...');
+        shellCmd = 'pkexec apt-get install -y gens-launcher';
+    }
+    mainLog('[deb-update] Commande : ' + shellCmd);
+    mainWindow?.webContents.send('update-msg', { key: 'msg_apt_installing', text: 'Installation en cours (cela peut prendre quelques secondes)...', type: 'info' });
+    return new Promise((resolve) => {
+        const { exec } = require('child_process');
+        exec(shellCmd, { timeout: 180000 }, (err, stdout, stderr) => {
+            if (!err) {
+                mainLog('[deb-update] Succès.');
+                resolve({ success: true });
+            } else {
+                mainLog('[deb-update] Erreur : ' + (stderr || err.message));
+                resolve({ success: false, error: (stderr || err.message).split('\n')[0] });
+            }
+        });
+    });
+});
 let userConfirmedUpdate = false;
 ipcMain.on("confirm-update", () => { userConfirmedUpdate = true; });
 ipcMain.on("restart_app", async () => {

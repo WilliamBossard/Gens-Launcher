@@ -30,6 +30,8 @@ if (window.api.isAutoLaunch) {
     window._isAutoLaunch = true;
     document.body.classList.add("is-auto-launch");
 }
+// Détection AppImage (utilisé par SettingsUI pour distinguer .deb vs AppImage)
+window._isAppImage = window.api.isAppImage || false;
 const _setupFunctions = [
     ["initRPC", initRPC],
     ["setupAuth", setupAuth],

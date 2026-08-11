@@ -495,14 +495,40 @@ export function setupSettings() {
             if (tabBadge)   tabBadge.style.display   = "none";
         }
     };
-    window.startLauncherUpdate = () => {
+    window.startLauncherUpdate = async () => {
+        const btn = document.getElementById("btn-start-update");
+        const statusDiv = document.getElementById("update-status");
+        if (btn) btn.disabled = true;
         if (window.api.platform === "darwin") {
             window.api.shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
-            document.getElementById("btn-start-update").disabled = true;
-        } else {
-            window.api.send("download-update");
-            document.getElementById("btn-start-update").disabled = true;
+            return;
         }
+        // Linux .deb : mise à jour via APT avec ajout automatique du dépôt si nécessaire
+        const isLinuxDeb = window.api.platform === "linux" && !window._isAppImage;
+        if (isLinuxDeb) {
+            if (statusDiv) statusDiv.innerText = t("msg_update_apt_starting", "Installation APT en cours...");
+            try {
+                const result = await window.api.invoke("do-deb-update");
+                if (result && result.success) {
+                    if (statusDiv) statusDiv.innerText = t("msg_update_apt_done", "Mise à jour installée ! Relancement...");
+                    setTimeout(() => {
+                        window.api.send("confirm-update");
+                        window.api.send("restart_app");
+                    }, 1000);
+                } else {
+                    const errMsg = (result && result.error) ? result.error : "Erreur inconnue";
+                    if (statusDiv) statusDiv.innerText = t("msg_update_apt_error", "Erreur APT : ") + errMsg;
+                    if (btn) btn.disabled = false;
+                    window.showToast(t("msg_update_apt_error", "Erreur lors de la mise à jour APT"), "error");
+                }
+            } catch(e) {
+                if (statusDiv) statusDiv.innerText = "Erreur : " + e.message;
+                if (btn) btn.disabled = false;
+            }
+            return;
+        }
+        // Windows / AppImage : electron-updater
+        window.api.send("download-update");
     };
 }
 export function setupHorizonSettings() {

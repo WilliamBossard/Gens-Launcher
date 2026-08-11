@@ -80,7 +80,7 @@ function safeExternalUrl(url) {
 }
 // Note : deobfuscateDataAsync a été supprimé (SEC-02) — 'decrypt-string' gère déjà le fallback legacy en cascade.
 const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restore-main-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"];
-const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "delete-msa-cache", "hash-file", "check-internet"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
+const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "delete-msa-cache", "hash-file", "check-internet", "do-deb-update"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
@@ -232,6 +232,7 @@ contextBridge.exposeInMainWorld("api", {
     arch: _appPaths.arch,
     version: _appPaths.version,
     isAutoLaunch: _appPaths.isAutoLaunch,
+    isAppImage: process.platform === 'linux' && process.argv.some(a => a.includes('APPIMAGE') || a.endsWith('.AppImage')),
     getFilePath: (file) => webUtils.getPathForFile(file),
     /**
      * Copie une image depuis n'importe où sur le disque vers le sandbox GensLauncher.
