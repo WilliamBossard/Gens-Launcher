@@ -114,7 +114,7 @@ class Handler {
   async downloadAsync(url, directory, name, retry, type) {
     if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
     if (this.options.offline) return path.join(directory, name);
-    if (!(await window.existsSafe(directory))) {
+    if (!(fs.existsSync(directory))) {
       await fs.promises.mkdir(directory, { recursive: true });
     }
     let response;
@@ -158,7 +158,7 @@ class Handler {
         resolve({ failed: false, asset: null });
       });
       dest.on('error', async (e) => {
-        if (await window.existsSafe(path.join(directory, name))) await fs.promises.unlink(path.join(directory, name));
+        if (fs.existsSync(path.join(directory, name))) await fs.promises.unlink(path.join(directory, name));
         if (retry) return resolve(await this.downloadAsync(url, directory, name, false, type));
         resolve({ failed: true, asset: null });
       });
@@ -187,7 +187,7 @@ class Handler {
   getVersion() {
     return new Promise(async resolve => {
       const versionJsonPath = this.options.overrides.versionJson || path.join(this.options.directory, `${this.options.version.number}.json`);
-      if (await window.existsSafe(versionJsonPath)) {
+      if (fs.existsSync(versionJsonPath)) {
         this.version = JSON.parse(await fs.promises.readFile(versionJsonPath, 'utf8'));
         return resolve(this.version);
       }
@@ -196,7 +196,7 @@ class Handler {
       const cache = this.options.cache ? `${this.options.cache}/json` : `${this.options.root}/cache/json`;
 
       try {
-        if (!(await window.existsSafe(cache))) {
+        if (!(fs.existsSync(cache))) {
           await fs.promises.mkdir(cache, { recursive: true });
         }
         const manifestBody = await this.fetchText(manifest);
@@ -213,7 +213,7 @@ class Handler {
         }
       } catch (e) {
         try {
-          if (await window.existsSafe(path.join(cache, `${this.options.version.number}.json`))) {
+          if (fs.existsSync(path.join(cache, `${this.options.version.number}.json`))) {
             this.version = JSON.parse(await fs.promises.readFile(path.join(cache, `${this.options.version.number}.json`), 'utf8'));
             return resolve(this.version);
           }
@@ -225,7 +225,7 @@ class Handler {
 
   async getJar() {
     const jarPath = path.join(this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`);
-    if (await window.existsSafe(jarPath) && await this.checkSum(this.version.downloads.client.sha1, jarPath)) {
+    if (fs.existsSync(jarPath) && await this.checkSum(this.version.downloads.client.sha1, jarPath)) {
       this.client.emit('debug', '[Gens-Core]: Using existing version jar');
     } else {
       await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
@@ -237,7 +237,7 @@ class Handler {
   async getAssets() {
     const assetDirectory = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'))
     const assetId = this.options.version.custom || this.options.version.number
-    if (!(await window.existsSafe(path.join(assetDirectory, 'indexes', `${assetId}.json`)))) {
+    if (!(fs.existsSync(path.join(assetDirectory, 'indexes', `${assetId}.json`)))) {
       await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
     }
 
@@ -255,7 +255,7 @@ class Handler {
       const subhash = hash.substring(0, 2)
       const subAsset = path.join(assetDirectory, 'objects', subhash)
 
-      if (!(await window.existsSafe(path.join(subAsset, hash))) || !await this.checkSum(hash, path.join(subAsset, hash))) {
+      if (!(fs.existsSync(path.join(subAsset, hash))) || !await this.checkSum(hash, path.join(subAsset, hash))) {
         await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
       }
       counter++
@@ -268,7 +268,7 @@ class Handler {
     counter = 0
 
     if (this.isLegacy()) {
-      if (await window.existsSafe(path.join(assetDirectory, 'legacy'))) {
+      if (fs.existsSync(path.join(assetDirectory, 'legacy'))) {
         this.client.emit('debug', '[Gens-Core]: The \'legacy\' directory is no longer used as Minecraft looks ' +
           'for the resouces folder regardless of what is passed in the assetDirecotry launch option. I\'d ' +
           `recommend removing the directory (${path.join(assetDirectory, 'legacy')})`)
@@ -292,11 +292,11 @@ class Handler {
         const legacyAsset = asset.split('/')
         legacyAsset.pop()
 
-        if (!(await window.existsSafe(path.join(legacyDirectory, legacyAsset.join('/'))))) {
+        if (!(fs.existsSync(path.join(legacyDirectory, legacyAsset.join('/'))))) {
           await fs.promises.mkdir(path.join(legacyDirectory, legacyAsset.join('/')), { recursive: true })
         }
 
-        if (!(await window.existsSafe(path.join(legacyDirectory, asset)))) {
+        if (!(fs.existsSync(path.join(legacyDirectory, asset)))) {
           await fs.promises.copyFile(path.join(subAsset, hash), path.join(legacyDirectory, asset))
         }
         counter++
@@ -333,7 +333,7 @@ class Handler {
     if (parseInt(this.version.id.split('.')[1]) >= 19) return this.options.overrides.cwd || this.options.root
 
     let hasNatives = false;
-    if (await window.existsSafe(nativeDirectory)) {
+    if (fs.existsSync(nativeDirectory)) {
       const files = await fs.promises.readdir(nativeDirectory);
       if (files.length > 0) hasNatives = true;
     }
@@ -367,7 +367,7 @@ class Handler {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
         const name = native.path.split('/').pop()
-        if (!(await window.existsSafe(path.join(nativeDirectory, name))) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
+        if (!(fs.existsSync(path.join(nativeDirectory, name))) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
           await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives')
         }
         try {
@@ -375,7 +375,7 @@ class Handler {
         } catch (e) {
           console.warn(e)
         }
-        if (await window.existsSafe(path.join(nativeDirectory, name))) await fs.promises.unlink(path.join(nativeDirectory, name))
+        if (fs.existsSync(path.join(nativeDirectory, name))) await fs.promises.unlink(path.join(nativeDirectory, name))
         counter++
         this.client.emit('progress', {
           type: 'natives',
@@ -411,7 +411,7 @@ class Handler {
     let json = null
     let installerJson = null
     const versionPath = path.join(this.options.root, 'forge', `${this.version.id}`, 'version.json')
-    if (await window.existsSafe(versionPath)) {
+    if (fs.existsSync(versionPath)) {
       try {
         json = JSON.parse(await fs.promises.readFile(versionPath, 'utf8'))
         if (!json.forgeWrapperVersion || !(json.forgeWrapperVersion === this.options.overrides.fw.version)) {
@@ -526,7 +526,7 @@ class Handler {
 
     json.forgeWrapperVersion = this.options.overrides.fw.version
 
-    if (!(await window.existsSafe(path.join(this.options.root, 'forge', this.version.id)))) {
+    if (!(fs.existsSync(path.join(this.options.root, 'forge', this.version.id)))) {
       await fs.promises.mkdir(path.join(this.options.root, 'forge', this.version.id), { recursive: true })
     }
     await fs.promises.writeFile(versionPath, JSON.stringify(json, null, 4))
@@ -564,7 +564,7 @@ class Handler {
         }
       }
 
-      if (!(await window.existsSafe(path.join(jarPath, name)))) await downloadLibrary(library)
+      if (!(fs.existsSync(path.join(jarPath, name)))) await downloadLibrary(library)
       if (library.downloads && library.downloads.artifact) {
         if (!await this.checkSum(library.downloads.artifact.sha1, path.join(jarPath, name))) await downloadLibrary(library)
       }
@@ -790,7 +790,7 @@ class Handler {
     }
     await new Zip(options.clientPackage).extractAllTo(options.root, true)
     if (options.removePackage) {
-      if (await window.existsSafe(options.clientPackage)) await fs.promises.unlink(options.clientPackage)
+      if (fs.existsSync(options.clientPackage)) await fs.promises.unlink(options.clientPackage)
     }
 
     return this.client.emit('package-extract', true)
