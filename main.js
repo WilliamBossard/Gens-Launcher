@@ -1,3 +1,4 @@
+const { existsSafe } = require('./src/main/fs-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
 const path = require("path");
@@ -67,7 +68,7 @@ const mainInitPromise = (async () => {
                 if ((await fs.promises.stat(filePath)).isFile()) await safeUnlink(filePath);
             }
         }
-    } catch (e) { }
+    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage horizon temp: ${err.message}`); }
 
     try {
         const files = await fs.promises.readdir(logsDir);
@@ -82,7 +83,7 @@ const mainInitPromise = (async () => {
                 await safeUnlink(path.join(logsDir, mainLogs[i].file));
             }
         }
-    } catch (e) { }
+    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage logs: ${err.message}`); }
     // Nettoyage automatique du cache Electron si la version a changé
     // Évite l'exécution d'ancien bytecode compilé après réinstallation
     try {
@@ -99,7 +100,7 @@ const mainInitPromise = (async () => {
             }
             await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
         }
-    } catch (e) {}
+    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${err.message}`); }
 })();
 /**
  * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
@@ -186,7 +187,7 @@ async function decryptSettingsMainProc(text) { // AUDIT-14 : rendu async pour ut
         
         const leg = await legacyDecryptText(text);
         if (leg !== null) return leg;
-    } catch (e) { }
+    } catch (err) { mainLog(`[Decrypt] Erreur tentative de déchiffrement: ${err.message}`); }
     return text;
 }
 
@@ -286,7 +287,7 @@ app.whenReady().then(async () => {
             } else if (isModrinth) {
                 details.requestHeaders['User-Agent'] = `WilliamBossard/Gens-Launcher/${app.getVersion()} (wbossard@free.fr)`;
             }
-        } catch (e) { }
+        } catch (err) { mainLog(`[Network] Erreur headers avant envoi: ${err.message}`); }
         callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
     createWindow();
@@ -332,7 +333,7 @@ app.whenReady().then(async () => {
         tray.setToolTip('Gens Launcher');
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); });
-    } catch (e) { console.error("Erreur Tray:", e); }
+    } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
     const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
     if (isLinuxDeb) {
         // .deb installé via APT : neutralisation complète d'electron-updater pour éviter tout appel pkexec
@@ -598,8 +599,8 @@ let shouldConnectDiscord = true;
                 shouldConnectDiscord = false;
             }
         }
-    } catch (e) {
-        // Ignore read errors
+    } catch (err) {
+        if (err.code !== 'ENOENT') mainLog(`[Discord] Erreur lecture settings: ${err.message}`);
     }
 
     if (shouldConnectDiscord) {
@@ -663,14 +664,3 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
 
 app.on('before-quit', () => { try { if (_logStream) _logStream.end(); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _); } });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

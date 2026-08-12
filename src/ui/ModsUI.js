@@ -75,7 +75,7 @@ function setupMods() {
           const inst = store.allInstances[store.selectedInstanceIdx];
           let targetFolder = type === "shader" ? "shaderpacks" : (type === "resourcepack" ? "resourcepacks" : "mods");
           const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-          if (await existsSafe(destPath)) {
+          if (await window.existsSafe(destPath)) {
               installedItems = (await fs.promises.readdir(destPath)).map(f => f.toLowerCase());
           }
       }
@@ -249,10 +249,10 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-            if (!(await existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
+            if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
-            if (!(await existsSafe(filePath))) {
+            if (!(await window.existsSafe(filePath))) {
               if (!file.url || !/^https:\/\//i.test(file.url)) {
                 sysLog(`URL rejetée (protocole invalide) : ${file.url}`, true);
                 if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
@@ -322,10 +322,10 @@ function setupMods() {
             if (projType === "resourcepack") targetFolder = "resourcepacks";
             const inst = store.allInstances[store.selectedInstanceIdx];
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
-            if (!(await existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
+            if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
-            if (!(await existsSafe(filePath))) {
+            if (!(await window.existsSafe(filePath))) {
               const dlRes = await window.fetchWithTimeout(downloadUrl);
 const buffer = await dlRes.arrayBuffer();
 const fileBytes = new Uint8Array(buffer);
@@ -600,7 +600,7 @@ const iconHtml = safeIconUrl
         };
         try {
             for (const d of Object.values(dirs)) {
-                if (!(await existsSafe(d))) await fs.promises.mkdir(d, { recursive: true });
+                if (!(await window.existsSafe(d))) await fs.promises.mkdir(d, { recursive: true });
             }
         } catch (e) {
             sysLog("Erreur création dossiers modpack: " + e, true);
@@ -768,15 +768,3 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
     };
 }
 export { setupMods };
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

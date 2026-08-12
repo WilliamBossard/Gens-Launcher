@@ -2,6 +2,17 @@ import { store } from "./store.js";
 const fs = window.api.fs;
 const path = window.api.path;
 const shell = window.api.shell;
+
+window.existsSafe = async function(p) {
+    try {
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 window.pathToFileUrl = (p) => {
     const normalized = p.replace(/\\/g, "/");
     const prefix = normalized.startsWith("/") ? "file://" : "file:///";
@@ -25,7 +36,7 @@ window.openSystemPath = (p) => {
 };
 (async () => {
     try {
-        if (!(await existsSafe(store.logsDir))) {
+        if (!(await window.existsSafe(store.logsDir))) {
             await fs.promises.mkdir(store.logsDir, { recursive: true });
         }
         const files = await fs.promises.readdir(store.logsDir);
@@ -151,7 +162,7 @@ window.safeWriteJSONAsync = (filePath, data) => {
         } catch (e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
             try {
-                const exists = await existsSafe(tmp);
+                const exists = await window.existsSafe(tmp);
                 if (exists) await fs.promises.unlink(tmp);
             } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
         }
@@ -300,14 +311,3 @@ window.reconnectDiscord = async () => {
         window.showToast(t("msg_rpc_error", "Erreur RPC : " + e.message), "error");
     }
 };
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

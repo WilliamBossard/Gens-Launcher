@@ -1,3 +1,4 @@
+const { existsSafe } = require('../main/fs-utils');
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
@@ -79,15 +80,3 @@ async function compressFolder({ src, dest, exclude }) {
 compressFolder(workerData)
     .then(() => parentPort.postMessage({ type: 'done', success: true }))
     .catch((err) => parentPort.postMessage({ type: 'done', success: false, error: err.message }));
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

@@ -57,8 +57,8 @@ export async function launchInstance(inst, acc, ui) {
 
     const destOpt = path.join(instancePath, "options.txt");
     const defaultOpt = path.join(store.dataDir, "default_options.txt");
-    const destOptExists = await existsSafe(destOpt);
-    const defaultOptExists = await existsSafe(defaultOpt);
+    const destOptExists = await window.existsSafe(destOpt);
+    const defaultOptExists = await window.existsSafe(defaultOpt);
     if (!destOptExists && defaultOptExists) {
         try { await fs.promises.copyFile(defaultOpt, destOpt); sysLog("Injection du profil options.txt par défaut."); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", e); }
     }
@@ -135,7 +135,7 @@ export async function launchInstance(inst, acc, ui) {
         try {
             const datPath = path.join(instancePath, "servers.dat");
             let parsed = { type: "compound", name: "", value: { servers: { type: "list", value: { type: "compound", value: [] } } } };
-            const datExists = await existsSafe(datPath);
+            const datExists = await window.existsSafe(datPath);
             if (datExists) {
                 const { parsed: p } = await window.api.nbt.parse(await fs.promises.readFile(datPath));
                 if (p?.value) {
@@ -245,7 +245,7 @@ export async function launchInstance(inst, acc, ui) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_fabric", "Installation de Fabric..."));
             let loaderVer = inst.loaderVersion;
             if (!loaderVer) {
-                const hasVersions = await existsSafe(path.join(instancePath, "versions"));
+                const hasVersions = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
                 const match = dirs.find(d => d.startsWith("fabric-loader-") && d.endsWith(`-${inst.version}`));
                 if (match) {
@@ -261,10 +261,10 @@ export async function launchInstance(inst, acc, ui) {
                 const customVerName = `fabric-loader-${loaderVer}-${inst.version}`;
                 opts.version.custom = customVerName;
                 const vPath = path.join(instancePath, "versions", customVerName);
-                const hasVPath = await existsSafe(vPath);
+                const hasVPath = await window.existsSafe(vPath);
                 if (!hasVPath) await fs.promises.mkdir(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
-                const hasJsonPath = await existsSafe(jsonPath);
+                const hasJsonPath = await window.existsSafe(jsonPath);
                 if (!hasJsonPath) {
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_fabric", "Téléchargement profil Fabric..."));
                     const response = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}/${loaderVer}/profile/json`);
@@ -282,7 +282,7 @@ export async function launchInstance(inst, acc, ui) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_quilt", "Installation de Quilt..."));
             let loaderVer = inst.loaderVersion;
             if (!loaderVer) {
-                const hasVersions2 = await existsSafe(path.join(instancePath, "versions"));
+                const hasVersions2 = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions2 ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
                 const match = dirs.find(d => d.startsWith("quilt-loader-") && d.endsWith(`-${inst.version}`));
                 if (match) {
@@ -298,10 +298,10 @@ export async function launchInstance(inst, acc, ui) {
                 const customVerName = `quilt-loader-${loaderVer}-${inst.version}`;
                 opts.version.custom = customVerName;
                 const vPath = path.join(instancePath, "versions", customVerName);
-                const hasVPath2 = await existsSafe(vPath);
+                const hasVPath2 = await window.existsSafe(vPath);
                 if (!hasVPath2) await fs.promises.mkdir(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
-                const hasJsonPath2 = await existsSafe(jsonPath);
+                const hasJsonPath2 = await window.existsSafe(jsonPath);
                 if (!hasJsonPath2) {
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_quilt", "Téléchargement profil Quilt..."));
                     const response = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}/${loaderVer}/profile/json`);
@@ -328,7 +328,7 @@ export async function launchInstance(inst, acc, ui) {
         }
 
         const installersDir = path.join(store.dataDir, "installers");
-        const hasInstallers = await existsSafe(installersDir);
+        const hasInstallers = await window.existsSafe(installersDir);
         if (!hasInstallers) await fs.promises.mkdir(installersDir, { recursive: true });
 
         const installerName = `${inst.loader}-${inst.loaderVersion}-installer.jar`;
@@ -336,14 +336,14 @@ export async function launchInstance(inst, acc, ui) {
 
         let needsInstall = true;
         const versionsDir = path.join(instancePath, "versions");
-        const hasVersionsDir = await existsSafe(versionsDir);
+        const hasVersionsDir = await window.existsSafe(versionsDir);
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
             const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
             if (forgeDir) { needsInstall = false; opts.version.custom = forgeDir; }
         }
 
-        const hasInstallerPath = await existsSafe(installerPath);
+        const hasInstallerPath = await window.existsSafe(installerPath);
         if (needsInstall && !hasInstallerPath) {
             try {
                 if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger l'installeur hors ligne."));
@@ -414,7 +414,7 @@ export async function launchInstance(inst, acc, ui) {
                 sysLog(`Installeur ${inst.loader} téléchargé.`);
             } catch (err) {
                 sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
-                try { if (await existsSafe(installerPath)) await fs.promises.unlink(installerPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", _); }
+                try { if (await window.existsSafe(installerPath)) await fs.promises.unlink(installerPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", _); }
                 if (ui.showToast) ui.showToast(window.t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
                 if (ui.setStatusText) ui.setStatusText(window.t("status_ready", "Prêt"));
                 if (ui.setProgressBar) ui.setProgressBar(-1);
@@ -468,16 +468,4 @@ export async function launchInstance(inst, acc, ui) {
 
     sysLog("Démarrage du processus MCLC...");
     window.api.send("launch-game", opts);
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

@@ -11,7 +11,7 @@ export function setup() {
     async function syncServersDat(inst) {
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
-            if (!(await existsSafe(instDir))) return;
+            if (!(await window.existsSafe(instDir))) return;
             const datPath = path.join(instDir, "servers.dat");
             const serverEntries = (inst.servers || []).map(ip => ({
                 name: { type: "string", value: ip },
@@ -89,7 +89,7 @@ export function setup() {
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const datPath = path.join(instDir, "servers.dat");
-            if (!(await existsSafe(datPath))) return false;
+            if (!(await window.existsSafe(datPath))) return false;
             const buffer = await fs.promises.readFile(datPath);
             const { parsed } = await window.api.nbt.parse(buffer);
             const entries = parsed?.value?.servers?.value?.value || [];
@@ -205,16 +205,4 @@ const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
         }
         clearTimeout(timeoutId);
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

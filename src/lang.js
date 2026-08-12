@@ -22,12 +22,12 @@ export async function setupLang() {
 
     async function syncLangFile(filePath, defaultObj) {
         let current = {};
-        if (await existsSafe(filePath)) {
+        if (await window.existsSafe(filePath)) {
             try { current = JSON.parse(await fs.promises.readFile(filePath, "utf8")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
         }
         const merged = Object.assign({}, defaultObj, current);
         const dir = path.dirname(filePath);
-        if (!(await existsSafe(dir))) {
+        if (!(await window.existsSafe(dir))) {
             await fs.promises.mkdir(dir, { recursive: true });
         }
         const mergedJson = JSON.stringify(merged, null, 2);
@@ -64,7 +64,7 @@ export async function setupLang() {
 
     window.loadLanguage = async (code) => {
         const p = path.join(store.langDir, `${code}.json`);
-        if (await existsSafe(p)) {
+        if (await window.existsSafe(p)) {
             try {
                 const content = await fs.promises.readFile(p, "utf8");
                 store.currentLangObj = JSON.parse(content);
@@ -117,16 +117,4 @@ export async function setupLang() {
             select.appendChild(opt);
         });
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

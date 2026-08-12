@@ -27,7 +27,7 @@ export function setupTheme() {
                 ? window.api.path.join(window.api.appData, 'GensLauncher')
                 : null;
             const isSandboxed = th.bg && safeDataDir && th.bg.startsWith(safeDataDir);
-            if (isSandboxed && await existsSafe(th.bg)) {
+            if (isSandboxed && await window.existsSafe(th.bg)) {
                 const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(th.dim))  ? 0.5 : parseFloat(th.dim)));
                 const blur = Math.max(0, Math.min(50,   isNaN(parseInt(th.blur))   ? 5   : parseInt(th.blur)));
                 appBg.style.backgroundImage = `url("${window.pathToFileUrl(th.bg)}")`;
@@ -44,16 +44,4 @@ export function setupTheme() {
         if (disableTransp) document.body.classList.add("no-transparency");
         else document.body.classList.remove("no-transparency");
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

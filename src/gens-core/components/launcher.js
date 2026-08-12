@@ -59,7 +59,7 @@ class MCLCore extends EventEmitter {
       this.options.mcPath = mcPath
       const nativePath = await this.handler.getNatives()
 
-      if (!(await existsSafe(mcPath)) && !this.options.offline) {
+      if (!(await window.existsSafe(mcPath)) && !this.options.offline) {
         this.emit('debug', '[Gens-Core]: Attempting to download Minecraft version jar')
         await this.handler.getJar()
       }
@@ -109,7 +109,7 @@ class MCLCore extends EventEmitter {
       const separator = this.handler.getOS() === 'windows' ? ';' : ':'
       this.emit('debug', `[Gens-Core]: Using ${separator} to separate class paths`)
       const file = modifyJson || versionFile
-      const jar = await existsSafe(mcPath)
+      const jar = await window.existsSafe(mcPath)
         ? `${separator}${mcPath}`
         : `${separator}${path.join(directory, `${this.options.version.number}.jar`)}`
       classPaths.push(`${this.options.forge ? this.options.forge + separator : ''}${classes.join(separator)}${jar}`)
@@ -139,14 +139,14 @@ class MCLCore extends EventEmitter {
   }
 
   async printVersion() {
-    if (await existsSafe(path.join(__dirname, '..', 'package.json'))) {
+    if (await window.existsSafe(path.join(__dirname, '..', 'package.json'))) {
       const { version } = require('../package.json')
       this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
     } else { this.emit('debug', '[Gens-Core]: Package JSON not found, skipping MCLC version check.') }
   }
 
   async createRootDirectory() {
-    if (!(await existsSafe(this.options.root))) {
+    if (!(await window.existsSafe(this.options.root))) {
       this.emit('debug', '[Gens-Core]: Attempting to create root folder')
       await fs.promises.mkdir(this.options.root, { recursive: true })
     }
@@ -155,7 +155,7 @@ class MCLCore extends EventEmitter {
   async createGameDirectory() {
     if (this.options.overrides.gameDirectory) {
       this.options.overrides.gameDirectory = path.resolve(this.options.overrides.gameDirectory)
-      if (!(await existsSafe(this.options.overrides.gameDirectory))) {
+      if (!(await window.existsSafe(this.options.overrides.gameDirectory))) {
         await fs.promises.mkdir(this.options.overrides.gameDirectory, { recursive: true })
       }
     }
@@ -196,15 +196,3 @@ class MCLCore extends EventEmitter {
 }
 
 module.exports = MCLCore
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

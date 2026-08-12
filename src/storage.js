@@ -3,11 +3,11 @@ const fs = window.api.fs;
 
 export function setupStorage() {
     window.loadStorage = async () => {
-        if (!(await existsSafe(store.dataDir)))        await fs.promises.mkdir(store.dataDir,        { recursive: true });
-        if (!(await existsSafe(store.instancesRoot)))  await fs.promises.mkdir(store.instancesRoot,  { recursive: true });
-        if (!(await existsSafe(store.langDir)))        await fs.promises.mkdir(store.langDir,        { recursive: true });
+        if (!(await window.existsSafe(store.dataDir)))        await fs.promises.mkdir(store.dataDir,        { recursive: true });
+        if (!(await window.existsSafe(store.instancesRoot)))  await fs.promises.mkdir(store.instancesRoot,  { recursive: true });
+        if (!(await window.existsSafe(store.langDir)))        await fs.promises.mkdir(store.langDir,        { recursive: true });
 
-        if (await existsSafe(store.settingsFile)) {
+        if (await window.existsSafe(store.settingsFile)) {
             try {
                 const settingsContent = await fs.promises.readFile(store.settingsFile, "utf8");
                 if (settingsContent) {
@@ -28,7 +28,7 @@ export function setupStorage() {
             }
         }
 
-        if (await existsSafe(store.instanceFile)) {
+        if (await window.existsSafe(store.instanceFile)) {
             try {
                 const content = await fs.promises.readFile(store.instanceFile, "utf8");
                 if (content) {
@@ -66,7 +66,7 @@ export function setupStorage() {
         if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
         if (!store.globalSettings.language) store.globalSettings.language = "fr";
 
-        if (store.accountFile && await existsSafe(store.accountFile)) {
+        if (store.accountFile && await window.existsSafe(store.accountFile)) {
             try {
                 if (window.api.security && typeof window.api.security.readJSONAsync === 'function') {
                     const parsed = await window.api.security.readJSONAsync(store.accountFile);
@@ -86,16 +86,4 @@ export function setupStorage() {
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         }
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

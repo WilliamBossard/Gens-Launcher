@@ -1,3 +1,4 @@
+const { existsSafe } = require('./fs-utils');
 const { Worker } = require('worker_threads');
 
 module.exports = function setupSystemHandlers(context) {
@@ -19,7 +20,7 @@ module.exports = function setupSystemHandlers(context) {
                 if (msg.type === 'log') {
                     mainLog(msg.message);
                 } else if (msg.type === 'progress') {
-                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
+                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
                 } else if (msg.type === 'done') {
                     resolve({ success: msg.success, error: msg.error });
                 }
@@ -129,7 +130,7 @@ module.exports = function setupSystemHandlers(context) {
                             const pct = Math.min(100, Math.round((processed / total) * 100));
                             if (pct !== lastProgress) {
                                 lastProgress = pct;
-                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-system.js:", e); }
+                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
                             }
                         }
                     }
@@ -243,16 +244,53 @@ module.exports = function setupSystemHandlers(context) {
         }
     });
 
+    ipcMain.handle("scan-java-versions", async (event) => {
+        try {
+            const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
+            let basePaths = [ path.join(safeDataDir, "java") ];
+            
+            if (process.platform === "win32") {
+                basePaths.push("C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", path.join(app.getPath("appData"), ".minecraft", "runtime"));
+            } else if (process.platform === "linux") {
+                basePaths.push("/usr/lib/jvm", "/usr/java", "/opt/jdk");
+            } else if (process.platform === "darwin") {
+                basePaths.push("/Library/Java/JavaVirtualMachines");
+            }
+
+            const javaExeName = (process.platform === "win32") ? "javaw.exe" : "java";
+            let foundPaths = [];
+
+            async function findJavaAsync(dir, depth = 0) {
+                if (depth > 6) return;
+                try {
+                    const entries = await fs.promises.readdir(dir);
+                    for (const entryName of entries) {
+                        const full = path.join(dir, entryName);
+                        try {
+                            const stats = await fs.promises.stat(full);
+                            if (stats.isDirectory()) {
+                                await findJavaAsync(full, depth + 1);
+                            } else if (entryName.toLowerCase() === javaExeName) {
+                                foundPaths.push(full);
+                            }
+                        } catch (errStat) { if (errStat.code !== 'ENOENT') mainLog("[ipc-system] Erreur interceptée: " + errStat.message); }
+                    }
+                } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
+            }
+
+            const searchPromises = basePaths.map(async (bp) => {
+                try {
+                    await fs.promises.access(bp);
+                    await findJavaAsync(bp);
+                } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
+            });
+            
+            await Promise.all(searchPromises);
+            return { success: true, paths: foundPaths };
+        } catch (err) {
+            mainLog(`[scan-java-versions] Error: ${err.message}`);
+            return { success: false, paths: [] };
+        }
+    });
+
 };
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

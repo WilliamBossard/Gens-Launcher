@@ -18,22 +18,20 @@ export function setupSettings() {
             const isLauncherInstalled = launcherJre || launcherJdk;
             let isSystemInstalled = false;
             if (!isLauncherInstalled) {
-                let basePaths = [];
-                if (window.api.platform === "win32") {
-                    basePaths = ["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", "C:\\Program Files\\Eclipse Adoptium"];
-                } else if (window.api.platform === "linux") {
-                    basePaths = ["/usr/lib/jvm", "/usr/java", "/opt/jdk"];
-                } else if (window.api.platform === "darwin") {
-                    basePaths = ["/Library/Java/JavaVirtualMachines"];
-                }
-                for (let bp of basePaths) {
-                    if (await fs.promises.exists(bp)) {
-                        try {
-                            const dirs = await fs.promises.readdir(bp);
-                            if (dirs.some(d => d.includes(v.toString()))) isSystemInstalled = true;
-                        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
+                try {
+                    const res = await window.api.invoke("scan-java-versions");
+                    if (res && res.success) {
+                        isSystemInstalled = res.paths.some(p => {
+                            const pLower = p.toLowerCase();
+                            // Éviter le faux positif de "x86" contenant le chiffre "8"
+                            if (v === 8) {
+                                return pLower.includes("1.8.0") || pLower.includes("jre8") || pLower.includes("jdk8") || pLower.includes("jdk-8") || pLower.includes("jre-8");
+                            } else {
+                                return pLower.includes(`jdk-${v}`) || pLower.includes(`jre-${v}`) || pLower.includes(`jdk${v}`) || pLower.includes(`jre${v}`);
+                            }
+                        });
                     }
-                }
+                } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             }
             btn.onclick = null; 
             if (isLauncherInstalled) {
@@ -251,8 +249,14 @@ export function setupSettings() {
     window.getFriendlyJavaName = (jPath) => {
         if (!jPath || jPath === "javaw") return t("opt_java_sys_default");
         let name = "Java";
-        const match = jPath.match(/jre(\d+)/) || jPath.match(/jdk-?(\d+)/i) || jPath.match(/jre-?(\d+)/i);
-        if (match) name = `Java ${match[1]}`;
+        const jPathLower = jPath.toLowerCase();
+        if (jPathLower.includes("1.8.0") || jPathLower.includes("jre8") || jPathLower.includes("jdk8") || jPathLower.includes("jdk-8") || jPathLower.includes("jre-8")) {
+            name = "Java 8";
+        } else {
+            const match = jPathLower.match(/jre(\d+)/) || jPathLower.match(/jdk-?(\d+)/) || jPathLower.match(/jre-?(\d+)/);
+            if (match) name = `Java ${match[1]}`;
+        }
+        
         let source = "Local";
         if (jPath.includes("GensLauncher")) source = "Gens Launcher";
         else if (jPath.includes(".minecraft")) source = t("lbl_mc_official");
@@ -273,45 +277,22 @@ export function setupSettings() {
         selectEl.innerHTML = (selectId === "global-java") 
             ? `<option value="javaw">${t("opt_java_sys")}</option>`
             : `<option value="">${t("opt_java_global")}</option><option value="javaw">${t("opt_java_sys")}</option>`;
-        let basePaths = [ path.join(store.dataDir, "java") ];
-        if (window.api.platform === "win32") {
-            basePaths.push("C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", path.join(window.api.appData, ".minecraft", "runtime"));
-        } else if (window.api.platform === "linux") {
-            basePaths.push("/usr/lib/jvm", "/usr/java", "/opt/jdk");
-        } else if (window.api.platform === "darwin") {
-            basePaths.push("/Library/Java/JavaVirtualMachines");
-        }
-        let found = 0;
-        const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
-        async function findJavaAsync(dir, depth = 0) {
-            if (depth > 6) return;
-            try {
-                const entries = await window.api.fs.promises.readdir(dir);
-                for (const entryName of entries) {
-                    const full = path.join(dir, entryName);
-                    try {
-                        const stats = await window.api.fs.promises.stat(full);
-                        if (stats.isDirectory) {
-                            await findJavaAsync(full, depth + 1);
-                        } else if (entryName.toLowerCase() === javaExeName) {
-                            let opt = document.createElement("option");
-                            opt.value = full;
-                            opt.innerText = window.getFriendlyJavaName(full);
-                            selectEl.appendChild(opt);
-                            found++;
-                        }
-                    } catch (errStat) { if (errStat && errStat.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", errStat); }
-                }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
-        }
-        const searchPromises = basePaths.map(async (bp) => {
-            if (await window.api.fs.promises.access(bp).then(() => true).catch(() => false)) {
-                await findJavaAsync(bp);
-            }
-        });
-        await Promise.all(searchPromises);
         
-        if (savedValue && savedValue !== "javaw" && savedValue !== "" && await window.api.fs.promises.access(savedValue).then(() => true).catch(() => false)) {
+        let found = 0;
+        try {
+            const result = await window.api.invoke("scan-java-versions");
+            if (result && result.success && result.paths) {
+                for (const full of result.paths) {
+                    let opt = document.createElement("option");
+                    opt.value = full;
+                    opt.innerText = window.getFriendlyJavaName(full);
+                    selectEl.appendChild(opt);
+                    found++;
+                }
+            }
+        } catch (e) { console.error("Error scanning java via IPC:", e); }
+        
+        if (savedValue && savedValue !== "javaw" && savedValue !== "") {
             const exists = Array.from(selectEl.options).some(o => o.value === savedValue);
             if (!exists) {
                 let opt = document.createElement("option");
@@ -335,8 +316,8 @@ export function setupSettings() {
             try {
                 const jrePath = path.join(store.dataDir, "java", `jre${version}`);
                 const jdkPath = path.join(store.dataDir, "java", `jdk${version}`);
-                if (await existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
-                if (await existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+                if (await window.existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
+                if (await window.existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
@@ -358,7 +339,7 @@ export function setupSettings() {
         window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
-        if (!(await existsSafe(javaDir))) {
+        if (!(await window.existsSafe(javaDir))) {
             await fs.promises.mkdir(javaDir, { recursive: true });
         }
         try {
@@ -423,7 +404,7 @@ export function setupSettings() {
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
             const extractDir = path.join(javaDir, `${type}${version}`);
-            if (await existsSafe(extractDir)) {
+            if (await window.existsSafe(extractDir)) {
                 await fs.promises.rm(extractDir, { recursive: true, force: true });
             }
             if (platform === "windows") {
@@ -874,15 +855,4 @@ window.runHorizonLogin = async (provider) => {
             if (window.clearHorizonUpdateBadges) window.clearHorizonUpdateBadges();
         }
     };
-}
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

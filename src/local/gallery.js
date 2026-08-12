@@ -10,7 +10,7 @@ export function setup() {
         const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
         const grid = document.getElementById("gallery-grid");
         grid.innerHTML = "";
-        if (await existsSafe(screensDir)) {
+        if (await window.existsSafe(screensDir)) {
             const allFiles = await fs.promises.readdir(screensDir);
             const files = allFiles.filter((f) => f.endsWith(".png")).reverse();
             if (files.length === 0) {
@@ -42,7 +42,7 @@ window.deleteScreenshot = async (filename) => {
             const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
             const filePath = path.join(screensDir, filename);
             try {
-                if (await existsSafe(filePath)) {
+                if (await window.existsSafe(filePath)) {
                     await fs.promises.unlink(filePath);
                     window.showToast(t("msg_screen_deleted", "Capture d'écran supprimée."), "success");
                     window.openGalleryModal();
@@ -52,16 +52,4 @@ window.deleteScreenshot = async (filename) => {
             }
         }
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

@@ -209,7 +209,7 @@ async function parse(buffer) {
         const util = require('util');
         const gunzip = util.promisify(zlib.gunzip);
         buf = await gunzip(buffer); 
-    } catch (e) { }
+    } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
     const reader = new NBTReader(buf);
     return { parsed: reader.readRoot() };
 }

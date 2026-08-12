@@ -1,3 +1,4 @@
+const { existsSafe } = require('./src/main/fs-utils');
 /**
  * ==============================================================================
  * GENS LAUNCHER - PRELOAD & SÉCURITÉ (BRIDGE IPC)
@@ -35,8 +36,6 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
  * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
  * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
  */
-const javaExactRegex = /\bjava(?:$|[-_ \d])/i;
-const jvmDistrosRegex = /\b(jdk|jre|jvm|adoptium|temurin|corretto|zulu|graalvm|semeru|liberica|dragonwell)/i;
 const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
 function enforceReadSandbox(p, silent = false) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
@@ -52,12 +51,9 @@ function enforceReadSandbox(p, silent = false) {
     const isMinecraftDir = KNOWN_MC_PATHS.some(mc =>
         resolved.startsWith(mc + path.sep) || resolved === mc
     );
-    const _isJavaPathMatch = resolved.split(path.sep).some(p => javaExactRegex.test(p) || jvmDistrosRegex.test(p));
-    // Tolérance pour les dossiers Java : on autorise la lecture de tout le dossier sans restriction d'extension
-    const isJavaDir = _isJavaPathMatch;
     const isTempDir = resolved.startsWith(path.join(os.tmpdir(), "GensLauncher"));
     const isSafeExtension = safeReadRegex.test(resolved);
-    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isSafeExtension) {
+    if (!isInDataDir && !isMinecraftDir && !isTempDir && !isSafeExtension) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
     }
@@ -81,7 +77,7 @@ function safeExternalUrl(url) {
 }
 // Note : deobfuscateDataAsync a été supprimé (SEC-02) — 'decrypt-string' gère déjà le fallback legacy en cascade.
 const validSendChannels = ["set-auto-download", "download-update", "hide-window", "show-window", "restore-main-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"];
-const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "delete-msa-cache", "hash-file", "check-internet", "do-deb-update"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
+const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "delete-msa-cache", "hash-file", "check-internet", "do-deb-update"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
@@ -245,14 +241,3 @@ contextBridge.exposeInMainWorld("api", {
      */
     copyImageToSandbox: (srcPath, destName, subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
 });
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

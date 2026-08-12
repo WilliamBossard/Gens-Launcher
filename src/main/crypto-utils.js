@@ -1,3 +1,4 @@
+const { existsSafe } = require('./fs-utils');
 const { app, safeStorage } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -158,15 +159,3 @@ module.exports = {
     legacyDecryptText,
     ...(process.env.NODE_ENV === 'test' ? { _getMainProcSecretKey, _getLegacyKey } : {})
 };
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

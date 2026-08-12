@@ -1,14 +1,8 @@
+const { existsSafe } = require('./fs-utils');
 module.exports = function (context) {
     const { app, ipcMain, shell, fs, path, assertPathUnderSandbox, mainSafeDir, mainLog, sanitizeShortcutName } = context;
 
-    async function existsSafe(p) {
-        try {
-            await fs.promises.access(p);
-            return true;
-        } catch {
-            return false;
-        }
-    }
+
 
     ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
         try {

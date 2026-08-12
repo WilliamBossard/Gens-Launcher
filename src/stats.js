@@ -10,7 +10,7 @@ export function setupStats() {
         let totalSize = 0;
         const checkDir = async (dir, condition) => {
             try {
-                if (!(await existsSafe(dir))) return;
+                if (!(await window.existsSafe(dir))) return;
                 const files = await fs.promises.readdir(dir);
                 for (const file of files) {
                     const filePath = path.join(dir, file);
@@ -60,15 +60,15 @@ export function setupStats() {
         for (const inst of store.allInstances) {
             try {
                 const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
-                if (!(await existsSafe(savesDir))) continue;
+                if (!(await window.existsSafe(savesDir))) continue;
                 const worlds = await fs.promises.readdir(savesDir);
                 for (const world of worlds) {
                     try {
                         const vanillaStatsDir = path.join(savesDir, world, "stats");
                         const moddedStatsDir = path.join(savesDir, world, "players", "stats");
                         let statsDirToUse = null;
-                        if (await existsSafe(vanillaStatsDir)) statsDirToUse = vanillaStatsDir;
-                        else if (await existsSafe(moddedStatsDir)) statsDirToUse = moddedStatsDir;
+                        if (await window.existsSafe(vanillaStatsDir)) statsDirToUse = vanillaStatsDir;
+                        else if (await window.existsSafe(moddedStatsDir)) statsDirToUse = moddedStatsDir;
                         if (!statsDirToUse) continue;
                         const statFiles = await fs.promises.readdir(statsDirToUse);
                         for (const file of statFiles) {
@@ -166,7 +166,7 @@ window.openStatsModal = async () => {
                     if (s.ms > longestSessionMs) longestSessionMs = s.ms;
                 }
                 const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-                if (await existsSafe(modsPath)) {
+                if (await window.existsSafe(modsPath)) {
                     const files = await fs.promises.readdir(modsPath);
                     totalMods += files.filter((f) => f.endsWith(".jar") || f.endsWith(".jar.disabled")).length;
                 }
@@ -289,15 +289,4 @@ window.openStatsModal = async () => {
     window.closeStatsModal = () => {
         document.getElementById("modal-stats").style.display = "none";
     };
-}
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

@@ -1,3 +1,4 @@
+const { existsSafe } = require('./fs-utils');
 module.exports = function setupHorizonHandlers(context) {
     const {
         ipcMain, safeDataDir, mainLog, path, fs, crypto, spawn, app,
@@ -72,7 +73,7 @@ module.exports = function setupHorizonHandlers(context) {
                     cachedExpectedHash = parsed.hash.toLowerCase();
                 }
             }
-        } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
     })();
 
     // AUDIT-12 : validation du hash avant utilisation pour éviter l'injection d'un hash malformé depuis le cache local
@@ -124,7 +125,7 @@ module.exports = function setupHorizonHandlers(context) {
         if (!targetVersion || !githubReleaseCache) {
             githubReleaseCache = data;
             githubReleaseCacheTime = Date.now();
-            try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+            try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
         }
         return data;
     }
@@ -168,7 +169,7 @@ module.exports = function setupHorizonHandlers(context) {
                         if (await existsSafe(horizonVersionPath)) {
                             localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, 'utf8')).version;
                         }
-                    } catch (e) {}
+                    } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
 
                     const data = await fetchHorizonRelease(localVersion);
                     const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
@@ -185,7 +186,7 @@ module.exports = function setupHorizonHandlers(context) {
                                     try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
                                     c.hash = expectedHash;
                                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
-                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                                } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
                             }
                         }
                     }
@@ -226,7 +227,7 @@ module.exports = function setupHorizonHandlers(context) {
             try {
                 const content = (await fs.promises.readFile(lockFile, 'utf8')).trim();
                 if (content) rawPid = parseInt(content, 10);
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
+            } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
             if (!isNaN(rawPid)) {
                 let alive = false;
                 try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
@@ -234,12 +235,12 @@ module.exports = function setupHorizonHandlers(context) {
                         try {
                             const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
                             if (age > 2 * 60 * 60 * 1000) {
-                                await fs.promises.unlink(lockFile);
+                                await fs.promises.rm(lockFile, { force: true });
                             } else {
                                 alive = true;
                             }
                         } catch (_) {
-                            try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                            await fs.promises.rm(lockFile, { force: true });
                         }
                     }
                 }
@@ -248,10 +249,8 @@ module.exports = function setupHorizonHandlers(context) {
                     safeSend(event, 'horizon-status', msg);
                     return Promise.resolve({ exitCode: -1, lastJson: msg });
                 } else {
-                    try { 
-                        await fs.promises.unlink(lockFile); 
-                        mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
-                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                    await fs.promises.rm(lockFile, { force: true }); 
+                    mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
                 }
             }
         }
@@ -280,7 +279,7 @@ module.exports = function setupHorizonHandlers(context) {
                             const json = JSON.parse(line);
                             lastJson = json;
                             safeSend(event, 'horizon-status', json);
-                        } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                        } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
                     }
                     stdoutBuf = '';
                 }
@@ -297,12 +296,12 @@ module.exports = function setupHorizonHandlers(context) {
                             shutdownTimer = setTimeout(() => {
                                 if (!settled) {
                                     mainLog(`[Horizon] Arrêt forcé (SIGKILL) après inactivité.`);
-                                    try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                                    try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
                                     finish(-1);
                                 }
                             }, 2000);
                         } catch (_) {
-                            try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                            try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
                             finish(-1);
                         }
                     }
@@ -352,7 +351,7 @@ module.exports = function setupHorizonHandlers(context) {
         try {
             await fs.promises.access(settingsPath);
             fileContent = JSON.parse(await fs.promises.readFile(settingsPath, "utf8"));
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
+        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
 
         const merged = { ...defaults, ...fileContent };
         const hasMissingKey = Object.keys(defaults).some(k => !(k in fileContent));
@@ -375,7 +374,7 @@ module.exports = function setupHorizonHandlers(context) {
             try {
                 await fs.promises.access(settingsPath);
                 existing = JSON.parse(await fs.promises.readFile(settingsPath, "utf8"));
-            } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+            } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
 
             const merged = { ...existing, ...safe };
             const tmp = settingsPath + ".tmp";
@@ -394,19 +393,19 @@ module.exports = function setupHorizonHandlers(context) {
             await fs.promises.access(hSettingsPath);
             const p = JSON.parse(await fs.promises.readFile(hSettingsPath, "utf8"));
             if (p.provider) currentProvider = p.provider;
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
+        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
 
         const specificTokenPath = path.join(horizonBinDir, `token_${currentProvider}.json`);
         const legacyTokenPath = path.join(horizonBinDir, "token.json");
 
         let isInstalled = false;
         let isLinked = false;
-        try { await fs.promises.access(horizonExePath); isInstalled = true; } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        try { await fs.promises.access(horizonExePath); isInstalled = true; } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
         try {
             await fs.promises.access(specificTokenPath); isLinked = true;
         } catch (_) {
             if (currentProvider === "google") {
-                try { await fs.promises.access(legacyTokenPath); isLinked = true; } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                try { await fs.promises.access(legacyTokenPath); isLinked = true; } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
             }
         }
 
@@ -414,7 +413,7 @@ module.exports = function setupHorizonHandlers(context) {
         try {
             await fs.promises.access(horizonVersionPath);
             localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, "utf8")).version;
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
+        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
 
         try {
             const data = await fetchHorizonRelease(null, forceBypassCache);
@@ -463,13 +462,13 @@ module.exports = function setupHorizonHandlers(context) {
                 });
             } catch (err) {
                 fileStream.destroy();
-                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                await fs.promises.rm(tmpPath, { force: true });
                 throw err;
             }
 
             const sha256Asset = data.assets.find(a => a.name === asset.name + ".sha256");
             if (!sha256Asset) {
-                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                await fs.promises.rm(tmpPath, { force: true });
                 throw new Error("SÉCURITÉ CRITIQUE : Fichier .sha256 introuvable sur la release GitHub. L'intégrité de l'exécutable ne peut être garantie.");
             }
             try {
@@ -487,10 +486,10 @@ module.exports = function setupHorizonHandlers(context) {
                     try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
                     c.hash = expected;
                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
-                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
                 mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch (hashErr) {
-                try { await fs.promises.unlink(tmpPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+                await fs.promises.rm(tmpPath, { force: true });
                 throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${hashErr.message}`);
             }
 
@@ -501,15 +500,3 @@ module.exports = function setupHorizonHandlers(context) {
         } catch (e) { return { success: false, error: e.message }; }
     });
 };
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
-}

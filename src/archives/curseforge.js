@@ -28,18 +28,18 @@ export function setup() {
                 else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
             }
             const modsDir = path.join(instDir, "mods");
-            if (await existsSafe(modsDir)) {
+            if (await window.existsSafe(modsDir)) {
                 try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             }
             await fs.promises.mkdir(modsDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
             const srcOverrides = path.join(tempExtractDir, overridesDir);
-            if (await existsSafe(srcOverrides)) {
+            if (await window.existsSafe(srcOverrides)) {
                 const items = await fs.promises.readdir(srcOverrides);
                 for (const item of items) {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
-                    if (await existsSafe(destPath)) {
+                    if (await window.existsSafe(destPath)) {
                         try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcOverrides, item), destPath);
@@ -80,7 +80,7 @@ export function setup() {
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {
-            try { if (await existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
@@ -95,7 +95,7 @@ export function setup() {
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
             let extractRoot = tempExtractDir;
             let instanceJsonPath = path.join(extractRoot, "instance.json");
-            if (!(await existsSafe(instanceJsonPath))) {
+            if (!(await window.existsSafe(instanceJsonPath))) {
                 const items = await fs.promises.readdir(tempExtractDir);
                 if (items.length === 1) {
                     const subDir = path.join(tempExtractDir, items[0]);
@@ -106,9 +106,9 @@ export function setup() {
                     }
                 }
             }
-            if (!(await existsSafe(instanceJsonPath))) {
+            if (!(await window.existsSafe(instanceJsonPath))) {
                 const manifestPath = path.join(extractRoot, "manifest.json");
-                if (await existsSafe(manifestPath)) {
+                if (await window.existsSafe(manifestPath)) {
                     const manifestText = await fs.promises.readFile(manifestPath, "utf8");
                     sysLog(`[IMPORT] Redirection vers l'importateur CurseForge.`);
                     window.hideLoading();
@@ -128,7 +128,7 @@ export function setup() {
             let detectedLoader        = SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla";
             let detectedLoaderVersion = String(rawData.loaderVersion || "").substring(0, 64);
             if (detectedLoader === "vanilla" && !rawData.loader) {
-                const filesDirFallback = await existsSafe(path.join(extractRoot, "files"))
+                const filesDirFallback = await window.existsSafe(path.join(extractRoot, "files"))
                     ? path.join(extractRoot, "files")
                     : extractRoot;
                 const detected = detectLoaderFromFolder(filesDirFallback);
@@ -162,13 +162,13 @@ export function setup() {
                 backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
-            if (!(await existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
+            if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
             const filesDir = path.join(extractRoot, "files");
-            if (await existsSafe(filesDir)) {
+            if (await window.existsSafe(filesDir)) {
                 const items = await fs.promises.readdir(filesDir);
                 for (let item of items) {
                     const destPath = path.join(instDir, item);
-                    if (await existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
+                    if (await window.existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
                     await fs.promises.rename(path.join(filesDir, item), destPath);
                 }
             } else {
@@ -176,7 +176,7 @@ export function setup() {
                 for (let item of items) {
                     if (item !== "instance.json") {
                         const destPath = path.join(instDir, item);
-                        if (await existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
+                        if (await window.existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
                         await fs.promises.rename(path.join(extractRoot, item), destPath);
                     }
                 }
@@ -193,21 +193,9 @@ export function setup() {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         } finally {
-            try { if (await existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }

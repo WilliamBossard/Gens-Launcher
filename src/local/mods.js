@@ -15,7 +15,7 @@ export function setup() {
         if (modCacheObj) return;
         try {
             const cacheFile = path.join(store.dataDir, "mods_cache.json");
-            if (await existsSafe(cacheFile)) {
+            if (await window.existsSafe(cacheFile)) {
                 const txt = await fs.promises.readFile(cacheFile, "utf8");
                 modCacheObj = JSON.parse(txt);
             } else {
@@ -40,7 +40,7 @@ export function setup() {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
         let reqs = {};
-        if (!(await existsSafe(modsPath))) return {};
+        if (!(await window.existsSafe(modsPath))) return {};
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
         
@@ -121,7 +121,7 @@ export function setup() {
         const inst = store.allInstances[instIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!(await existsSafe(modsPath))) await fs.promises.mkdir(modsPath, { recursive: true });
+        if (!(await window.existsSafe(modsPath))) await fs.promises.mkdir(modsPath, { recursive: true });
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
         
@@ -197,7 +197,7 @@ export function setup() {
             const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
             try {
                 const filePath = path.join(modsPath, filename);
-                if (await existsSafe(filePath)) {
+                if (await window.existsSafe(filePath)) {
                     await fs.promises.unlink(filePath);
                     window.showToast(t("msg_mod_deleted", "Mod supprimé !"), "success");
                     window.renderModsManager(); 
@@ -207,16 +207,4 @@ export function setup() {
             }
         }
     };
-}
-
-
-async function existsSafe(p) {
-    try {
-        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
-        await fs.promises.access(p);
-        return true;
-    } catch {
-        return false;
-    }
 }
