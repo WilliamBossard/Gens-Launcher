@@ -425,12 +425,12 @@ export function setupInstances() {
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
             if (oldFolder !== newFolder) {
-                if (await fs.promises.access(newFolder).then(() => true).catch(() => false)) {
+                if (await existsSafe(newFolder)) {
                     window.showToast(t("msg_err_folder_exists", "Un dossier portant ce nom existe déjà sur le disque. Renommage annulé."), "error");
                     return;
                 }
                 try {
-                    if (await fs.promises.access(oldFolder).then(() => true).catch(() => false)) {
+                    if (await existsSafe(oldFolder)) {
                         await fs.promises.rename(oldFolder, newFolder);
                         if (inst.icon && inst.icon.includes(safeOldName)) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
@@ -441,7 +441,7 @@ export function setupInstances() {
                                 await window.api.invoke("call-horizon", ['--upload', safeNewName]);
                                 const binDir = path.join(store.dataDir, "bin");
                                 const syncPath = path.join(binDir, "last_sync.json");
-                                if (await fs.promises.access(syncPath).then(() => true).catch(() => false)) {
+                                if (await existsSafe(syncPath)) {
                                     try {
                                         const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
                                         if (syncState[safeOldName] !== undefined) {
@@ -455,8 +455,8 @@ export function setupInstances() {
                                     const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
                                     const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
                                     try {
-                                        if (await fs.promises.access(oldCache).then(() => true).catch(() => false)) {
-                                            if (await fs.promises.access(newCache).then(() => true).catch(() => false)) {
+                                        if (await existsSafe(oldCache)) {
+                                            if (await existsSafe(newCache)) {
                                                 await fs.promises.unlink(newCache);
                                             }
                                             await fs.promises.rename(oldCache, newCache);
@@ -517,7 +517,7 @@ export function setupInstances() {
                     const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
                     for (const dir of ["versions", "libraries"]) {
                         const dirPath = path.join(instFolder, dir);
-                        if (await fs.promises.access(dirPath).then(() => true).catch(() => false)) {
+                        if (await existsSafe(dirPath)) {
                             try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                         }
                     }
@@ -540,7 +540,7 @@ export function setupInstances() {
             for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']) {
                 if (exceptExt && ext === exceptExt) continue; // Ne pas supprimer le nouveau fichier
                 const f = window.api.path.join(instFolder, 'icon' + ext);
-                if (await fs.promises.access(f).then(() => true).catch(() => false)) { 
+                if (await existsSafe(f)) { 
                     try { await fs.promises.unlink(f); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); } 
                 }
             }
@@ -1346,4 +1346,16 @@ document.addEventListener("click", () => {
             window.renderUI();
         }
     };
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

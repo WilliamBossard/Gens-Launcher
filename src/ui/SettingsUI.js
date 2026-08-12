@@ -335,8 +335,8 @@ export function setupSettings() {
             try {
                 const jrePath = path.join(store.dataDir, "java", `jre${version}`);
                 const jdkPath = path.join(store.dataDir, "java", `jdk${version}`);
-                if (await fs.promises.access(jrePath).then(()=>true).catch(()=>false)) await fs.promises.rm(jrePath, { recursive: true, force: true });
-                if (await fs.promises.access(jdkPath).then(()=>true).catch(()=>false)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+                if (await existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
+                if (await existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
@@ -358,7 +358,7 @@ export function setupSettings() {
         window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
         await yieldUI();
         const javaDir = path.join(store.dataDir, "java");
-        if (!(await fs.promises.access(javaDir).then(() => true).catch(() => false))) {
+        if (!(await existsSafe(javaDir))) {
             await fs.promises.mkdir(javaDir, { recursive: true });
         }
         try {
@@ -423,7 +423,7 @@ export function setupSettings() {
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
             const extractDir = path.join(javaDir, `${type}${version}`);
-            if (await fs.promises.access(extractDir).then(() => true).catch(() => false)) {
+            if (await existsSafe(extractDir)) {
                 await fs.promises.rm(extractDir, { recursive: true, force: true });
             }
             if (platform === "windows") {
@@ -874,4 +874,15 @@ window.runHorizonLogin = async (provider) => {
             if (window.clearHorizonUpdateBadges) window.clearHorizonUpdateBadges();
         }
     };
+}
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

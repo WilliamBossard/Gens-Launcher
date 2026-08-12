@@ -22,7 +22,7 @@ function _getMainProcSecretKey() {
         const secretPath = path.join(app.getPath('appData'), 'GensLauncher', '.secret_key');
         let secret;
         try {
-            if (await fs.promises.access(secretPath).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(secretPath)) {
                 secret = await fs.promises.readFile(secretPath, 'utf8');
             } else {
                 secret = crypto.randomUUID();
@@ -37,7 +37,7 @@ function _getMainProcSecretKey() {
         // 2. Générer/lire le salt dédié pour PBKDF2
         let salt;
         try {
-            if (await fs.promises.access(PBKDF2_SALT_FILE).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(PBKDF2_SALT_FILE)) {
                 salt = await fs.promises.readFile(PBKDF2_SALT_FILE);
             } else {
                 salt = crypto.randomBytes(16);
@@ -72,7 +72,7 @@ async function _getLegacyKey() {
     const secretPath = path.join(app.getPath('appData'), 'GensLauncher', '.secret_key');
     let secret;
     try {
-        secret = await fs.promises.access(secretPath).then(()=>true).catch(()=>false) ? await fs.promises.readFile(secretPath, 'utf8') : null;
+        secret = await existsSafe(secretPath) ? await fs.promises.readFile(secretPath, 'utf8') : null;
     } catch (_) { secret = null; }
     if (!secret) secret = os.hostname() + '_' + (os.userInfo().username || 'user');
     _cachedLegacyKey = crypto.createHash('sha256').update(secret).digest();
@@ -158,3 +158,15 @@ module.exports = {
     legacyDecryptText,
     ...(process.env.NODE_ENV === 'test' ? { _getMainProcSecretKey, _getLegacyKey } : {})
 };
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

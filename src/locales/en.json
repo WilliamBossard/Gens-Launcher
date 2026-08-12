@@ -310,6 +310,7 @@
   "lbl_graph_title": "Playtime — Last 7 days",
   "lbl_new_version": "New version available:",
   "btn_start_update": "Download and Install",
+  "btn_restart_update": "Restart to update",
   "msg_update_found_bg": "Update found! Downloading in background...",
   "msg_login_success": "Login successful!",
   "msg_skin_exported": "Skin exported successfully!",

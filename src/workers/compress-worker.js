@@ -45,13 +45,13 @@ async function compressFolder({ src, dest, exclude }) {
         });
 
         archive.on('error', async (err) => {
-            try { if (await fs.promises.access(dest).then(() => true).catch(() => false)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
         output.on('error', async (err) => {
             archive.destroy();
-            try { if (await fs.promises.access(dest).then(() => true).catch(() => false)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
@@ -79,3 +79,15 @@ async function compressFolder({ src, dest, exclude }) {
 compressFolder(workerData)
     .then(() => parentPort.postMessage({ type: 'done', success: true }))
     .catch((err) => parentPort.postMessage({ type: 'done', success: false, error: err.message }));
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

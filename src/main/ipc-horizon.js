@@ -61,7 +61,7 @@ module.exports = function setupHorizonHandlers(context) {
 
     (async () => {
         try {
-            if (await fs.promises.access(githubCacheFile).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(githubCacheFile)) {
                 const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
                 if (parsed && parsed.time && parsed.data) {
                     githubReleaseCacheTime = parsed.time;
@@ -99,8 +99,17 @@ module.exports = function setupHorizonHandlers(context) {
             signal: controller.signal 
         });
 
-        // Fallback to latest if tag not found
-        if (!res.ok && targetVersion) {
+        if (!res.ok && targetVersion && !targetVersion.startsWith('v')) {
+            const vUrl = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/v${encodeURIComponent(targetVersion)}`;
+            res = await fetch(vUrl, { 
+                headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
+                signal: controller.signal 
+            });
+        }
+
+        // Si on cherche une version précise et qu'elle n'existe pas, on ne doit SURTOUT PAS
+        // retomber sur latest, sinon le check de SHA va comparer un vieux binaire avec le hash du latest.
+        if (!res.ok && !targetVersion) {
             res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
                 headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
                 signal: controller.signal 
@@ -108,11 +117,15 @@ module.exports = function setupHorizonHandlers(context) {
         }
 
         clearTimeout(timeoutId);
-        if (!res.ok) throw new Error("Erreur fetch Github");
+        if (!res.ok) throw new Error("Erreur fetch Github (tag introuvable ou erreur réseau)");
         const data = await res.json();
-        githubReleaseCache = data;
-        githubReleaseCacheTime = Date.now();
-        try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        
+        // Mettre en cache uniquement si on a récupéré latest ou si on a pas de cache
+        if (!targetVersion || !githubReleaseCache) {
+            githubReleaseCache = data;
+            githubReleaseCacheTime = Date.now();
+            try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
+        }
         return data;
     }
 
@@ -143,7 +156,7 @@ module.exports = function setupHorizonHandlers(context) {
 
         const isWriteOp = isHorizonWriteOp(_lockArgs);
 
-        if (await fs.promises.access(horizonExePath).then(()=>true).catch(()=>false)) {
+        if (await existsSafe(horizonExePath)) {
             let expectedHash = null;
             const hashIsStale = !cachedExpectedHash || (Date.now() - cachedExpectedHashTime > HASH_CACHE_TTL_MS);
             if (!hashIsStale) {
@@ -152,7 +165,7 @@ module.exports = function setupHorizonHandlers(context) {
                 try {
                     let localVersion = null;
                     try {
-                        if (await fs.promises.access(horizonVersionPath).then(()=>true).catch(()=>false)) {
+                        if (await existsSafe(horizonVersionPath)) {
                             localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, 'utf8')).version;
                         }
                     } catch (e) {}
@@ -169,7 +182,7 @@ module.exports = function setupHorizonHandlers(context) {
                                 cachedExpectedHashTime = Date.now(); // TTL: re-fetch après 2h
                                 try {
                                     let c = {};
-                                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { }
+                                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
                                     c.hash = expectedHash;
                                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
                                 } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
@@ -471,7 +484,7 @@ module.exports = function setupHorizonHandlers(context) {
                 cachedExpectedHash = expected;
                 try {
                     let c = {};
-                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { }
+                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
                     c.hash = expected;
                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
                 } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", _); }
@@ -488,3 +501,15 @@ module.exports = function setupHorizonHandlers(context) {
         } catch (e) { return { success: false, error: e.message }; }
     });
 };
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

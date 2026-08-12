@@ -309,6 +309,7 @@
   "lbl_graph_title": "Temps de jeu — 7 derniers jours",
   "lbl_new_version": "Nouvelle version disponible :",
   "btn_start_update": "Télécharger et Installer",
+  "btn_restart_update": "Redémarrer pour mettre à jour",
   "msg_update_found_bg": "Mise à jour trouvée ! Téléchargement en arrière-plan...",
   "msg_login_success": "Connexion réussie !",
   "msg_skin_exported": "Skin exporté avec succès !",

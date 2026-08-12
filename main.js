@@ -37,6 +37,8 @@ const DISCORD_CLIENT_ID = "1490353507218227301";
 let mainWindow;
 let tray = null;
 let linuxUpdatePath = null;
+let globalOfflineMode = false;
+ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
 const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
 const logsDir = path.join(safeDataDir, "logs");
 const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
@@ -54,6 +56,7 @@ const mainInitPromise = (async () => {
     await fs.promises.mkdir(horizonBinDir, { recursive: true });
     await fs.promises.writeFile(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
     _logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
     _logStreamBytes = 0;
 
     try {
@@ -61,7 +64,7 @@ const mainInitPromise = (async () => {
         for (const file of files) {
             if (file.startsWith("horizon_") && (file.endsWith(".html") || file.endsWith(".json") || file.endsWith(".txt"))) {
                 const filePath = path.join(safeDataDir, file);
-                if ((await fs.promises.stat(filePath)).isFile()) await fs.promises.unlink(filePath);
+                if ((await fs.promises.stat(filePath)).isFile()) await safeUnlink(filePath);
             }
         }
     } catch (e) { }
@@ -76,7 +79,7 @@ const mainInitPromise = (async () => {
 
         if (mainLogs.length > 4) {
             for (let i = 4; i < mainLogs.length; i++) {
-                try { await fs.promises.unlink(path.join(logsDir, mainLogs[i].file)); } catch (_) { }
+                await safeUnlink(path.join(logsDir, mainLogs[i].file));
             }
         }
     } catch (e) { }
@@ -87,12 +90,12 @@ const mainInitPromise = (async () => {
         const versionSentinelPath = path.join(userDataPath, '.launcher-version');
         const currentVersion = app.getVersion();
         let lastVersion = null;
-        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) {}
+        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _); }
         if (lastVersion !== currentVersion) {
             const cacheDirs = ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'blob_storage'];
             for (const dir of cacheDirs) {
                 const dirPath = path.join(userDataPath, dir);
-                try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (_) {}
+                await safeRm(dirPath);
             }
             await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
         }
@@ -139,6 +142,22 @@ function mainLog(msg) {
         }
     }
     console.log(msg);
+}
+
+async function safeUnlink(filePath) {
+    try {
+        await fs.promises.unlink(filePath);
+    } catch (err) {
+        if (err.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le fichier ${filePath}: ${err.message}`);
+    }
+}
+
+async function safeRm(dirPath) {
+    try {
+        await fs.promises.rm(dirPath, { recursive: true, force: true });
+    } catch (err) {
+        if (err.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le dossier ${dirPath}: ${err.message}`);
+    }
 }
 
 const context = {
@@ -336,133 +355,33 @@ app.whenReady().then(async () => {
             return;
         }
         if (isLinuxDeb) {
-            // .deb via APT : vérification légère via l'API GitHub (sans pkexec)
             try {
-                const { net } = require('electron');
-                const req = net.request({ url: 'https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest', headers: { 'User-Agent': 'Gens-Launcher-AutoUpdater' } });
-                req.on('response', (res) => {
-                    let data = '';
-                    res.on('data', (chunk) => { data += chunk; });
-                    res.on('end', () => {
+                const { net } = require("electron");
+                const req = net.request({ url: "https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest", headers: { "User-Agent": "Gens-Launcher-AutoUpdater" } });
+                req.on("response", (res) => {
+                    let data = "";
+                    res.on("data", (chunk) => { data += chunk; });
+                    res.on("end", () => {
                         try {
                             const release = JSON.parse(data);
-                            const latestVer = (release.tag_name || '').replace(/^v/, '');
+                            const latestVer = (release.tag_name || "").replace(/^v/, "");
                             const currentVer = app.getVersion();
                             if (latestVer && latestVer !== currentVer) {
                                 mainLog(`MAJ disponible: ${currentVer} -> ${latestVer}`);
-                                mainWindow?.webContents.send('update-available-prompt', { version: latestVer });
-                            } else if (isManualUpdateCheck) {
-                                mainWindow?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
+                                mainWindow?.webContents.send("update-available-prompt", { version: latestVer });
                             }
-                        } catch(e) { mainLog('Erreur parsing release GitHub: ' + e.message); }
+                        } catch(e) { mainLog("Erreur parsing release GitHub: " + e.message); }
                     });
                 });
+                req.on("error", (e) => { mainLog("Erreur check MAJ .deb: " + e.message); });
                 req.end();
-            } catch(e) { mainLog('Erreur check MAJ .deb: ' + e.message); }
+            } catch(e) { mainLog("Erreur check MAJ .deb: " + e.message); }
         } else {
             autoUpdater.checkForUpdates().catch(() => {
                 mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
             });
         }
     }, 3000);
-});
-ipcMain.handle("do-deb-update", async () => {
-    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-    if (!isLinuxDeb) return { success: false, error: 'Not a .deb installation' };
-    mainLog('[deb-update] Démarrage...');
-    const keyPath = '/usr/share/keyrings/gens-launcher-keyring.gpg';
-    const sourcesPath = '/etc/apt/sources.list.d/gens-launcher.list';
-    const keyUrl = 'https://williambossard.github.io/Gens-Launcher/public.key';
-    const repoLine = `deb [signed-by=${keyPath}] https://williambossard.github.io/Gens-Launcher ./`;
-    // Vérifier si le repo est déjà configuré
-    let hasKey = false, hasSources = false;
-    try { await fs.promises.access(keyPath); hasKey = true; } catch(_) {}
-    try { await fs.promises.access(sourcesPath); hasSources = true; } catch(_) {}
-    mainLog(`[deb-update] hasKey=${hasKey}, hasSources=${hasSources}`);
-    // Construire une commande shell unique pour pkexec (un seul mot de passe)
-    let shellCmd;
-    if (!hasKey || !hasSources) {
-        mainLog('[deb-update] Dépôt APT non configuré, ajout automatique...');
-        mainWindow?.webContents.send('update-msg', { key: 'msg_apt_setup', text: 'Configuration du dépôt APT...', type: 'info' });
-        // Tout en un seul pkexec sh -c pour éviter plusieurs demandes de mot de passe
-        const setupParts = [];
-        if (!hasKey) setupParts.push(`curl -fsSL '${keyUrl}' | gpg --dearmor -o '${keyPath}'`);
-        if (!hasSources) setupParts.push(`echo '${repoLine}' > '${sourcesPath}'`);
-        setupParts.push('apt-get update -qq');
-        setupParts.push('apt-get install -y gens-launcher');
-        shellCmd = `pkexec sh -c "${setupParts.join(' && ').replace(/"/g, '\\"')}"`;
-    } else {
-        mainLog('[deb-update] Dépôt configuré, lancement apt-get install...');
-        shellCmd = 'pkexec apt-get install -y gens-launcher';
-    }
-    mainLog('[deb-update] Commande : ' + shellCmd);
-    mainWindow?.webContents.send('update-msg', { key: 'msg_apt_installing', text: 'Installation en cours (cela peut prendre quelques secondes)...', type: 'info' });
-    return new Promise((resolve) => {
-        const { exec } = require('child_process');
-        exec(shellCmd, { timeout: 180000 }, (err, stdout, stderr) => {
-            if (!err) {
-                mainLog('[deb-update] Succès.');
-                resolve({ success: true });
-            } else {
-                mainLog('[deb-update] Erreur : ' + (stderr || err.message));
-                resolve({ success: false, error: (stderr || err.message).split('\n')[0] });
-            }
-        });
-    });
-});
-let userConfirmedUpdate = false;
-ipcMain.on("confirm-update", () => { userConfirmedUpdate = true; });
-ipcMain.on("restart_app", async () => {
-    if (process.platform === 'linux' && !process.env.APPIMAGE && !userConfirmedUpdate) {
-        mainLog("[Sécurité] restart_app rejeté : l'utilisateur n'a pas confirmé la mise à jour.");
-        return;
-    }
-    userConfirmedUpdate = false; // reset après usage
-    if (process.platform === 'linux') {
-        if (process.env.APPIMAGE) {
-            // AppImage : electron-updater gère tout nativement
-            autoUpdater.quitAndInstall();
-            return;
-        }
-        // .deb installé via APT : on délègue à apt-get pour une mise à jour propre
-        mainLog("MAJ Linux .deb : lancement via pkexec apt-get...");
-        const { exec } = require('child_process');
-        exec('pkexec apt-get install -y gens-launcher', (err, stdout, stderr) => {
-            if (!err) {
-                mainLog("Mise à jour APT réussie. Relancement...");
-                app.relaunch();
-                app.exit(0);
-            } else {
-                mainLog("Erreur MAJ APT : " + stderr);
-                // Fallback : ouvrir un terminal avec la commande
-                exec(`x-terminal-emulator -e 'bash -c "sudo apt update && sudo apt install gens-launcher; read -p \\"Appuyez sur Entree pour fermer...\\" "'`, (err2) => {
-                    if (err2) {
-                        // Dernier recours : ouvrir la page GitHub
-                        shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
-                    }
-                });
-            }
-        });
-    } else {
-        autoUpdater.quitAndInstall();
-    }
-});
-ipcMain.on("update-jump-list", (event, instances) => {
-    if (process.platform === 'win32') {
-        const tasks = instances.map(inst => {
-            const safeName = sanitizeShortcutName(inst.name);
-            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
-            return {
-                program: appExecutable,
-                arguments: `--auto-launch="${safeName}"`,
-                iconPath: inst.iconIcoPath || appExecutable,
-                iconIndex: 0,
-                title: `Lancer ${safeName}`,
-                description: `Démarrer l'instance ${safeName}`
-            };
-        });
-        app.setUserTasks(tasks);
-    }
 });
 ipcMain.on("get-paths-sync", (event) => {
     event.returnValue = { appData: app.getPath("appData"), platform: process.platform, arch: process.arch, version: app.getVersion() };
@@ -478,56 +397,54 @@ const ALLOWED_DOMAINS = [
     'googleapis.com'
 ];
 
-function downloadFile(url, dest, redirectCount = 0) {
-    return new Promise((resolve, reject) => {
-        if (redirectCount >= 5) {
-            return reject(new Error("Trop de redirections (max 5)"));
+async function downloadFile(url, dest, redirectCount = 0) {
+    if (redirectCount >= 5) {
+        throw new Error("Trop de redirections (max 5)");
+    }
+    
+    try {
+        const parsedUrl = new URL(url);
+        const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
+        if (!isAllowed) {
+            throw new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`);
         }
-        try {
-            const parsedUrl = new URL(url);
-            const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
-            if (!isAllowed) {
-                return reject(new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`));
-            }
-        } catch(e) {
-            return reject(new Error("URL invalide"));
-        }
-        
-        // SÉCURITÉ : Seul HTTPS est autorisé — pas de downgrade HTTP possible
-        if (!url.startsWith('https://')) {
-            return reject(new Error(`Seul HTTPS est autorisé pour les téléchargements. URL reçue : ${url}`));
-        }
-        const req = https.get(url, { rejectUnauthorized: true }, (response) => {
-            if (response.statusCode === 301 || response.statusCode === 302) {
-                return downloadFile(response.headers.location, dest, redirectCount + 1).then(resolve).catch(reject);
-            }
-            if (response.statusCode !== 200) {
-                return reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
-            }
-            const file = fs.createWriteStream(dest);
-            response.pipe(file);
-            file.on('finish', () => {
-                file.close(() => resolve({ success: true }));
-            });
-            file.on('error', (err) => {
-                fs.unlink(dest, () => {});
-                reject(err);
-            });
-        });
-        
-        req.on('error', (err) => {
-            fs.unlink(dest, () => {});
-            reject(err);
-        });
+    } catch(e) {
+        throw new Error("URL invalide");
+    }
+    
+    if (!url.startsWith('https://')) {
+        throw new Error(`Seul HTTPS est autorisé pour les téléchargements. URL reçue : ${url}`);
+    }
 
-        req.setTimeout(30000, async () => {
-            req.destroy();
-            if (await fs.promises.access(dest).then(()=>true).catch(()=>false)) {
-                try { await fs.promises.unlink(dest); } catch (_) {}
-            }
-            reject(new Error("Timeout de téléchargement (30s)."));
-        });
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    
+    try {
+        const res = await fetch(url, { redirect: 'manual', signal: controller.signal });
+        
+        if ([301, 302, 303, 307, 308].includes(res.status)) {
+            clearTimeout(timeout);
+            const locationUrl = new URL(res.headers.get('location'), url).href;
+            return downloadFile(locationUrl, dest, redirectCount + 1);
+        }
+        
+        if (!res.ok) {
+            throw new Error(`Failed to get '${url}' (${res.status})`);
+        }
+        
+        const fileStream = fs.createWriteStream(dest);
+        const { pipeline } = require('stream/promises');
+        await pipeline(res.body, fileStream);
+        
+        clearTimeout(timeout);
+        return { success: true };
+    } catch (err) {
+        clearTimeout(timeout);
+        if (await existsSafe(dest)) {
+            await safeUnlink(dest);
+        }
+        throw err;
+    }
 }
 
 ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
@@ -541,8 +458,6 @@ ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
 });
 
 /**
- * Copie une image choisie par l'utilisateur (file picker) vers le sandbox GensLauncher.
- * Seul le main process (contexte de confiance) accède au chemin source arbitraire.
  * Validation : extension + signature magique du fichier (PNG/JPEG/GIF/WEBP/BMP).
  */
 ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDir }) => {
@@ -556,6 +471,15 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             { ext: ['.bmp'],              bytes: [0x42, 0x4D],             offset: 0 },
             { ext: ['.ico'],              bytes: [0x00, 0x00, 0x01, 0x00], offset: 0 },
         ];
+
+        // 0. Valider la taille et le type
+        const stat = await fs.promises.stat(srcPath);
+        if (!stat.isFile()) {
+            return { success: false, error: "Le chemin spécifié n'est pas un fichier." };
+        }
+        if (stat.size > 20 * 1024 * 1024) {
+            return { success: false, error: "L'image est trop volumineuse (max 20 Mo)." };
+        }
 
         // 1. Valider l'extension
         const ext = path.extname(srcPath).toLowerCase();
@@ -598,239 +522,10 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
 });
 
 
-ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
-    try {
-        const desktopPath = app.getPath("desktop");
-        const safeName = String(instanceName).replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
-        const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
-        const targetFile = `${safeName}.${ext}`.toLowerCase();
-        if (await fs.promises.access(desktopPath).then(()=>true).catch(()=>false)) {
-            const files = await fs.promises.readdir(desktopPath);
-            for (let file of files) {
-                if (file.toLowerCase() === targetFile) {
-                    const fullPath = path.join(desktopPath, file);
-                    await shell.trashItem(fullPath);
-                    return { success: true };
-                }
-            }
-        }
-        return { success: false, reason: 'not_found' };
-    } catch (e) {
-        return { success: false, reason: e.message };
-    }
-});
-ipcMain.handle("create-desktop-shortcut", async (event, { instanceName, iconPath }) => {
-    try {
-        const desktopPath = app.getPath("desktop");
-        const safeName = sanitizeShortcutName(instanceName);
-        const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
-        const instFolder = path.join(instancesDir, mainSafeDir(instanceName));
-        let localIconPath = null;
-        if (iconPath && iconPath.startsWith("file://")) {
-            try {
-                localIconPath = require('url').fileURLToPath(iconPath);
-            } catch (e) {
-                mainLog("Erreur décodage URL icône : " + e.message);
-            }
-        }
-        if (!localIconPath || !(await fs.promises.access(localIconPath).then(()=>true).catch(()=>false))) {
-            const png = path.join(instFolder, "icon.png");
-            if (await fs.promises.access(png).then(()=>true).catch(()=>false)) localIconPath = png;
-        }
-        let finalIconPath = process.execPath;
-        if (process.platform === 'win32') {
-            if (localIconPath && localIconPath.toLowerCase().endsWith('.png') && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
-                try {
-                    let isPng = false;
-                    try {
-                        const fd = await fs.promises.open(localIconPath, 'r');
-                        const magic = Buffer.alloc(8);
-                        await fd.read(magic, 0, 8, 0);
-                        await fd.close();
-                        isPng = magic.toString('hex') === '89504e470d0a1a0a';
-                    } catch (magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
-                    if (isPng) {
-                        const { nativeImage } = require("electron");
-                        const nImg = nativeImage.createFromPath(localIconPath);
-                        let pngData = await fs.promises.readFile(localIconPath);
-                        if (!nImg.isEmpty()) {
-                            const resized = nImg.resize({ width: 256, height: 256, quality: 'best' });
-                            pngData = resized.toPNG();
-                        }
-                        if (pngData && pngData.length > 0) {
-                            const safeInstFolder = assertPathUnderSandbox(instFolder);
-                            const icoPath = path.join(safeInstFolder, "icon_win.ico");
-                            const header = Buffer.alloc(22);
-                            header.writeUInt16LE(0, 0);
-                            header.writeUInt16LE(1, 2);
-                            header.writeUInt16LE(1, 4);
-                            header.writeUInt8(0, 6);
-                            header.writeUInt8(0, 7);
-                            header.writeUInt8(0, 8);
-                            header.writeUInt8(0, 9);
-                            header.writeUInt16LE(0, 10);
-                            header.writeUInt16LE(0, 12);
-                            header.writeUInt32LE(pngData.length, 14);
-                            header.writeUInt32LE(22, 18);
-                            await fs.promises.writeFile(icoPath, Buffer.concat([header, pngData]));
-                            finalIconPath = icoPath;
-                        }
-                    }
-                } catch (e) {
-                    mainLog("Erreur de conversion PNG vers ICO : " + e.message);
-                }
-            } else if (localIconPath && localIconPath.toLowerCase().endsWith('.ico') && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
-                finalIconPath = localIconPath;
-            }
-        } else {
-            if (localIconPath && await fs.promises.access(localIconPath).then(()=>true).catch(()=>false)) {
-                finalIconPath = localIconPath;
-            }
-        }
-        const alreadyExists = await fs.promises.access(
-            path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app'}`)
-        ).then(()=>true).catch(()=>false);
-        const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
-        if (process.platform === 'win32') {
-            const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
-            const mode = alreadyExists ? 'update' : 'create';
-            const options = {
-                target: appExecutable,
-                args: `--auto-launch="${safeName}"`,
-                appUserModelId: "com.gens.launcher",
-                description: `Lancer ${safeName}`,
-                icon: finalIconPath,
-                iconIndex: 0
-            };
-            shell.writeShortcutLink(shortcutPath, mode, options);
-            return { success: true, updated: alreadyExists };
-        } else if (process.platform === 'linux') {
-            const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-            const escapedInstanceName = encodeURIComponent(instanceName);
-            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
-            const execLine = `"${appExecutable}" "--auto-launch=${escapedInstanceName}"`;
-            const desktopFile = [
-                '[Desktop Entry]',
-                `Name=${safeName}`,
-                `Exec=${execLine}`,
-                'Terminal=false',
-                'Type=Application',
-                `Icon=${finalIconPath}`,
-                'Categories=Game;',
-                ''
-            ].join('\n');
-            await fs.promises.writeFile(shortcutPath, desktopFile, { encoding: 'utf8' });
-            await fs.promises.chmod(shortcutPath, 0o755);
-            try {
-                const appsDir = path.join(app.getPath("home"), ".local", "share", "applications");
-                if (!(await fs.promises.access(appsDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(appsDir, { recursive: true });
-                const appsPath = path.join(appsDir, `genslauncher-${safeName}.desktop`);
-                await fs.promises.writeFile(appsPath, desktopFile, { encoding: 'utf8' });
-                await fs.promises.chmod(appsPath, 0o755);
-            } catch (err) {
-                mainLog("Erreur création raccourci applications Linux : " + err.message);
-            }
-            return { success: true, updated: alreadyExists };
-        } else if (process.platform === 'darwin') {
-            const shortcutPath = path.join(desktopPath, `${safeName}.app`);
-            const escapedInstanceName = encodeURIComponent(instanceName);
-            const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
-            const script = `do shell script "\\"${appExecutable}\\" \\"--auto-launch=${escapedInstanceName}\\" > /dev/null 2>&1 &"`;
-            
-            await new Promise((resolve, reject) => {
-                const { exec } = require('child_process');
-                exec(`osacompile -e '${script.replace(/'/g, "'\\''")}' -o "${shortcutPath}"`, (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
-
-            if (finalIconPath && finalIconPath.endsWith('.png')) {
-                const appletIcns = path.join(shortcutPath, "Contents", "Resources", "applet.icns");
-                await new Promise((resolve) => {
-                    const { exec } = require('child_process');
-                    exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve());
-                });
-                await new Promise((resolve) => {
-                    const { exec } = require('child_process');
-                    exec(`touch "${shortcutPath}"`, () => resolve());
-                });
-            }
-            return { success: true, updated: alreadyExists };
-        }
-        return { success: false, reason: 'unsupported_platform' };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-ipcMain.handle("check-shortcut-exists", async (event, { safeName }) => {
-    const desktopPath = app.getPath("desktop");
-    const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
-    const safe = sanitizeShortcutName(safeName);
-    const shortcutPath = path.join(desktopPath, `${safe}.${ext}`);
-    return await fs.promises.access(shortcutPath).then(()=>true).catch(()=>false);
-});
 
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
-});
-let isManualUpdateCheck = false;
-let globalOfflineMode = false;
-
-ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
-
-ipcMain.handle("check-for-updates", async () => {
-    isManualUpdateCheck = true;
-    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-    if (isLinuxDeb) {
-        // .deb : check via GitHub API sans electron-updater
-        try {
-            const { net } = require('electron');
-            return await new Promise((resolve) => {
-                const req = net.request({ url: 'https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest', headers: { 'User-Agent': 'Gens-Launcher-AutoUpdater' } });
-                req.on('response', (res) => {
-                    let data = '';
-                    res.on('data', (c) => { data += c; });
-                    res.on('end', () => {
-                        isManualUpdateCheck = false;
-                        try {
-                            const release = JSON.parse(data);
-                            const latestVer = (release.tag_name || '').replace(/^v/, '');
-                            const currentVer = app.getVersion();
-                            if (latestVer && latestVer !== currentVer) {
-                                mainWindow?.webContents.send('update-available-prompt', { version: latestVer });
-                                resolve({ success: true, version: latestVer });
-                            } else {
-                                mainWindow?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
-                                resolve({ success: true, version: null });
-                            }
-                        } catch(e) { resolve({ success: false, error: e.message }); }
-                    });
-                });
-                req.on('error', (e) => { isManualUpdateCheck = false; resolve({ success: false, error: e.message }); });
-                req.end();
-            });
-        } catch(e) { isManualUpdateCheck = false; return { success: false, error: e.message }; }
-    }
-    try { 
-        const result = await autoUpdater.checkForUpdates(); 
-        isManualUpdateCheck = false;
-        return { success: true, version: result?.updateInfo?.version || null }; 
-    } catch (e) { 
-        isManualUpdateCheck = false;
-        return { success: false, error: e.message }; 
-    }
-});
-ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
-ipcMain.on("download-update", () => {
-    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-    if (isLinuxDeb) {
-        // .deb : ne pas déléguer à electron-updater, c'est apt-get qui installe
-        mainLog("[deb] Téléchargement ignoré (géré par APT).");
-        return;
-    }
-    autoUpdater.downloadUpdate();
 });
 ipcMain.on("hide-window", () => {
     if (mainWindow) {
@@ -859,35 +554,13 @@ ipcMain.on("restore-main-window", () => {
         mainWindow.show();
     }
 });
-autoUpdater.on("update-available", (info) => { mainWindow?.webContents.send("update-available-prompt", info); });
-autoUpdater.on("update-not-available", () => { 
-    if (isManualUpdateCheck) {
-        mainWindow?.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); 
-    }
-});
-autoUpdater.on("download-progress", (progress) => { mainWindow?.webContents.send("update-progress", Math.round(progress.percent)); });
-autoUpdater.on("error", (err) => {
-    mainLog(`[AutoUpdater] Erreur : ${err.message}`);
-    if (isManualUpdateCheck) {
-        mainWindow?.webContents.send("update-msg", { key: "msg_update_error", text: "Erreur lors de la vérification des mises à jour.", type: "error" });
-    }
-});
-autoUpdater.on("update-downloaded", (info) => {
-    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-    if (isLinuxDeb) {
-        // .deb : ne jamais envoyer update-downloaded au renderer (la mise à jour se fait via APT)
-        mainLog("[deb] update-downloaded ignoré.");
-        return;
-    }
-    if (info?.downloadedFile) { linuxUpdatePath = info.downloadedFile; mainLog("MAJ téléchargée : " + linuxUpdatePath); }
-    mainWindow?.webContents.send("update-downloaded");
-});
 
 require('./src/main/ipc-auth')(context);
 require('./src/main/ipc-horizon')(context);
 require('./src/main/ipc-game')(context);
 require('./src/main/ipc-system')(context);
-
+require('./src/main/shortcuts')(context);
+require('./src/main/updater')(context);
 const DiscordRPC = require('./src/gens-core/components/discord.js');
 let rpc = new DiscordRPC(DISCORD_CLIENT_ID);
 let lastDiscordData = null;
@@ -919,7 +592,7 @@ let shouldConnectDiscord = true;
 (async () => {
     try {
         const settingsPath = path.join(safeDataDir, 'settings.json');
-        if (await fs.promises.access(settingsPath).then(()=>true).catch(()=>false)) {
+        if (await existsSafe(settingsPath)) {
             const settings = JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
             if (settings.disableRPC === true || settings.offlineMode === true) {
                 shouldConnectDiscord = false;
@@ -988,5 +661,16 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
     }
 });
 
-app.on('before-quit', () => { try { if (_logStream) _logStream.end(); } catch (_) { } });
+app.on('before-quit', () => { try { if (_logStream) _logStream.end(); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _); } });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

@@ -19,7 +19,7 @@ export function setup() {
     const safeName = window.safeDir(inst.name);
     const sourceFolder = path.join(store.instancesRoot, safeName);
     const exportDir = path.join(store.dataDir, "exports");
-    if (!(await fs.promises.access(exportDir).then(()=>true).catch(()=>false))) {
+    if (!(await existsSafe(exportDir))) {
       await fs.promises.mkdir(exportDir, { recursive: true });
     }
     if (type === "zip_light" || type === "zip_full") {
@@ -42,4 +42,16 @@ export function setup() {
       }
     }
   };
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

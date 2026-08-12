@@ -23,7 +23,7 @@ module.exports = function setupAuthHandlers(context) {
 
         const sessionLabel = `gens-${crypto.randomUUID()}`;
         const cacheDir = path.join(safeDataDir, "msa-cache");
-        if (!(await fs.promises.access(cacheDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(cacheDir, { recursive: true });
+        if (!(await existsSafe(cacheDir))) await fs.promises.mkdir(cacheDir, { recursive: true });
 
         try {
             const auth = new MicrosoftAuth();
@@ -99,7 +99,7 @@ module.exports = function setupAuthHandlers(context) {
             const MicrosoftAuth = require("../gens-core/components/auth.js");
             const cacheFile = path.join(safeDataDir, "msa-cache", sessionLabel + '.json');
             
-            if (!(await fs.promises.access(cacheFile).then(()=>true).catch(()=>false))) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
+            if (!(await existsSafe(cacheFile))) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
             const cache = JSON.parse(await fs.promises.readFile(cacheFile, 'utf8'));
             if (!cache.refreshToken) throw new Error("EXPIRED_TOKEN_REQUIRES_INTERACTIVE_LOGIN");
 
@@ -179,3 +179,15 @@ module.exports = function setupAuthHandlers(context) {
         }
     });
 };
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

@@ -27,10 +27,10 @@ export async function performAutoBackup(inst, mode, ui) {
     const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
     const savesDir = path.join(instDir, "saves");
     const backupDir = path.join(instDir, "backups");
-    if (!(await fs.promises.access(savesDir).then(()=>true).catch(()=>false))) { inst._backupRunning = false; return; }
+    if (!(await existsSafe(savesDir))) { inst._backupRunning = false; return; }
     const saves = await fs.promises.readdir(savesDir);
     if (saves.length === 0) { inst._backupRunning = false; return; }
-    if (!(await fs.promises.access(backupDir).then(()=>true).catch(()=>false))) {
+    if (!(await existsSafe(backupDir))) {
         await fs.promises.mkdir(backupDir, { recursive: true });
     }
     
@@ -99,7 +99,7 @@ export async function analyzeCrash(instanceName) {
     let latestReport = "";
     let logData = "";
     try {
-        if (await fs.promises.access(crashDir).then(()=>true).catch(()=>false)) {
+        if (await existsSafe(crashDir)) {
             try {
                 const reports = (await fs.promises.readdir(crashDir)).filter(f => f.endsWith(".txt"));
                 if (reports.length > 0) {
@@ -113,7 +113,7 @@ export async function analyzeCrash(instanceName) {
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         const logPath = path.join(instDir, "logs", "latest.log");
-        if (await fs.promises.access(logPath).then(()=>true).catch(()=>false)) {
+        if (await existsSafe(logPath)) {
             try {
                 logData = await fs.promises.readFile(logPath, 'utf8');
                 if (logData.length > 200000) {
@@ -261,4 +261,16 @@ export async function analyzeCrash(instanceName) {
         sysLog("Crash analyzer erreur : " + e.message, true);
     }
     return result;
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

@@ -13,7 +13,7 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
-        if (!(await fs.promises.access(targetPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(targetPath, { recursive: true });
+        if (!(await existsSafe(targetPath))) await fs.promises.mkdir(targetPath, { recursive: true });
         let shadersHtml = "";
         const files = await fs.promises.readdir(targetPath);
         files.forEach((file) => {
@@ -55,7 +55,7 @@ export function setup() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks", filename);
             try {
-                if (await fs.promises.access(targetPath).then(()=>true).catch(()=>false)) {
+                if (await existsSafe(targetPath)) {
                     await fs.promises.unlink(targetPath);
                     window.showToast(t("msg_shader_deleted", "Shader supprimé !"), "success");
                     window.renderShadersManager();
@@ -63,4 +63,16 @@ export function setup() {
             } catch(e) { window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error"); }
         }
     };
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

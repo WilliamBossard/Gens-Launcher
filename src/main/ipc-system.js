@@ -97,7 +97,7 @@ module.exports = function setupSystemHandlers(context) {
             let zipfile;
             try {
                 zipfile = await yauzl.open(zipPath);
-                if (!(await fs.promises.access(destDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destDir, { recursive: true });
+                if (!(await existsSafe(destDir))) await fs.promises.mkdir(destDir, { recursive: true });
                 const total = zipfile.entryCount;
                 let processed = 0;
                 let lastProgress = -1;
@@ -112,10 +112,10 @@ module.exports = function setupSystemHandlers(context) {
                     }
 
                     if (/\/$/.test(entry.filename)) {
-                        if (!(await fs.promises.access(destPath).then(()=>true).catch(()=>false))) await fs.promises.mkdir(destPath, { recursive: true });
+                        if (!(await existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
                         processed++;
                     } else {
-                        if (!(await fs.promises.access(path.dirname(destPath)).then(()=>true).catch(()=>false))) await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+                        if (!(await existsSafe(path.dirname(destPath)))) await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
                         try {
                             const readStream = await entry.openReadStream();
                             const writeStream = fs.createWriteStream(destPath);
@@ -244,3 +244,15 @@ module.exports = function setupSystemHandlers(context) {
     });
 
 };
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

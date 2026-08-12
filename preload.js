@@ -56,7 +56,8 @@ function enforceReadSandbox(p, silent = false) {
     // Tolérance pour les dossiers Java : on autorise la lecture de tout le dossier sans restriction d'extension
     const isJavaDir = _isJavaPathMatch;
     const isTempDir = resolved.startsWith(path.join(os.tmpdir(), "GensLauncher"));
-    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir) {
+    const isSafeExtension = safeReadRegex.test(resolved);
+    if (!isInDataDir && !isMinecraftDir && !isJavaDir && !isTempDir && !isSafeExtension) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
     }
@@ -114,13 +115,13 @@ contextBridge.exposeInMainWorld("api", {
                 await fs.promises.writeFile(tempPath, encrypted, 'utf8');
                 await fs.promises.rename(tempPath, safePath);
             } catch (e) {
-                try { await fs.promises.unlink(tempPath); } catch (_) {}
+                try { await fs.promises.unlink(tempPath); } catch (err) { if (err.code !== 'ENOENT') console.error("Temp cleanup failed", err); }
                 throw e;
             }
         };
         const _readJSONAsync = async (filePath) => {
             const safePath = enforceSandbox(filePath);
-            if (!(await fs.promises.access(safePath).then(()=>true).catch(()=>false))) return null;
+            if (!(await existsSafe(safePath))) return null;
             const raw = await fs.promises.readFile(safePath, 'utf8');
             let parsedData = null;
             let needsMigration = false;
@@ -196,7 +197,7 @@ contextBridge.exposeInMainWorld("api", {
                     await fs.promises.writeFile(tempPath, d);
                     await fs.promises.rename(tempPath, safePath);
                 } catch (e) {
-                    try { await fs.promises.unlink(tempPath); } catch (_) {}
+                    try { await fs.promises.unlink(tempPath); } catch (err) { if (err.code !== 'ENOENT') console.error("Temp cleanup failed", err); }
                     throw e;
                 }
             },
@@ -244,3 +245,14 @@ contextBridge.exposeInMainWorld("api", {
      */
     copyImageToSandbox: (srcPath, destName, subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
 });
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

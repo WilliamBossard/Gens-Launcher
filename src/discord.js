@@ -7,7 +7,7 @@ async function _getModCount(inst) {
     if (inst._modCountCache !== undefined) return inst._modCountCache;
     try {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) { inst._modCountCache = 0; return 0; }
+        if (!(await existsSafe(modsPath))) { inst._modCountCache = 0; return 0; }
         const files = await fs.promises.readdir(modsPath);
         inst._modCountCache = files.filter(f => f.endsWith(".jar")).length;
     } catch (e) {
@@ -64,3 +64,14 @@ window.updateRPC = updateRPC;
 window.clearRPC  = clearRPC;
 const initRPC = updateRPC;
 export { initRPC, updateRPC, clearRPC };
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

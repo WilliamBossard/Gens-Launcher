@@ -13,7 +13,7 @@ export function setup() {
         const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
         if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
-        if (!(await fs.promises.access(indexPath).then(()=>true).catch(()=>false))) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
+        if (!(await existsSafe(indexPath))) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
         const index = JSON.parse(await fs.promises.readFile(indexPath, "utf8"));
         inst.version = index.dependencies.minecraft;
         if (index.dependencies["fabric-loader"]) { inst.loader = "fabric"; inst.loaderVersion = index.dependencies["fabric-loader"]; } 
@@ -22,18 +22,18 @@ export function setup() {
         else if (index.dependencies.neoforge) { inst.loader = "neoforge"; inst.loaderVersion = index.dependencies.neoforge; }
         else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
         const modsDir = path.join(instDir, "mods");
-        if (await fs.promises.access(modsDir).then(()=>true).catch(()=>false)) {
+        if (await existsSafe(modsDir)) {
             try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
         }
         await fs.promises.mkdir(modsDir, { recursive: true });
         const processOverrides = async (folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
-            if (await fs.promises.access(srcDir).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
                 for (const item of items) {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
-                    if (await fs.promises.access(destPath).then(()=>true).catch(()=>false)) {
+                    if (await existsSafe(destPath)) {
                         try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcDir, item), destPath);
@@ -59,7 +59,7 @@ export function setup() {
                     continue;
                 }
                 const dir = path.dirname(modPath);
-                if (!(await fs.promises.access(dir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(dir, { recursive: true });
+                if (!(await existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
                     const downloadUrl = modFile.downloads[0];
                     if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) { downloadedCount++; continue; }
@@ -80,7 +80,7 @@ export function setup() {
       } catch (err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
       } finally {
-         try { if (await fs.promises.access(tempExtractDir).then(()=>true).catch(()=>false)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+         try { if (await existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
          window.hideLoading();
          window.renderUI();
       }
@@ -93,7 +93,7 @@ export function setup() {
         const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
         if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
-        if (!(await fs.promises.access(indexPath).then(()=>true).catch(()=>false))) {
+        if (!(await existsSafe(indexPath))) {
           throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide (modrinth.index.json manquant)."));
         }
         const index = JSON.parse(await fs.promises.readFile(indexPath, "utf8"));
@@ -110,7 +110,7 @@ export function setup() {
             finalName = store.allInstances[updateTargetInstIdx].name;
             const targetDir = path.join(store.instancesRoot, window.safeDir(finalName));
             const modsDir = path.join(targetDir, "mods");
-            if (await fs.promises.access(modsDir).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(modsDir)) {
                 try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch(e){}
             }
         } else {
@@ -138,14 +138,14 @@ export function setup() {
         if (projectId) newInst.modrinthId = projectId;
         if (versionNumber) newInst.modpackVersion = versionNumber;
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
-        if (!(await fs.promises.access(instDir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(instDir, { recursive: true });
+        if (!(await existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
         const processOverrides = async (folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
-            if (await fs.promises.access(srcDir).then(()=>true).catch(()=>false)) {
+            if (await existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
                 for (const item of items) {
                     const destPath = path.join(instDir, item);
-                    if (await fs.promises.access(destPath).then(()=>true).catch(()=>false)) {
+                    if (await existsSafe(destPath)) {
                         try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcDir, item), destPath);
@@ -172,7 +172,7 @@ export function setup() {
                     continue;
                 }
                 const dir = path.dirname(modPath);
-                if (!(await fs.promises.access(dir).then(()=>true).catch(()=>false))) await fs.promises.mkdir(dir, { recursive: true });
+                if (!(await existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
                     const downloadUrl = modFile.downloads[0];
                     if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
@@ -201,7 +201,7 @@ export function setup() {
         await Promise.all(workers);
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         const instOpt = path.join(instDir, "options.txt");
-        if (await fs.promises.access(defaultOpt).then(()=>true).catch(()=>false) && !(await fs.promises.access(instOpt).then(()=>true).catch(()=>false))) {
+        if (await existsSafe(defaultOpt) && !(await existsSafe(instOpt))) {
             try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         }
         if (updateTargetInstIdx === null) {
@@ -218,9 +218,21 @@ export function setup() {
         sysLog("Erreur Modpack Modrinth : " + err.message, true);
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
       } finally {
-         try { if (await fs.promises.access(tempExtractDir).then(()=>true).catch(()=>false)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+         try { if (await existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
          window.hideLoading();
          window.renderUI();
       }
     };
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
 }

@@ -109,6 +109,16 @@ ipcRenderer.on("update-downloaded", async () => {
     } else {
         const statusDiv = document.getElementById("update-status");
         if (statusDiv) statusDiv.innerText = t("msg_update_later", "Mise à jour prête. Redémarrez plus tard.");
+        
+        const btn = document.getElementById("btn-start-update");
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = t("btn_restart_update", "Redémarrer pour mettre à jour");
+            btn.onclick = () => {
+                ipcRenderer.send("confirm-update");
+                ipcRenderer.send("restart_app");
+            };
+        }
     }
 });
 document.getElementById("console-filter")?.addEventListener("input", (e) => {
@@ -822,7 +832,7 @@ window.refreshHorizonQuota = async () => {
                     window.api.on && setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
                 }
             } catch (e) { }
-        } catch (_) { }
+        } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[renderer.js] Erreur silencieuse interceptée:', _.message || _); }
     }
     if (!window._lastQuotaHtml) {
         el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">

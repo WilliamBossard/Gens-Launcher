@@ -13,7 +13,7 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!(await fs.promises.access(modsPath).then(()=>true).catch(()=>false))) return;
+        if (!(await existsSafe(modsPath))) return;
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter((f) => f.endsWith(".jar"));
         if (files.length === 0) {
@@ -128,7 +128,7 @@ export function setup() {
                 const tmpPath = newPath + ".tmp";
                 await fs.promises.writeFile(tmpPath, fileBytes);
                 await fs.promises.rename(tmpPath, newPath);
-                if (oldPath !== newPath && await fs.promises.access(oldPath).then(()=>true).catch(()=>false)) {
+                if (oldPath !== newPath && await existsSafe(oldPath)) {
                     await fs.promises.unlink(oldPath);
                 }
                 updatedCount++;
@@ -143,5 +143,17 @@ export function setup() {
         window.hideLoading();
         window.showToast(`${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`, 'success');
         window.renderModsManager();
+    }
+}
+
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
     }
 }

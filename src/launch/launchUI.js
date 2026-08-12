@@ -175,7 +175,7 @@ export function setupLauncher() {
         sysLog(`Le jeu [${instanceId}] s'est arrêté avec le code ${code}`, code !== 0);
         const isLastInstance = store.activeInstances.size === 0;
         let isAutoClose = window._isAutoLaunch && isLastInstance;
-        const shouldAutoClose = isAutoClose; // snapshot avant modification
+        let shouldAutoClose = isAutoClose; // snapshot avant modification
         function setAutoStatus(text) {
             const el = document.getElementById("auto-status-text");
             if (el) el.textContent = text;
@@ -235,16 +235,24 @@ export function setupLauncher() {
         }
         // Auto-launch : fermeture normale du jeu (code 0 ou -1 = forcé)
         if (isAutoClose && (code === 0 || code === -1)) {
-            isAutoClose = false;
-            window._isAutoLaunch = false;
-            document.body.classList.remove("is-auto-launch");
-            const overlay = document.getElementById("auto-launch-overlay");
-            if (overlay) overlay.style.display = "none";
-            window.api.send("restore-main-window");
+            // Si on ne quitte pas (shouldAutoClose=false), on restaure le launcher normalement
+            if (!shouldAutoClose) {
+                isAutoClose = false;
+                window._isAutoLaunch = false;
+                document.body.classList.remove("is-auto-launch");
+                const overlay = document.getElementById("auto-launch-overlay");
+                if (overlay) overlay.style.display = "none";
+                window.api.send("restore-main-window");
+            } else {
+                // On va quitter, donc on s'assure juste que la fenêtre principale (qui montre l'overlay)
+                // est visible pour afficher le cloud sync, sans détruire le mode auto-launch
+                window.api.send("show-window");
+            }
         }
         // Auto-launch : fermeture avec crash
         if (code !== 0 && code !== -1 && closedInstIndex !== -1) {
             if (isAutoClose) {
+                shouldAutoClose = false; // Ne pas quitter automatiquement pour laisser l'utilisateur voir le crash !
                 isAutoClose = false;
                 window._isAutoLaunch = false;
                 document.body.classList.remove("is-auto-launch");

@@ -25,7 +25,7 @@ window.openSystemPath = (p) => {
 };
 (async () => {
     try {
-        if (!(await fs.promises.access(store.logsDir).then(()=>true).catch(()=>false))) {
+        if (!(await existsSafe(store.logsDir))) {
             await fs.promises.mkdir(store.logsDir, { recursive: true });
         }
         const files = await fs.promises.readdir(store.logsDir);
@@ -59,6 +59,21 @@ const currentLogFile = path.join(
 
 let logQueue = `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`;
 let isWriting = false;
+
+window.safeUnlink = async (filePath) => {
+    try {
+        await fs.promises.unlink(filePath);
+    } catch (err) {
+        if (err.code !== 'ENOENT') console.warn(`[utils.js] Échec suppression unlink : ${err.message}`);
+    }
+};
+window.safeRm = async (targetPath, options = { recursive: true, force: true }) => {
+    try {
+        await fs.promises.rm(targetPath, options);
+    } catch (err) {
+        if (err.code !== 'ENOENT') console.warn(`[utils.js] Échec suppression rm : ${err.message}`);
+    }
+};
 
 async function flushLogQueue() {
     if (isWriting || !logQueue) return;
@@ -136,7 +151,7 @@ window.safeWriteJSONAsync = (filePath, data) => {
         } catch (e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
             try {
-                const exists = await fs.promises.access(tmp).then(() => true).catch(() => false);
+                const exists = await existsSafe(tmp);
                 if (exists) await fs.promises.unlink(tmp);
             } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
         }
@@ -285,3 +300,14 @@ window.reconnectDiscord = async () => {
         window.showToast(t("msg_rpc_error", "Erreur RPC : " + e.message), "error");
     }
 };
+
+async function existsSafe(p) {
+    try {
+        // Enforce preload sandbox check if it's in renderer context and enforceReadSandbox exists
+        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        await fs.promises.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}

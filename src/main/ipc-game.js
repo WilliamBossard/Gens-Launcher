@@ -226,15 +226,9 @@ module.exports = function setupGameHandlers(context) {
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
                     mainWindow?.webContents.send("mc-close", { instanceId, code: code });
-                    // Auto-launch : quitter l'app depuis le main process directement
+                    // Auto-launch : la fermeture complète est gérée par le renderer (launchUI.js)
+                    // pour permettre à l'upload cloud de se terminer et aux crashs de s'afficher.
                     mainLog(`[auto-launch] Jeu fermé. isAutoLaunch=${isAutoLaunchMode}, activeClients=${activeMinecraftClients.size}`);
-                    if (isAutoLaunchMode && activeMinecraftClients.size === 0) {
-                        mainLog('[auto-launch] Dernière instance fermée. Fermeture dans 1.5s...');
-                        setTimeout(() => {
-                            mainLog('[auto-launch] app.exit(0)');
-                            app.exit(0);
-                        }, 1500);
-                    }
                 }
             });
         }).catch(e => {
