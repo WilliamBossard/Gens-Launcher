@@ -246,6 +246,16 @@ sudo apt update && sudo apt install gens-launcher</code></pre>
         </div>
     </section>
 
+    <section id="support" class="support-section" style="padding: 5rem 5%;">
+        <h2 class="section-title">Need Help?</h2>
+        <div class="support-card glass-panel" style="text-align: center; max-width: 600px; margin: 0 auto; padding: 3rem;">
+            <svg viewBox="0 0 24 24" width="48" height="48" stroke="var(--accent)" stroke-width="2" fill="none" style="margin-bottom: 1rem;"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+            <h3 style="font-size: 1.4rem; margin-bottom: 0.5rem;">GitHub Issues</h3>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.5;">Found a bug or have a feature idea? We provide all our support publicly via GitHub Issues to keep track of development transparently.</p>
+            <a href="https://github.com/WilliamBossard/Gens-Launcher/issues" target="_blank" class="btn btn-primary">Open an Issue</a>
+        </div>
+    </section>
+
     <footer>
         <div class="footer-content">
             <div class="logo">Gens<span class="highlight">Launcher</span></div>
@@ -338,6 +348,21 @@ sudo apt update && sudo apt install gens-launcher</code></pre>
                         item.querySelector('.faq-icon').innerText = '-';
                     }
                 });
+            });
+
+            // Scroll Animations
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            document.querySelectorAll('.feature-card, .gallery-item, .install-card, .faq-item, .support-card').forEach(el => {
+                el.classList.add('fade-in-up');
+                observer.observe(el);
             });
         });
     </script>
