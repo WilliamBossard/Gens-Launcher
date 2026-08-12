@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gens Launcher - Modern Minecraft Experience</title>
+    <meta name="description" content="A modern, secure, and lightweight Minecraft launcher powered by Gens-Horizon Delta Sync technology.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-background"></div>
+    <div class="glass-overlay"></div>
+
+    <nav class="navbar">
+        <div class="logo">Gens<span class="highlight">Launcher</span></div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="https://github.com/WilliamBossard/Gens-Launcher" target="_blank" class="github-link">GitHub Repository</a>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="badge">Powered by Gens-Horizon Engine</div>
+                <h1 class="hero-title">Redefining your<br>Minecraft experience.</h1>
+                <p class="hero-subtitle">
+                    A modern, open-source launcher designed for performance and security. Featuring seamless instance management, integrated mod catalogs, and ultra-fast Delta Sync technology.
+                </p>
+                <div class="cta-group">
+                    <a href="https://github.com/WilliamBossard/Gens-Launcher" class="btn btn-primary" target="_blank">
+                        Download Launcher
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="hero-visual">
+                <div class="glass-panel mockup">
+                    <div class="mockup-header">
+                        <div class="dot red"></div>
+                        <div class="dot yellow"></div>
+                        <div class="dot green"></div>
+                    </div>
+                    <div class="mockup-body">
+                        <div class="mockup-progress">
+                            <span class="sync-text">Horizon Cloud Sync Initialization</span>
+                            <div class="progress-bar"><div class="progress-fill"></div></div>
+                            <span class="speed-text">Applying Delta Patch...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section id="features" class="features-section">
+        <h2 class="section-title">Core Architecture & Features</h2>
+        <div class="feature-grid">
+            
+            <div class="feature-card glass-panel">
+                <h3>Horizon Cloud Sync</h3>
+                <p>Seamlessly sync your instances across devices using the headless Gens-Horizon cloud engine. Advanced Delta Sync technology analyzes files and downloads only the missing bits, dramatically reducing update times.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Advanced Instance Management</h3>
+                <p>Create and manage Vanilla, Forge, Fabric, Quilt, or NeoForge instances instantly. Includes automated Java detection and downloader mechanisms to ensure compatibility.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Integrated Mod Browser</h3>
+                <p>Search, download, and update mods, resource packs, and shaders directly from Modrinth and CurseForge without leaving the application.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Enterprise-Grade Security</h3>
+                <p>Engineered with strict Electron context isolation and IPC safety. Microsoft credentials are encrypted using AES-256-GCM, and file integrity is verified via SHA1 hashing.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Total Customization</h3>
+                <p>Personalize your experience with dynamic themes, custom wallpapers, and Mica blur effects. Animation toggles are available for low-end hardware optimization.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Native OS Integration</h3>
+                <p>Deep integration with Windows Jump Lists for quick launching, and an official signed APT repository for automated updates on Debian and Ubuntu systems.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Microsoft Multi-Account</h3>
+                <p>Securely authenticate and switch between multiple Microsoft accounts. Fully supports offline mode with automated fallback mechanisms when no connection is detected.</p>
+            </div>
+
+            <div class="feature-card glass-panel">
+                <h3>Discord Rich Presence</h3>
+                <p>Automatically broadcasts the instance you are currently playing to your Discord profile, integrated efficiently to preserve system resources.</p>
+            </div>
+
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <div class="logo">Gens<span class="highlight">Launcher</span></div>
+            <p>An open-source project by William Bossard.</p>
+            <p class="copyright">Licensed under the MIT License. Minecraft is a trademark of Mojang Synergies AB.</p>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const fill = document.querySelector('.progress-fill');
+            setInterval(() => {
+                fill.style.width = '0%';
+                setTimeout(() => { fill.style.width = '100%'; }, 500);
+            }, 4000);
+        });
+    </script>
+</body>
+</html>

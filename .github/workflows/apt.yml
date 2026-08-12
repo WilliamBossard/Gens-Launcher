@@ -33,8 +33,10 @@ jobs:
             gh release download "$TAG" --pattern "*.deb" --dir apt-workspace
           fi
 
-      - name: Ajouter la clé publique
-        run: cp public.key apt-workspace/
+      - name: Ajouter la clé publique et le site web
+        run: |
+          cp public.key apt-workspace/
+          cp -r website/* apt-workspace/
 
       - name: Importer la clé de sécurité
         id: import_gpg  # <-- AJOUT : On donne un identifiant à cette étape
