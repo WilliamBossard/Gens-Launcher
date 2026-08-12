@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg-main: #1e1e1e;
     --bg-panel: rgba(45, 45, 48, 0.7);
     --text-light: #f5f5f5;
@@ -66,9 +66,19 @@ a {
 }
 
 .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     font-size: 1.4rem;
     font-weight: 700;
     letter-spacing: -0.5px;
+}
+
+.nav-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
 .highlight {
@@ -323,4 +333,190 @@ footer {
     .cta-group {
         justify-content: center;
     }
+}
+
+/* Secondary Button & Sizes */
+.btn-secondary {
+    background: transparent;
+    color: var(--text-light);
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+/* Alerts */
+.alert {
+    margin-top: 1rem;
+    padding: 0.8rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.alert-info {
+    background: rgba(0, 122, 204, 0.1);
+    border-left: 4px solid var(--accent);
+    color: #e0e0e0;
+}
+
+/* Gallery Section */
+.gallery-section {
+    padding: 5rem 5%;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.gallery-item {
+    overflow: hidden;
+    transition: transform 0.3s;
+}
+
+.gallery-item:hover {
+    transform: translateY(-5px);
+}
+
+.gallery-item img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-bottom: 1px solid var(--border);
+}
+
+.gallery-caption {
+    padding: 1rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-light);
+}
+
+/* Install Section */
+.install-section {
+    padding: 5rem 5%;
+}
+
+.install-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.install-card {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.linux-card {
+    grid-column: 1 / -1;
+}
+
+.os-icon {
+    color: var(--accent);
+    margin-bottom: 1rem;
+}
+
+.install-card h3 {
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.install-card p {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+}
+
+.code-block {
+    width: 100%;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin-top: 1rem;
+}
+
+.code-block pre {
+    margin: 0;
+}
+
+.code-block code {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    color: #a6e22e;
+}
+
+/* FAQ Section */
+.faq-section {
+    padding: 5rem 5%;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.faq-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.faq-item {
+    border-bottom: 1px solid var(--border);
+}
+
+.faq-item:last-child {
+    border-bottom: none;
+}
+
+.faq-question {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.faq-question:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.faq-question h3 {
+    font-size: 1.05rem;
+    font-weight: 500;
+}
+
+.faq-icon {
+    font-size: 1.5rem;
+    font-weight: 300;
+    color: var(--accent);
+    transition: transform 0.3s;
+}
+
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.faq-answer p {
+    padding: 0 1rem 1.5rem 1rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+.faq-item.active .faq-icon {
+    transform: rotate(180deg);
 }
