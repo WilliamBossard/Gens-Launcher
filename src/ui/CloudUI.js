@@ -49,7 +49,7 @@ export function setupCloud() {
             try {
                 await window.api.fs.promises.access(exePath);
                 isInstalled = true;
-            } catch(e) {}
+            } catch(e) { console.warn('CloudUI exe detection error:', e); }
             
             let systemEnabled = false;
             if (isInstalled) {
@@ -58,7 +58,7 @@ export function setupCloud() {
                     const raw = await window.api.fs.promises.readFile(setPath, 'utf8');
                     const parsed = JSON.parse(raw);
                     systemEnabled = parsed.systemEnabled === true || parsed.systemEnabled === "true";
-                } catch (_) {}
+                } catch (e) { console.warn('CloudUI settings read error:', e); }
             }
             
             store.horizonActive = isInstalled && systemEnabled;
@@ -77,7 +77,7 @@ export function setupCloud() {
                     await window.api.fs.promises.access(setPath);
                     const parsed = JSON.parse(await window.api.fs.promises.readFile(setPath, 'utf8'));
                     store.horizonActive = parsed.systemEnabled === true || parsed.systemEnabled === "true";
-                } catch (_) {}
+                } catch (e) { console.warn('CloudUI status check error:', e); }
             }
             if (!status.installed || status.offline || !status.needsUpdate) return;
             const horizonBadge = document.getElementById("horizon-update-badge");

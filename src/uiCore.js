@@ -141,7 +141,7 @@ export function setupUICore() {
                 window.updateOfflineUIState();
                 if (isOnline && window.checkServerStatus) window.checkServerStatus();
             }
-        } catch(e) {}
+        } catch(e) { console.warn('uiCore error:', e); }
     };
     setInterval(window.checkRealInternet, 5000);
     window.checkRealInternet();

@@ -51,6 +51,9 @@ module.exports = function setupHorizonHandlers(context) {
         const id = setTimeout(() => controller.abort(), timeoutMs);
         try {
             return await fetch(url, { signal: controller.signal });
+        } catch (e) {
+            if (e.name === 'AbortError') throw new Error('Timeout de la requête dépassé');
+            throw e;
         } finally {
             clearTimeout(id);
         }

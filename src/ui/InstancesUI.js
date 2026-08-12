@@ -755,7 +755,7 @@ export function setupInstances() {
                 }
                 invalidateScreenshotCache(instName);
                 if (hasShortcut) {
-                    window.api.invoke("delete-desktop-shortcut", { instanceName: instName }).catch(() => {});
+                    window.api.invoke("delete-desktop-shortcut", { instanceName: instName }).catch(e => console.warn('Erreur raccourci:', e));
                 }
                 sysLog(`[INSTANCE] Instance "${instName}" et ses fichiers ont été supprimés avec succès.`);
             } catch(localErr) {
