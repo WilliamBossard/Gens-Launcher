@@ -1,0 +1,67 @@
+name: Build APT Repo from Releases
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Installer les outils APT
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Préparer le dossier temporaire
+        run: mkdir -p apt-workspace
+
+      - name: Récupérer le .deb depuis la Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            gh release download --pattern "*.deb" --dir apt-workspace
+          else
+            gh release download "$TAG" --pattern "*.deb" --dir apt-workspace
+          fi
+
+      - name: Ajouter la clé publique
+        run: cp public.key apt-workspace/
+
+      - name: Importer la clé de sécurité
+        id: import_gpg  # <-- AJOUT : On donne un identifiant à cette étape
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Générer l'arborescence APT
+        run: |
+          cd apt-workspace
+          dpkg-scanpackages --multiversion . > Packages
+          gzip -k -f Packages
+          apt-ftparchive release . > Release
+          
+          # On utilise explicitement l'empreinte (fingerprint) générée par l'étape précédente
+          gpg --default-key "${{ steps.import_gpg.outputs.fingerprint }}" -abs -o Release.gpg Release
+          gpg --default-key "${{ steps.import_gpg.outputs.fingerprint }}" --clearsign -o InRelease Release
+
+      - name: Configurer GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Préparer l'envoi web
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './apt-workspace'
+
+      - name: Mettre en ligne le dépôt
+        id: deployment
+        uses: actions/deploy-pages@v4
