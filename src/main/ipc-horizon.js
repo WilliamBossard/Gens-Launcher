@@ -75,18 +75,35 @@ module.exports = function setupHorizonHandlers(context) {
     // AUDIT-12 : validation du hash avant utilisation pour éviter l'injection d'un hash malformé depuis le cache local
     function isValidSha256(h) { return typeof h === 'string' && /^[a-f0-9]{64}$/i.test(h); }
 
-    async function fetchLatestHorizonRelease(forceBypassCache = false) {
+    async function fetchHorizonRelease(targetVersion = null, forceBypassCache = false) {
         if (!forceBypassCache && githubReleaseCache && Date.now() - githubReleaseCacheTime < 2 * 60 * 60 * 1000) {
-            return githubReleaseCache;
+            if (!targetVersion || githubReleaseCache.tag_name === targetVersion) {
+                return githubReleaseCache;
+            }
         }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
         // AUDIT-20 : version dynamique via app.getVersion() au lieu de la valeur hardcodée
         const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.8.4';
-        const res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
+        
+        let url = 'https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest';
+        if (targetVersion) {
+            url = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/${encodeURIComponent(targetVersion)}`;
+        }
+
+        let res = await fetch(url, { 
             headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
             signal: controller.signal 
         });
+
+        // Fallback to latest if tag not found
+        if (!res.ok && targetVersion) {
+            res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
+                headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
+                signal: controller.signal 
+            });
+        }
+
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error("Erreur fetch Github");
         const data = await res.json();
@@ -130,7 +147,14 @@ module.exports = function setupHorizonHandlers(context) {
                 expectedHash = cachedExpectedHash;
             } else {
                 try {
-                    const data = await fetchLatestHorizonRelease();
+                    let localVersion = null;
+                    try {
+                        if (await fs.promises.access(horizonVersionPath).then(()=>true).catch(()=>false)) {
+                            localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, 'utf8')).version;
+                        }
+                    } catch (e) {}
+
+                    const data = await fetchHorizonRelease(localVersion);
                     const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
                     if (asset) {
                         const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
@@ -377,7 +401,7 @@ module.exports = function setupHorizonHandlers(context) {
         } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-horizon.js:", e); }
 
         try {
-            const data = await fetchLatestHorizonRelease(forceBypassCache);
+            const data = await fetchHorizonRelease(null, forceBypassCache);
             return { installed: isInstalled, localVersion, latestVersion: data.tag_name, needsUpdate: data.tag_name !== localVersion, linked: isLinked, provider: currentProvider };
         } catch (e) {
             return { installed: isInstalled, localVersion, latestVersion: null, needsUpdate: false, offline: true, linked: isLinked, provider: currentProvider };
@@ -388,7 +412,7 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('install-horizon', async (event) => {
         try {
-            const data = await fetchLatestHorizonRelease(true);
+            const data = await fetchHorizonRelease(null, true);
             const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
             if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
 
