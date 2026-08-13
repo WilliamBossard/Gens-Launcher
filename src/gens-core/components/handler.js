@@ -312,20 +312,30 @@ class Handler {
     this.client.emit('debug', '[Gens-Core]: Downloaded assets')
   }
 
-  parseRule(lib) {
-    if (lib.rules) {
-      if (lib.rules.length > 1) {
-        if (lib.rules[0].action === 'allow' && lib.rules[1].action === 'disallow' && lib.rules[1].os.name === 'osx') {
-          return this.getOS() === 'osx'
+    parseRule(lib) {
+        if (lib.rules) {
+            if (lib.rules.length > 1) {
+                if (lib.rules[0].action === 'allow' && lib.rules[1].action === 'disallow' && lib.rules[1].os.name === 'osx') {
+                    return this.getOS() === 'osx'
+                }
+                return true
+            } else {
+                if (lib.rules[0].action === 'allow' && lib.rules[0].os) {
+                    if (lib.rules[0].os.name !== this.getOS()) return true;
+                    if (lib.rules[0].os.arch) {
+                        const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
+                        const ruleArch = lib.rules[0].os.arch;
+                        if (ruleArch === 'x86' && arch !== 'x86') return true;
+                        if (ruleArch === 'x86_64' && arch !== 'x86_64') return true;
+                        if (ruleArch === 'arm64' && arch !== 'arm64') return true;
+                    }
+                    return false;
+                }
+            }
+        } else {
+            return false
         }
-        return true
-      } else {
-        if (lib.rules[0].action === 'allow' && lib.rules[0].os) return lib.rules[0].os.name !== this.getOS()
-      }
-    } else {
-      return false
     }
-  }
 
   async getNatives() {
     const nativeDirectory = path.resolve(this.options.overrides.natives || path.join(this.options.root, 'natives', this.version.id))
@@ -403,9 +413,14 @@ class Handler {
       : this.options.customArgs = forgeWrapperAgrs
   }
 
-  isModernForge(json) {
-    return json.inheritsFrom && json.inheritsFrom.split('.')[1] >= 12 && !(json.inheritsFrom === '1.12.2' && (json.id.split('.')[json.id.split('.').length - 1]) === '2847')
-  }
+    isModernForge(json) {
+        if (!json.inheritsFrom) return false;
+        const parts = json.inheritsFrom.split('.');
+        if (parts[0] === '1') {
+            return parseInt(parts[1]) >= 13 || (parts[1] === '12' && parts[2] === '2' && !(json.id.split('.')[json.id.split('.').length - 1] === '2847'));
+        }
+        return parseInt(parts[0]) >= 2;
+    }
 
   async getForgedWrapped() {
     let json = null
@@ -604,6 +619,7 @@ class Handler {
     })
 
     libs = libs.concat((await this.downloadToDirectory(libraryDirectory, parsed, 'classes')))
+    libs = libs.filter(l => !l.includes('-installer.jar') && !l.includes('forge-installer'))
     counter = 0
 
     this.client.emit('debug', '[Gens-Core]: Collected class paths')

@@ -242,18 +242,39 @@ export function setup() {
             const zipPath = path.join(backupDir, zipName);
             window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."));
             await yieldUI();
-const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
+            const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
             try {
-await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
-const extractedWorld = path.join(tmpExtractDir, folderName);
-if (!(await window.existsSafe(extractedWorld))) {
-    throw new Error("L'archive ne contient pas le monde attendu.");
-}
-if (await window.existsSafe(targetWorldDir)) {
-    await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
-}
-await fs.promises.rename(extractedWorld, targetWorldDir);
-                await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
+                await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
+                let extractedWorld = path.join(tmpExtractDir, folderName);
+                let isDirect = false;
+                
+                if (await window.existsSafe(path.join(tmpExtractDir, "level.dat"))) {
+                    extractedWorld = tmpExtractDir;
+                    isDirect = true;
+                } else if (!(await window.existsSafe(extractedWorld))) {
+                    const items = await fs.promises.readdir(tmpExtractDir);
+                    let foundFolder = null;
+                    for (const item of items) {
+                        const itemPath = path.join(tmpExtractDir, item);
+                        const stat = await fs.promises.stat(itemPath);
+                        if (stat.isDirectory() && (await window.existsSafe(path.join(itemPath, "level.dat")))) {
+                            foundFolder = itemPath;
+                            break;
+                        }
+                    }
+                    if (foundFolder) {
+                        extractedWorld = foundFolder;
+                    } else {
+                        throw new Error(t("msg_err_invalid_backup", "L'archive ne contient pas le monde attendu."));
+                    }
+                }
+                if (await window.existsSafe(targetWorldDir)) {
+                    await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
+                }
+                await fs.promises.rename(extractedWorld, targetWorldDir);
+                if (!isDirect) {
+                    await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
+                }
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
                 document.getElementById("modal-restore").style.display = "none";
                 window.openWorldsModal(); 

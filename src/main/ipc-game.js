@@ -47,7 +47,30 @@ module.exports = function setupGameHandlers(context) {
 
     ipcMain.handle("get-still-running", async () => sendStillRunningInstances());
 
-    ipcMain.handle("check-java", async (_, javaPath) => {
+    ipcMain.handle("run-forge-installer", async (_, { javaPath, installerPath, rootPath }) => {
+    const fsNode = require('fs');
+    const cpNode = require('child_process');
+    const profilesPath = path.join(rootPath, "launcher_profiles.json");
+    try {
+        if (!fsNode.existsSync(profilesPath)) {
+            fsNode.writeFileSync(profilesPath, JSON.stringify({ profiles: {} }));
+        }
+    } catch (e) {
+        mainLog(`Erreur création launcher_profiles.json: ${e.message}`, true);
+    }
+    return new Promise((resolve) => {
+        cpNode.execFile(javaPath, ["-jar", installerPath, "--installClient", rootPath], { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
+            if (error) {
+                mainLog(`Erreur installeur Forge: ${stderr}`, true);
+                resolve({ err: error.message, stderr: stderr, stdout: stdout });
+            } else {
+                resolve({ success: true, stdout: stdout });
+            }
+        });
+    });
+});
+
+ipcMain.handle("check-java", async (_, javaPath) => {
         // AUDIT-27 : new Promise(async ...) antipattern remplac\u00e9 par async function pure
         const baseName = path.basename(javaPath).toLowerCase().trim();
         const isValid = baseName === "java" || baseName === "java.exe" ||
@@ -91,8 +114,9 @@ module.exports = function setupGameHandlers(context) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             try {
+                const cleanKey = (apiKey || "").trim();
                 const response = await fetch(url, {
-                    headers: { "x-api-key": apiKey, "Accept": "application/json" },
+                    headers: { "x-api-key": cleanKey, "Accept": "application/json" },
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);

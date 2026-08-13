@@ -249,6 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('builder-version')?.addEventListener('change', () => searchBuilderMods());
     document.getElementById('builder-loader')?.addEventListener('change', () => searchBuilderMods());
     document.getElementById('builder-type')?.addEventListener('change', () => searchBuilderMods());
+    document.getElementById('builder-source')?.addEventListener('change', () => searchBuilderMods());
     document.getElementById('builder-search')?.addEventListener('input', () => scheduleBuilderSearch());
 
     // ── TOUCHES ENTRÉE — champs texte ─────────────────────────────────

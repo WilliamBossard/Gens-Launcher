@@ -58,20 +58,54 @@ export function setupAccountUI() {
         if (changed) {
             await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         }
+        
+        // Cleanup corrupted custom-skins (if they are 32x32 faces instead of 64x64 skins due to a previous bug)
+        const customCache = await getCustomSkinCache();
+        let customChanged = false;
+        for (const [name, b64] of Object.entries(customCache)) {
+            if (b64 && b64.startsWith("data:image")) {
+                const img = new Image();
+                img.onload = () => {
+                    if (img.width !== 64) {
+                        delete customCache[name];
+                        window.safeWriteJSONAsync(customSkinCacheFile, customCache);
+                    }
+                };
+                img.src = b64;
+            }
+        }
     })();
     async function fetchSkinBase64(acc) {
         try {
-            const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
-            const url = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            const blob = await res.blob();
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
+            const res = await window.api.invoke("fetch-mojang-raw-skin", {
+                name: acc.name,
+                uuid: (acc.type === "microsoft") ? acc.uuid : null
             });
-        } catch (e) { return null; }
+            if (!res.success) {
+                return null;
+            }
+            const rawDataUrl = "data:image/png;base64," + res.data;
+            saveCustomSkin(acc.name, rawDataUrl);
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = 32;
+                    canvas.height = 32;
+                    const ctx = canvas.getContext("2d");
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 32, 32);
+                    ctx.drawImage(img, 40, 8, 8, 8, 0, 0, 32, 32);
+                    resolve(canvas.toDataURL("image/png"));
+                };
+                img.onerror = () => {
+                    resolve(null);
+                };
+                img.src = rawDataUrl;
+            });
+        } catch (e) {
+            return null;
+        }
     }
     window.openAccountModal = () => {
         document.getElementById("acc-name").value = "";
@@ -106,10 +140,10 @@ export function setupAccountUI() {
             const activeText = isActive ? `\u2713 ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
             const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
-            const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
+            const fallbackUrl = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAABHElEQVRYhWM0VhH8z4AH8LCx4JMmCL78+oPC/4HGZ6LIdCqAUQewfPzyHUWAn4cThY8eh4TSBKnqBzwERh3Aws7GiiKQYW+BwpcQE0XVwMWLwv/z7TMK//vP3yj8jx8/oPBnHjqJwh/wEBh1AOPsZE+UuoCfXwBFASc7ahpBB+hxTgigp4kBD4FRB7Cgx3lo7zIUfrBdFwo/wvQCCh89TrffckDhrz1UhsJfXRyFwh/wEBh1AMFyAB0cOHcdr7yDkSZe+dFyYNA5gOXrt28oAl9+f0Xh7zp+CYWvJ6uK18AZqzei8H0dTVD4n76i1h0DHgKjDmBhYUftGr79jBpHP3/8QuFfenwbrzw7BxsKHz3O+bhR2xcDHgKjDgAAmYhW7ARMCXsAAAAASUVORK5CYII=`;
             const cachedSkin = await getCachedSkin(acc.name);
             const customSkin = await window.getCustomSkin(acc.name);
-            const imgSrc = customSkin || cachedSkin || fallbackUrl;
+            const imgSrc = cachedSkin || fallbackUrl;
             if (!cachedSkin && !acc._fetchingSkin && window.isTrulyOnline) {
                 acc._fetchingSkin = true;
                 fetchSkinBase64(acc).then(b64 => {
@@ -118,9 +152,11 @@ export function setupAccountUI() {
                         saveSkin(acc.name, b64);
                         const imgEl = document.getElementById(`acc-img-${i}`);
                         if (imgEl) {
-                            window.getCustomSkin(acc.name).then(cs => {
-                                if (!cs) imgEl.src = b64;
-                            });
+                            imgEl.src = b64;
+                        }
+                        if (store.selectedAccountIdx === i) {
+                            const activeImg = document.getElementById("active-skin");
+                            if (activeImg) activeImg.src = b64;
                         }
                     }
                 });
@@ -233,7 +269,7 @@ export function setupAccountUI() {
         if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
             const id = (activeAcc.type === "microsoft" && activeAcc.uuid) ? activeAcc.uuid : activeAcc.name;
-            const fallbackUrl = `https://mc-heads.net/avatar/${encodeURIComponent(id)}/32`;
+            const fallbackUrl = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAABHElEQVRYhWM0VhH8z4AH8LCx4JMmCL78+oPC/4HGZ6LIdCqAUQewfPzyHUWAn4cThY8eh4TSBKnqBzwERh3Aws7GiiKQYW+BwpcQE0XVwMWLwv/z7TMK//vP3yj8jx8/oPBnHjqJwh/wEBh1AOPsZE+UuoCfXwBFASc7ahpBB+hxTgigp4kBD4FRB7Cgx3lo7zIUfrBdFwo/wvQCCh89TrffckDhrz1UhsJfXRyFwh/wEBh1AMFyAB0cOHcdr7yDkSZe+dFyYNA5gOXrt28oAl9+f0Xh7zp+CYWvJ6uK18AZqzei8H0dTVD4n76i1h0DHgKjDmBhYUftGr79jBpHP3/8QuFfenwbrzw7BxsKHz3O+bhR2xcDHgKjDgAAmYhW7ARMCXsAAAAASUVORK5CYII=`;
             const activeSkin = await getCachedSkin(activeAcc.name);
             if (!activeSkin && !activeAcc._fetchingSkin && window.isTrulyOnline) {
                 activeAcc._fetchingSkin = true;
@@ -392,17 +428,7 @@ export function setupAccountUI() {
                     const currentModel = document.getElementById("skin-variant-select") ? document.getElementById("skin-variant-select").value : "classic";
                     window.lastLoadedSkinUrl = e.target.result;
                     fullscreenSkinViewer.loadSkin(e.target.result, { model: currentModel });
-                    if (store.uiSelectedAccRow !== null) {
-                        const acc = store.allAccounts[store.uiSelectedAccRow];
-                        saveCustomSkin(acc.name, e.target.result);
-                        const imgEl = document.getElementById(`acc-img-${store.uiSelectedAccRow}`);
-                        if (imgEl) imgEl.src = e.target.result;
-                        if (store.selectedAccountIdx === store.uiSelectedAccRow) {
-                            const skinImg = document.getElementById("active-skin");
-                            if (skinImg) skinImg.src = e.target.result;
-                        }
-                    }
-                    if (window.showToast) window.showToast(window.t("msg_skin_preview", "Skin chargé et sauvegardé localement !"), "info");
+                    if (window.showToast) window.showToast(window.t("msg_skin_preview", "Skin chargé dans le visualiseur !"), "info");
                 }
             };
             img.src = e.target.result;
@@ -416,17 +442,22 @@ export function setupAccountUI() {
         const urlToExport = window.lastLoadedSkinUrl;
         if (!urlToExport) return;
         try {
-            const res = await fetch(urlToExport);
-            if (!res.ok) throw new Error("Impossible de rÃ©cupÃ©rer le skin");
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
+            let finalUrl = urlToExport;
+            if (!urlToExport.startsWith("data:")) {
+                const res = await fetch(urlToExport);
+                if (!res.ok) throw new Error("Impossible de récupérer le skin");
+                const blob = await res.blob();
+                finalUrl = URL.createObjectURL(blob);
+            }
             const a = document.createElement("a");
-            a.href = url;
+            a.href = finalUrl;
             a.download = `${acc.name}_skin.png`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            if (!urlToExport.startsWith("data:")) {
+                URL.revokeObjectURL(finalUrl);
+            }
             if (window.showToast) window.showToast(window.t("msg_skin_exported", "Skin exporté avec succès !"), "success");
         } catch (e) {
             console.error(e);
@@ -450,20 +481,42 @@ export function setupAccountUI() {
                 acc.mclcAuth.access_token = refreshRes.access_token;
                 await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             }
+            const skinData = await file.arrayBuffer();
             const res = await window.api.invoke("upload-mojang-skin", {
                 accessToken: acc.mclcAuth.access_token,
-                skinPath: file.path,
+                skinData: skinData,
                 variant: variant
             });
             if (res.success) {
                 if (window.showToast) window.showToast(window.t("msg_skin_uploaded", "Skin mis à jour avec succès sur Mojang !"), "success");
-                const cacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
                 try {
-                    let cache = {};
-                    if (await window.api.fs.promises.exists(cacheFile)) cache = JSON.parse(await window.api.fs.promises.readFile(cacheFile, 'utf8'));
-                    delete cache[acc.name];
-                    window.safeWriteJSONAsync(cacheFile, cache);
-                } catch (err) { if (err && err.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", err); }
+                const { faceB64, fullSkinB64 } = await new Promise((resolve) => {
+                    const img = new Image();
+                    let fullSkin = null;
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        canvas.width = 32;
+                        canvas.height = 32;
+                        const ctx = canvas.getContext("2d");
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 32, 32);
+                        ctx.drawImage(img, 40, 8, 8, 8, 0, 0, 32, 32);
+                        resolve({ faceB64: canvas.toDataURL("image/png"), fullSkinB64: fullSkin });
+                    };
+                    img.onerror = () => resolve({ faceB64: null, fullSkinB64: null });
+                    const reader = new FileReader();
+                    reader.onload = (e) => { 
+                        fullSkin = e.target.result;
+                        img.src = fullSkin; 
+                    };
+                    reader.readAsDataURL(file);
+                });
+                
+                if (fullSkinB64) saveCustomSkin(acc.name, fullSkinB64);
+                if (faceB64) saveSkin(acc.name, faceB64);
+            } catch (err) { console.warn("Face extraction error:", err); }
+                if (window.updateAccountDropdown) window.updateAccountDropdown();
+                if (window.renderAccountManager) window.renderAccountManager();
                 setTimeout(() => window.openSkinModal(), 1000);
             } else {
                 if (window.showToast) window.showToast(t("msg_err_skin_upload", "Erreur: ") + res.error, "error");

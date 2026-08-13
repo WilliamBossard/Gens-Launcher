@@ -28,6 +28,40 @@ export function invalidateScreenshotCache(instName) {
 }
 export function setupInstances() {
     async function fetchLoaderVersions(loader, mcVer) {
+        const sortSemverDesc = (a, b) => {
+            const [mainA, ...restA] = a.split('-');
+            const [mainB, ...restB] = b.split('-');
+            const preA = restA.join('-');
+            const preB = restB.join('-');
+            
+            const pa = mainA.split('.').map(Number);
+            const pb = mainB.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const na = pa[i] || 0;
+                const nb = pb[i] || 0;
+                if (na !== nb) return nb - na; // Descending
+            }
+            
+            if (!preA && preB) return -1;
+            if (preA && !preB) return 1;
+            if (!preA && !preB) return 0;
+            
+            const prePa = preA.split('.');
+            const prePb = preB.split('.');
+            for (let i = 0; i < Math.max(prePa.length, prePb.length); i++) {
+                const va = prePa[i] || "";
+                const vb = prePb[i] || "";
+                const numA = parseInt(va);
+                const numB = parseInt(vb);
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    if (numA !== numB) return numB - numA;
+                } else if (va !== vb) {
+                    return va > vb ? -1 : 1;
+                }
+            }
+            return 0;
+        };
+
         if (loader === "fabric") {
             const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Fabric API HTTP ${res.status}`);
@@ -36,30 +70,37 @@ export function setupInstances() {
         if (loader === "quilt") {
             const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Quilt API HTTP ${res.status}`);
-            return (await res.json()).map(d => d.loader.version);
+            const data = await res.json();
+            const versions = data.map(d => d.loader.version);
+            return versions.sort(sortSemverDesc);
         }
         if (loader === "forge") {
             try {
                 const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
                 if (!res.ok) throw new Error(`bmclapi2 HTTP ${res.status}`);
                 const data = await res.json();
-                if (Array.isArray(data) && data.length > 0) return data.map(d => d.version);
+                if (Array.isArray(data) && data.length > 0) {
+                    return data.map(d => d.version).sort(sortSemverDesc);
+                }
                 throw new Error("Résultat vide");
             } catch (_) {
                 const res = await fetch(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
                 if (!res.ok) throw new Error(`Forge officiel HTTP ${res.status}`);
                 const all = await res.json();
-                return (all[mcVer] || []).reverse();
+                const vers = all[mcVer] || [];
+                return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
             }
         }
         if (loader === "neoforge") {
             const parts = mcVer.split(".");
-            const prefix = parts[1] + "." + (parts[2] || "0") + ".";
+            const p1 = parts.length > 2 ? parts[1] : parts[0];
+            const p2 = parts.length > 2 ? parts[2] : (parts[1] || "0");
+            const prefix = p1 + "." + p2 + ".";
             const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
             if (!neoRes.ok) throw new Error(`NeoForge API HTTP ${neoRes.status}`);
             const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
-            const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent).reverse();
-            return allVers.filter(v => v.startsWith(prefix));
+            const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent);
+            return allVers.filter(v => v.startsWith(prefix)).sort(sortSemverDesc);
         }
         return [];
     }
@@ -398,6 +439,26 @@ export function setupInstances() {
         try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         window.renderUI();
         window.closeInstanceModal();
+    };
+    window.forceInjectOptions = async () => {
+        if (store.selectedInstanceIdx === null) return;
+        const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
+        const destFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
+        const defaultOpt = path.join(store.dataDir, "default_options.txt");
+        const defaultSrv = path.join(store.dataDir, "default_servers.dat");
+        let success = false;
+        if (await fs.promises.exists(defaultOpt)) {
+            try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); success = true; } catch (e) { }
+        }
+        if (await fs.promises.exists(defaultSrv)) {
+            try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); success = true; } catch (e) { }
+        }
+        if (success) {
+            if (window.showToast) window.showToast(window.t("msg_options_injected", "Profil par défaut injecté avec succès !"), "success");
+        } else {
+            if (window.showToast) window.showToast(window.t("msg_err_no_default_profile", "Aucun profil par défaut configuré."), "error");
+        }
     };
     window.saveEdit = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];

@@ -21,6 +21,7 @@ export async function getCloudSettings() {
 }
 
 export async function performAutoBackup(inst, mode, ui) {
+    sysLog(`[DEBUG] performAutoBackup called for ${inst?.name}, mode=${mode}, inst.backupMode=${inst?.backupMode}`);
     if (!inst || inst.backupMode !== mode) return;
     if (inst._backupRunning) { sysLog(`Auto-backup ${inst.name} : déjà en cours, ignoré.`); return; }
     inst._backupRunning = true;
@@ -38,24 +39,39 @@ export async function performAutoBackup(inst, mode, ui) {
     await yieldUI();
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const zipPath = path.join(backupDir, `auto_saves_${timestamp}.zip`);
-        await window.api.invoke("compress-folder", { src: savesDir, dest: zipPath });
-        const limit = inst.backupLimit || 5;
-        const allBackups = await fs.promises.readdir(backupDir);
-        let backups = [];
-        for (const f of allBackups) {
-            if (f.startsWith("auto_saves_") && f.endsWith(".zip")) {
-                const stat = await fs.promises.stat(path.join(backupDir, f));
-                backups.push({ name: f, time: stat.mtime.getTime() });
+        for (const saveDir of saves) {
+            const src = path.join(savesDir, saveDir);
+            const statSave = await fs.promises.stat(src);
+            if (!statSave.isDirectory) continue;
+
+            const zipPath = path.join(backupDir, `${saveDir}_backup_auto_${timestamp}.zip`);
+            
+            const onProg = (_, data) => {
+                if (ui && ui.showLoading) {
+                    ui.showLoading(window.t("msg_autobackup_running", "Auto-Backup en cours...") + ` ${data.percent}%`);
+                }
+            };
+            const cleanupProgress = window.api.on("zip-progress", onProg);
+            await window.api.invoke("compress-folder", { src, dest: zipPath });
+            if (cleanupProgress) cleanupProgress();
+
+            const limit = inst.backupLimit || 5;
+            const allBackups = await fs.promises.readdir(backupDir);
+            let backups = [];
+            for (const f of allBackups) {
+                if (f.startsWith(`${saveDir}_backup_auto_`) && f.endsWith(".zip")) {
+                    const stat = await fs.promises.stat(path.join(backupDir, f));
+                    backups.push({ name: f, time: stat.mtime.getTime() });
+                }
             }
-        }
-        backups.sort((a, b) => b.time - a.time);
-        if (backups.length > limit) {
-            for (let i = limit; i < backups.length; i++) {
-                await fs.promises.unlink(path.join(backupDir, backups[i].name));
+            backups.sort((a, b) => b.time - a.time);
+            if (backups.length > limit) {
+                for (let i = limit; i < backups.length; i++) {
+                    await fs.promises.unlink(path.join(backupDir, backups[i].name));
+                }
             }
+            sysLog(`Auto-backup créé : ${zipPath}`);
         }
-        sysLog(`Auto-backup créé : ${zipPath}`);
     } catch (e) { 
         sysLog(`Auto-backup erreur: ${e.message}`, true); 
     } finally { 

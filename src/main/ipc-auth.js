@@ -60,11 +60,9 @@ module.exports = function setupAuthHandlers(context) {
         }
     });
 
-    ipcMain.handle("upload-mojang-skin", async (_, { accessToken, skinPath, variant }) => {
+    ipcMain.handle("upload-mojang-skin", async (_, { accessToken, skinData, variant }) => {
         try {
-            const safeSkinPath = assertPathUnderSandbox(skinPath);
-            const fileBuffer = await fs.promises.readFile(safeSkinPath);
-            const fileBlob = new Blob([fileBuffer], { type: "image/png" });
+            const fileBlob = new Blob([skinData], { type: "image/png" });
             const formData = new FormData();
             const VALID_VARIANTS = new Set(["classic", "slim"]);
             const safeVariant = VALID_VARIANTS.has(variant) ? variant : "classic";
@@ -173,6 +171,36 @@ module.exports = function setupAuthHandlers(context) {
                 return { success: true, data: { skinUrl: getHttps(textures?.SKIN?.url), capeUrl: getHttps(textures?.CAPE?.url) } };
             }
             return { success: false, error: "No valid profile found" };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle("fetch-mojang-raw-skin", async (_, { name, uuid }) => {
+        try {
+            let activeUuid = uuid;
+            if (!activeUuid && name) {
+                const res = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    activeUuid = data.id;
+                }
+            }
+            if (!activeUuid) throw new Error("No UUID found");
+            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${activeUuid}`);
+            if (!profileRes.ok) throw new Error("Profile fetch failed");
+            const profile = await profileRes.json();
+            const encoded = profile.properties?.find(p => p.name === "textures")?.value;
+            if (!encoded) throw new Error("No textures property");
+            const textures = JSON.parse(Buffer.from(encoded, "base64").toString()).textures;
+            const skinUrl = textures?.SKIN?.url;
+            if (!skinUrl) throw new Error("No skin URL");
+            
+            const skinRes = await fetch(skinUrl.replace('http://', 'https://'));
+            if (!skinRes.ok) throw new Error("Failed to download skin image");
+            
+            const buffer = await skinRes.arrayBuffer();
+            return { success: true, data: Buffer.from(buffer).toString('base64') };
         } catch (err) {
             return { success: false, error: err.message };
         }

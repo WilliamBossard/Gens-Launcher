@@ -39,6 +39,16 @@ function setupMods() {
       if (!version) version = "1.20.4";
       if (catalogAbortController) catalogAbortController.abort();
       catalogAbortController = new AbortController();
+
+    const inst = store.selectedInstanceIdx !== null ? store.allInstances[store.selectedInstanceIdx] : null;
+    if (inst && inst.loader === "vanilla" && type === "mod") {
+        resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#f87171;'>${t("msg_vanilla_no_mods", "C'est une instance Vanilla, vous ne pouvez pas y installer de mods. Veuillez choisir une instance moddée.")}</div>`;
+        return;
+    }
+    if (inst && inst.loader === "vanilla" && type === "shader") {
+        resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#f87171;'>${t("msg_vanilla_no_shaders", "Les shaders nécessitent Iris ou OptiFine. Veuillez utiliser une instance moddée.")}</div>`;
+        return;
+    }
       
       const checkInstalled = (title, slug, items) => {
           const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -144,8 +154,10 @@ function setupMods() {
                 if (loader === "forge") modLoaderType = 1;
                 if (loader === "fabric") modLoaderType = 4;
                 if (loader === "neoforge") modLoaderType = 6;
+                if (loader === "quilt") modLoaderType = 5;
             }
-            const url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&modLoaderType=${modLoaderType}&sortField=2&sortOrder=desc&pageSize=20`;
+            let url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&sortField=2&sortOrder=desc&pageSize=20`;
+            if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
             const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
             if (!res.success) throw new Error(t("msg_cf_api_invalid", "Clé invalide") + " " + (res.error || ""));
             const data = res.data;
@@ -291,8 +303,10 @@ function setupMods() {
                 if (loader === "forge") modLoaderType = 1;
                 if (loader === "fabric") modLoaderType = 4;
                 if (loader === "neoforge") modLoaderType = 6;
+                if (loader === "quilt") modLoaderType = 5;
             }
-            const url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${version}&modLoaderType=${modLoaderType}`;
+            let url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${version}`;
+            if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
             const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
             if (!res.success) throw new Error(t("msg_cf_api_invalid", "Erreur API"));
             const data = res.data;
@@ -309,7 +323,7 @@ function setupMods() {
             let downloadUrl = fileData.downloadUrl;
             if (!downloadUrl) {
                 statusText.innerText = t("msg_dl_browser", "Lien de téléchargement sécurisé... Ouverture du navigateur.");
-                window.openSystemPath(`https://www.curseforge.com/minecraft/mc-mods/${projectId}`);
+                window.openSystemPath(`https://curseforge.com/projects/${projectId}`);
                 return;
             }
             if (!/^https:\/\//i.test(downloadUrl)) {
@@ -439,64 +453,144 @@ if (!isDependency) {
         const loader = ALLOWED_LOADERS.includes(loaderRaw) ? loaderRaw : "fabric";
         const type = ALLOWED_TYPES.includes(typeRaw) ? typeRaw : "mod";
         if (!version || !/^[0-9a-zA-Z.\-_]+$/.test(version)) version = "1.20.4";
+        
+        const sourceEl = document.getElementById("builder-source");
+        const source = sourceEl ? sourceEl.value : "modrinth";
+
         if (builderCurrentAbortController) builderCurrentAbortController.abort();
         builderCurrentAbortController = new AbortController();
         const signal = builderCurrentAbortController.signal;
         resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#aaa;'>${t("msg_builder_searching", "Recherche en cours...")}</div>`;
+        
         try {
-            let facets;
-            if (type === "mod") {
-                facets = `[["project_type:mod"],["categories:${loader}"],["versions:${version}"]]`;
-            } else {
-                facets = `[["project_type:${type}"],["versions:${version}"]]`;
-            }
-            const sortIndex = query ? "relevance" : "downloads";
-            const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
-            const res = await window.api.invoke("search-modrinth", url);
-            if (signal.aborted) return; 
-            if (!res.success) throw new Error(res.error);
-            const data = res.data;
-            if (!Array.isArray(data.hits)) throw new Error("Invalid API response");
-            data.hits.forEach(mod => {
-                if (mod.project_id && typeof mod.project_id === "string") {
-                    builderModRegistry.set(mod.project_id, { id: mod.project_id, name: mod.title || mod.project_id, type });
+            if (source === "modrinth") {
+                let facets;
+                if (type === "mod") {
+                    facets = `[["project_type:mod"],["categories:${loader}"],["versions:${version}"]]`;
+                } else {
+                    facets = `[["project_type:${type}"],["versions:${version}"]]`;
                 }
-            });
-            resDiv.innerHTML = "";
-            if (data.hits.length === 0) {
-                resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#aaa;'>${t("msg_builder_no_results", "Aucun résultat pour cette version / ce loader.")}</div>`;
-                return;
+                const sortIndex = query ? "relevance" : "downloads";
+                const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
+                const res = await window.api.invoke("search-modrinth", url);
+                if (signal.aborted) return;
+                if (!res.success) throw new Error(res.error);
+                const data = res.data;
+                if (!Array.isArray(data.hits)) throw new Error("Invalid API response");
+                
+                data.hits.forEach(mod => {
+                    if (mod.project_id && typeof mod.project_id === "string") {
+                        builderModRegistry.set(mod.project_id, { id: mod.project_id, name: mod.title || mod.project_id, type, source: "modrinth" });
+                    }
+                });
+                resDiv.innerHTML = "";
+                if (data.hits.length === 0) {
+                    resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#aaa;'>${t("msg_builder_no_results", "Aucun résultat pour cette version / ce loader.")}</div>`;
+                    return;
+                }
+                data.hits.forEach((mod) => {
+                    if (!mod.project_id) return;
+                    const safeId = window.escapeHTML(mod.project_id);
+                    const safeTitle = window.escapeHTML(mod.title || mod.project_id);
+                    const safeDesc = window.escapeHTML(mod.description || "");
+                    const safeAuthor = window.escapeHTML(mod.author || "");
+                    const downloads = mod.downloads >= 1000000
+                        ? (mod.downloads / 1000000).toFixed(1) + "M DLs"
+                        : (mod.downloads >= 1000 ? (mod.downloads / 1000).toFixed(0) + "k DLs" : mod.downloads + " DLs");
+                    const isAdded = builderSelectedMods.some(m => m.id === mod.project_id);
+                    const btnHtml = isAdded
+                        ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
+                        : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
+                    const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? window.escapeHTML(mod.icon_url) : "";
+                    const iconHtml = safeIconUrl
+                        ? `<img src="${safeIconUrl}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
+                        : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
+                    
+                    const card = document.createElement("div");
+                    card.className = "catalog-card";
+                    card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
+                    card.innerHTML = `
+                        ${iconHtml}
+                        <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+                            <div style="font-weight: bold; color: var(--text-light); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
+                            <div style="font-size: 0.7rem; color: #aaa; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeAuthor} — ${downloads}</div>
+                            <div style="font-size: 0.75rem; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${safeDesc}</div>
+                            <div class="btn-container" data-mod-id="${safeId}" style="margin-top: 8px;">${btnHtml}</div>
+                        </div>`;
+                    resDiv.appendChild(card);
+                });
+            } else if (source === "curseforge") {
+                const apiKey = store.globalSettings.cfApiKey;
+                if (!apiKey) {
+                    resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#f87171;'>Clé API CurseForge manquante dans les paramètres.</div>`;
+                    return;
+                }
+                
+                let cfClassId = 6;
+                if (type === "resourcepack") cfClassId = 12;
+                if (type === "shader") cfClassId = 6552;
+                
+                let modLoaderType = 0;
+                if (type === "mod") {
+                    if (loader === "forge") modLoaderType = 1;
+                    if (loader === "fabric") modLoaderType = 4;
+                    if (loader === "neoforge") modLoaderType = 6;
+                    if (loader === "quilt") modLoaderType = 5;
+                }
+
+                let url = `https://api.curseforge.com/v1/mods/search?gameId=432&classId=${cfClassId}&searchFilter=${encodeURIComponent(query)}&gameVersion=${version}&sortField=2&sortOrder=desc&pageSize=20`;
+                if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
+                const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+                if (signal.aborted) return;
+                if (!res.success) throw new Error(res.error);
+                const data = res.data;
+                if (!data || !data.data) throw new Error("Invalid API response");
+                
+                data.data.forEach(mod => {
+                    if (mod.id) {
+                        builderModRegistry.set(mod.id.toString(), { id: mod.id.toString(), name: mod.name, type, source: "curseforge" });
+                    }
+                });
+                
+                resDiv.innerHTML = "";
+                if (data.data.length === 0) {
+                    resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#aaa;'>${t("msg_builder_no_results", "Aucun résultat pour cette version / ce loader.")}</div>`;
+                    return;
+                }
+                
+                data.data.forEach((mod) => {
+                    if (!mod.id) return;
+                    const safeId = window.escapeHTML(mod.id.toString());
+                    const safeTitle = window.escapeHTML(mod.name);
+                    const safeDesc = window.escapeHTML(mod.summary || "");
+                    const safeAuthor = window.escapeHTML(mod.authors && mod.authors[0] ? mod.authors[0].name : "");
+                    const downloads = mod.downloadCount >= 1000000
+                        ? (mod.downloadCount / 1000000).toFixed(1) + "M DLs"
+                        : (mod.downloadCount >= 1000 ? (mod.downloadCount / 1000).toFixed(0) + "k DLs" : mod.downloadCount + " DLs");
+                    const isAdded = builderSelectedMods.some(m => m.id === safeId);
+                    const btnHtml = isAdded
+                        ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
+                        : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
+                    const iconUrl = (mod.logo && mod.logo.thumbnailUrl) ? window.escapeHTML(mod.logo.thumbnailUrl) : "";
+                    const iconHtml = iconUrl
+                        ? `<img src="${iconUrl}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
+                        : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
+                    
+                    const card = document.createElement("div");
+                    card.className = "catalog-card";
+                    card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
+                    card.innerHTML = `
+                        ${iconHtml}
+                        <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+                            <div style="font-weight: bold; color: var(--text-light); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
+                            <div style="font-size: 0.7rem; color: #f48a21; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeAuthor} — ${downloads} (CurseForge)</div>
+                            <div style="font-size: 0.75rem; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${safeDesc}</div>
+                            <div class="btn-container" data-mod-id="${safeId}" style="margin-top: 8px;">${btnHtml}</div>
+                        </div>`;
+                    resDiv.appendChild(card);
+                });
             }
-            data.hits.forEach((mod) => {
-                if (!mod.project_id) return;
-                const safeId = window.escapeHTML(mod.project_id);
-                const safeTitle = window.escapeHTML(mod.title || mod.project_id);
-                const safeDesc = window.escapeHTML(mod.description || "");
-                const safeAuthor = window.escapeHTML(mod.author || "");
-                const downloads = mod.downloads >= 1000000
-                    ? (mod.downloads / 1000000).toFixed(1) + "M DLs"
-                    : (mod.downloads >= 1000 ? (mod.downloads / 1000).toFixed(0) + "k DLs" : mod.downloads + " DLs");
-                const isAdded = builderSelectedMods.some(m => m.id === mod.project_id);
-                const btnHtml = isAdded
-                    ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
-                    : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
-const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? window.escapeHTML(mod.icon_url) : "";
-const iconHtml = safeIconUrl
-    ? `<img src="${safeIconUrl}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
-    : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
-                const card = document.createElement("div");
-                card.className = "catalog-card";
-                card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
-                card.innerHTML = `
-                    ${iconHtml}
-                    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
-                        <div style="font-weight: bold; color: var(--text-light); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
-                        <div style="font-size: 0.7rem; color: #aaa; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeAuthor} — ${downloads}</div>
-                        <div style="font-size: 0.75rem; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${safeDesc}</div>
-                        <div class="btn-container" data-mod-id="${safeId}" style="margin-top: 8px;">${btnHtml}</div>
-                    </div>`;
-                resDiv.appendChild(card);
-            });
+            
             resDiv.querySelectorAll(".builder-add-btn").forEach(btn => {
                 btn.addEventListener("click", (e) => {
                     const container = e.target.closest(".btn-container");
@@ -517,7 +611,7 @@ const iconHtml = safeIconUrl
         if (!modInfo) return; 
         if (!ALLOWED_TYPES.includes(modInfo.type)) return; 
         if (!builderSelectedMods.some(m => m.id === id)) {
-            builderSelectedMods.push({ id: modInfo.id, name: modInfo.name, type: modInfo.type });
+            builderSelectedMods.push({ id: modInfo.id, name: modInfo.name, type: modInfo.type, source: modInfo.source || "modrinth" });
             window.renderBuilderSelectedList();
             window.refreshBuilderButtons(); 
         }
@@ -651,22 +745,61 @@ const queue = [...modsToDownload];
                 const mod = queue.shift();
                 if (!ALLOWED_TYPES.includes(mod.type)) { done++; continue; }
                 try {
-                    let apiUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(mod.id)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}`;
-                    if (mod.type === "mod") apiUrl += `&loaders=${encodeURIComponent('["' + loader + '"]')}`;
-                    const vRes = await window.fetchWithTimeout(apiUrl);
-                    if (!vRes.ok) throw new Error(`API ${vRes.status}`);
-                    const versionsData = await vRes.json();
-                    if (!Array.isArray(versionsData) || versionsData.length === 0) {
-                        sysLog(`Aucune version compatible pour ${mod.name} (${version}/${loader})`, false);
-                        done++; continue;
-                    }
-                    const fileObj = versionsData[0].files.find(f => f.primary) || versionsData[0].files[0];
-                    if (!fileObj || !fileObj.url || !fileObj.filename) {
-                        sysLog(`Pas de fichier pour ${mod.name}`, false);
-                        done++; continue;
+                    let fileObj;
+                    if (mod.source === "curseforge") {
+                        let modLoaderType = 0;
+                        if (mod.type === "mod") {
+                            if (loader === "forge") modLoaderType = 1;
+                            if (loader === "fabric") modLoaderType = 4;
+                            if (loader === "neoforge") modLoaderType = 6;
+                            if (loader === "quilt") modLoaderType = 5;
+                        }
+                        const apiKey = store.globalSettings.cfApiKey;
+                        if (!apiKey) throw new Error("Clé API CurseForge manquante");
+                        let url = `https://api.curseforge.com/v1/mods/${encodeURIComponent(mod.id)}/files?gameVersion=${version}`;
+                        if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
+                        const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
+                        if (!res.success) throw new Error(res.error);
+                        const data = res.data;
+                        if (!data || !data.data || data.data.length === 0) {
+                            sysLog(`Aucune version compatible pour ${mod.name} (${version}/${loader})`, false);
+                            failed.push(mod.name);
+                            done++; continue;
+                        }
+                        const cfFile = data.data[0];
+                        if (!cfFile.downloadUrl || !cfFile.fileName) {
+                            sysLog(`Téléchargement sécurisé requis pour ${mod.name}`, false);
+                            failed.push(mod.name);
+                            window.openSystemPath(`https://curseforge.com/projects/${mod.id}`);
+                            done++; continue;
+                        }
+                        let expectedHash = null;
+                        if (cfFile.hashes && cfFile.hashes.length > 0) {
+                            const h = cfFile.hashes.find(hh => hh.algo === 1);
+                            if (h) expectedHash = h.value;
+                        }
+                        fileObj = { url: cfFile.downloadUrl, filename: cfFile.fileName, hashes: expectedHash ? { sha1: expectedHash } : null };
+                    } else {
+                        let apiUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(mod.id)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}`;
+                        if (mod.type === "mod") apiUrl += `&loaders=${encodeURIComponent('["' + loader + '"]')}`;
+                        const vRes = await window.fetchWithTimeout(apiUrl);
+                        if (!vRes.ok) throw new Error(`API ${vRes.status}`);
+                        const versionsData = await vRes.json();
+                        if (!Array.isArray(versionsData) || versionsData.length === 0) {
+                            sysLog(`Aucune version compatible pour ${mod.name} (${version}/${loader})`, false);
+                            failed.push(mod.name);
+                            done++; continue;
+                        }
+                        fileObj = versionsData[0].files.find(f => f.primary) || versionsData[0].files[0];
+                        if (!fileObj || !fileObj.url || !fileObj.filename) {
+                            sysLog(`Pas de fichier pour ${mod.name}`, false);
+                            failed.push(mod.name);
+                            done++; continue;
+                        }
                     }
                     if (!/^https:\/\//i.test(fileObj.url)) {
                         sysLog(`URL rejetée pour ${mod.name} : ${fileObj.url}`, true);
+                        failed.push(mod.name);
                         done++; continue;
                     }
                     const safeFilename = sanitizeFilename(fileObj.filename);

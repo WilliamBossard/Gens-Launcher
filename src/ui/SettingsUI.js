@@ -572,8 +572,7 @@ window.refreshHorizonUI = async () => {
         };
         let isEnabled = hSettings.systemEnabled === true || hSettings.systemEnabled === "true";
         const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
-        if (isOffline) isEnabled = false;
-        const statusColor = isEnabled ? "#17B139" : "#f87171";
+        const statusColor = isOffline ? "#888" : (isEnabled ? "#17B139" : "#f87171");
         const statusText = isOffline ? t("horizon_offline", "Désactivé (Hors-Ligne)") : (isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif"));
         const currentProvider = status.provider || "google";
         let linkBtnHTML = "";

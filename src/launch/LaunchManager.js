@@ -10,6 +10,7 @@ const os = window.api.os;
 
 export async function launchInstance(inst, acc, ui) {
     if (!inst || !acc) return;
+    delete inst._backupRunning;
 
     if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
         try {
@@ -340,7 +341,19 @@ export async function launchInstance(inst, acc, ui) {
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
             const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
-            if (forgeDir) { needsInstall = false; opts.version.custom = forgeDir; }
+            if (forgeDir) {
+                needsInstall = false;
+                opts.version.custom = forgeDir;
+                if (inst.loader === "forge" || inst.loader === "neoforge") {
+                    const clientJarName = `${inst.loader}-${inst.version}-${inst.loaderVersion}-client.jar`;
+                    const clientJarPath = path.join(instancePath, "libraries", "net", "minecraftforge", "forge", `${inst.version}-${inst.loaderVersion}`, clientJarName);
+                    if (!(await window.existsSafe(clientJarPath))) {
+                        needsInstall = true;
+                    }
+                }
+            } else {
+                needsInstall = true;
+            }
         }
 
         const hasInstallerPath = await window.existsSafe(installerPath);
@@ -422,7 +435,40 @@ export async function launchInstance(inst, acc, ui) {
             }
         }
 
-        if (needsInstall) opts.forge = installerPath;
+        if (needsInstall) {
+            if (inst.loader === "forge" || inst.loader === "neoforge") {
+                if (ui.setStatusText) ui.setStatusText(window.t("msg_install_forge", "Installation de {0} (Patientez quelques minutes)...").replace("{0}", inst.loader));
+                try {
+                    const res = await ipcRenderer.invoke("run-forge-installer", {
+                        javaPath: javaToTest,
+                        installerPath: installerPath,
+                        rootPath: instancePath
+                    });
+                    if (res.err) {
+                        sysLog(`Installation Forge échouée : ${res.err}`, true);
+                        opts.forge = installerPath;
+                    } else {
+                        sysLog(`Installation Forge terminée.`);
+                        const instVersionsDir = path.join(instancePath, "versions");
+                        if (await window.existsSafe(instVersionsDir)) {
+                            const instSubDirs = await fs.promises.readdir(instVersionsDir);
+                            const forgeDir = instSubDirs.find(d => d.toLowerCase().includes(inst.loader));
+                            if (forgeDir) {
+                                opts.version.custom = forgeDir;
+                            } else {
+                                opts.forge = installerPath;
+                            }
+                        } else {
+                            opts.forge = installerPath;
+                        }
+                    }
+                } catch (e) {
+                    opts.forge = installerPath;
+                }
+            } else {
+                opts.forge = installerPath;
+            }
+        }
     }
 
     if (ui.setStatusText) ui.setStatusText(window.t("msg_prep_files", "Préparation des fichiers..."));
@@ -463,6 +509,32 @@ export async function launchInstance(inst, acc, ui) {
             if (window.setUIState) window.setUIState();
             if (window.renderUI) window.renderUI();
             return;
+        }
+    }
+
+    // Inject JVM args from version.json (especially critical for NeoForge >= 1.20.4)
+    if (opts.version.custom) {
+        try {
+            const customJsonPath = path.join(instancePath, "versions", opts.version.custom, opts.version.custom + ".json");
+            if (await window.existsSafe(customJsonPath)) {
+                const customJson = JSON.parse(await fs.promises.readFile(customJsonPath, "utf8"));
+                if (customJson.arguments && Array.isArray(customJson.arguments.jvm)) {
+                    const libraryDir = path.join(instancePath, "libraries");
+                    const classpathSep = window.api.platform === "win32" ? ";" : ":";
+                    const verName = opts.version.custom;
+                    for (const arg of customJson.arguments.jvm) {
+                        if (typeof arg === "string") {
+                            let resolvedArg = arg
+                                .replace(/\$\{library_directory\}/g, libraryDir)
+                                .replace(/\$\{version_name\}/g, verName)
+                                .replace(/\$\{classpath_separator\}/g, classpathSep);
+                            opts.customArgs.push(resolvedArg);
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            sysLog("Ignored error parsing custom JVM args: " + e.message, true);
         }
     }
 
