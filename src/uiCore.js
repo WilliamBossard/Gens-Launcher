@@ -200,7 +200,9 @@ export function setupUICore() {
             if (isOffline) {
                 newsContainer.style.display = 'none';
             } else {
-                if (newsContainer.innerHTML.trim() !== '') {
+                if (store && store.globalSettings.enableNewsBanner === false) {
+                    newsContainer.style.display = 'none';
+                } else if (newsContainer.innerHTML.trim() !== '') {
                     newsContainer.style.display = 'block';
                 } else if (window.loadNews) {
                     window.loadNews();
