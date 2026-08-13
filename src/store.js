@@ -22,6 +22,7 @@ export const store = {
         theme: { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 },
         launcherVisibility: "keep",
         newsCollapsed: false,
+        enableNewsBanner: true,
         disableRPC: false,
         multiInstance: false,
         autoDownloadUpdates: false,

@@ -1,13 +1,18 @@
 import { store } from "../store.js";
 
 export function setupServer() {
+    let _isCheckingServer = false;
     window.checkServerStatus = async () => {
+        if (_isCheckingServer) return;
+        
         const ip = store.globalSettings.serverIp ? store.globalSettings.serverIp.trim() : "";
         const banner = document.getElementById("server-banner-container");
         if (!ip || store.globalSettings.offlineMode || !window.isTrulyOnline) {
             banner.style.display = "none";
             return;
         }
+        
+        _isCheckingServer = true;
         banner.style.display = "flex";
         if (banner.innerHTML === "") {
             banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${window.t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
@@ -67,6 +72,8 @@ export function setupServer() {
             }
         } catch (e) {
             banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${window.t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
+        } finally {
+            _isCheckingServer = false;
         }
     };
 }

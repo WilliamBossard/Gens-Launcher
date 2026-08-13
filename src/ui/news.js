@@ -8,6 +8,11 @@ export function setupNews() {
         if (store.globalSettings.offlineMode || !window.isTrulyOnline) return;
 
         const container = document.getElementById("news-container");
+        
+        if (store.globalSettings.enableNewsBanner === false) {
+            if (container) container.style.display = "none";
+            return;
+        }
         const isCollapsed = store.globalSettings.newsCollapsed;
 
         if (isCollapsed && !forceFetch) {

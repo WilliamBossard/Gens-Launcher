@@ -149,7 +149,7 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("ping-server", async (event, ip) => {
         try {
             const { Ping } = require('../gens-core');
-            const data = await Ping.pingServer(ip, 2000);
+            const data = await Ping.pingServer(ip, 5000);
             
             const mcColorMap = {
                 'black': '#000000', 'dark_blue': '#0000AA', 'dark_green': '#00AA00', 'dark_aqua': '#00AAAA',

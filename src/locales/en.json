@@ -698,5 +698,7 @@
   "msg_install_forge": "Installing {0} (Please wait a few minutes)...",
   "msg_vanilla_no_mods": "This is a Vanilla instance, you cannot install mods on it. Please choose a modded instance.",
   "msg_vanilla_no_shaders": "Shaders require Iris or OptiFine. Please use a modded instance.",
-  "opt_minimize": "Minimize launcher"
+  "opt_minimize": "Minimize launcher",
+  "lbl_enable_news": "Minecraft News Banner",
+  "tt_enable_news": "Completely show or hide the news panel on the main screen."
 }

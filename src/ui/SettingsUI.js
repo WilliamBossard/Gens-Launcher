@@ -76,6 +76,7 @@ export function setupSettings() {
         document.getElementById("global-bg-blur").value = store.globalSettings.theme?.blur || 5;
         document.getElementById("global-panel-opacity").value = store.globalSettings.theme?.panelOpacity !== undefined ? store.globalSettings.theme.panelOpacity : 0.6;
         document.getElementById("global-visibility").value = store.globalSettings.launcherVisibility || "keep";
+        document.getElementById("global-enable-news").value = store.globalSettings.enableNewsBanner !== false ? "true" : "false";
         document.getElementById("global-discord-rpc").value = store.globalSettings.disableRPC ? "false" : "true";
         document.getElementById("global-multi-inst").value = store.globalSettings.multiInstance ? "true" : "false";
         document.getElementById("global-auto-update").value = store.globalSettings.autoDownloadUpdates ? "true" : "false";
@@ -125,6 +126,7 @@ export function setupSettings() {
         store.globalSettings.cfApiKey = document.getElementById("global-cf-api").value.trim(); 
         store.globalSettings.serverIp = document.getElementById("global-server-ip").value.trim();
         store.globalSettings.launcherVisibility = document.getElementById("global-visibility").value;
+        store.globalSettings.enableNewsBanner = document.getElementById("global-enable-news").value === "true";
         store.globalSettings.disableRPC = document.getElementById("global-discord-rpc").value === "false";
         store.globalSettings.multiInstance = document.getElementById("global-multi-inst").value === "true";
         store.globalSettings.autoDownloadUpdates = document.getElementById("global-auto-update").value === "true";
@@ -135,6 +137,16 @@ export function setupSettings() {
         window.api.send("set-offline-mode", store.globalSettings.offlineMode);
         if (window.updateOfflineUIState) window.updateOfflineUIState();
         if (window.checkServerStatus) window.checkServerStatus();
+        
+        const newsContainer = document.getElementById("news-container");
+        if (newsContainer) {
+            if (store.globalSettings.enableNewsBanner === false) {
+                newsContainer.style.display = "none";
+            } else {
+                if (window.loadNews) window.loadNews();
+            }
+        }
+
         let bgPath = document.getElementById("global-bg-path").value.trim();
         const prevBg = store.globalSettings.theme?.bg || "";
         if (bgPath) {
