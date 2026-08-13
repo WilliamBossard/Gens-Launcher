@@ -537,6 +537,11 @@ ipcMain.on("hide-window", () => {
         mainWindow.hide();
     }
 });
+ipcMain.on("minimize-window", () => {
+    if (mainWindow) {
+        mainWindow.minimize();
+    }
+});
 ipcMain.on("quit-app", () => { app.quit(); });
 ipcMain.on("show-window", () => {
     if (mainWindow) {

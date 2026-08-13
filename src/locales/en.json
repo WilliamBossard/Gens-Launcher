@@ -697,5 +697,6 @@
   "msg_restore_error": "Error during restoration: ",
   "msg_install_forge": "Installing {0} (Please wait a few minutes)...",
   "msg_vanilla_no_mods": "This is a Vanilla instance, you cannot install mods on it. Please choose a modded instance.",
-  "msg_vanilla_no_shaders": "Shaders require Iris or OptiFine. Please use a modded instance."
+  "msg_vanilla_no_shaders": "Shaders require Iris or OptiFine. Please use a modded instance.",
+  "opt_minimize": "Minimize launcher"
 }

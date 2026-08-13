@@ -85,6 +85,8 @@ export function setupLauncher() {
             window.api.send("hide-window");
         } else if (store.globalSettings.launcherVisibility === "hide") {
             window.api.send("hide-window");
+        } else if (store.globalSettings.launcherVisibility === "minimize") {
+            window.api.send("minimize-window");
         }
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
         if (selectedInst && selectedInst.name === instanceId) {
@@ -230,8 +232,8 @@ export function setupLauncher() {
                 window.selectInstance(store.selectedInstanceIdx);
             }
         }
-        if (!isAutoClose && isLastInstance && store.globalSettings.launcherVisibility === "hide") {
-            window.api.send("show-window");
+        if (!isAutoClose && isLastInstance && (store.globalSettings.launcherVisibility === "hide" || store.globalSettings.launcherVisibility === "minimize")) {
+            window.api.send("restore-main-window");
         }
         // Auto-launch : fermeture normale du jeu (code 0 ou -1 = forcé)
         if (isAutoClose && (code === 0 || code === -1)) {

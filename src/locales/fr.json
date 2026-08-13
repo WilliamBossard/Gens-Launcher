@@ -702,5 +702,6 @@
   "msg_restore_error": "Erreur lors de la restauration : ",
   "msg_install_forge": "Installation de {0} (Patientez quelques minutes)...",
   "msg_vanilla_no_mods": "C'est une instance Vanilla, vous ne pouvez pas y installer de mods. Veuillez choisir une instance moddée.",
-  "msg_vanilla_no_shaders": "Les shaders nécessitent Iris ou OptiFine. Veuillez utiliser une instance moddée."
+  "msg_vanilla_no_shaders": "Les shaders nécessitent Iris ou OptiFine. Veuillez utiliser une instance moddée.",
+  "opt_minimize": "Minimiser le launcher"
 }
