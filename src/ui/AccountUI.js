@@ -357,8 +357,6 @@ export function setupAccountUI() {
                     }
                     capeUrl = data.capeUrl;
                 } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
-            } else if (!customSkin) {
-                currentSkinUrl = `https://minotar.net/skin/${encodeURIComponent(acc.name)}`;
             }
             if (!fullscreenSkinViewer) {
                 fullscreenSkinViewer = new skinview3d.SkinViewer({

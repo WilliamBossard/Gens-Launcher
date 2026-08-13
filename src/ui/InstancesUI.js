@@ -75,21 +75,11 @@ export function setupInstances() {
             return versions.sort(sortSemverDesc);
         }
         if (loader === "forge") {
-            try {
-                const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
-                if (!res.ok) throw new Error(`bmclapi2 HTTP ${res.status}`);
-                const data = await res.json();
-                if (Array.isArray(data) && data.length > 0) {
-                    return data.map(d => d.version).sort(sortSemverDesc);
-                }
-                throw new Error("Résultat vide");
-            } catch (_) {
-                const res = await fetch(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
-                if (!res.ok) throw new Error(`Forge officiel HTTP ${res.status}`);
-                const all = await res.json();
-                const vers = all[mcVer] || [];
-                return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
-            }
+            const res = await fetch(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
+            if (!res.ok) throw new Error(`Forge officiel HTTP ${res.status}`);
+            const all = await res.json();
+            const vers = all[mcVer] || [];
+            return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
         }
         if (loader === "neoforge") {
             const parts = mcVer.split(".");
