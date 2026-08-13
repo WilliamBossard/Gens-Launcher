@@ -3,27 +3,47 @@ import { store } from "../store.js";
 export let _newsLoaded = false;
 
 export function setupNews() {
-    window.loadNews = async function() {
-        if (_newsLoaded) return;
+    window.loadNews = async function(forceFetch = false) {
+        if (_newsLoaded && !forceFetch) return;
         if (store.globalSettings.offlineMode || !window.isTrulyOnline) return;
+
+        const container = document.getElementById("news-container");
+        const isCollapsed = store.globalSettings.newsCollapsed;
+
+        if (isCollapsed && !forceFetch) {
+            container.style.display = "block";
+            const toggleText = store.currentLangObj?.btn_show || "Afficher";
+            container.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
+                <div style="font-weight: bold; color: var(--text-light);">${window.t("lbl_news", "Actualités Minecraft")}</div>
+                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
+            </div>
+            <div id="news-content-wrapper" style="display: none;"></div>`;
+            container.querySelector('#btn-toggle-news')?.addEventListener('click', () => window.toggleNews());
+            return;
+        }
+
         try {
+            const btn = document.getElementById("btn-toggle-news");
+            if (btn) btn.innerText = "...";
+
             const newsController = new AbortController();
             const newsTimeout = setTimeout(() => newsController.abort(new Error("Timeout")), 5000);
             const res = await fetch("https://launchercontent.mojang.com/v2/news.json", { signal: newsController.signal });
             clearTimeout(newsTimeout);
             if (!res.ok) throw new Error(`News HTTP ${res.status}`);
             const data = await res.json();
-            const container = document.getElementById("news-container");
+            
             if (!data || !Array.isArray(data.entries)) return;
             container.style.display = "block";
-            const isCollapsed = store.globalSettings.newsCollapsed;
-            const toggleText = isCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
+            
+            const toggleText = store.globalSettings.newsCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
             let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
                 <div style="font-weight: bold; color: var(--text-light);">${window.t("lbl_news", "Actualités Minecraft")}</div>
                 <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
             </div>
-            <div id="news-content-wrapper" style="display: ${isCollapsed ? 'none' : 'block'};">`;
+            <div id="news-content-wrapper" style="display: ${store.globalSettings.newsCollapsed ? 'none' : 'block'};">`;
             
             data.entries.slice(0, 6).forEach(news => {
                 const rawImgUrl = news.playPageImage?.url || "";
@@ -44,8 +64,8 @@ export function setupNews() {
             });
             html += `</div>`;
             container.innerHTML = html;
-            // Délégation d'événements post-injection
-            container.querySelector('#btn-toggle-news')?.addEventListener('click', () => toggleNews());
+            
+            container.querySelector('#btn-toggle-news')?.addEventListener('click', () => window.toggleNews());
             container.querySelectorAll('.news-card[data-link]').forEach(card => {
                 card.addEventListener('click', () => window.api.shell.openExternal(card.dataset.link));
             });
@@ -56,12 +76,20 @@ export function setupNews() {
             } else {
                 console.warn("[News] loadNews failed:", e.message);
             }
+            const btn = document.getElementById("btn-toggle-news");
+            if (btn) btn.innerText = store.currentLangObj?.btn_show || "Afficher";
         }
     };
 
     window.toggleNews = () => {
         store.globalSettings.newsCollapsed = !store.globalSettings.newsCollapsed;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        
+        if (!store.globalSettings.newsCollapsed && !_newsLoaded) {
+            window.loadNews(true);
+            return;
+        }
+
         const wrapper = document.getElementById("news-content-wrapper");
         const btn = document.getElementById("btn-toggle-news");
         if (store.globalSettings.newsCollapsed) {
