@@ -70,6 +70,10 @@ export async function launchInstance(inst, acc, ui) {
     const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
     let jPath = inst.javaPath?.trim() ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaExe;
     let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
+    
+    if (isOffline || acc.type === "offline") {
+        customArgs.push("-Dminecraft.api.auth.host=https://nope.invalid", "-Dminecraft.api.account.host=https://nope.invalid", "-Dminecraft.api.session.host=https://nope.invalid", "-Dminecraft.api.services.host=https://nope.invalid");
+    }
 
     if (inst.jvmProfile === "aikar") {
         customArgs.push("-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
@@ -161,7 +165,7 @@ export async function launchInstance(inst, acc, ui) {
         } catch (e) { sysLog("Erreur de sync serveur: " + e, true); }
     }
 
-    let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}", user_type: "mojang", meta: { type: "mojang" } };
+    let authObj = { access_token: "0", client_token: "0", uuid: acc.uuid || "0", name: acc.name, user_properties: "{}", user_type: "legacy", meta: { type: "legacy" } };
     if (acc.type === "microsoft" && acc.mclcAuth && !isOffline) {
         if (ui.setStatusText) ui.setStatusText(window.t("msg_check_ms_session", "Vérification de la session Microsoft..."));
         let sessionValid = false;
