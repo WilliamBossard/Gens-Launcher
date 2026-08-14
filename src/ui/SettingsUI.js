@@ -34,6 +34,8 @@ export function setupSettings() {
                 } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             }
             btn.onclick = null; 
+            const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
+
             if (isLauncherInstalled) {
                 btn.setAttribute("data-i18n", "btn_java_delete"); 
                 btn.innerText = t("btn_java_delete", "Supprimer");
@@ -41,6 +43,7 @@ export function setupSettings() {
                 btn.style.borderColor = "#f87171";
                 btn.disabled = false;          
                 btn.style.cursor = "pointer";
+                btn.classList.remove("offline-disabled");
                 btn.onclick = () => window.deleteJava(v);
             } else if (isSystemInstalled) {
                 btn.setAttribute("data-i18n", "btn_java_installed"); 
@@ -49,6 +52,7 @@ export function setupSettings() {
                 btn.style.borderColor = "#17B139";
                 btn.disabled = true;          
                 btn.style.cursor = "default";
+                btn.classList.remove("offline-disabled");
             } else {
                 btn.setAttribute("data-i18n", "btn_java_dl"); 
                 btn.innerText = t("btn_java_dl", "Télécharger");
@@ -56,10 +60,17 @@ export function setupSettings() {
                 btn.style.borderColor = "";
                 btn.disabled = false;          
                 btn.style.cursor = "pointer";  
-                btn.onclick = () => window.downloadJavaAuto(v);
+                if (isOffline) {
+                    btn.classList.add("offline-disabled");
+                    btn.onclick = (e) => {
+                        if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
+                    };
+                } else {
+                    btn.classList.remove("offline-disabled");
+                    btn.onclick = () => window.downloadJavaAuto(v);
+                }
             }
         }
-        if (window.updateOfflineUIState) window.updateOfflineUIState();
     };
     window.openGlobalSettings = () => {
         document.getElementById("current-app-version").innerText = window.api.version || "1.0.0";

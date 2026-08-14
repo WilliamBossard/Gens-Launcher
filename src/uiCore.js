@@ -180,20 +180,9 @@ export function setupUICore() {
             }
         });
 
-        document.querySelectorAll('[id^="btn-dl-java-"]').forEach(btn => {
-            if (btn.getAttribute("data-i18n") === "btn_java_dl") {
-                if (isOffline) {
-                    btn.classList.add("offline-disabled");
-                    btn.onclick = (e) => {
-                        if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
-                    };
-                } else {
-                    btn.classList.remove("offline-disabled");
-                    const v = btn.id.replace("btn-dl-java-", "");
-                    btn.onclick = () => { if (window.downloadJavaAuto) window.downloadJavaAuto(parseInt(v)); };
-                }
-            }
-        });
+        if (window.updateJavaButtonsDisplay) {
+            window.updateJavaButtonsDisplay();
+        }
 
         const newsContainer = document.getElementById('news-container');
         if (newsContainer) {
