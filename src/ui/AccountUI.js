@@ -359,22 +359,37 @@ export function setupAccountUI() {
                 } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
             }
             if (!fullscreenSkinViewer) {
-                fullscreenSkinViewer = new skinview3d.SkinViewer({
-                    canvas: canvas,
-                    width: 200,
-                    height: 300,
-                });
-                fullscreenSkinViewer.controls.enableRotate = true;
-                fullscreenSkinViewer.controls.enableZoom = true;
-                fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
-                
-                // Fix WebGL bias warning: clamp overly negative bias values.
-                if (fullscreenSkinViewer.scene) {
-                    fullscreenSkinViewer.scene.traverse((child) => {
-                        if (child.isLight && child.shadow && child.shadow.bias < -16) {
-                            child.shadow.bias = -0.001;
-                        }
+                try {
+                    fullscreenSkinViewer = new skinview3d.SkinViewer({
+                        canvas: canvas,
+                        width: 200,
+                        height: 300,
                     });
+                    fullscreenSkinViewer.controls.enableRotate = true;
+                    fullscreenSkinViewer.controls.enableZoom = true;
+                    fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
+                    
+                    if (fullscreenSkinViewer.scene) {
+                        fullscreenSkinViewer.scene.traverse((child) => {
+                            if (child.isLight && child.shadow && child.shadow.bias < -16) {
+                                child.shadow.bias = -0.001;
+                            }
+                        });
+                    }
+                } catch (webglErr) {
+                    console.error("WebGL not supported:", webglErr);
+                    canvas.style.display = "none";
+                    if (!document.getElementById("skin-webgl-error")) {
+                        const fallback = document.createElement("div");
+                        fallback.id = "skin-webgl-error";
+                        fallback.style.color = "#f87171";
+                        fallback.style.textAlign = "center";
+                        fallback.style.padding = "20px";
+                        fallback.style.width = "200px";
+                        fallback.innerText = "Aperçu 3D indisponible\n(WebGL non supporté)";
+                        canvas.parentElement.appendChild(fallback);
+                    }
+                    return;
                 }
             } else {
                 if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
