@@ -277,9 +277,14 @@ export function setupLauncher() {
                 if (logOutputText.match(/spawn java\w* ENOENT/i) || logOutputText.match(/Couldn't start Minecraft due to.*ENOENT.*java/i)) {
                     window.showCustomConfirm(
                         t("msg_java_missing_prompt", "Java est introuvable sur votre système (ou le chemin est incorrect).\nCeci est indispensable pour lancer le jeu.\nVoulez-vous le télécharger et l'installer automatiquement ?")
-                    ).then(res => {
+                    ).then(async res => {
                         if (res) {
-                            window.downloadJavaAuto(closedInst?.javaVersion || 17);
+                            const newJava = await window.downloadJavaAuto(closedInst?.javaVersion || 17);
+                            if (newJava && closedInst) {
+                                closedInst.javaPath = newJava;
+                                await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                                window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", closedInst.javaVersion || 17), "success");
+                            }
                         }
                     });
                 } else {
@@ -335,11 +340,16 @@ export function setupLauncher() {
                         }
                     });
 
-                    document.getElementById("crash-action").querySelector('#btn-crash-download-java')?.addEventListener('click', () => {
+                    document.getElementById("crash-action").querySelector('#btn-crash-download-java')?.addEventListener('click', async () => {
                         document.getElementById('modal-crash').style.display = 'none';
                         let targetVer = parseInt(analysis.javaNeeded);
                         if (isNaN(targetVer)) targetVer = closedInst?.javaVersion || 17;
-                        window.downloadJavaAuto(targetVer);
+                        const newJava = await window.downloadJavaAuto(targetVer);
+                        if (newJava && closedInst) {
+                            closedInst.javaPath = newJava;
+                            await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                            window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", targetVer), "success");
+                        }
                     });
                     document.getElementById("crash-log-excerpt").innerText = analysis.logExcerpt || "Aucun log disponible.";
                     window._currentCrashLog = analysis.logExcerpt;

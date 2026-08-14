@@ -456,8 +456,6 @@ export function setupSettings() {
             const exePath = await findExe(extractDir);
             if (exePath) {
                 if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
-                store.globalSettings.defaultJavaPath = exePath;
-                window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
                 window.showToast(t("msg_java_installed_success"), "success");
                 window.updateJavaButtonsDisplay();
                 if (window.scanJavaVersions) {
