@@ -57,13 +57,13 @@ jobs:
           gpg --default-key "${{ steps.import_gpg.outputs.fingerprint }}" --clearsign -o InRelease Release
 
       - name: Configurer GitHub Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v6
 
       - name: Préparer l'envoi web
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: './apt-workspace'
 
       - name: Mettre en ligne le dépôt
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
