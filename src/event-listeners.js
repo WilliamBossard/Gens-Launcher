@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-builder-modal')?.addEventListener('click', () => closeBuilderModal());
 
     // ── MENU CONTEXTUEL ───────────────────────────────────────
+    document.getElementById('ctx-launch')?.addEventListener('click', () => { if (window.ctxLaunch) window.ctxLaunch(); });
     document.getElementById('ctx-cloud-import')?.addEventListener('click', () => ctxSyncCloud());
     document.getElementById('ctx-cloud-upload')?.addEventListener('click', () => ctxUploadCloud());
     document.getElementById('ctx-folder')?.addEventListener('click', () => ctxFolder());
