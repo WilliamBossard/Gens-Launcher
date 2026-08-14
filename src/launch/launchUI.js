@@ -33,10 +33,19 @@ export function setupLauncher() {
             btn.innerText = t("btn_stop", "Forcer l'arrêt");
             btn.style.background = "#f87171";
             btn.disabled = false;
+            btn.style.opacity = "1";
+            btn.style.cursor = "pointer";
         } else {
             btn.innerText = t("btn_launch", "Lancer");
             btn.style.background = "var(--accent)";
-            btn.disabled = store.selectedAccountIdx === null;
+            btn.disabled = false;
+            if (store.selectedAccountIdx === null) {
+                btn.style.opacity = "0.5";
+                btn.style.cursor = "not-allowed";
+            } else {
+                btn.style.opacity = "1";
+                btn.style.cursor = "pointer";
+            }
         }
     };
     window.setUIState = () => {
