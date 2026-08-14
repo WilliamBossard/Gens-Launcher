@@ -157,8 +157,8 @@ export async function analyzeCrash(instanceName) {
                 result.javaNeeded = needed;
             }
             result.action = classVerMatch
-                ? window.t("crash_java_ver_exact", "Minecraft (ou un mod) requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
-                : window.t("crash_java_ver_action", "Minecraft (ou un mod) requiert une version de Java plus récente. Mettez à jour la version de Java dans les paramètres de l'instance.");
+                ? window.t("crash_java_ver_exact", "Minecraft requiert Java {needed} mais vous utilisez Java {current}. Changez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed).replace("{current}", current)
+                : window.t("crash_java_ver_action", "Le jeu requiert une version plus récente de Java. Mettez à jour la version de Java dans les paramètres de l'instance.");
             result.logExcerpt = uiLogs.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || combinedLog.match(/.*UnsupportedClassVersionError.*/g)?.join('\n') || "UnsupportedClassVersionError détecté";
             return result;
         }
@@ -178,7 +178,7 @@ export async function analyzeCrash(instanceName) {
         if (fabricJavaMatch) {
             result.cause = window.t("crash_java_ver_cause", "Version de Java incompatible");
             const needed = fabricJavaMatch[1];
-            result.action = window.t("crash_java_ver_fabric", "Fabric requiert Java {needed} ou plus. Modifiez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed);
+            result.action = window.t("crash_java_ver_fabric", "Le jeu requiert Java {needed} ou plus. Modifiez la version de Java dans les paramètres de l'instance.").replace("{needed}", needed);
             result.logExcerpt = combinedLog.match(new RegExp(`.*${fabricJavaMatch[0].replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}.*`, 'i'))?.[0] || fabricJavaMatch[0];
             return result;
         }
