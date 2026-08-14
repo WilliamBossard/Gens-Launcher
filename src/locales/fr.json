@@ -708,4 +708,4 @@
   "tt_enable_news": "Affiche ou masque complètement le panneau d'actualités sur l'écran principal.",
   "msg_webgl_unsupported": "Aperçu 3D indisponible\n(WebGL non supporté)",
   "msg_err_no_account": "Veuillez ajouter un compte dans l'onglet Compte pour pouvoir jouer."
-}
+, "ctx_tray_show": "Afficher Gens Launcher", "ctx_tray_quit": "Quitter" }

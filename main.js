@@ -325,14 +325,31 @@ app.whenReady().then(async () => {
             ? path.join(__dirname, "assets/icon.ico")
             : path.join(__dirname, "assets/icon.png");
         tray = new Tray(trayIcon);
+        
+        let labelShow = 'Afficher Gens Launcher';
+        let labelQuit = 'Quitter';
+        try {
+            const setPath = path.join(app.getPath("appData"), "GensLauncher", "settings.json");
+            if (fs.existsSync(setPath)) {
+                const sets = JSON.parse(fs.readFileSync(setPath, 'utf8'));
+                const lang = sets.language || 'fr';
+                const langPath = path.join(__dirname, 'src', 'locales', lang + '.json');
+                if (fs.existsSync(langPath)) {
+                    const lData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
+                    if (lData.ctx_tray_show) labelShow = lData.ctx_tray_show;
+                    if (lData.ctx_tray_quit) labelQuit = lData.ctx_tray_quit;
+                }
+            }
+        } catch(e) {}
+
         const contextMenu = Menu.buildFromTemplate([
-            { label: 'Afficher Gens Launcher', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); } },
+            { label: labelShow, click: () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } } },
             { type: 'separator' },
-            { label: 'Quitter', click: () => { app.quit(); } }
+            { label: labelQuit, click: () => { app.quit(); } }
         ]);
         tray.setToolTip('Gens Launcher');
         tray.setContextMenu(contextMenu);
-        tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); });
+        tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } });
     } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
     const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
     if (isLinuxDeb) {
