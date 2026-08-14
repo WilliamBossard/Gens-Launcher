@@ -1283,7 +1283,35 @@ const groups = {};
         if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
         const createShortcutItem = document.getElementById("ctx-create-shortcut");
         const deleteShortcutItem = document.getElementById("ctx-delete-shortcut");
+        const ctxLaunch = document.getElementById("ctx-launch");
+        const ctxEdit = document.getElementById("ctx-edit");
+        
         if (inst) {
+            const isRunning = store.activeInstances.has(inst.name);
+            
+            if (ctxLaunch) {
+                if (isRunning) {
+                    ctxLaunch.setAttribute("data-i18n", "btn_stop");
+                    ctxLaunch.innerText = window.t("btn_stop", "Arrêter");
+                    ctxLaunch.style.color = "#f87171";
+                } else {
+                    ctxLaunch.setAttribute("data-i18n", "ctx_launch");
+                    ctxLaunch.innerText = window.t("ctx_launch", "Lancer");
+                    ctxLaunch.style.color = "";
+                }
+            }
+            
+            const disableableItems = [ctxEdit, cloudSync, cloudUpload].filter(el => el);
+            disableableItems.forEach(el => {
+                if (isRunning) {
+                    el.style.opacity = "0.5";
+                    el.style.pointerEvents = "none";
+                } else {
+                    el.style.opacity = "1";
+                    el.style.pointerEvents = "auto";
+                }
+            });
+
             let hasShortcut = !!inst._hasDesktopShortcut;
             if (createShortcutItem) createShortcutItem.style.display = hasShortcut ? "none" : "flex";
             if (deleteShortcutItem) deleteShortcutItem.style.display = hasShortcut ? "flex" : "none";
