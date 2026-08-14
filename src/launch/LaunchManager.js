@@ -161,7 +161,7 @@ export async function launchInstance(inst, acc, ui) {
         } catch (e) { sysLog("Erreur de sync serveur: " + e, true); }
     }
 
-    let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}" };
+    let authObj = { access_token: "null", client_token: "null", uuid: acc.uuid || "null", name: acc.name, user_properties: "{}", user_type: "mojang", meta: { type: "mojang" } };
     if (acc.type === "microsoft" && acc.mclcAuth && !isOffline) {
         if (ui.setStatusText) ui.setStatusText(window.t("msg_check_ms_session", "Vérification de la session Microsoft..."));
         let sessionValid = false;
