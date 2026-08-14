@@ -393,7 +393,11 @@ export function setupLauncher() {
     document.getElementById("launch-btn").addEventListener("click", async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         const acc = store.allAccounts[store.selectedAccountIdx];
-        if (!inst || !acc) return;
+        if (!acc) {
+            window.showToast(t("msg_err_no_account", "Veuillez ajouter un compte dans l'onglet Compte pour pouvoir jouer."), "error");
+            return;
+        }
+        if (!inst) return;
 
         const logOutput = document.getElementById("log-output");
 

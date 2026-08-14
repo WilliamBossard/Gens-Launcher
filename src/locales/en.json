@@ -701,5 +701,6 @@
   "opt_minimize": "Minimize launcher",
   "lbl_enable_news": "Minecraft News Banner",
   "tt_enable_news": "Completely show or hide the news panel on the main screen.",
-  "msg_webgl_unsupported": "3D Preview unavailable\n(WebGL unsupported)"
+  "msg_webgl_unsupported": "3D Preview unavailable\n(WebGL unsupported)",
+  "msg_err_no_account": "Please add an account in the Account tab to play."
 }
