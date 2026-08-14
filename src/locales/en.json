@@ -700,5 +700,6 @@
   "msg_vanilla_no_shaders": "Shaders require Iris or OptiFine. Please use a modded instance.",
   "opt_minimize": "Minimize launcher",
   "lbl_enable_news": "Minecraft News Banner",
-  "tt_enable_news": "Completely show or hide the news panel on the main screen."
+  "tt_enable_news": "Completely show or hide the news panel on the main screen.",
+  "msg_webgl_unsupported": "3D Preview unavailable\n(WebGL unsupported)"
 }

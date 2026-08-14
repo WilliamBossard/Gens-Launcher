@@ -705,5 +705,6 @@
   "msg_vanilla_no_shaders": "Les shaders nécessitent Iris ou OptiFine. Veuillez utiliser une instance moddée.",
   "opt_minimize": "Minimiser le launcher",
   "lbl_enable_news": "Bandeau d'actualités Minecraft",
-  "tt_enable_news": "Affiche ou masque complètement le panneau d'actualités sur l'écran principal."
+  "tt_enable_news": "Affiche ou masque complètement le panneau d'actualités sur l'écran principal.",
+  "msg_webgl_unsupported": "Aperçu 3D indisponible\n(WebGL non supporté)"
 }

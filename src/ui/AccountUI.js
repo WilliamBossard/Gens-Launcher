@@ -386,7 +386,7 @@ export function setupAccountUI() {
                         fallback.style.textAlign = "center";
                         fallback.style.padding = "20px";
                         fallback.style.width = "200px";
-                        fallback.innerText = "Aperçu 3D indisponible\n(WebGL non supporté)";
+                        fallback.innerText = window.t("msg_webgl_unsupported", "Aperçu 3D indisponible\n(WebGL non supporté)");
                         canvas.parentElement.appendChild(fallback);
                     }
                     return;
