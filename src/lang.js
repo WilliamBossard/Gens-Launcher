@@ -9,13 +9,19 @@ export async function setupLang() {
     let defaultEn = {};
 
     try {
-        const frUrl = new URL("./locales/fr.json", import.meta.url).href;
-        const resFr = await fetch(frUrl);
-        defaultFr = await resFr.json();
+        let appDir = decodeURIComponent(window.location.pathname);
+        if (appDir.startsWith("/") && appDir.match(/^\/[a-zA-Z]:/)) {
+            appDir = appDir.substring(1);
+        }
+        appDir = path.dirname(appDir);
 
-        const enUrl = new URL("./locales/en.json", import.meta.url).href;
-        const resEn = await fetch(enUrl);
-        defaultEn = await resEn.json();
+        const frPath = path.join(appDir, "src", "locales", "fr.json");
+        const frContent = await fs.promises.readFile(frPath, "utf8");
+        defaultFr = JSON.parse(frContent);
+
+        const enPath = path.join(appDir, "src", "locales", "en.json");
+        const enContent = await fs.promises.readFile(enPath, "utf8");
+        defaultEn = JSON.parse(enContent);
     } catch (e) {
         console.error("Erreur de lecture des traductions internes:", e);
     }

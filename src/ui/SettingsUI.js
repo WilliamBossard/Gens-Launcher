@@ -219,7 +219,7 @@ export function setupSettings() {
             await fs.promises.copyFile(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
-            window.showToast(t("msg_options_saved"), "success");
+            window.showToast(t("msg_options_saved", "Options sauvegardées avec succès"), "success");
         } else {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
         }
@@ -456,7 +456,7 @@ export function setupSettings() {
             const exePath = await findExe(extractDir);
             if (exePath) {
                 if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
-                window.showToast(t("msg_java_installed_success"), "success");
+                window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
                 window.updateJavaButtonsDisplay();
                 if (window.scanJavaVersions) {
                     window.scanJavaVersions("global-java", true, true).then(() => {
@@ -468,7 +468,7 @@ export function setupSettings() {
             }
             throw new Error(t("msg_err_java_not_found", "Exécutable Java introuvable."));
         } catch (e) {
-            window.showToast(t("msg_err_java") + " : " + e.message, "error");
+            window.showToast(t("msg_err_java", "Erreur Java") + " : " + e.message, "error");
             return null;
         } finally { window.hideLoading(); }
     };

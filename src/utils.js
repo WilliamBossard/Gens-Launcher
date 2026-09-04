@@ -175,6 +175,8 @@ window.safeWriteJSONAsync = (filePath, data) => {
 let _lastToastMsg = "";
 let _lastToastTime = 0;
 window.showToast = (msg, type = "info") => {
+    if (!msg) msg = "Erreur inconnue";
+    if (typeof msg !== 'string') msg = String(msg);
     if (msg.startsWith("Erreur système : ")) msg = window.t("msg_err_sys_base", "Erreur système : ") + msg.substring(17);
     else if (msg.startsWith("Erreur système :")) msg = window.t("msg_err_sys_base", "Erreur système : ") + msg.substring(16);
     else if (msg.startsWith("Erreur : ")) msg = window.t("msg_err_base", "Erreur : ") + msg.substring(9);

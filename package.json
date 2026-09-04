@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -20,13 +20,13 @@
     "yauzl-promise": "^4.0.0"
   },
   "devDependencies": {
-    "electron": "^43.4.0",
+    "electron": "^44.2.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "electronVersion": "43.4.0",
+    "electronVersion": "44.2.0",
     "directories": {
       "output": "dist"
     },
