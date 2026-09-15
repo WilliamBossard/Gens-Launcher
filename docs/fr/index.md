@@ -3,24 +3,24 @@ layout: home
 
 hero:
   name: "Gens Launcher"
-  text: "L'Expérience Minecraft Moderne"
+  text: "Redéfinissez votre expérience Minecraft."
   tagline: "Lanceur open-source sécurisé et ultra-rapide propulsé par la technologie Gens-Horizon Delta Sync"
   image:
     src: /icon.png
     alt: Logo Gens Launcher
   actions:
     - theme: brand
+      text: Télécharger
+      link: /fr/#install
+    - theme: alt
       text: Guide des Joueurs
       link: /fr/guide/players/getting-started
     - theme: alt
       text: Documentation Développeurs
       link: /fr/guide/dev/architecture
     - theme: alt
-      text: Moteur Cloud Horizon
-      link: /fr/guide/horizon/overview
-    - theme: alt
-      text: Site Vitrine
-      link: https://williambossard.github.io/Gens-Launcher/
+      text: Dépôt GitHub
+      link: https://github.com/WilliamBossard/Gens-Launcher
 
 features:
   - title: Horizon Delta Sync
@@ -36,3 +36,13 @@ features:
   - title: Dépôt APT Linux Officiel
     details: Mises à jour automatisées sur Debian et Ubuntu via un dépôt APT officiel signé par clé GPG, avec paquets AppImage, Windows et macOS.
 ---
+
+<LauncherMockup lang="fr" />
+
+<InstallTabs lang="fr" />
+
+<ScreenshotGrid lang="fr" />
+
+<GensCoreBanner lang="fr" />
+
+<FaqAccordion lang="fr" />

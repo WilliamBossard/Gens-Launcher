@@ -1,18 +1,18 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  base: '/Gens-Launcher/docs/',
-  outDir: '../website/docs',
+  base: '/Gens-Launcher/',
+  outDir: '../website',
   cleanUrls: true,
 
   head: [
-    ['link', { rel: 'icon', href: '/Gens-Launcher/docs/icon.png' }],
+    ['link', { rel: 'icon', href: '/Gens-Launcher/icon.png' }],
     [
       'script',
       {},
       `
       (function() {
-        var base = window.location.pathname.indexOf('/Gens-Launcher/docs/') === 0 ? '/Gens-Launcher/docs/' : '/docs/';
+        var base = window.location.pathname.indexOf('/Gens-Launcher/') === 0 ? '/Gens-Launcher/' : '/';
         var path = window.location.pathname;
         var isFr = path.indexOf(base + 'fr/') === 0 || path === base + 'fr' || path === base + 'fr.html';
         var savedLang = null;
@@ -47,10 +47,11 @@ export default defineConfig({
       description: 'The Ultimate Minecraft Launcher & Horizon Delta Sync Documentation',
       themeConfig: {
         nav: [
-          { text: 'Players', link: '/guide/players/getting-started' },
-          { text: 'Developers', link: '/guide/dev/architecture' },
+          { text: 'Download', link: '/#install' },
+          { text: 'Player Guide', link: '/guide/players/getting-started' },
+          { text: 'Developer Docs', link: '/guide/dev/architecture' },
           { text: 'Horizon Cloud', link: '/guide/horizon/overview' },
-          { text: 'Showcase', link: 'https://williambossard.github.io/Gens-Launcher/' }
+          { text: 'GensCore Server', link: 'https://williambossard.github.io/GensCore/' }
         ],
         sidebar: [
           {
@@ -58,9 +59,9 @@ export default defineConfig({
             collapsed: false,
             items: [
               { text: 'Getting Started', link: '/guide/players/getting-started' },
-              { text: 'Installation (All OS)', link: '/guide/players/installation' },
+              { text: 'Multi-OS Installation', link: '/guide/players/installation' },
               { text: 'Instances & Mod Catalog', link: '/guide/players/instances-and-mods' },
-              { text: 'Cloud Sync (Horizon)', link: '/guide/players/cloud-sync' },
+              { text: 'Horizon Cloud Sync', link: '/guide/players/cloud-sync' },
               { text: 'FAQ & Troubleshooting', link: '/guide/players/troubleshooting' }
             ]
           },
@@ -97,13 +98,14 @@ export default defineConfig({
       lang: 'fr-FR',
       link: '/fr/',
       title: 'Gens Launcher',
-      description: 'Documentation officielle de Gens Launcher et de la technologie Horizon Delta Sync',
+      description: 'Lanceur Minecraft moderne, rapide et sécurisé avec synchronisation cloud Horizon Delta Sync',
       themeConfig: {
         nav: [
-          { text: 'Joueurs', link: '/fr/guide/players/getting-started' },
-          { text: 'Développeurs', link: '/fr/guide/dev/architecture' },
+          { text: 'Télécharger', link: '/fr/#install' },
+          { text: 'Guide Joueurs', link: '/fr/guide/players/getting-started' },
+          { text: 'Guide Développeurs', link: '/fr/guide/dev/architecture' },
           { text: 'Moteur Horizon', link: '/fr/guide/horizon/overview' },
-          { text: 'Site Vitrine', link: 'https://williambossard.github.io/Gens-Launcher/' }
+          { text: 'Serveur GensCore', link: 'https://williambossard.github.io/GensCore/' }
         ],
         sidebar: [
           {
@@ -149,7 +151,7 @@ export default defineConfig({
 
   themeConfig: {
     logo: '/icon.png',
-    siteTitle: 'Gens Launcher Docs',
+    siteTitle: 'Gens Launcher',
 
     search: {
       provider: 'local',
@@ -159,7 +161,7 @@ export default defineConfig({
             translations: {
               button: {
                 buttonText: 'Rechercher',
-                buttonAriaLabel: 'Rechercher dans la documentation'
+                buttonAriaLabel: 'Rechercher dans le site et la documentation'
               },
               modal: {
                 displayDetails: 'Afficher les détails',
