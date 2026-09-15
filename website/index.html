@@ -28,13 +28,17 @@
         </div>
         <div class="nav-links">
             <a href="#features">Features</a>
-            <a href="https://github.com/WilliamBossard/Gens-Launcher" target="_blank" class="github-link">GitHub Repository</a>
+            <a href="#gallery">Gallery</a>
+            <a href="#install">Install</a>
+            <a href="docs/" class="nav-doc-badge">Docs</a>
+            <a href="https://github.com/WilliamBossard/Gens-Launcher" target="_blank" class="github-link">GitHub</a>
         </div>
     </nav>
 
     <header class="hero">
         <div class="hero-container">
             <div class="hero-content">
+                <div class="badge">Open Source Minecraft Launcher</div>
                 <h1 class="hero-title">Redefining your<br>Minecraft experience.</h1>
                 <p class="hero-subtitle">
                     A modern, open-source launcher designed for performance and security. Featuring seamless instance management, integrated mod catalogs, and ultra-fast Delta Sync technology.
@@ -43,6 +47,10 @@
                     <a href="#install" class="btn btn-primary">
                         Download Now
                         <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    </a>
+                    <a href="docs/" class="btn btn-docs">
+                        Documentation
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
                     </a>
                     <a href="https://github.com/WilliamBossard/Gens-Launcher" class="btn btn-secondary" target="_blank">
                         View Source Code
@@ -77,9 +85,23 @@
         <h2 class="section-title">Core Architecture & Features</h2>
         <div class="feature-grid">
             
-            <div class="feature-card glass-panel">
+            <div class="feature-card glass-panel highlight-card">
+                <div class="card-tag">Documentation</div>
+                <h3>Official Player & Dev Documentation</h3>
+                <p>Detailed guides covering multi-OS installation, account management, offline play, modloader configurations, and deep-dive developer specifications (Electron sandbox, IPC channels, and native modules).</p>
+                <div class="card-actions">
+                    <a href="docs/" class="card-action-btn">English Docs &rarr;</a>
+                    <a href="docs/fr/" class="card-action-btn alt">Guide Français &rarr;</a>
+                </div>
+            </div>
+
+            <div class="feature-card glass-panel highlight-card">
+                <div class="card-tag">Cloud Engine</div>
                 <h3>Horizon Cloud Sync</h3>
                 <p>Seamlessly sync your instances across devices using the headless Gens-Horizon cloud engine. Advanced Delta Sync technology analyzes files and downloads only the missing bits, dramatically reducing update times.</p>
+                <div class="card-actions">
+                    <a href="docs/guide/horizon/overview" class="card-action-btn">Horizon Architecture &rarr;</a>
+                </div>
             </div>
 
             <div class="feature-card glass-panel">
@@ -259,6 +281,14 @@ sudo apt update && sudo apt install gens-launcher</code></pre>
     <footer>
         <div class="footer-content">
             <div class="logo">Gens<span class="highlight">Launcher</span></div>
+            <div class="footer-links" style="display: flex; gap: 1.5rem; justify-content: center; margin: 1rem 0; flex-wrap: wrap;">
+                <a href="#features">Features</a>
+                <a href="#install">Installation</a>
+                <a href="docs/">Documentation (EN)</a>
+                <a href="docs/fr/">Documentation (FR)</a>
+                <a href="docs/guide/horizon/overview">Horizon Delta Sync</a>
+                <a href="https://github.com/WilliamBossard/Gens-Launcher" target="_blank">GitHub</a>
+            </div>
             <p>An open-source project by William Bossard.</p>
             <p class="copyright">Licensed under the MIT License. Minecraft is a trademark of Mojang Synergies AB.</p>
         </div>

@@ -109,6 +109,23 @@ a {
     border-radius: 4px;
 }
 
+.nav-doc-badge {
+    background: rgba(0, 122, 204, 0.2);
+    border: 1px solid rgba(0, 122, 204, 0.4);
+    color: #4da6ff !important;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.nav-doc-badge:hover {
+    background: rgba(0, 122, 204, 0.35);
+    border-color: #007acc;
+    transform: translateY(-1px);
+}
+
 /* Hero Section */
 .hero {
     min-height: 90vh;
@@ -179,6 +196,18 @@ a {
 .btn-primary:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
+}
+
+.btn-docs {
+    background: rgba(0, 122, 204, 0.15);
+    color: #4da6ff;
+    border: 1px solid rgba(0, 122, 204, 0.4);
+}
+
+.btn-docs:hover {
+    background: rgba(0, 122, 204, 0.25);
+    border-color: #007acc;
+    color: #ffffff;
 }
 
 /* Glassmorphism Panel (similar to launcher modals) */
@@ -276,11 +305,63 @@ a {
 
 .feature-card {
     padding: 2rem;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .feature-card:hover {
-    border-color: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.25);
+    transform: translateY(-2px);
+}
+
+.highlight-card {
+    border: 1px solid rgba(0, 122, 204, 0.4);
+    background: linear-gradient(135deg, rgba(45, 45, 48, 0.85) 0%, rgba(20, 40, 60, 0.6) 100%);
+}
+
+.highlight-card:hover {
+    border-color: #007acc;
+    box-shadow: 0 8px 30px rgba(0, 122, 204, 0.15);
+}
+
+.card-tag {
+    align-self: flex-start;
+    background: rgba(0, 122, 204, 0.2);
+    color: #4da6ff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    margin-bottom: 0.8rem;
+    border: 1px solid rgba(0, 122, 204, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.card-actions {
+    display: flex;
+    gap: 0.8rem;
+    margin-top: auto;
+    padding-top: 1.2rem;
+    flex-wrap: wrap;
+}
+
+.card-action-btn {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #4da6ff;
+    transition: color 0.2s, transform 0.2s;
+}
+
+.card-action-btn:hover {
+    color: #ffffff;
+    transform: translateX(3px);
+}
+
+.card-action-btn.alt {
+    color: #88c0d0;
 }
 
 .feature-card h3 {
@@ -293,6 +374,7 @@ a {
 .feature-card p {
     color: var(--text-muted);
     font-size: 0.9rem;
+    line-height: 1.5;
 }
 
 /* Footer */
@@ -301,6 +383,16 @@ footer {
     border-top: 1px solid var(--border);
     background: rgba(20, 20, 20, 0.8);
     text-align: center;
+}
+
+.footer-links a {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    transition: color 0.2s;
+}
+
+.footer-links a:hover {
+    color: var(--accent);
 }
 
 .footer-content .logo {
