@@ -1,5 +1,8 @@
 name: Build APT Repo from Releases
 on:
+  push:
+    branches:
+      - main
   release:
     types: [published]
   workflow_dispatch:
@@ -14,7 +17,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
+
+      - name: Configurer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compiler la documentation VitePress
+        run: |
+          npm --prefix docs install
+          npm run docs:build
 
       - name: Installer les outils APT
         run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
@@ -28,7 +41,7 @@ jobs:
         run: |
           TAG="${{ github.event.release.tag_name }}"
           if [ -z "$TAG" ]; then
-            gh release download --pattern "*.deb" --dir apt-workspace
+            gh release download --pattern "*.deb" --dir apt-workspace || echo "Aucun paquet .deb trouvé"
           else
             gh release download "$TAG" --pattern "*.deb" --dir apt-workspace
           fi
