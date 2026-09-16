@@ -239,8 +239,9 @@ export async function launchInstance(inst, acc, ui) {
             const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
             if (srvHost && srvPort >= 1 && srvPort <= 65535) {
                 opts.server = { host: srvHost, port: srvPort };
-                const minorVer = parseInt(inst.version.split('.')[1]) || 0;
-                if (minorVer >= 20) opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+                const vParts = (inst.version || "").split('.');
+                const isModernVer = vParts[0] === '1' ? ((parseInt(vParts[1], 10) || 0) >= 20) : ((parseInt(vParts[0], 10) || 0) >= 20);
+                if (isModernVer) opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
             }
         }
     }

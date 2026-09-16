@@ -123,8 +123,8 @@ export function setup() {
             list.innerHTML = `<div style='text-align:center; color:#888; padding: 15px;'>${t("msg_no_servers", "Aucun serveur.")}</div>`;
             return;
         }
-        const minorVer = parseInt(inst.version.split('.')[1]) || 0;
-        const canAutoConnect = minorVer >= 20;
+        const vParts = (inst.version || "").split('.');
+        const canAutoConnect = vParts[0] === '1' ? ((parseInt(vParts[1], 10) || 0) >= 20) : ((parseInt(vParts[0], 10) || 0) >= 20);
         let srvHtml = "";
         inst.servers.forEach((ip, i) => {
             const isAuto = inst.autoConnect === ip;

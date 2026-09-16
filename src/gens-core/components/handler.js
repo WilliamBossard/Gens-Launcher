@@ -312,7 +312,47 @@ class Handler {
     this.client.emit('debug', '[Gens-Core]: Downloaded assets')
   }
 
+  parseVersion(versionStr) {
+    if (!versionStr) return { major: 0, minor: 0, patch: 0 };
+    const parts = String(versionStr).split('.');
+    if (parts[0] === '1') {
+      return {
+        major: 1,
+        minor: parseInt(parts[1], 10) || 0,
+        patch: parseInt(parts[2], 10) || 0
+      };
+    }
+    return {
+      major: parseInt(parts[0], 10) || 0,
+      minor: parseInt(parts[1], 10) || 0,
+      patch: parseInt(parts[2], 10) || 0
+    };
+  }
+
+  compareVersion(v1, v2) {
+    const a = typeof v1 === 'string' ? this.parseVersion(v1) : v1;
+    const b = typeof v2 === 'string' ? this.parseVersion(v2) : v2;
+    if (a.major !== b.major) return a.major - b.major;
+    if (a.minor !== b.minor) return a.minor - b.minor;
+    return a.patch - b.patch;
+  }
+
+  isVersionAtLeast(targetMajor, targetMinor, targetPatch = 0) {
+    if (!this.version || !this.version.id) return false;
+    const parsed = this.parseVersion(this.version.id);
+    return this.compareVersion(parsed, { major: targetMajor, minor: targetMinor, patch: targetPatch }) >= 0;
+  }
+
     parseRule(lib) {
+        if (lib.name) {
+            const isArm64 = process.arch === 'arm64';
+            const isX86 = process.arch === 'ia32';
+
+            if (lib.name.includes('-arm64') && !isArm64) return true;
+            if (lib.name.includes('-arm32') && process.arch !== 'arm') return true;
+            if ((lib.name.endsWith('-x86') || lib.name.includes('-x86:')) && !isX86) return true;
+        }
+
         if (lib.rules) {
             if (lib.rules.length > 1) {
                 if (lib.rules[0].action === 'allow' && lib.rules[1].action === 'disallow' && lib.rules[1].os.name === 'osx') {
@@ -340,7 +380,14 @@ class Handler {
   async getNatives() {
     const nativeDirectory = path.resolve(this.options.overrides.natives || path.join(this.options.root, 'natives', this.version.id))
 
-    if (parseInt(this.version.id.split('.')[1]) >= 19) return this.options.overrides.cwd || this.options.root
+    if (this.isVersionAtLeast(1, 19)) {
+      await fs.promises.mkdir(nativeDirectory, { recursive: true });
+      await fs.promises.mkdir(path.join(nativeDirectory, 'java'), { recursive: true });
+      await fs.promises.mkdir(path.join(nativeDirectory, 'jna'), { recursive: true });
+      await fs.promises.mkdir(path.join(nativeDirectory, 'lwjgl'), { recursive: true });
+      await fs.promises.mkdir(path.join(nativeDirectory, 'netty'), { recursive: true });
+      return nativeDirectory;
+    }
 
     let hasNatives = false;
     if (fs.existsSync(nativeDirectory)) {
@@ -754,6 +801,90 @@ class Handler {
     args = args.filter(value => typeof value === 'string' || typeof value === 'number')
     this.client.emit('debug', '[Gens-Core]: Set launch options')
     return args
+  }
+
+  async getJVMArgs(modifyJson, nativePath) {
+    const args = [];
+    const fields = {
+      '${natives_directory}': nativePath,
+      '${launcher_name}': this.options.overrides.launcherBrand || 'Gens-Launcher',
+      '${launcher_version}': this.options.overrides.launcherVersion || '1.0.0',
+      '${classpath}': ''
+    };
+
+    const checkRule = (rule) => {
+      if (!rule) return true;
+      if (rule.action === 'allow') {
+        if (rule.os) {
+          if (rule.os.name && rule.os.name !== this.getOS()) return false;
+          if (rule.os.arch) {
+            const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
+            if (rule.os.arch === 'x86' && arch !== 'x86') return false;
+            if (rule.os.arch === 'x86_64' && arch !== 'x86_64') return false;
+            if (rule.os.arch === 'arm64' && arch !== 'arm64') return false;
+          }
+        }
+        return true;
+      }
+      if (rule.action === 'disallow') {
+        if (rule.os && rule.os.name && rule.os.name === this.getOS()) return false;
+        return true;
+      }
+      return true;
+    };
+
+    const processEntry = (entry) => {
+      if (typeof entry === 'string') {
+        if (entry === '-cp' || entry === '${classpath}') return;
+        let val = entry;
+        for (const [k, v] of Object.entries(fields)) {
+          val = val.replace(new RegExp('\\' + k, 'g'), v);
+        }
+        args.push(val);
+      } else if (typeof entry === 'object' && entry !== null) {
+        if (entry.rules) {
+          const allowed = entry.rules.every(checkRule);
+          if (!allowed) return;
+        }
+        const values = Array.isArray(entry.value) ? entry.value : [entry.value];
+        for (const val of values) {
+          if (val) processEntry(val);
+        }
+      }
+    };
+
+    if (this.version.arguments && this.version.arguments.jvm) {
+      for (const entry of this.version.arguments.jvm) {
+        processEntry(entry);
+      }
+    }
+
+    if (modifyJson && modifyJson.arguments && modifyJson.arguments.jvm) {
+      for (const entry of modifyJson.arguments.jvm) {
+        processEntry(entry);
+      }
+    }
+
+    if (args.length > 0) {
+      if (!args.some(a => a.startsWith('-Djava.library.path='))) {
+        args.push(`-Djava.library.path=${nativePath}`);
+      }
+      if (this.isVersionAtLeast(26, 0) && !args.some(a => a.includes('StackShadowPages'))) {
+        args.push('-XX:StackShadowPages=32');
+      }
+      return args;
+    }
+
+    // Fallback for legacy Minecraft (< 1.13) without arguments.jvm
+    const legacyArgs = [
+      '-XX:-UseAdaptiveSizePolicy',
+      '-XX:-OmitStackTraceInFastThrow',
+      '-Dfml.ignorePatchDiscrepancies=true',
+      '-Dfml.ignoreInvalidMinecraftCertificates=true',
+      `-Djava.library.path=${nativePath}`
+    ];
+    legacyArgs.push(await this.getJVM());
+    return legacyArgs;
   }
 
   async getJVM() {

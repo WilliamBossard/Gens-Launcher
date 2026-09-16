@@ -130,14 +130,16 @@ document.getElementById("console-filter")?.addEventListener("input", (e) => {
     });
 });
 
-window.copyCrashLog = () => {
+window.copyCrashLog = async () => {
     if (window._currentCrashLog) {
-        navigator.clipboard.writeText(window._currentCrashLog).then(() => {
+        const success = window.copyToClipboard 
+            ? await window.copyToClipboard(window._currentCrashLog)
+            : await navigator.clipboard.writeText(window._currentCrashLog).then(() => true).catch(() => false);
+        if (success) {
             window.showToast(t("msg_logs_copied", "Logs copiés dans le presse-papier !"), "success");
-        }).catch(err => {
-            console.error('Failed to copy text: ', err);
+        } else {
             window.showToast(window.t("msg_err_copy", "Erreur lors de la copie."), "error");
-        });
+        }
     } else {
         window.showToast(window.t("msg_no_logs", "Aucun log à copier."), "error");
     }
