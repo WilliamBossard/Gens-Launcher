@@ -326,16 +326,41 @@ window.safeDir = function (name) {
     if (!name) return "";
     return name.replace(/[^a-z0-9]/gi, "_");
 };
+window.sameFolderSlug = function (a, b) {
+    const sa = String(a || "");
+    const sb = String(b || "");
+    if (window.api.platform === "win32") return sa.toLowerCase() === sb.toLowerCase();
+    return sa === sb;
+};
+window.sameFsPath = function (a, b) {
+    if (!a || !b) return false;
+    return window.sameFolderSlug(path.resolve(String(a)), path.resolve(String(b)));
+};
+window.instanceNameTaken = function (name, exceptIdx = -1) {
+    const slug = window.safeDir(name);
+    return store.allInstances.some((i, idx) =>
+        idx !== exceptIdx && window.sameFolderSlug(window.safeDir(i.name), slug)
+    );
+};
+window.nextAvailableInstanceName = function (baseName) {
+    const name = String(baseName || "").trim() || "Instance";
+    let candidate = name;
+    let counter = 1;
+    while (window.instanceNameTaken(candidate) && counter < 10000) {
+        candidate = `${name} (${counter++})`;
+    }
+    return candidate;
+};
 window.resolveInstanceFolder = function (nameOrFolder) {
     const slug = window.safeDir(nameOrFolder);
     const inst = store.allInstances.find(
-        i => i.name === nameOrFolder || window.safeDir(i.name) === slug
+        i => i.name === nameOrFolder || window.sameFolderSlug(window.safeDir(i.name), slug)
     );
     return inst ? window.safeDir(inst.name) : slug;
 };
 window.resolveInstanceName = function (nameOrFolder) {
     const inst = store.allInstances.find(
-        i => i.name === nameOrFolder || window.safeDir(i.name) === window.safeDir(nameOrFolder)
+        i => i.name === nameOrFolder || window.sameFolderSlug(window.safeDir(i.name), window.safeDir(nameOrFolder))
     );
     return inst ? inst.name : nameOrFolder;
 };

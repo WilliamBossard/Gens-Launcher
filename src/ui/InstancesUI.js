@@ -366,7 +366,7 @@ export function setupInstances() {
             window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
             return;
         }
-        if (store.allInstances.some(i => window.safeDir(i.name) === safeFolderName)) {
+        if (window.instanceNameTaken(name)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
             return;
@@ -458,62 +458,72 @@ export function setupInstances() {
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
             return;
         }
-        if (newName !== inst.name && store.activeInstances.has(inst.name)) {
+        const safeOldName = window.safeDir(inst.name);
+        const safeNewName = window.safeDir(newName);
+        const folderChanged = !window.sameFolderSlug(safeOldName, safeNewName);
+        const caseOnlyRename = folderChanged === false && safeOldName !== safeNewName;
+        if ((folderChanged || caseOnlyRename) && store.activeInstances.has(inst.name)) {
             window.showToast(t("msg_err_rename_running", "Impossible de renommer une instance en cours d'exécution."), "error");
             return;
         }
-        if (newName !== inst.name) {
-            const safeOldName = window.safeDir(inst.name);
-            const safeNewName = window.safeDir(newName);
+        if (newName !== inst.name || folderChanged || caseOnlyRename) {
             if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(safeNewName)) {
                 window.showToast(t("msg_err_reserved_name", "Ce nom est invalide car réservé par le système."), "error");
                 return;
             }
-            if (store.allInstances.some((i, idx) => idx !== store.selectedInstanceIdx && window.safeDir(i.name) === safeNewName)) {
+            if (window.instanceNameTaken(newName, store.selectedInstanceIdx)) {
                 window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
                 return;
             }
             const oldFolder = path.join(store.instancesRoot, safeOldName);
             const newFolder = path.join(store.instancesRoot, safeNewName);
-            if (oldFolder !== newFolder) {
-                if (await window.existsSafe(newFolder)) {
+            const needsDiskRename = !window.sameFsPath(oldFolder, newFolder) || caseOnlyRename;
+            if (needsDiskRename && (folderChanged || caseOnlyRename)) {
+                const newExists = await window.existsSafe(newFolder);
+                const oldExists = await window.existsSafe(oldFolder);
+                const sameDir = newExists && window.sameFsPath(oldFolder, newFolder);
+                if (newExists && oldExists && !sameDir) {
                     window.showToast(t("msg_err_folder_exists", "Un dossier portant ce nom existe déjà sur le disque. Renommage annulé."), "error");
                     return;
                 }
                 try {
-                    if (await window.existsSafe(oldFolder)) {
-                        await fs.promises.rename(oldFolder, newFolder);
+                    if (oldExists && (!newExists || sameDir)) {
+                        if (sameDir && caseOnlyRename) {
+                            const tmpFolder = oldFolder + ".__gens_rename_" + Date.now();
+                            await fs.promises.rename(oldFolder, tmpFolder);
+                            await fs.promises.rename(tmpFolder, newFolder);
+                        } else if (!sameDir) {
+                            await fs.promises.rename(oldFolder, newFolder);
+                        }
                         if (inst.icon && inst.icon.includes(safeOldName)) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
-                        if (store.horizonActive) {
+                        if (store.horizonActive && safeNewName !== safeOldName) {
                             await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
-                            if (safeNewName !== safeOldName) {
-                                await window.api.invoke("call-horizon", ['--upload', safeNewName]);
-                                const binDir = path.join(store.dataDir, "bin");
-                                const syncPath = path.join(binDir, "last_sync.json");
-                                if (await window.existsSafe(syncPath)) {
-                                    try {
-                                        const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
-                                        if (syncState[safeOldName] !== undefined) {
-                                            syncState[safeNewName] = syncState[safeOldName];
-                                            delete syncState[safeOldName];
-                                            window.safeWriteJSONAsync(syncPath, syncState);
+                            await window.api.invoke("call-horizon", ['--upload', safeNewName]);
+                            const binDir = path.join(store.dataDir, "bin");
+                            const syncPath = path.join(binDir, "last_sync.json");
+                            if (await window.existsSafe(syncPath)) {
+                                try {
+                                    const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
+                                    if (syncState[safeOldName] !== undefined) {
+                                        syncState[safeNewName] = syncState[safeOldName];
+                                        delete syncState[safeOldName];
+                                        window.safeWriteJSONAsync(syncPath, syncState);
+                                    }
+                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                            }
+                            for (const prefix of ["meta_", "manifest_"]) {
+                                const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
+                                const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
+                                try {
+                                    if (await window.existsSafe(oldCache)) {
+                                        if (await window.existsSafe(newCache)) {
+                                            await fs.promises.unlink(newCache);
                                         }
-                                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
-                                }
-                                for (const prefix of ["meta_", "manifest_"]) {
-                                    const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
-                                    const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
-                                    try {
-                                        if (await window.existsSafe(oldCache)) {
-                                            if (await window.existsSafe(newCache)) {
-                                                await fs.promises.unlink(newCache);
-                                            }
-                                            await fs.promises.rename(oldCache, newCache);
-                                        }
-                                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
-                                }
+                                        await fs.promises.rename(oldCache, newCache);
+                                    }
+                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                             }
                         }
                     }
@@ -686,7 +696,7 @@ export function setupInstances() {
         const inst = JSON.parse(JSON.stringify(oldInst));
         let newName = inst.name + t("lbl_copy_suffix", " - Copie");
         let copyCounter = 2;
-        while (store.allInstances.some(i => window.safeDir(i.name) === window.safeDir(newName)))
+        while (window.instanceNameTaken(newName))
             newName = inst.name + t("lbl_copy_suffix", " - Copie") + ` (${copyCounter++})`;
         inst.name = newName;
         inst.playTime = 0;

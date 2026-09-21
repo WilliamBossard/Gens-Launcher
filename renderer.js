@@ -673,7 +673,11 @@ window.ctxRestoreCloud = async () => {
             loader = rich.loader || "vanilla";
         }
     }
-    if (!store.allInstances.some(i => i.name === targetName)) {
+    const targetSlug = window.safeDir(targetName);
+    const existingIdx = store.allInstances.findIndex(i =>
+        i.name === targetName || window.sameFolderSlug(window.safeDir(i.name), targetSlug)
+    );
+    if (existingIdx === -1) {
         const phantom = {
             name: targetName,
             version: "...",
@@ -697,7 +701,9 @@ window.ctxRestoreCloud = async () => {
         window.showToast(errMsg, "error");
         return;
     }
-    const idx = store.allInstances.findIndex(i => i.name === targetName);
+    const idx = store.allInstances.findIndex(i =>
+        i.name === targetName || window.sameFolderSlug(window.safeDir(i.name), targetSlug)
+    );
     if (idx === -1) return;
     await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(targetName));

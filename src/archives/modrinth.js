@@ -114,11 +114,7 @@ export function setup() {
                 try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             }
         } else {
-            let counter = 1;
-            while (store.allInstances.some((i) => i.name === finalName)) {
-              finalName = `${packName} (${counter})`;
-              counter++;
-            }
+            finalName = window.nextAvailableInstanceName(packName);
         }
         let newInst;
         if (updateTargetInstIdx !== null) {

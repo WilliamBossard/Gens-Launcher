@@ -68,7 +68,8 @@ export async function launchInstance(inst, acc, ui) {
     if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
     ramMB = Math.max(1024, ramMB);
     const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
-    let jPath = inst.javaPath?.trim() ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaExe;
+    const instanceJavaPath = inst.javaPath?.trim() || "";
+    let jPath = instanceJavaPath || store.globalSettings.defaultJavaPath || defaultJavaExe;
     let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
     
     if (isOffline || acc.type === "offline") {
@@ -94,7 +95,7 @@ export async function launchInstance(inst, acc, ui) {
     const requiredJava = getRequiredJavaVersion(inst.version);
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
 
-    if (jPath === "javaw" || jPath === "java" || !jPath) {
+    if (!instanceJavaPath) {
         jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
         const jrePath = path.join(store.dataDir, "java", `jre${requiredJava}`, "bin", javaExeName);
@@ -107,6 +108,32 @@ export async function launchInstance(inst, acc, ui) {
         } else if (jdkExists) {
             jPath = jdkPath;
             sysLog(`Auto-sélection de Java ${requiredJava} : ${jdkPath}`);
+        } else {
+            try {
+                const scan = await window.api.invoke("scan-java-versions");
+                const candidates = scan?.success && Array.isArray(scan.paths) ? scan.paths : [];
+                for (const candidate of candidates) {
+                    const candidateJava = candidate.toLowerCase().endsWith("javaw.exe")
+                        ? candidate.slice(0, -9) + "java.exe"
+                        : candidate;
+                    const versionResult = await window.api.invoke("check-java", candidateJava);
+                    const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
+                    const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+                    if (!versionMatch) continue;
+                    const major = versionMatch[1] === "1" ? parseInt(versionMatch[2], 10) : parseInt(versionMatch[1], 10);
+                    if (major === requiredJava) {
+                        jPath = candidate;
+                        sysLog(`Auto-sélection de Java ${requiredJava} détecté sur le système : ${candidate}`);
+                        break;
+                    }
+                }
+            } catch (e) {
+                sysLog(`Détection automatique de Java impossible : ${e.message}`, true);
+            }
+            if (jPath === "javaw" || jPath === "java") {
+                jPath = store.globalSettings.defaultJavaPath || jPath;
+                sysLog(`Aucun Java ${requiredJava} trouvé; utilisation du Java par défaut : ${jPath}`);
+            }
         }
     }
 

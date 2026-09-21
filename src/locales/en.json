@@ -247,6 +247,7 @@
   "msg_open_mp": "Opening modpack page...",
   "msg_dl_mp": "Downloading modpack...",
   "msg_install_mp": "Installing modpack...",
+  "msg_cf_download_unavailable": "CurseForge does not provide a direct download link for this modpack.",
   "msg_patch_notes": "Bug fixes and improvements.",
   "msg_update_ready": "Download complete! Do you want to restart the launcher to install the update?",
   "lbl_cf_api": "CurseForge API Key (Optional)",
