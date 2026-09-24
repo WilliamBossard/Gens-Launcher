@@ -326,7 +326,7 @@ window.api.on("horizon-status", async (data) => {
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
             const fallbackSafe = store.defaultIcons.vanilla.replace(/'/g, "\\'");
-            html += `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}">
+            html += `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
                 <img class="instance-icon" src="${safeIconSrc}" onerror="if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
@@ -338,7 +338,8 @@ window.api.on("horizon-status", async (data) => {
         grid.querySelectorAll('.instance-card[data-name]').forEach(card => {
             const name = card.dataset.name;
             const isLoc = card.dataset.isLocal === 'true';
-            card.addEventListener('contextmenu', (e) => openCloudContextMenu(e, name, isLoc));
+            const slug = card.dataset.slug || window.safeDir(name);
+            card.addEventListener('contextmenu', (e) => openCloudContextMenu(e, name, isLoc, slug));
         });
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
@@ -625,10 +626,11 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 });
-window.openCloudContextMenu = (e, instName, isLocal) => {
+window.openCloudContextMenu = (e, instName, isLocal, cloudSlug = null) => {
     e.preventDefault();
     e.stopPropagation();
     store.cloudTarget = instName;
+    store.cloudTargetSlug = cloudSlug || (window._cloudRichData?.find(r => r.name === instName || r.realName === instName)?.name) || window.safeDir(instName);
     const menu = document.getElementById("cloud-only-context-menu");
     if (!menu) return;
     const restoreItem = document.getElementById("ctx-cloud-restore-item");
@@ -673,7 +675,7 @@ window.ctxRestoreCloud = async () => {
             loader = rich.loader || "vanilla";
         }
     }
-    const targetSlug = window.safeDir(targetName);
+    const targetSlug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     const existingIdx = store.allInstances.findIndex(i =>
         i.name === targetName || window.sameFolderSlug(window.safeDir(i.name), targetSlug)
     );
@@ -691,7 +693,7 @@ window.ctxRestoreCloud = async () => {
         window.renderUI();
     }
     window._isManualHorizon = true;
-    const syncResult = await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName), '--force']);
+    const syncResult = await window.api.invoke("call-horizon", ['--sync', targetSlug, '--force']);
     window._isManualHorizon = false;
     if (window.horizonOpFailed(syncResult)) {
         const idx = store.allInstances.findIndex(i => i.name === targetName && i.version === "...");
@@ -763,7 +765,8 @@ window.ctxDeleteCloudOnly = async () => {
     const finalMsg = baseMsg.replace("{name}", store.cloudTarget);
     if (await window.showCustomConfirm(finalMsg, true)) {
         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
-        await window.api.invoke("call-horizon", ['--sync', '--delete', store.cloudTarget]);
+        const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === store.cloudTarget || r.realName === store.cloudTarget)?.name) || window.safeDir(store.cloudTarget);
+        await window.api.invoke("call-horizon", ['--sync', '--delete', slug]);
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     }
 };
@@ -771,11 +774,12 @@ window.ctxSyncCloudFromMenu = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
     const targetName = store.cloudTarget;
     if (!targetName) return;
+    const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
-        await window.api.invoke("call-horizon", ['--sync', window.safeDir(targetName)]);
-        const inst = store.allInstances.find(i => window.safeDir(i.name) === window.safeDir(targetName));
+        await window.api.invoke("call-horizon", ['--sync', slug]);
+        const inst = store.allInstances.find(i => window.safeDir(i.name) === slug);
         if (inst) {
             inst._iconCacheBuster = Date.now();
             if (window.renderUI) window.renderUI();
@@ -789,10 +793,11 @@ window.ctxUploadCloudFromMenu = async () => {
     document.getElementById("cloud-only-context-menu").style.display = "none";
     const targetName = store.cloudTarget;
     if (!targetName) return;
+    const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
-        await window.api.invoke("call-horizon", ['--upload', window.safeDir(targetName)]);
+        await window.api.invoke("call-horizon", ['--upload', slug]);
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     } finally {
         window._isManualHorizon = false;
