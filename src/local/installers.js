@@ -12,29 +12,50 @@ export function setup() {
     window.checkModUpdates = async () => {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
+        if (inst.loader === "vanilla") {
+            window.showToast(t("msg_vanilla_no_mods", "Cette instance est Vanilla (sans mods)."), "info");
+            return;
+        }
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        if (!(await window.existsSafe(modsPath))) return;
+        if (!(await window.existsSafe(modsPath))) {
+            window.showToast(t("msg_no_mods", "Aucun dossier de mods trouvé."), "info");
+            return;
+        }
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter((f) => f.endsWith(".jar"));
         if (files.length === 0) {
             window.showToast(t("msg_no_mods", "Aucun mod local installé."), "info");
             return;
         }
+        window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
+        await yieldUI();
         let hashes = {};
         for (let f of files) {
-            const hash = window.api.tools.hashFile(path.join(modsPath, f), "sha1");
-            hashes[hash] = f;
+            try {
+                const hash = await window.api.tools.hashFile(path.join(modsPath, f), "sha1");
+                if (hash) hashes[hash] = f;
+            } catch (err) {
+                sysLog(`[MODS] Erreur calcul hash pour ${f} : ${err.message}`, true);
+            }
         }
-        const loader = inst.loader === "forge" ? "forge" : "fabric";
+        if (Object.keys(hashes).length === 0) {
+            window.hideLoading();
+            window.showToast(t("msg_err_hash", "Impossible de calculer les empreintes des mods."), "error");
+            return;
+        }
+        const loaders = [];
+        if (inst.loader === "forge") loaders.push("forge");
+        else if (inst.loader === "neoforge") loaders.push("neoforge", "forge");
+        else if (inst.loader === "quilt") loaders.push("quilt", "fabric");
+        else loaders.push("fabric");
+
         const reqBody = {
             hashes: Object.keys(hashes),
             algorithm: "sha1",
-            loaders: [loader],
+            loaders: loaders,
             game_versions: [inst.version],
             version_types: ["release", "beta", "alpha"]
         };
-        window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
-        await yieldUI();
         const checkController = new AbortController();
         const checkTimeout = setTimeout(() => checkController.abort(), 30000);
         try {

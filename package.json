@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.8.10",
+  "version": "1.8.11",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -11,7 +11,7 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux",
-    "test": "node --test tests/crypto-utils.test.js tests/utils.test.js",
+    "test": "node --test tests/crypto-utils.test.js tests/utils.test.js tests/curseforge.test.js",
     "docs:dev": "npm --prefix docs run docs:dev",
     "docs:build": "npm --prefix docs run docs:build"
   },

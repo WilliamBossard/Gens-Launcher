@@ -140,6 +140,7 @@
   "msg_offline": "Hors-ligne",
   "msg_err_ping": "Erreur",
   "msg_no_mods": "Aucun mod local installé.",
+  "msg_vanilla_no_mods": "Cette instance est Vanilla (sans mods).",
   "msg_no_shaders": "Aucun shader installé.",
   "msg_no_rps": "Aucun pack de textures installé.",
   "msg_no_servers": "Aucun serveur enregistré.",

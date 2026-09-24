@@ -245,23 +245,20 @@ module.exports = function setupSystemHandlers(context) {
     });
 
     ipcMain.handle("copy-file-to-sandbox", async (_, { srcPath, destName }) => {
+        let destPath = null;
         try {
             // Validate destination name — no path traversal allowed
             const safeName = String(destName || "").replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
             if (!safeName) return { success: false, error: "Nom de fichier de destination invalide." };
-            const destPath = path.join(safeDataDir, safeName);
-            // Copy using streams to avoid blocking on large files
-            await new Promise((resolve, reject) => {
-                const r = fs.createReadStream(srcPath);
-                const w = fs.createWriteStream(destPath);
-                r.on("error", reject);
-                w.on("error", reject);
-                w.on("finish", resolve);
-                r.pipe(w);
-            });
+            destPath = assertPathUnderSandbox(path.join(safeDataDir, safeName));
+            const { pipeline } = require("stream/promises");
+            await pipeline(fs.createReadStream(srcPath), fs.createWriteStream(destPath));
             return { success: true, destPath };
         } catch (e) {
             mainLog(`[copy-file-to-sandbox] Erreur : ${e.message}`);
+            if (destPath) {
+                try { if (await existsSafe(destPath)) await fs.promises.unlink(destPath); } catch (_) { /* noop */ }
+            }
             return { success: false, error: e.message };
         }
     });

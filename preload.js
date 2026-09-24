@@ -240,4 +240,5 @@ contextBridge.exposeInMainWorld("api", {
      * @returns {Promise<{success: boolean, destPath?: string, error?: string}>}
      */
     copyImageToSandbox: (srcPath, destName, subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
+    copyFileToSandbox: (srcPath, destName) => ipcRenderer.invoke('copy-file-to-sandbox', { srcPath, destName }),
 });

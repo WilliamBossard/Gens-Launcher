@@ -140,6 +140,7 @@
   "msg_offline": "Offline",
   "msg_err_ping": "Error",
   "msg_no_mods": "No local mods installed.",
+  "msg_vanilla_no_mods": "This instance is Vanilla (no mods installed).",
   "msg_no_shaders": "No shaders installed.",
   "msg_no_rps": "No resource packs installed.",
   "msg_no_servers": "No saved servers.",

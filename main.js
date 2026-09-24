@@ -108,7 +108,10 @@ const mainInitPromise = (async () => {
  */
 function assertPathUnderSandbox(p) {
     const resolved = path.resolve(p);
-    if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
+    const isWin = process.platform === 'win32';
+    const checkResolved = isWin ? resolved.toLowerCase() : resolved;
+    const checkSafe = isWin ? safeDataDir.toLowerCase() : safeDataDir;
+    if (!checkResolved.startsWith(checkSafe + path.sep) && checkResolved !== checkSafe) {
         throw new Error('Chemin hors du sandbox GensLauncher');
     }
     return resolved;
@@ -410,9 +413,9 @@ const https = require('https');
 
 const ALLOWED_DOMAINS = [
     'github.com', 'githubusercontent.com', 'modrinth.com',
-    'curseforge.com', 'cursecdn.com', 'forgecdn.net',
+    'curseforge.com', 'curseforge.net', 'cursecdn.com', 'forgecdn.net',
     'mojang.com', 'minecraft.net', 'edgecastcdn.net',
-    'googleapis.com'
+    'googleapis.com', 'cloudfront.net', 'amazonaws.com'
 ];
 
 async function downloadFile(url, dest, redirectCount = 0) {
@@ -435,7 +438,7 @@ async function downloadFile(url, dest, redirectCount = 0) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 300000); // 5 minutes max pour gros mods et modpacks
     
     try {
         const res = await fetch(url, { redirect: 'manual', signal: controller.signal });

@@ -103,7 +103,7 @@ ipcMain.handle("check-java", async (_, javaPath) => {
         });
     });
 
-    ipcMain.handle("fetch-curseforge", async (_, { url, apiKey }) => {
+    ipcMain.handle("fetch-curseforge", async (_, { url, apiKey, method = "GET", body = null }) => {
         try {
             let finalUrl;
             try { finalUrl = new URL(url); } catch (e) { throw new Error("URL invalide."); }
@@ -112,13 +112,20 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 return { success: false, errorCode: "ERR_URL_REJECTED", error: "URL non autorisée." };
             }
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
             try {
                 const cleanKey = (apiKey || "").trim();
-                const response = await fetch(url, {
-                    headers: { "x-api-key": cleanKey, "Accept": "application/json" },
+                const headers = { "x-api-key": cleanKey, "Accept": "application/json" };
+                const fetchOptions = {
+                    method: method || "GET",
+                    headers,
                     signal: controller.signal
-                });
+                };
+                if (body && (method === "POST" || method === "PUT")) {
+                    headers["Content-Type"] = "application/json";
+                    fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+                }
+                const response = await fetch(url, fetchOptions);
                 clearTimeout(timeoutId);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return { success: true, data: await response.json() };
