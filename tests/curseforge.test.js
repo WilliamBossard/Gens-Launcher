@@ -68,20 +68,36 @@ test('CurseForge fallback URL uses websiteUrl or cfSlug (no 404 with numeric ID)
 });
 
 test('ensureZipInSandbox correctly classifies inside vs outside paths', () => {
-    const sandboxRoot = path.resolve("C:\\Users\\User\\AppData\\Roaming\\GensLauncher");
+    // Test 1: Plateforme courante (POSIX ou Windows) avec path.join
+    const sandboxRoot = path.resolve('mock_sandbox_root');
     const sep = path.sep;
 
     function isInSandbox(testPath) {
         const resolved = path.resolve(testPath);
-        const r = resolved.toLowerCase();
-        const s = sandboxRoot.toLowerCase();
+        const isWin = process.platform === 'win32';
+        const r = isWin ? resolved.toLowerCase() : resolved;
+        const s = isWin ? sandboxRoot.toLowerCase() : sandboxRoot;
         return r.startsWith(s + (s.endsWith(sep) ? '' : sep)) || r === s;
     }
 
-    assert.strictEqual(isInSandbox("C:\\Users\\User\\AppData\\Roaming\\GensLauncher\\test.zip"), true);
-    assert.strictEqual(isInSandbox("c:\\users\\user\\appdata\\roaming\\GensLauncher\\temp_123.zip"), true);
-    assert.strictEqual(isInSandbox("C:\\Users\\User\\Downloads\\modpack.zip"), false);
-    assert.strictEqual(isInSandbox("D:\\Games\\modpack.zip"), false);
+    assert.strictEqual(isInSandbox(path.join(sandboxRoot, 'test.zip')), true);
+    assert.strictEqual(isInSandbox(path.join(sandboxRoot, 'temp_123.zip')), true);
+    assert.strictEqual(isInSandbox(path.resolve('outside_dir', 'modpack.zip')), false);
+
+    // Test 2: Spécifique aux chemins Windows (exécutable aussi sur Linux via path.win32)
+    const winSandbox = 'C:\\Users\\User\\AppData\\Roaming\\GensLauncher';
+    const winSep = path.win32.sep;
+    function isWinInSandbox(testPath) {
+        const resolved = path.win32.resolve(testPath);
+        const r = resolved.toLowerCase();
+        const s = path.win32.resolve(winSandbox).toLowerCase();
+        return r.startsWith(s + (s.endsWith(winSep) ? '' : winSep)) || r === s;
+    }
+
+    assert.strictEqual(isWinInSandbox("C:\\Users\\User\\AppData\\Roaming\\GensLauncher\\test.zip"), true);
+    assert.strictEqual(isWinInSandbox("c:\\users\\user\\appdata\\roaming\\GensLauncher\\temp_123.zip"), true);
+    assert.strictEqual(isWinInSandbox("C:\\Users\\User\\Downloads\\modpack.zip"), false);
+    assert.strictEqual(isWinInSandbox("D:\\Games\\modpack.zip"), false);
 });
 
 test('getCurseForgeCdnUrls generates correct Edge and Mediafilez CDN URLs', async () => {
