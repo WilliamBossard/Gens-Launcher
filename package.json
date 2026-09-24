@@ -22,13 +22,13 @@
     "yauzl-promise": "^4.0.0"
   },
   "devDependencies": {
-    "electron": "^44.4.1",
+    "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "electronVersion": "44.4.1",
+    "electronVersion": "44.4.5",
     "directories": {
       "output": "dist"
     },
