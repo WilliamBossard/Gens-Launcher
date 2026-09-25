@@ -7,6 +7,64 @@ const fs = window.api.fs;
 const path = window.api.path;
 const os = window.api.os;
 
+/**
+ * Champs de configuration qui peuvent être mis à jour depuis le cloud via instance.json.
+ * Ces champs décrivent "comment jouer" à l'instance (version MC, loader, RAM, JVM…).
+ * Les champs de stats locales (playTime, lastPlayed…) sont intentionnellement exclus.
+ */
+const INSTANCE_CONFIG_KEYS = [
+    'version', 'loader', 'loaderVersion',
+    'ram', 'javaPath', 'jvmArgs', 'jvmProfile',
+    'resW', 'resH', 'notes', 'group',
+    'backupMode', 'backupLimit', 'disableHorizon',
+    'autoConnect', 'modrinthId', 'servers', 'icon',
+];
+
+/**
+ * Après un --sync Horizon, relit chaque instance.json depuis le dossier de l'instance
+ * et merge les champs de configuration dans store.allInstances, puis persiste instances.json.
+ *
+ * @param {string|null} instanceSafeName - Si fourni, ne merge que cette instance.
+ *                                         Si null, merge toutes les instances connues.
+ */
+export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
+    try {
+        let changed = false;
+        const targets = instanceSafeName
+            ? store.allInstances.filter(inst => window.safeDir(inst.name) === instanceSafeName)
+            : store.allInstances;
+
+        for (const inst of targets) {
+            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
+            const jsonPath = path.join(instFolder, 'instance.json');
+            try {
+                const raw = await fs.promises.readFile(jsonPath, 'utf8');
+                const diskConfig = JSON.parse(raw);
+                for (const key of INSTANCE_CONFIG_KEYS) {
+                    if (key in diskConfig && JSON.stringify(diskConfig[key]) !== JSON.stringify(inst[key])) {
+                        inst[key] = diskConfig[key];
+                        changed = true;
+                    }
+                }
+            } catch (e) {
+                if (e && e.code !== 'ENOENT') {
+                    sysLog(`[HORIZON] Erreur lecture instance.json pour "${inst.name}" : ${e.message}`, true);
+                }
+                // Si instance.json absent, on ne touche pas à la config locale
+            }
+        }
+
+        if (changed) {
+            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            sysLog('[HORIZON] Config instances mise à jour depuis le cloud (instance.json).');
+        }
+        return changed;
+    } catch (e) {
+        sysLog(`[HORIZON] Erreur mergeInstanceConfigFromDisk : ${e.message}`, true);
+        return false;
+    }
+}
+
 export async function getCloudSettings() {
     try {
         const hSettings = await window.api.invoke("get-horizon-settings");

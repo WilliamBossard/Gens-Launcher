@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
-import { getCloudSettings, performAutoBackup, getRequiredJavaVersion } from "./launchCore.js";
+import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, mergeInstanceConfigFromDisk } from "./launchCore.js";
 
 const ipcRenderer = window.api;
 const fs = window.api.fs;
@@ -39,6 +39,16 @@ export async function launchInstance(inst, acc, ui) {
             window._isManualHorizon = false;
             await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
             sysLog(`[HORIZON] Synchronisation terminée.`);
+            // Merger la config de l'instance (version MC, loader, RAM, JVM…) depuis l'instance.json
+            // que Horizon vient potentiellement de mettre à jour depuis le cloud.
+            const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
+            if (configUpdated) {
+                // Rafraîchir l'objet `inst` local depuis store (il a pu être réassigné)
+                const freshInst = store.allInstances.find(i => i.name === inst.name);
+                if (freshInst) Object.assign(inst, freshInst);
+                if (window.renderUI) window.renderUI();
+                sysLog(`[HORIZON] Config instance "${inst.name}" mise à jour depuis le cloud.`);
+            }
         }
     }
 

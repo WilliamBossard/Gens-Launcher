@@ -1,6 +1,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { showJavaTypeModal } from "./ModalManager.js";
+import { mergeInstanceConfigFromDisk } from "../launch/launchCore.js";
 const fs = window.api.fs;
 const path = window.api.path;
 export function setupSettings() {
@@ -817,6 +818,13 @@ window.runHorizonLogin = async (provider) => {
         if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
         await window.api.invoke("call-horizon", `--${action}`);
         if (action === 'sync' || action === 'upload') {
+            if (action === 'sync') {
+                // Après un sync complet, merger la config de toutes les instances
+                // (version MC, loader, RAM, JVM…) depuis les instance.json que Horizon
+                // vient potentiellement de mettre à jour depuis le cloud.
+                const configUpdated = await mergeInstanceConfigFromDisk(null);
+                if (configUpdated && window.renderUI) window.renderUI();
+            }
             if (window.horizonScheduleCloudRefresh) {
                 await window.horizonScheduleCloudRefresh({ refreshQuota: true });
             }
