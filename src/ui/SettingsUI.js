@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { showJavaTypeModal } from "./ModalManager.js";
-import { mergeInstanceConfigFromDisk } from "../launch/launchCore.js";
+import { mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "../launch/launchCore.js";
 const fs = window.api.fs;
 const path = window.api.path;
 export function setupSettings() {
@@ -816,14 +816,21 @@ window.runHorizonLogin = async (provider) => {
         }
         const zone = document.getElementById("horizon-progress-zone");
         if (zone && (action === 'sync' || action === 'upload')) zone.style.display = "block";
+
+        // Avant un upload global, écrire la config launcher dans chaque dossier d'instance
+        // pour que l'autre PC puisse récupérer version, loader, RAM, JVM… via le cloud.
+        if (action === 'upload') {
+            for (const inst of store.allInstances) {
+                await writeInstanceMetaForCloud(inst);
+            }
+        }
+
         await window.api.invoke("call-horizon", `--${action}`);
         if (action === 'sync' || action === 'upload') {
             if (action === 'sync') {
                 // Après un sync complet, merger la config de toutes les instances
-                // (version MC, loader, RAM, JVM…) depuis les instance.json que Horizon
-                // vient potentiellement de mettre à jour depuis le cloud.
-                const configUpdated = await mergeInstanceConfigFromDisk(null);
-                if (configUpdated && window.renderUI) window.renderUI();
+                // depuis gens/launcher_config.json que l'autre PC a écrit avant son upload.
+                await mergeInstanceConfigFromDisk(null);
             }
             if (window.horizonScheduleCloudRefresh) {
                 await window.horizonScheduleCloudRefresh({ refreshQuota: true });

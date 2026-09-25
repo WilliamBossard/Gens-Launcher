@@ -2,6 +2,7 @@ import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
 import { resetLogLineCount } from "../launch/launchUI.js";
+import { writeInstanceMetaForCloud } from "../launch/launchCore.js";
 const fs = window.api.fs;
 const path = window.api.path;
 const shell = window.api.shell;
@@ -500,7 +501,10 @@ export function setupInstances() {
                         }
                         if (store.horizonActive && safeNewName !== safeOldName) {
                             await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
+                            // Écrire la config avant l'upload pour que l'autre PC récupère le bon nom + config
+                            await writeInstanceMetaForCloud(inst);
                             await window.api.invoke("call-horizon", ['--upload', safeNewName]);
+
                             const binDir = path.join(store.dataDir, "bin");
                             const syncPath = path.join(binDir, "last_sync.json");
                             if (await window.existsSafe(syncPath)) {
