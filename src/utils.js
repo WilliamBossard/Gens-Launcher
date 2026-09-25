@@ -134,12 +134,80 @@ window.appendLog = (html) => {
     logOutput.scrollTop = logOutput.scrollHeight;
 };
 
-window.copyLogs = () => {
-    const text = document.getElementById("log-output")?.innerText || "";
+window.copyToClipboard = async (text) => {
+    if (typeof text !== "string") text = String(text || "");
+    if (!text) return false;
+
+    // 1. Essai avec l'API Electron native
     try {
-        window.api.clipboard.writeText(text);
+        if (window.api && window.api.clipboard && window.api.clipboard.writeText) {
+            window.api.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.warn("Electron clipboard.writeText a échoué, tentative de fallback:", err);
+    }
+
+    // 2. Essai avec navigator.clipboard standard
+    try {
+        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.warn("navigator.clipboard.writeText a échoué, tentative de fallback:", err);
+    }
+
+    // 3. Fallback avec élément textarea temporaire et execCommand('copy')
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "-9999px";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand("copy");
+        document.body.removeChild(textArea);
+        if (success) return true;
+    } catch (err) {
+        console.warn("execCommand fallback a échoué:", err);
+    }
+
+    // 4. Nouvel essai après un bref délai si le presse-papier Windows était temporairement verrouillé
+    try {
+        await new Promise(r => setTimeout(r, 100));
+        if (window.api && window.api.clipboard && window.api.clipboard.writeText) {
+            window.api.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.error("Tous les modes de copie dans le presse-papier ont échoué :", err);
+    }
+
+    return false;
+};
+
+window.copyLogs = async () => {
+    const logOutput = document.getElementById("log-output");
+    if (!logOutput) {
+        window.showToast(t("msg_no_logs", "Aucun log à copier."), "info");
+        return;
+    }
+
+    // Récupérer le texte visible ou le textContent si l'élément était caché
+    const text = (logOutput.innerText || logOutput.textContent || "").trim();
+    if (!text) {
+        window.showToast(t("msg_no_logs", "Aucun log à copier."), "info");
+        return;
+    }
+
+    const success = await window.copyToClipboard(text);
+    if (success) {
         window.showToast(t("msg_logs_copied", "Logs copiés dans le presse-papier !"), "success");
-    } catch (e) {
+    } else {
         window.showToast(t("msg_err_copy_logs", "Erreur lors de la copie des logs."), "error");
     }
 };
@@ -258,16 +326,41 @@ window.safeDir = function (name) {
     if (!name) return "";
     return name.replace(/[^a-z0-9]/gi, "_");
 };
+window.sameFolderSlug = function (a, b) {
+    const sa = String(a || "");
+    const sb = String(b || "");
+    if (window.api.platform === "win32") return sa.toLowerCase() === sb.toLowerCase();
+    return sa === sb;
+};
+window.sameFsPath = function (a, b) {
+    if (!a || !b) return false;
+    return window.sameFolderSlug(path.resolve(String(a)), path.resolve(String(b)));
+};
+window.instanceNameTaken = function (name, exceptIdx = -1) {
+    const slug = window.safeDir(name);
+    return store.allInstances.some((i, idx) =>
+        idx !== exceptIdx && window.sameFolderSlug(window.safeDir(i.name), slug)
+    );
+};
+window.nextAvailableInstanceName = function (baseName) {
+    const name = String(baseName || "").trim() || "Instance";
+    let candidate = name;
+    let counter = 1;
+    while (window.instanceNameTaken(candidate) && counter < 10000) {
+        candidate = `${name} (${counter++})`;
+    }
+    return candidate;
+};
 window.resolveInstanceFolder = function (nameOrFolder) {
     const slug = window.safeDir(nameOrFolder);
     const inst = store.allInstances.find(
-        i => i.name === nameOrFolder || window.safeDir(i.name) === slug
+        i => i.name === nameOrFolder || window.sameFolderSlug(window.safeDir(i.name), slug)
     );
     return inst ? window.safeDir(inst.name) : slug;
 };
 window.resolveInstanceName = function (nameOrFolder) {
     const inst = store.allInstances.find(
-        i => i.name === nameOrFolder || window.safeDir(i.name) === window.safeDir(nameOrFolder)
+        i => i.name === nameOrFolder || window.sameFolderSlug(window.safeDir(i.name), window.safeDir(nameOrFolder))
     );
     return inst ? inst.name : nameOrFolder;
 };

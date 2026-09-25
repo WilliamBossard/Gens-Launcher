@@ -43,13 +43,15 @@ ipcRenderer.on("microsoft-device-code", (data) => {
       if (!isLoginSessionActive && !window._msLoginSessionActive) return;
       openMicrosoftDeviceModal(data);
     });
-    window.copyMsDeviceCode = () => {
+    window.copyMsDeviceCode = async () => {
       const code = _msDeviceUserCode;
       if (!code) return;
-      try {
-        clipboard.writeText(code);
+      const success = window.copyToClipboard
+        ? await window.copyToClipboard(code)
+        : (() => { try { clipboard.writeText(code); return true; } catch { return false; } })();
+      if (success) {
         if (window.showToast) window.showToast(t("ms_device_copied", "Code copié dans le presse-papiers."), "success");
-      } catch {
+      } else {
         if (window.showToast) window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
       }
     };

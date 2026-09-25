@@ -4,7 +4,7 @@ const { Worker } = require('worker_threads');
 module.exports = function setupSystemHandlers(context) {
     const {
         ipcMain, getMainWindow, mainLog, path, fs, execFile,
-        assertPathUnderSandbox, sanitizeShortcutName, shell, app
+        assertPathUnderSandbox, sanitizeShortcutName, shell, app, safeDataDir
     } = context;
 
     ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
@@ -241,6 +241,25 @@ module.exports = function setupSystemHandlers(context) {
             return { success: true, data: mappedData };
         } catch (err) {
             return { success: true, data: { online: false, error: err.message } };
+        }
+    });
+
+    ipcMain.handle("copy-file-to-sandbox", async (_, { srcPath, destName }) => {
+        let destPath = null;
+        try {
+            // Validate destination name — no path traversal allowed
+            const safeName = String(destName || "").replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
+            if (!safeName) return { success: false, error: "Nom de fichier de destination invalide." };
+            destPath = assertPathUnderSandbox(path.join(safeDataDir, safeName));
+            const { pipeline } = require("stream/promises");
+            await pipeline(fs.createReadStream(srcPath), fs.createWriteStream(destPath));
+            return { success: true, destPath };
+        } catch (e) {
+            mainLog(`[copy-file-to-sandbox] Erreur : ${e.message}`);
+            if (destPath) {
+                try { if (await existsSafe(destPath)) await fs.promises.unlink(destPath); } catch (_) { /* noop */ }
+            }
+            return { success: false, error: e.message };
         }
     });
 

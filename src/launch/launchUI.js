@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
-import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, analyzeCrash } from "./launchCore.js";
+import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, analyzeCrash, mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "./launchCore.js";
 import { launchInstance } from "./LaunchManager.js";
 
 const ipcRenderer = window.api;
@@ -384,6 +384,9 @@ export function setupLauncher() {
                     const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
                     if (!isOffline) {
                         window._isManualHorizon = false;
+                        // Écrire la config launcher dans gens/launcher_config.json AVANT l'upload
+                        // pour que l'autre PC puisse récupérer version, loader, RAM, JVM…
+                        await writeInstanceMetaForCloud(closedInst);
                         const hRes = await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);
                         if (hRes && hRes.lastJson && hRes.lastJson.type === "ERROR") {
                             let msg = hRes.lastJson.message;

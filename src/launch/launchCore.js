@@ -7,6 +7,112 @@ const fs = window.api.fs;
 const path = window.api.path;
 const os = window.api.os;
 
+/**
+ * Champs de configuration embarqués dans le cloud via gens/launcher_config.json.
+ * Ces champs décrivent "comment jouer" à l'instance (version MC, loader, RAM, JVM…).
+ * Les champs de stats locales (playTime, lastPlayed, sessionHistory…) sont exclus
+ * intentionnellement : ils restent toujours propres à chaque PC.
+ */
+const INSTANCE_CONFIG_KEYS = [
+    'version', 'loader', 'loaderVersion',
+    'ram', 'javaPath', 'jvmArgs', 'jvmProfile',
+    'resW', 'resH', 'notes', 'group',
+    'backupMode', 'backupLimit', 'disableHorizon',
+    'autoConnect', 'modrinthId', 'servers', 'icon',
+];
+
+/** Chemin relatif (depuis la racine de l'instance) du fichier de config cloud. */
+const CLOUD_META_SUBPATH = ['gens', 'launcher_config.json'];
+
+/**
+ * Écrit la config launcher dans {instanceFolder}/gens/launcher_config.json
+ * juste AVANT l'appel --upload, afin que Horizon embarque ces métadonnées
+ * dans le cloud avec les fichiers du jeu.
+ *
+ * @param {object} inst - L'objet instance depuis store.allInstances.
+ */
+export async function writeInstanceMetaForCloud(inst) {
+    if (!inst) return;
+    try {
+        const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
+        const metaDir  = path.join(instFolder, CLOUD_META_SUBPATH[0]);
+        const metaPath = path.join(metaDir, CLOUD_META_SUBPATH[1]);
+
+        // Créer le dossier gens/ s'il n'existe pas encore
+        await fs.promises.mkdir(metaDir, { recursive: true });
+
+        const config = {};
+        for (const key of INSTANCE_CONFIG_KEYS) {
+            if (key in inst) config[key] = inst[key];
+        }
+        // Horodatage pour que l'autre PC puisse savoir si c'est plus récent
+        config._cloudExportedAt = Date.now();
+
+        await fs.promises.writeFile(metaPath, JSON.stringify(config, null, 2), 'utf8');
+        sysLog(`[HORIZON] Métadonnées d'instance écrites pour upload : "${inst.name}"`);
+    } catch (e) {
+        sysLog(`[HORIZON] Erreur écriture métadonnées cloud pour "${inst?.name}" : ${e.message}`, true);
+    }
+}
+
+/**
+ * Après un --sync Horizon, relit {instanceFolder}/gens/launcher_config.json
+ * (écrit par l'autre PC avant son upload) et merge les champs de config
+ * dans store.allInstances, puis persiste instances.json.
+ *
+ * @param {string|null} instanceSafeName - Si fourni, ne merge que cette instance.
+ *                                         Si null, merge toutes les instances connues.
+ */
+export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
+    try {
+        let changed = false;
+        const targets = instanceSafeName
+            ? store.allInstances.filter(inst => window.safeDir(inst.name) === instanceSafeName)
+            : store.allInstances;
+
+        for (const inst of targets) {
+            const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
+            const metaPath   = path.join(instFolder, ...CLOUD_META_SUBPATH);
+            try {
+                const raw = await fs.promises.readFile(metaPath, 'utf8');
+                const cloudConfig = JSON.parse(raw);
+
+                // Vérification de cohérence minimale
+                if (!cloudConfig || typeof cloudConfig !== 'object') continue;
+
+                for (const key of INSTANCE_CONFIG_KEYS) {
+                    if (key in cloudConfig && JSON.stringify(cloudConfig[key]) !== JSON.stringify(inst[key])) {
+                        inst[key] = cloudConfig[key];
+                        changed = true;
+                    }
+                }
+
+                if (changed) {
+                    sysLog(`[HORIZON] Config de "${inst.name}" mise à jour depuis le cloud ` +
+                           `(exportée le ${new Date(cloudConfig._cloudExportedAt || 0).toLocaleString()}).`);
+                }
+            } catch (e) {
+                if (e && e.code !== 'ENOENT') {
+                    sysLog(`[HORIZON] Erreur lecture config cloud de "${inst.name}" : ${e.message}`, true);
+                }
+                // Fichier absent = l'autre PC n'a jamais exporté de meta → on ne touche pas à la config locale
+            }
+        }
+
+        if (changed) {
+            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            sysLog('[HORIZON] instances.json mis à jour avec la config venue du cloud.');
+            // Rafraîchir l'UI pour afficher les nouvelles valeurs
+            if (window.renderUI) window.renderUI();
+        }
+        return changed;
+    } catch (e) {
+        sysLog(`[HORIZON] Erreur mergeInstanceConfigFromDisk : ${e.message}`, true);
+        return false;
+    }
+}
+
+
 export async function getCloudSettings() {
     try {
         const hSettings = await window.api.invoke("get-horizon-settings");
@@ -98,7 +204,6 @@ export function getRequiredJavaVersion(mcVersion) {
             patch = parseInt(parts[1]) || 0;
         }
     }
-    if (minor > 26 || (minor === 26 && patch >= 2)) return 25;
     if (minor > 26 || (minor === 26 && patch >= 1)) return 25;
     if (minor > 20 || (minor === 20 && patch >= 5)) return 21;
     if (minor >= 17) return 17;

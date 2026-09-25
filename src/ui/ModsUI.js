@@ -1,5 +1,6 @@
 import { store } from "../store.js";
 import { sysLog } from "../utils.js";
+import { getCurseForgeCdnUrls } from "../archives/curseforge.js";
 const fs = window.api.fs;
 const path = window.api.path;
 function sanitizeFilename(filename) {
@@ -93,7 +94,9 @@ function setupMods() {
         if (source === "modrinth") {
             let facets = `[["project_type:${type}"]]`;
             if (version) facets = `[["project_type:${type}"],["versions:${version}"]]`;
-            if (type === "mod") facets = `[["project_type:mod"],["categories:${loader}"],["versions:${version}"]]`;
+            if (type === "mod" || type === "modpack") {
+                facets = `[["project_type:${type}"],["categories:${loader}"],["versions:${version}"]]`;
+            }
             const sortIndex = query ? "relevance" : "downloads";
             const url = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${sortIndex}&limit=20`;
             const res = await window.api.invoke("search-modrinth", url);
@@ -150,7 +153,7 @@ function setupMods() {
             if (type === "resourcepack") cfClassId = 12;
             if (type === "shader") cfClassId = 6552;
             let modLoaderType = 0; 
-            if (type === "mod") {
+            if (type === "mod" || type === "modpack") {
                 if (loader === "forge") modLoaderType = 1;
                 if (loader === "fabric") modLoaderType = 4;
                 if (loader === "neoforge") modLoaderType = 6;
@@ -162,13 +165,18 @@ function setupMods() {
             if (!res.success) throw new Error(t("msg_cf_api_invalid", "Clé invalide") + " " + (res.error || ""));
             const data = res.data;
             if (!data || !data.data) throw new Error("Réponse API CurseForge invalide");
+                        const compatibleResults = data.data.filter(mod => {
+                                if (type !== "modpack" || !modLoaderType) return true;
+                                const indexes = Array.isArray(mod.latestFilesIndexes) ? mod.latestFilesIndexes : [];
+                                return indexes.some(index => index.gameVersion === version && Number(index.modLoader) === modLoaderType);
+                        });
             resDiv.innerHTML = "";
-            if (data.data.length === 0) {
+                        if (compatibleResults.length === 0) {
               resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version}.</div>`;
               return;
             }
             const cfFrag = document.createDocumentFragment();
-            data.data.forEach((mod) => {
+                        compatibleResults.forEach((mod) => {
               const downloads  = (mod.downloadCount / 1000000).toFixed(1) + "M DLs";
               const icon = mod.logo ? mod.logo.thumbnailUrl : "";
               const safeTitle  = window.escapeHTML(mod.name);
@@ -191,10 +199,12 @@ function setupMods() {
               if (!isInstalled) {
                 const btn = card.querySelector(".btn-install-cf");
                 btn.dataset.projectId = String(mod.id || "");
+                                btn.dataset.cfSlug = String(mod.slug || "");
+                                btn.dataset.cfWebsiteUrl = String(mod.links?.websiteUrl || "");
                 btn.dataset.projType  = type;
                 btn.dataset.source    = "curseforge";
                 btn.addEventListener("click", () => {
-                  window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source);
+                                    window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source, new Set(), btn.dataset.cfWebsiteUrl, btn.dataset.cfSlug);
                 });
               }
               cfFrag.appendChild(card);
@@ -206,7 +216,7 @@ function setupMods() {
         resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche")} : ${e.message || "Impossible de joindre l'API"}</div>`;
       }
     };
-    window.installGlobalMod = async (projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set()) => {
+    window.installGlobalMod = async (projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "") => {
       if (visitedDeps.has(projectId)) return; 
       visitedDeps.add(projectId);
       if (projType !== "modpack" && store.selectedInstanceIdx === null) {
@@ -214,22 +224,31 @@ function setupMods() {
         return;
       }
       const statusText = document.getElementById("catalog-status");
-      let loader, version;
+      const catalogLoaderEl = document.getElementById("catalog-loader");
+      const catalogVersionEl = document.getElementById("catalog-version");
+      let loader = catalogLoaderEl ? catalogLoaderEl.value : "";
+      let version = catalogVersionEl ? catalogVersionEl.value : "";
       if (projType !== "modpack") {
-        const inst = store.allInstances[store.selectedInstanceIdx];
-        loader = document.getElementById("catalog-loader") ? document.getElementById("catalog-loader").value : (inst.loader === "forge" ? "forge" : "fabric");
-        version = document.getElementById("catalog-version") ? document.getElementById("catalog-version").value : inst.version;
-      } else {
-        version = document.getElementById("catalog-version").value;
+        const inst = store.selectedInstanceIdx !== null ? store.allInstances[store.selectedInstanceIdx] : null;
+        if (!loader && inst) loader = inst.loader === "forge" ? "forge" : "fabric";
+        if (!version && inst) version = inst.version;
       }
+      if (!version) version = "1.20.4";
       try {
         if (!isDependency) statusText.innerText = t("msg_dl_mod", "Téléchargement en cours...");
         if (source === "modrinth") {
             let url = `https://api.modrinth.com/v2/project/${projectId}/version`;
             let params = [];
             if (version) params.push(`game_versions=${encodeURIComponent('["' + version + '"]')}`);
-            if (projType === "mod") params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
-            if (projType === "modpack") params.push(`loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`);
+            if (projType === "mod") {
+              if (loader) params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
+            } else if (projType === "modpack") {
+              if (loader) {
+                params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
+              } else {
+                params.push(`loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`);
+              }
+            }
             if (params.length > 0) url += "?" + params.join("&");
             const versionsRes = await window.fetchWithTimeout(url);
             if (!versionsRes.ok) throw new Error(`Modrinth API HTTP ${versionsRes.status}`);
@@ -298,14 +317,17 @@ function setupMods() {
         } 
         else if (source === "curseforge") {
             const apiKey = store.globalSettings.cfApiKey;
+            if (projType === "modpack" && !isDependency) {
+                    statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
+            }
             let modLoaderType = 0;
-            if (projType === "mod") {
+            if (projType === "mod" || projType === "modpack") {
                 if (loader === "forge") modLoaderType = 1;
                 if (loader === "fabric") modLoaderType = 4;
                 if (loader === "neoforge") modLoaderType = 6;
                 if (loader === "quilt") modLoaderType = 5;
             }
-            let url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${version}`;
+            let url = `https://api.curseforge.com/v1/mods/${projectId}/files?gameVersion=${encodeURIComponent(version)}`;
             if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
             const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
             if (!res.success) throw new Error(t("msg_cf_api_invalid", "Erreur API"));
@@ -314,21 +336,95 @@ function setupMods() {
                 if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
                 return;
             }
-            const fileData = data.data[0]; 
-            if (projType === "modpack") {
-                statusText.innerText = t("msg_open_mp", "Ouverture de la page du modpack...");
-                window.openSystemPath(`https://www.curseforge.com/minecraft/modpacks/${projectId}`);
+            const fileData = data.data.find(file => {
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map(v => v.toLowerCase()) : [];
+                const matchVer = version ? gv.includes(version.toLowerCase()) : true;
+                const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
+                return matchVer && matchLoader && file.releaseType === 1;
+            }) || data.data.find(file => {
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map(v => v.toLowerCase()) : [];
+                const matchVer = version ? gv.includes(version.toLowerCase()) : true;
+                const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
+                return matchVer && matchLoader;
+            }) || data.data[0];
+            if (!fileData) {
+                if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
+                return;
+            }
+            if (projType === "modpack" && !isDependency) {
+                let downloadUrl = fileData.downloadUrl;
+                if (!/^https:\/\//i.test(downloadUrl || "") && fileData.id) {
+                    const linkRes = await window.api.invoke("fetch-curseforge", {
+                        url: `https://api.curseforge.com/v1/mods/${projectId}/files/${fileData.id}/download-url`,
+                        apiKey
+                    });
+                    if (linkRes?.success && /^https:\/\//i.test(linkRes.data?.data || "")) {
+                        downloadUrl = linkRes.data.data;
+                    }
+                }
+                const candidateUrls = [];
+                if (/^https:\/\//i.test(downloadUrl || "")) candidateUrls.push(downloadUrl);
+                if (fileData.id && fileData.fileName) {
+                    for (const u of getCurseForgeCdnUrls(fileData.id, fileData.fileName)) {
+                        if (!candidateUrls.includes(u)) candidateUrls.push(u);
+                    }
+                }
+
+                if (candidateUrls.length > 0) {
+                    const tempPath = path.join(store.dataDir, `cf_modpack_${Date.now()}.zip`);
+                    let downloaded = false;
+                    for (const testUrl of candidateUrls) {
+                        try {
+                            const dlRes = await window.api.invoke("download-file-stream", { url: testUrl, destPath: tempPath });
+                            if (dlRes?.success) {
+                                downloaded = true;
+                                break;
+                            }
+                        } catch (e) {
+                            sysLog(`Téléchargement modpack CurseForge via ${testUrl} échoué : ${e.message}`, true);
+                        }
+                    }
+
+                    if (downloaded) {
+                        statusText.innerText = t("msg_install_mp", "Installation du modpack...");
+                        window.closeCatalogModal();
+                        await window.handleCurseForgeImport(tempPath, null);
+                        try { if (await window.existsSafe(tempPath)) await fs.promises.unlink(tempPath); } catch (_) { /* noop */ }
+                        return;
+                    }
+                }
+
+                statusText.innerText = t("msg_cf_download_unavailable", "CurseForge ne fournit pas de lien de téléchargement direct pour ce modpack.");
+                window.showToast(statusText.innerText, "error");
+                const fallbackUrl = websiteUrl || (cfSlug
+                    ? `https://www.curseforge.com/minecraft/modpacks/${encodeURIComponent(cfSlug)}`
+                    : `https://curseforge.com/projects/${projectId}`);
+                window.openSystemPath(fallbackUrl);
                 return;
             }
             let downloadUrl = fileData.downloadUrl;
-            if (!downloadUrl) {
-                statusText.innerText = t("msg_dl_browser", "Lien de téléchargement sécurisé... Ouverture du navigateur.");
-                window.openSystemPath(`https://curseforge.com/projects/${projectId}`);
-                return;
+            if (!/^https:\/\//i.test(downloadUrl || "") && fileData.id) {
+                const linkRes = await window.api.invoke("fetch-curseforge", {
+                    url: `https://api.curseforge.com/v1/mods/${projectId}/files/${fileData.id}/download-url`,
+                    apiKey
+                });
+                if (linkRes?.success && /^https:\/\//i.test(linkRes.data?.data || "")) {
+                    downloadUrl = linkRes.data.data;
+                }
             }
-            if (!/^https:\/\//i.test(downloadUrl)) {
-                sysLog(`URL CurseForge rejetée (protocole invalide) : ${downloadUrl}`, true);
-                if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur : URL invalide.");
+            const candidateUrls = [];
+            if (/^https:\/\//i.test(downloadUrl || "")) candidateUrls.push(downloadUrl);
+            if (fileData.id && fileData.fileName) {
+                for (const u of getCurseForgeCdnUrls(fileData.id, fileData.fileName)) {
+                    if (!candidateUrls.includes(u)) candidateUrls.push(u);
+                }
+            }
+            if (candidateUrls.length === 0) {
+                statusText.innerText = t("msg_dl_browser", "Lien de téléchargement sécurisé... Ouverture du navigateur.");
+                const fallbackModUrl = websiteUrl || (cfSlug
+                    ? `https://www.curseforge.com/minecraft/mc-mods/${encodeURIComponent(cfSlug)}`
+                    : `https://curseforge.com/projects/${projectId}`);
+                window.openSystemPath(fallbackModUrl);
                 return;
             }
             let targetFolder = "mods";
@@ -340,22 +436,31 @@ function setupMods() {
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
             if (!(await window.existsSafe(filePath))) {
-              const dlRes = await window.fetchWithTimeout(downloadUrl);
-const buffer = await dlRes.arrayBuffer();
-const fileBytes = new Uint8Array(buffer);
-if (fileData.hashes && fileData.hashes.length > 0) {
-    const sha1Obj = fileData.hashes.find(h => h.algo === 1);
-    if (sha1Obj) {
-        const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
-        if (dlHash !== sha1Obj.value) {
-            sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${fileData.fileName} (attendu: ${sha1Obj.value}, reçu: ${dlHash})`, true);
-            if (!isDependency) statusText.innerText = t("msg_err_hash", "Fichier corrompu ou modifié !");
-            if (window.showToast) window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !"), "error");
-            return;
-        }
-    }
-}
-await fs.promises.writeFile(filePath, fileBytes);
+                let downloaded = false;
+                const sha1Obj = fileData.hashes?.find(h => h.algo === 1);
+                for (const candidateUrl of candidateUrls) {
+                    try {
+                        const dlRes = await window.api.invoke("download-file-stream", { url: candidateUrl, destPath: filePath });
+                        if (dlRes?.success) {
+                            if (sha1Obj?.value) {
+                                const hashRes = await window.api.invoke("hash-file", { filePath, algo: "sha1" });
+                                if (hashRes?.success && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
+                                    sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${fileData.fileName}`, true);
+                                    try { await fs.promises.unlink(filePath); } catch (_) {}
+                                    continue;
+                                }
+                            }
+                            downloaded = true;
+                            break;
+                        }
+                    } catch (e) {
+                        sysLog(`Échec téléchargement mod via ${candidateUrl}: ${e.message}`, true);
+                    }
+                }
+                if (!downloaded) {
+                    statusText.innerText = t("msg_err_dl", "Erreur : Téléchargement échoué.");
+                    return;
+                }
             }
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {
               for (let dep of fileData.dependencies) {
@@ -531,7 +636,7 @@ if (!isDependency) {
                 if (type === "shader") cfClassId = 6552;
                 
                 let modLoaderType = 0;
-                if (type === "mod") {
+                if (type === "mod" || type === "modpack") {
                     if (loader === "forge") modLoaderType = 1;
                     if (loader === "fabric") modLoaderType = 4;
                     if (loader === "neoforge") modLoaderType = 6;
@@ -678,7 +783,7 @@ if (!isDependency) {
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
             return;
         }
-        if (store.allInstances.some(i => window.safeDir(i.name) === safeFolderName)) {
+        if (window.instanceNameTaken(packName)) {
             nameInput.style.borderColor = "#f87171";
             window.showToast(t("msg_builder_name_taken", "Une instance avec ce nom existe déjà."), "error");
             return;
@@ -854,13 +959,17 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
     window.checkModpackUpdate = async (inst) => {
         if (!inst || !inst.modrinthId) return;
         try {
-            const url = `https://api.modrinth.com/v2/project/${encodeURIComponent(inst.modrinthId)}/version?game_versions=${encodeURIComponent('["' + inst.version + '"]')}&loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`;
+            const url = `https://api.modrinth.com/v2/project/${encodeURIComponent(inst.modrinthId)}/version`;
             const res = await window.fetchWithTimeout(url);
             if (!res.ok) return;
             const versions = await res.json();
-            if (versions.length > 0) {
-                const latest = versions[0];
-                if (inst.modpackVersion === latest.version_number) return;
+            if (Array.isArray(versions) && versions.length > 0) {
+                const latest = versions.find((v) => {
+                    if (!inst.loader || inst.loader === "vanilla") return true;
+                    const lds = Array.isArray(v.loaders) ? v.loaders.map((l) => l.toLowerCase()) : [];
+                    return lds.includes(inst.loader.toLowerCase());
+                }) || versions[0];
+                if (!latest || inst.modpackVersion === latest.version_number) return;
                 const updateBtn = document.getElementById("btn-update-modpack");
                 if (updateBtn && latest.files && latest.files.length > 0) {
                     const mrpackFile = latest.files.find((f) => f.filename.endsWith(".mrpack")) || latest.files[0];

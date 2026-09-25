@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
-import { getCloudSettings, performAutoBackup, getRequiredJavaVersion } from "./launchCore.js";
+import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, mergeInstanceConfigFromDisk } from "./launchCore.js";
 
 const ipcRenderer = window.api;
 const fs = window.api.fs;
@@ -39,6 +39,16 @@ export async function launchInstance(inst, acc, ui) {
             window._isManualHorizon = false;
             await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
             sysLog(`[HORIZON] Synchronisation terminée.`);
+            // Merger la config de l'instance (version MC, loader, RAM, JVM…) depuis l'instance.json
+            // que Horizon vient potentiellement de mettre à jour depuis le cloud.
+            const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
+            if (configUpdated) {
+                // Rafraîchir l'objet `inst` local depuis store (il a pu être réassigné)
+                const freshInst = store.allInstances.find(i => i.name === inst.name);
+                if (freshInst) Object.assign(inst, freshInst);
+                if (window.renderUI) window.renderUI();
+                sysLog(`[HORIZON] Config instance "${inst.name}" mise à jour depuis le cloud.`);
+            }
         }
     }
 
@@ -68,7 +78,8 @@ export async function launchInstance(inst, acc, ui) {
     if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
     ramMB = Math.max(1024, ramMB);
     const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
-    let jPath = inst.javaPath?.trim() ? inst.javaPath : store.globalSettings.defaultJavaPath || defaultJavaExe;
+    const instanceJavaPath = inst.javaPath?.trim() || "";
+    let jPath = instanceJavaPath || store.globalSettings.defaultJavaPath || defaultJavaExe;
     let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
     
     if (isOffline || acc.type === "offline") {
@@ -94,7 +105,7 @@ export async function launchInstance(inst, acc, ui) {
     const requiredJava = getRequiredJavaVersion(inst.version);
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
 
-    if (jPath === "javaw" || jPath === "java" || !jPath) {
+    if (!instanceJavaPath) {
         jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
         const jrePath = path.join(store.dataDir, "java", `jre${requiredJava}`, "bin", javaExeName);
@@ -107,6 +118,32 @@ export async function launchInstance(inst, acc, ui) {
         } else if (jdkExists) {
             jPath = jdkPath;
             sysLog(`Auto-sélection de Java ${requiredJava} : ${jdkPath}`);
+        } else {
+            try {
+                const scan = await window.api.invoke("scan-java-versions");
+                const candidates = scan?.success && Array.isArray(scan.paths) ? scan.paths : [];
+                for (const candidate of candidates) {
+                    const candidateJava = candidate.toLowerCase().endsWith("javaw.exe")
+                        ? candidate.slice(0, -9) + "java.exe"
+                        : candidate;
+                    const versionResult = await window.api.invoke("check-java", candidateJava);
+                    const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
+                    const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+                    if (!versionMatch) continue;
+                    const major = versionMatch[1] === "1" ? parseInt(versionMatch[2], 10) : parseInt(versionMatch[1], 10);
+                    if (major === requiredJava) {
+                        jPath = candidate;
+                        sysLog(`Auto-sélection de Java ${requiredJava} détecté sur le système : ${candidate}`);
+                        break;
+                    }
+                }
+            } catch (e) {
+                sysLog(`Détection automatique de Java impossible : ${e.message}`, true);
+            }
+            if (jPath === "javaw" || jPath === "java") {
+                jPath = store.globalSettings.defaultJavaPath || jPath;
+                sysLog(`Aucun Java ${requiredJava} trouvé; utilisation du Java par défaut : ${jPath}`);
+            }
         }
     }
 
@@ -239,8 +276,9 @@ export async function launchInstance(inst, acc, ui) {
             const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
             if (srvHost && srvPort >= 1 && srvPort <= 65535) {
                 opts.server = { host: srvHost, port: srvPort };
-                const minorVer = parseInt(inst.version.split('.')[1]) || 0;
-                if (minorVer >= 20) opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+                const vParts = (inst.version || "").split('.');
+                const isModernVer = vParts[0] === '1' ? ((parseInt(vParts[1], 10) || 0) >= 20) : ((parseInt(vParts[0], 10) || 0) >= 20);
+                if (isModernVer) opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
             }
         }
     }
