@@ -204,7 +204,7 @@ export function getRequiredJavaVersion(mcVersion) {
             patch = parseInt(parts[1]) || 0;
         }
     }
-    if (minor > 26 || (minor === 26 && patch >= 1)) return 25;
+    if (minor >= 26) return 25;
     if (minor > 20 || (minor === 20 && patch >= 5)) return 21;
     if (minor >= 17) return 17;
     return 8;
