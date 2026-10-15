@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: WilliamBossard.GensLauncher
+PackageVersion: 1.8.13
+InstallerLocale: fr-FR
+Platform:
+  - Windows.Desktop
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+ReleaseDate: 2026-10-15
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/WilliamBossard/Gens-Launcher/releases/download/v1.8.13/Gens-Launcher-Setup-1.8.13.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: installer
+ManifestVersion: 1.6.0

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+PackageIdentifier: WilliamBossard.GensLauncher
+PackageVersion: 1.8.13
+PackageLocale: en-US
+Publisher: William Bossard
+PublisherUrl: https://github.com/WilliamBossard
+PublisherSupportUrl: https://github.com/WilliamBossard/Gens-Launcher/issues
+PackageName: Gens Launcher
+PackageUrl: https://williambossard.github.io/Gens-Launcher/
+License: MIT
+LicenseUrl: https://github.com/WilliamBossard/Gens-Launcher/blob/main/LICENSE
+Copyright: Copyright (c) William Bossard
+ShortDescription: Modern, fast and secure Minecraft launcher with Horizon Cloud Sync
+Description: Gens Launcher is an open-source Minecraft launcher engineered for maximum performance, security, and cloud synchronization (Google Drive, Dropbox, OneDrive). Seamless management of Vanilla, Fabric, Quilt, NeoForge and Forge instances.
+Moniker: gens-launcher
+Tags:
+  - minecraft
+  - launcher
+  - gaming
+  - fabric
+  - forge
+  - neoforge
+  - quilt
+  - modrinth
+  - curseforge
+ReleaseNotesUrl: https://github.com/WilliamBossard/Gens-Launcher/releases/tag/v1.8.13
+ManifestType: locale
+ManifestVersion: 1.6.0

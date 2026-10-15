@@ -1,0 +1,33 @@
+name: Publish to WinGet
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Submit to Windows Package Manager
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Publish to WinGet
+        uses: vedantmgoyal9/winget-releaser@v2
+        if: env.HAS_TOKEN == 'true'
+        env:
+          HAS_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+        with:
+          identifier: WilliamBossard.GensLauncher
+          installer-type: nullsoft
+          token: ${{ secrets.WINGET_TOKEN }}
+
+      - name: Info Token Manquant
+        if: ${{ secrets.WINGET_TOKEN == '' }}
+        run: |
+          Write-Host "Le secret WINGET_TOKEN n'est pas encore configure dans votre depot GitHub."
+          Write-Host "Pour soumettre automatiquement sur winget-pkgs, creez un Personal Access Token (PAT) GitHub et ajoutez-le dans Settings > Secrets > Actions sous le nom WINGET_TOKEN."

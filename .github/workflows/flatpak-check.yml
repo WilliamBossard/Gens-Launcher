@@ -1,0 +1,26 @@
+name: Validate Flatpak Metadata
+
+on:
+  push:
+    paths:
+      - 'build/flatpak/**'
+      - '.github/workflows/flatpak-check.yml'
+  pull_request:
+    paths:
+      - 'build/flatpak/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate AppStream & Flatpak Manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Installer les outils de validation AppStream
+        run: sudo apt-get update && sudo apt-get install -y appstream
+
+      - name: Valider AppStream MetaInfo XML
+        run: |
+          appstreamcli validate --no-net build/flatpak/com.gens.launcher.metainfo.xml

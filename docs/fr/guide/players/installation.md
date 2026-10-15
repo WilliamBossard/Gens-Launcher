@@ -12,9 +12,21 @@ Gens Launcher est disponible nativement sur **Windows**, **macOS** et **Linux**.
 
 ## Windows (10 et 11)
 
-### Téléchargement et Installation
+### Option 1 : Gestionnaire de Paquets WinGet (Recommandé)
+Si vous utilisez Windows 10 ou 11, vous pouvez installer et mettre à jour Gens Launcher en une seule commande dans votre terminal PowerShell ou Invite de commandes :
+
+```powershell
+winget install WilliamBossard.GensLauncher
+```
+
+Pour le mettre à jour plus tard via WinGet :
+```powershell
+winget upgrade WilliamBossard.GensLauncher
+```
+
+### Option 2 : Installeur Graphique (.exe)
 1. Rendez-vous sur les [Dernières Releases GitHub](https://github.com/WilliamBossard/Gens-Launcher/releases/latest).
-2. Téléchargez le fichier d'installation **`GensLauncher-Setup-X.X.X.exe`**.
+2. Téléchargez le fichier d'installation **`Gens-Launcher-Setup-X.X.X.exe`**.
 3. Double-cliquez sur le fichier téléchargé pour démarrer l'assistant d'installation NSIS.
 
 ::: warning Avertissement Windows Defender SmartScreen
@@ -43,10 +55,21 @@ Vous devez impérativement copier l'application dans le dossier `/Applications`.
 
 ## Linux
 
-Nous mettons à disposition deux formats de distribution pour Linux :
+Gens Launcher propose plusieurs formats de distribution adaptés à votre distribution :
 
-### Option 1 : Dépôt APT Officiel (Recommandé pour Debian et Ubuntu)
-Cette méthode est la plus pratique : elle intègre Gens Launcher au gestionnaire de paquets de votre système. Les mises à jour s'effectueront automatiquement avec vos commandes de mise à jour habituelles (`apt upgrade`).
+### Option 1 : Flatpak / Flathub (Recommandé pour toutes distributions & Steam Deck)
+Idéal pour Fedora, Arch Linux, openSUSE, SteamOS (Steam Deck) et Ubuntu. Le paquet est isolé dans une sandbox sécurisée et se met à jour directement via votre logithèque :
+
+```bash
+# Installation via Flathub
+flatpak install flathub com.gens.launcher
+
+# Lancement
+flatpak run com.gens.launcher
+```
+
+### Option 2 : Dépôt APT Officiel (Debian et Ubuntu)
+Cette méthode intègre Gens Launcher au gestionnaire de paquets de votre système. Les mises à jour s'effectueront automatiquement avec vos commandes de mise à jour habituelles (`apt upgrade`).
 
 Ouvrez un terminal et exécutez ces 3 étapes :
 
@@ -66,10 +89,10 @@ Pour mettre à jour le lanceur à l'avenir :
 sudo apt update && sudo apt --only-upgrade install gens-launcher
 ```
 
-### Option 2 : Paquet Universel AppImage
-Le format AppImage fonctionne sur toutes les distributions Linux modernes (Fedora, Arch Linux, Manjaro, Ubuntu, etc.) sans installation préalable :
+### Option 3 : Paquet Universel AppImage
+Le format AppImage fonctionne sur toutes les distributions Linux modernes sans installation préalable :
 
-1. Téléchargez le fichier **`GensLauncher-X.X.X.AppImage`**.
+1. Téléchargez le fichier **`GensLauncher-X.X.X-x86_64.AppImage`**.
 2. Rendez le fichier exécutable :
    - **En ligne de commande :**
      ```bash
@@ -77,7 +100,7 @@ Le format AppImage fonctionne sur toutes les distributions Linux modernes (Fedor
      ./GensLauncher-*.AppImage
      ```
    - **En interface graphique :** Clic droit sur le fichier -> *Propriétés* -> onglet *Permissions* -> cochez *« Autoriser l'exécution du fichier comme un programme »*.
-3. Double-cliquez sur l'AppImage pour jouer !
+3. Double-cliquez sur l'AppImage pour jouer ! (L'AppImage intègre également l'auto-update automatique en tâche de fond).
 
 ---
 
