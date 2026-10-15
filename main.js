@@ -354,9 +354,10 @@ app.whenReady().then(async () => {
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } });
     } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
-    const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-    if (isLinuxDeb) {
-        // .deb installé via APT : neutralisation complète d'electron-updater pour éviter tout appel pkexec
+    const isFlatpak = !!process.env.FLATPAK_ID;
+    const isLinuxManaged = (process.platform === 'linux' && !process.env.APPIMAGE) || isFlatpak;
+    if (isLinuxManaged) {
+        // .deb (APT) ou Flatpak (sandbox Flathub) : neutralisation complète d'electron-updater pour éviter pkexec ou EROFS
         autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = false;
         autoUpdater.checkForUpdates = async () => null;
@@ -375,7 +376,7 @@ app.whenReady().then(async () => {
             mainLog("Info : Vérification des MAJ annulée (offlineMode actif).");
             return;
         }
-        if (isLinuxDeb) {
+        if (isLinuxManaged) {
             try {
                 const { net } = require("electron");
                 const req = net.request({ url: "https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest", headers: { "User-Agent": "Gens-Launcher-AutoUpdater" } });
@@ -394,9 +395,9 @@ app.whenReady().then(async () => {
                         } catch(e) { mainLog("Erreur parsing release GitHub: " + e.message); }
                     });
                 });
-                req.on("error", (e) => { mainLog("Erreur check MAJ .deb: " + e.message); });
+                req.on("error", (e) => { mainLog("Erreur check MAJ Linux: " + e.message); });
                 req.end();
-            } catch(e) { mainLog("Erreur check MAJ .deb: " + e.message); }
+            } catch(e) { mainLog("Erreur check MAJ Linux: " + e.message); }
         } else {
             autoUpdater.checkForUpdates().catch(() => {
                 mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");

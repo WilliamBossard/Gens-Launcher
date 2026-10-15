@@ -69,9 +69,27 @@ The application has been audited and follows the **Defense in Depth** principle:
 
 ---
 
-## 5. Deployment and CI/CD
+## 5. Deployment and Multi-Distribution Pipelines
 
-The Launcher is packaged using `electron-builder` through GitHub Actions.
-- **Target platforms**: Windows (`.exe` NSIS) and MacOS (`.dmg`).
-- **Code Signing**: *Not applicable — Gens Launcher is a free open-source project and does not possess a commercial signing certificate (EV Code Signing, ~$300/year). On Windows, SmartScreen may display a warning upon first installation. Users can click on "More info" → "Run anyway" to proceed. As the source code is entirely public on GitHub, any user can audit and compile the application themselves.*
-- **Testing**: Continuous Integration automatically triggers `npm test` to ensure cryptographic primitives and APIs remain stable before each new release on the `main` branch. Note: `crypto-utils.js` exposes certain internal test functions only when the `NODE_ENV` environment variable is set to `'test'`.
+The Launcher is packaged and distributed across multiple ecosystems through automated GitHub Actions:
+
+### 5.1 Artifacts & Target Platforms
+- **Windows**: NSIS Installer (`.exe`) distributed directly via GitHub Releases and published to **WinGet** (`WilliamBossard.GensLauncher`).
+- **Linux**:
+  - **Flatpak (Flathub)**: Sandboxed distribution for general Linux and Steam Deck users (`com.gens.launcher`), with automatic updates handled by the host software center (`flatpak update`). Internal `electron-updater` is automatically neutralized when `process.env.FLATPAK_ID` is detected to prevent sandboxed read-only file system conflicts.
+  - **APT Repository (Debian/Ubuntu)**: Official signed repository deployed to GitHub Pages (`apt.yml`) using automated GPG signing (`dpkg-scanpackages`, `apt-ftparchive`, `Release.gpg`, `InRelease`).
+  - **AppImage**: Standalone portable executable with built-in background `electron-updater`.
+- **macOS**: DMG image (`.dmg`).
+
+### 5.2 Multi-Distribution Workflows
+1. **`release.yml`**: Compiles cross-platform binaries using `electron-builder` and publishes releases with checksums on GitHub.
+2. **`apt.yml`**: Triggered on published release, compiles VitePress documentation, pulls the newly generated `.deb`, signs the APT catalog with GPG, and publishes to GitHub Pages.
+3. **`winget.yml`**: Uses `vedantmgoyal9/winget-releaser` to submit updated manifests to Microsoft's official `microsoft/winget-pkgs` repository upon each release.
+4. **`flatpak-check.yml`**: Continuously validates AppStream metadata (`appstreamcli validate`) and Flatpak configuration files located in `build/flatpak/`.
+
+### 5.3 Code Signing
+*Not applicable — Gens Launcher is a free open-source project without a commercial corporate EV certificate. On Windows, SmartScreen may display an initial warning on unverified installers. Users can click on "More info" → "Run anyway". All source code and build workflows are 100% public and auditable.*
+
+### 5.4 Testing
+Continuous Integration automatically triggers `npm test` before release publication, validating cryptographic routines, version parsing/Java compatibility (Java 8, 17, 21, 25 for MC 26.x and 27.x), and critical path sanitization.
+
