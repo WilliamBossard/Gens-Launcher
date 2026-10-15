@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.8.12",
+  "version": "1.8.13",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -84,4 +84,4 @@
   "allowScripts": {
     "electron-winstaller@5.4.0": true
   }
-}
+}
