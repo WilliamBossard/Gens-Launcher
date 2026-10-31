@@ -60,17 +60,35 @@ async function pingServer(address, timeoutMs = 5000) {
     let host = address;
     let port = 25565;
     
-    if (address.includes(':')) {
-        const parts = address.split(':');
-        host = parts[0];
-        port = parseInt(parts[1], 10);
-    } else {
-        const srv = await resolveSrv(host);
-        host = srv.host;
-        port = srv.port;
+    if (typeof address === 'string') {
+        const match = address.trim().match(/^(?:\[([a-fA-F0-9:]+)\]|([^:]+))(?::(\d+))?$/);
+        if (match) {
+            host = match[1] || match[2] || address;
+            if (match[3]) {
+                const parsedPort = parseInt(match[3], 10);
+                if (!isNaN(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
+                    port = parsedPort;
+                }
+            } else {
+                const srv = await resolveSrv(host);
+                host = srv.host;
+                port = srv.port;
+            }
+        } else {
+            const srv = await resolveSrv(host);
+            host = srv.host;
+            port = srv.port;
+        }
     }
 
     return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (fn, val) => {
+            if (settled) return;
+            settled = true;
+            fn(val);
+        };
+
         const client = new net.Socket();
         client.setTimeout(timeoutMs);
         
@@ -94,34 +112,44 @@ async function pingServer(address, timeoutMs = 5000) {
         let dataBuffer = Buffer.alloc(0);
 
         client.on('data', (chunk) => {
-            dataBuffer = Buffer.concat([dataBuffer, chunk]);
-            
-            const pktLenResult = readVarInt(dataBuffer, 0);
-            if (!pktLenResult) return;
-            
-            const packetLength = pktLenResult.value;
-            const packetLengthSize = pktLenResult.length;
-            
-            if (dataBuffer.length >= packetLength + packetLengthSize) {
-                let offset = packetLengthSize;
-                const idResult = readVarInt(dataBuffer, offset);
-                offset += idResult.length;
+            try {
+                dataBuffer = Buffer.concat([dataBuffer, chunk]);
                 
-                if (idResult.value !== 0x00) return reject(new Error("Invalid packet ID"));
+                const pktLenResult = readVarInt(dataBuffer, 0);
+                if (!pktLenResult) return;
                 
-                const jsonLenResult = readVarInt(dataBuffer, offset);
-                offset += jsonLenResult.length;
+                const packetLength = pktLenResult.value;
+                const packetLengthSize = pktLenResult.length;
                 
-                const jsonString = dataBuffer.toString('utf8', offset, offset + jsonLenResult.value);
+                if (dataBuffer.length >= packetLength + packetLengthSize) {
+                    let offset = packetLengthSize;
+                    const idResult = readVarInt(dataBuffer, offset);
+                    if (!idResult) return;
+                    offset += idResult.length;
+                    
+                    if (idResult.value !== 0x00) {
+                        client.destroy();
+                        return finish(reject, new Error("Invalid packet ID"));
+                    }
+                    
+                    const jsonLenResult = readVarInt(dataBuffer, offset);
+                    if (!jsonLenResult) return;
+                    offset += jsonLenResult.length;
+                    
+                    const jsonString = dataBuffer.toString('utf8', offset, offset + jsonLenResult.value);
+                    client.destroy();
+                    finish(resolve, JSON.parse(jsonString));
+                }
+            } catch (err) {
                 client.destroy();
-                resolve(JSON.parse(jsonString));
+                finish(reject, err);
             }
         });
 
-        client.on('error', reject);
+        client.on('error', (err) => finish(reject, err));
         client.on('timeout', () => {
             client.destroy();
-            reject(new Error("Timeout"));
+            finish(reject, new Error("Timeout"));
         });
     });
 }

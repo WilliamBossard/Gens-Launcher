@@ -52,8 +52,11 @@ module.exports = function (context) {
                         try {
                             const fd = await fs.promises.open(localIconPath, 'r');
                             const magic = Buffer.alloc(8);
-                            await fd.read(magic, 0, 8, 0);
-                            await fd.close();
+                            try {
+                                await fd.read(magic, 0, 8, 0);
+                            } finally {
+                                await fd.close();
+                            }
                             isPng = magic.toString('hex') === '89504e470d0a1a0a';
                         } catch (magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
                         if (isPng) {

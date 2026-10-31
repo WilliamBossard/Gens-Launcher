@@ -34,7 +34,7 @@ window.openSystemPath = (p) => {
         shell.openPath(p);
     }
 };
-(async () => {
+const _logsDirReady = (async () => {
     try {
         if (!(await window.existsSafe(store.logsDir))) {
             await fs.promises.mkdir(store.logsDir, { recursive: true });
@@ -91,13 +91,20 @@ async function flushLogQueue() {
     isWriting = true;
     const toWrite = logQueue;
     logQueue = "";
+    let writeFailed = false;
     try {
+        await _logsDirReady;
         await fs.promises.appendFile(currentLogFile, toWrite);
     } catch (e) {
-        logQueue = toWrite + logQueue;
+        writeFailed = true;
+        // Évite toute fuite mémoire si le disque/dossier de logs est inaccessible
+        if (logQueue.length < 65536) {
+            logQueue = toWrite + logQueue;
+        }
     } finally {
         isWriting = false;
-        if (logQueue) flushLogQueue();
+        // Ne relance pas immédiatement en boucle infinie si l'écriture vient d'échouer
+        if (logQueue && !writeFailed) flushLogQueue();
     }
 }
 flushLogQueue();
@@ -223,14 +230,33 @@ window.safeWriteJSONAsync = (filePath, data) => {
     }
     
     _writeQueues[filePath] = _writeQueues[filePath].then(async () => {
-        const tmp = filePath + ".tmp";
+        const tmp = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         try {
+            const parentDir = window.api?.path ? window.api.path.dirname(filePath) : (typeof path !== 'undefined' ? path.dirname(filePath) : null);
+            if (parentDir) await fs.promises.mkdir(parentDir, { recursive: true });
             await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2));
-            await fs.promises.rename(tmp, filePath);
+
+            let renamed = false;
+            let lastErr = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    await fs.promises.rename(tmp, filePath);
+                    renamed = true;
+                    break;
+                } catch (rErr) {
+                    lastErr = rErr;
+                    if (rErr.code === 'EPERM' || rErr.code === 'EBUSY' || rErr.code === 'EACCES') {
+                        await new Promise(r => setTimeout(r, 50));
+                    } else {
+                        throw rErr;
+                    }
+                }
+            }
+            if (!renamed && lastErr) throw lastErr;
         } catch (e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
             try {
-                const exists = await window.existsSafe(tmp);
+                const exists = window.existsSafe ? await window.existsSafe(tmp) : await fs.promises.access(tmp).then(() => true).catch(() => false);
                 if (exists) await fs.promises.unlink(tmp);
             } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
         }

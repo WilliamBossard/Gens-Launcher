@@ -1,12 +1,28 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
-import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, mergeInstanceConfigFromDisk } from "./launchCore.js";
+import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, detectRequiredJavaVersion, mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "./launchCore.js";
 
 const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
 const os = window.api.os;
+
+const _javaCheckCache = new Map();
+const JAVA_CHECK_TTL_MS = 5 * 60 * 1000;
+
+async function checkJavaCached(javaPath) {
+    const now = Date.now();
+    const cached = _javaCheckCache.get(javaPath);
+    if (cached && (now - cached.ts) < JAVA_CHECK_TTL_MS && !cached.res?.err) {
+        return cached.res;
+    }
+    const res = await ipcRenderer.invoke("check-java", javaPath);
+    if (res && !res.err) {
+        _javaCheckCache.set(javaPath, { res, ts: now });
+    }
+    return res;
+}
 
 export async function launchInstance(inst, acc, ui) {
     if (!inst || !acc) return;
@@ -26,28 +42,39 @@ export async function launchInstance(inst, acc, ui) {
 
     await performAutoBackup(inst, "on_launch", { showLoading: ui.showLoading, hideLoading: ui.hideLoading });
 
-    const horizonStatus = await window.api.invoke("check-horizon-status");
     const cloudPrefs = await getCloudSettings();
-    if (!isOffline && horizonStatus.installed && horizonStatus.linked && cloudPrefs.systemEnabled) {
+    if (!isOffline && cloudPrefs.systemEnabled) {
         if (inst.disableHorizon) {
             sysLog(`[HORIZON] Sync ignorée pour "${inst.name}" (désactivée).`);
         } else if (cloudPrefs.autoSync) {
-            sysLog(`[HORIZON] Synchronisation Cloud avant lancement de "${inst.name}"...`);
-            if (window._isAutoLaunch && ui.setAutoStatusText) {
-                ui.setAutoStatusText(window.t("msg_cloud_sync", "Vérification du Cloud..."));
-            }
-            window._isManualHorizon = false;
-            await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
-            sysLog(`[HORIZON] Synchronisation terminée.`);
-            // Merger la config de l'instance (version MC, loader, RAM, JVM…) depuis l'instance.json
-            // que Horizon vient potentiellement de mettre à jour depuis le cloud.
-            const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
-            if (configUpdated) {
-                // Rafraîchir l'objet `inst` local depuis store (il a pu être réassigné)
-                const freshInst = store.allInstances.find(i => i.name === inst.name);
-                if (freshInst) Object.assign(inst, freshInst);
-                if (window.renderUI) window.renderUI();
-                sysLog(`[HORIZON] Config instance "${inst.name}" mise à jour depuis le cloud.`);
+            const horizonStatus = await window.api.invoke("check-horizon-status");
+            if (horizonStatus.installed && horizonStatus.linked) {
+                const preSyncSnapshot = {
+                    version: inst.version,
+                    loader: inst.loader,
+                    loaderVersion: inst.loaderVersion,
+                    _localConfigUpdatedAt: inst._localConfigUpdatedAt || 0
+                };
+                sysLog(`[HORIZON] Synchronisation Cloud avant lancement de "${inst.name}"...`);
+                if (window._isAutoLaunch && ui.setAutoStatusText) {
+                    ui.setAutoStatusText(window.t("msg_cloud_sync", "Vérification du Cloud..."));
+                }
+                window._isManualHorizon = false;
+                await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+                sysLog(`[HORIZON] Synchronisation terminée.`);
+                // Merger la config de l'instance (version MC, loader, RAM, JVM…) uniquement si le cloud est plus récent
+                const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
+                if (configUpdated) {
+                    const freshInst = store.allInstances.find(i => i.name === inst.name);
+                    if (freshInst) Object.assign(inst, freshInst);
+                    if (window.renderUI) window.renderUI();
+                    sysLog(`[HORIZON] Config instance "${inst.name}" mise à jour depuis le cloud.`);
+                } else if (preSyncSnapshot._localConfigUpdatedAt > 0) {
+                    inst.version = preSyncSnapshot.version;
+                    inst.loader = preSyncSnapshot.loader;
+                    inst.loaderVersion = preSyncSnapshot.loaderVersion;
+                    inst._localConfigUpdatedAt = preSyncSnapshot._localConfigUpdatedAt;
+                }
             }
         }
     }
@@ -81,6 +108,9 @@ export async function launchInstance(inst, acc, ui) {
     const instanceJavaPath = inst.javaPath?.trim() || "";
     let jPath = instanceJavaPath || store.globalSettings.defaultJavaPath || defaultJavaExe;
     let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
+
+    const requiredJava = await detectRequiredJavaVersion(inst, instancePath);
+    inst.javaVersion = requiredJava;
     
     if (isOffline || acc.type === "offline") {
         customArgs.push("-Dminecraft.api.auth.host=https://nope.invalid", "-Dminecraft.api.account.host=https://nope.invalid", "-Dminecraft.api.session.host=https://nope.invalid", "-Dminecraft.api.services.host=https://nope.invalid");
@@ -90,7 +120,7 @@ export async function launchInstance(inst, acc, ui) {
         customArgs.push("-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
     } else if (inst.jvmProfile === "zgc") {
         customArgs.push("-XX:+UseZGC");
-        if (getRequiredJavaVersion(inst.version) >= 21) {
+        if (requiredJava >= 21) {
             customArgs.push("-XX:+ZGenerational");
         }
     }
@@ -102,22 +132,34 @@ export async function launchInstance(inst, acc, ui) {
     let resW = inst.resW ? Math.max(320, Math.min(7680, parseInt(inst.resW) || 854)) : 854;
     let resH = inst.resH ? Math.max(240, Math.min(4320, parseInt(inst.resH) || 480)) : 480;
 
-    const requiredJava = getRequiredJavaVersion(inst.version);
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
 
     if (!instanceJavaPath) {
         jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
-        const jrePath = path.join(store.dataDir, "java", `jre${requiredJava}`, "bin", javaExeName);
-        const jdkPath = path.join(store.dataDir, "java", `jdk${requiredJava}`, "bin", javaExeName);
-        const jreExists = await window.api.fs.promises.access(jrePath).then(() => true).catch(() => false);
-        const jdkExists = await window.api.fs.promises.access(jdkPath).then(() => true).catch(() => false);
-        if (jreExists) {
-            jPath = jrePath;
-            sysLog(`Auto-sélection de Java ${requiredJava} : ${jrePath}`);
-        } else if (jdkExists) {
-            jPath = jdkPath;
-            sysLog(`Auto-sélection de Java ${requiredJava} : ${jdkPath}`);
+
+        async function findLocalJava(baseDir) {
+            try {
+                const direct = path.join(baseDir, "bin", javaExeName);
+                if (await window.api.fs.promises.access(direct).then(() => true).catch(() => false)) return direct;
+                const entries = await window.api.fs.promises.readdir(baseDir);
+                for (const entry of entries) {
+                    const subDirect = path.join(baseDir, entry, "bin", javaExeName);
+                    if (await window.api.fs.promises.access(subDirect).then(() => true).catch(() => false)) return subDirect;
+                    const macSub = path.join(baseDir, entry, "Contents", "Home", "bin", javaExeName);
+                    if (await window.api.fs.promises.access(macSub).then(() => true).catch(() => false)) return macSub;
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        const jreFound = await findLocalJava(path.join(store.dataDir, "java", `jre${requiredJava}`));
+        const jdkFound = !jreFound ? await findLocalJava(path.join(store.dataDir, "java", `jdk${requiredJava}`)) : null;
+        const localJava = jreFound || jdkFound;
+
+        if (localJava) {
+            jPath = localJava;
+            sysLog(`Auto-sélection de Java ${requiredJava} : ${localJava}`);
         } else {
             try {
                 const scan = await window.api.invoke("scan-java-versions");
@@ -126,7 +168,7 @@ export async function launchInstance(inst, acc, ui) {
                     const candidateJava = candidate.toLowerCase().endsWith("javaw.exe")
                         ? candidate.slice(0, -9) + "java.exe"
                         : candidate;
-                    const versionResult = await window.api.invoke("check-java", candidateJava);
+                    const versionResult = await checkJavaCached(candidateJava);
                     const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
                     const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
                     if (!versionMatch) continue;
@@ -153,7 +195,7 @@ export async function launchInstance(inst, acc, ui) {
     if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.slice(0, -9) + "java.exe";
     else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.slice(0, -5) + "java";
 
-    const res = await ipcRenderer.invoke("check-java", javaToTest);
+    const res = await checkJavaCached(javaToTest);
     const errorStr = (res.err ? res.err.message + res.stdout + res.stderr : "").toLowerCase();
     const javaExists = !(res.err && (errorStr.includes("not recognized") || errorStr.includes("non reconnu") || errorStr.includes("introuvable") || res.err.code === "ENOENT"));
 
@@ -360,6 +402,15 @@ export async function launchInstance(inst, acc, ui) {
     } else if (inst.loader === "forge" || inst.loader === "neoforge") {
         if (ui.setStatusText) ui.setStatusText(`${window.t("msg_prep_loader", "Préparation de ")}${inst.loader}...`);
         sysLog(`Configuration de l'environnement ${inst.loader} ${inst.loaderVersion || 'latest'}...`);
+        if (!inst.loaderVersion && window.fetchLoaderVersions && !isOffline) {
+            try {
+                const lVers = await window.fetchLoaderVersions(inst.loader, inst.version);
+                if (Array.isArray(lVers) && lVers.length > 0) {
+                    inst.loaderVersion = lVers[0];
+                    window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                }
+            } catch (_) {}
+        }
         if (!inst.loaderVersion) {
             if (ui.showToast) ui.showToast(window.t("msg_err_no_loader_version", `Version exacte de ${inst.loader} manquante.`), "error");
             return;
@@ -382,15 +433,25 @@ export async function launchInstance(inst, acc, ui) {
         const hasVersionsDir = await window.existsSafe(versionsDir);
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
-            const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader));
+            const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader) && (!inst.loaderVersion || d.includes(inst.loaderVersion)))
+                || subDirs.find(d => d.toLowerCase().includes(inst.loader));
             if (forgeDir) {
-                needsInstall = false;
-                opts.version.custom = forgeDir;
-                if (inst.loader === "forge" || inst.loader === "neoforge") {
-                    const clientJarName = `${inst.loader}-${inst.version}-${inst.loaderVersion}-client.jar`;
-                    const clientJarPath = path.join(instancePath, "libraries", "net", "minecraftforge", "forge", `${inst.version}-${inst.loaderVersion}`, clientJarName);
-                    if (!(await window.existsSafe(clientJarPath))) {
-                        needsInstall = true;
+                const customJsonFile = path.join(versionsDir, forgeDir, `${forgeDir}.json`);
+                const hasCustomJson = await window.existsSafe(customJsonFile);
+                if (hasCustomJson) {
+                    needsInstall = false;
+                    opts.version.custom = forgeDir;
+                    if (inst.loader === "forge") {
+                        const forgeLibDir = path.join(instancePath, "libraries", "net", "minecraftforge", "forge", `${inst.version}-${inst.loaderVersion}`);
+                        if (!(await window.existsSafe(forgeLibDir))) {
+                            needsInstall = true;
+                        }
+                    } else if (inst.loader === "neoforge") {
+                        const neoLibDir = path.join(instancePath, "libraries", "net", "neoforged", "neoforge", `${inst.loaderVersion}`);
+                        const neoFmlDir = path.join(instancePath, "libraries", "net", "neoforged", "fancymodloader");
+                        if (!(await window.existsSafe(neoLibDir)) && !(await window.existsSafe(neoFmlDir))) {
+                            needsInstall = true;
+                        }
                     }
                 }
             } else {
@@ -437,35 +498,49 @@ export async function launchInstance(inst, acc, ui) {
 
                 if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
 
-                let fakePerc = 0;
-                const fakeProgress = setInterval(() => {
-                    if (fakePerc < 95) fakePerc += Math.floor(Math.random() * 5) + 2;
-                    if (fakePerc > 95) fakePerc = 95;
-                    if (ui.setProgressBar) ui.setProgressBar(fakePerc);
-                    if (ui.setStatusText) ui.setStatusText(`${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${fakePerc}%`);
-                    if (ui.setAutoStatusText) ui.setAutoStatusText(`${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${fakePerc}%`);
-                }, 400);
-
-                try {
-                    const buffer = await res.arrayBuffer();
-                    const fileBytes = new Uint8Array(buffer);
-                    if (expectedSha1) {
-                        if (ui.setStatusText) ui.setStatusText(window.t("msg_verify_hash", "Vérification de l'intégrité..."));
-                        const actualSha1 = window.api.tools.hashBuffer(fileBytes, "sha1");
-                        if (actualSha1 !== expectedSha1) {
-                            throw new Error(`Échec SHA1 de l'installeur ${inst.loader} !\nAttendu : ${expectedSha1}\nObtenu : ${actualSha1}`);
+                const contentLength = parseInt(res.headers.get("content-length") || "0", 10);
+                let fileBytes;
+                if (res.body && typeof res.body.getReader === 'function') {
+                    const reader = res.body.getReader();
+                    const chunks = [];
+                    let receivedBytes = 0;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        receivedBytes += value.length;
+                        if (contentLength > 0) {
+                            const pct = Math.min(100, Math.round((receivedBytes / contentLength) * 100));
+                            if (ui.setProgressBar) ui.setProgressBar(pct);
+                            const msg = `${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${pct}%`;
+                            if (ui.setStatusText) ui.setStatusText(msg);
+                            if (ui.setAutoStatusText) ui.setAutoStatusText(msg);
                         }
-                        sysLog(`SHA1 vérifié pour ${inst.loader} ${inst.loaderVersion}.`);
-                    } else {
-                        sysLog(`Avertissement : SHA1 non disponible pour ${inst.loader}.`, true);
                     }
-                    await fs.promises.writeFile(installerPath, fileBytes);
-                    if (ui.setProgressBar) ui.setProgressBar(100);
-                    if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_complete", "Téléchargement terminé !"));
-                } finally {
-                    clearInterval(fakeProgress);
-                    if (ui.setProgressBar) ui.setProgressBar(-1);
+                    fileBytes = new Uint8Array(receivedBytes);
+                    let position = 0;
+                    for (const chunk of chunks) {
+                        fileBytes.set(chunk, position);
+                        position += chunk.length;
+                    }
+                } else {
+                    fileBytes = new Uint8Array(await res.arrayBuffer());
                 }
+
+                if (expectedSha1) {
+                    if (ui.setStatusText) ui.setStatusText(window.t("msg_verify_hash", "Vérification de l'intégrité..."));
+                    const actualSha1 = window.api.tools.hashBuffer(fileBytes, "sha1");
+                    if (actualSha1 !== expectedSha1) {
+                        throw new Error(`Échec SHA1 de l'installeur ${inst.loader} !\nAttendu : ${expectedSha1}\nObtenu : ${actualSha1}`);
+                    }
+                    sysLog(`SHA1 vérifié pour ${inst.loader} ${inst.loaderVersion}.`);
+                } else {
+                    sysLog(`Avertissement : SHA1 non disponible pour ${inst.loader}.`, true);
+                }
+                await fs.promises.writeFile(installerPath, fileBytes);
+                if (ui.setProgressBar) ui.setProgressBar(100);
+                if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_complete", "Téléchargement terminé !"));
+                if (ui.setProgressBar) ui.setProgressBar(-1);
                 sysLog(`Installeur ${inst.loader} téléchargé.`);
             } catch (err) {
                 sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
@@ -494,7 +569,8 @@ export async function launchInstance(inst, acc, ui) {
                         const instVersionsDir = path.join(instancePath, "versions");
                         if (await window.existsSafe(instVersionsDir)) {
                             const instSubDirs = await fs.promises.readdir(instVersionsDir);
-                            const forgeDir = instSubDirs.find(d => d.toLowerCase().includes(inst.loader));
+                            const forgeDir = instSubDirs.find(d => d.toLowerCase().includes(inst.loader) && (!inst.loaderVersion || d.includes(inst.loaderVersion)))
+                                || instSubDirs.find(d => d.toLowerCase().includes(inst.loader));
                             if (forgeDir) {
                                 opts.version.custom = forgeDir;
                             } else {
@@ -551,32 +627,6 @@ export async function launchInstance(inst, acc, ui) {
             if (window.setUIState) window.setUIState();
             if (window.renderUI) window.renderUI();
             return;
-        }
-    }
-
-    // Inject JVM args from version.json (especially critical for NeoForge >= 1.20.4)
-    if (opts.version.custom) {
-        try {
-            const customJsonPath = path.join(instancePath, "versions", opts.version.custom, opts.version.custom + ".json");
-            if (await window.existsSafe(customJsonPath)) {
-                const customJson = JSON.parse(await fs.promises.readFile(customJsonPath, "utf8"));
-                if (customJson.arguments && Array.isArray(customJson.arguments.jvm)) {
-                    const libraryDir = path.join(instancePath, "libraries");
-                    const classpathSep = window.api.platform === "win32" ? ";" : ":";
-                    const verName = opts.version.custom;
-                    for (const arg of customJson.arguments.jvm) {
-                        if (typeof arg === "string") {
-                            let resolvedArg = arg
-                                .replace(/\$\{library_directory\}/g, libraryDir)
-                                .replace(/\$\{version_name\}/g, verName)
-                                .replace(/\$\{classpath_separator\}/g, classpathSep);
-                            opts.customArgs.push(resolvedArg);
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            sysLog("Ignored error parsing custom JVM args: " + e.message, true);
         }
     }
 

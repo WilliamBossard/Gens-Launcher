@@ -53,9 +53,10 @@ export function setupNews() {
             data.entries.slice(0, 6).forEach(news => {
                 const rawImgUrl = news.playPageImage?.url || "";
                 const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
-                const link = news.readMoreLink.startsWith("http") ? news.readMoreLink : `https://minecraft.net${news.readMoreLink}`;
-                const safeTitle = window.escapeHTML(news.title);
-                const safeCategory = window.escapeHTML(news.category);
+                const rawLink = news.readMoreLink || news.link || "";
+                const link = rawLink.startsWith("http") ? rawLink : (rawLink ? `https://minecraft.net${rawLink}` : "https://minecraft.net");
+                const safeTitle = window.escapeHTML(news.title || "");
+                const safeCategory = window.escapeHTML(news.category || "");
                 const safeLink = window.escapeHTML(link);
                 const safeImgUrl = window.escapeHTML(imgUrl);
                 html += `

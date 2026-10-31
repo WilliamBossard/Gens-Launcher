@@ -103,19 +103,28 @@ async function getFolderSizeAsync(dir, visited = new Set()) {
     let size = 0;
     try {
         const files = await fs.promises.readdir(dir);
-        for (const file of files) {
-            const filePath = path.join(dir, file);
-            try {
-                const stats = await fs.promises.stat(filePath);
-                if (stats.isDirectory) {
-                    if (!visited.has(filePath)) {
-                        visited.add(filePath);
-                        size += await getFolderSizeAsync(filePath, visited);
+        const BATCH_SIZE = 32;
+        for (let i = 0; i < files.length; i += BATCH_SIZE) {
+            const batch = files.slice(i, i + BATCH_SIZE);
+            const subDirs = [];
+            await Promise.all(batch.map(async (file) => {
+                const filePath = path.join(dir, file);
+                try {
+                    const stats = await fs.promises.stat(filePath);
+                    const isDir = typeof stats.isDirectory === 'function' ? stats.isDirectory() : stats.isDirectory;
+                    if (isDir) {
+                        if (!visited.has(filePath)) {
+                            visited.add(filePath);
+                            subDirs.push(filePath);
+                        }
+                    } else {
+                        size += stats.size || 0;
                     }
-                } else {
-                    size += stats.size;
-                }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+            }));
+            for (const subDir of subDirs) {
+                size += await getFolderSizeAsync(subDir, visited);
+            }
         }
     } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
     return size;

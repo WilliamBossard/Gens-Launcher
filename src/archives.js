@@ -11,8 +11,9 @@ export function setupArchives() {
         if (!file) return;
         const p = (typeof file === "string") ? file : window.api.getFilePath(file);
         input.value = "";
-        if (p.endsWith('.zip')) await window.handleZipImport(p);
-        else if (p.endsWith('.mrpack')) await window.handleMrPackImport(p);
+        const lower = (p || "").toLowerCase();
+        if (lower.endsWith('.zip')) await window.handleZipImport(p);
+        else if (lower.endsWith('.mrpack')) await window.handleMrPackImport(p);
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 
@@ -33,8 +34,9 @@ export function setupArchives() {
             return;
         }
 
-        if (p.endsWith('.mrpack')) await window.doMrPackUpdate(p, inst);
-        else if (p.endsWith('.zip')) await window.doCurseForgeUpdate(p, inst);
+        const lowerUpdate = (p || "").toLowerCase();
+        if (lowerUpdate.endsWith('.mrpack')) await window.doMrPackUpdate(p, inst);
+        else if (lowerUpdate.endsWith('.zip')) await window.doCurseForgeUpdate(p, inst);
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 

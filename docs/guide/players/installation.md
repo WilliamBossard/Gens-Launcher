@@ -12,19 +12,7 @@ Gens Launcher is natively available on **Windows**, **macOS**, and **Linux**. Fo
 
 ## Windows (10 and 11)
 
-### Option 1: WinGet Package Manager (Recommended)
-On Windows 10 or 11, you can install and update Gens Launcher with a single terminal command:
-
-```powershell
-winget install WilliamBossard.GensLauncher
-```
-
-To update in the future via WinGet:
-```powershell
-winget upgrade WilliamBossard.GensLauncher
-```
-
-### Option 2: Setup Installer (.exe)
+### Setup Installer (.exe)
 1. Navigate to the [Latest GitHub Releases](https://github.com/WilliamBossard/Gens-Launcher/releases/latest).
 2. Download the installer file: **`Gens-Launcher-Setup-X.X.X.exe`**.
 3. Double-click the downloaded executable to begin the NSIS setup wizard.
@@ -57,18 +45,7 @@ You must copy the app into `/Applications`. If you launch the app directly from 
 
 Gens Launcher provides multiple distribution channels suited to your preference:
 
-### Option 1: Flatpak / Flathub (Recommended for all distributions & Steam Deck)
-Ideal for Fedora, Arch Linux, openSUSE, SteamOS (Steam Deck), and Ubuntu. The application runs securely inside a sandbox and updates directly through your system's software store:
-
-```bash
-# Install via Flathub
-flatpak install flathub com.gens.launcher
-
-# Run
-flatpak run com.gens.launcher
-```
-
-### Option 2: Official Signed APT Repository (Debian and Ubuntu)
+### Option 1: Official Signed APT Repository (Debian and Ubuntu)
 This hooks Gens Launcher into your system's native package manager for background updates via `apt upgrade`.
 
 Open your terminal and run these 3 commands:
@@ -89,7 +66,7 @@ To update in the future:
 sudo apt update && sudo apt --only-upgrade install gens-launcher
 ```
 
-### Option 3: Universal AppImage Package
+### Option 2: Universal AppImage Package
 AppImage runs on any modern Linux distribution without installation:
 
 1. Download the **`GensLauncher-X.X.X-x86_64.AppImage`** file.

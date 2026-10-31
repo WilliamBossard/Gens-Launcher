@@ -52,11 +52,11 @@ export function setup() {
                 if (isDir) continue;
                 
                 const time = stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : 0);
-                const fileKey = f + "_" + stat.size + "_" + time;
+                const fileKey = "v2_" + f + "_" + stat.size + "_" + time;
                 
                 if (modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
                     const cached = modCacheObj[fullPath];
-                    if (cached.provided) cached.provided.forEach(p => provided.add(p));
+                    if (cached.provided) cached.provided.forEach(p => provided.add(String(p).toLowerCase()));
                     if (cached.reqs) reqs[f] = cached.reqs;
                     continue;
                 }
@@ -72,7 +72,7 @@ export function setup() {
                     if (res.file.endsWith(".json")) {
                         const json = JSON.parse(res.text);
                         if (json.id) fileProvided.push(json.id);
-                        if (json.provides) json.provides.forEach(p => fileProvided.push(p));
+                        if (Array.isArray(json.provides)) json.provides.forEach(p => fileProvided.push(p));
                         if (json.depends) fileReqs = Object.keys(json.depends);
                     } else if (res.file.endsWith(".toml")) {
                         const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
@@ -88,7 +88,7 @@ export function setup() {
                 modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
                 cacheChanged = true;
                 
-                fileProvided.forEach(p => provided.add(p));
+                fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
                 if (fileReqs.length > 0) reqs[f] = fileReqs;
             } catch(e) {}
             await yieldUI(); 
@@ -96,11 +96,13 @@ export function setup() {
         
         await saveModCache();
 
+        // Dépendances fournies par le jeu ou le loader lui-même : jamais présentes dans le dossier mods
+        const BUILTIN_DEPS = new Set(["minecraft", "java", "fabricloader", "fabric", "quilt_loader", "quiltloader", "forge", "neoforge", "javafml"]);
         let warnings = {};
         for (let f in reqs) {
             reqs[f].forEach(reqId => {
                 const cleanId = reqId.toLowerCase();
-                if (!provided.has(cleanId) && 
+                if (!provided.has(cleanId) && !BUILTIN_DEPS.has(cleanId) && 
                     !cleanId.startsWith("fabric-") && 
                     !cleanId.startsWith("quilt_") && 
                     !cleanId.startsWith("forge:") && 

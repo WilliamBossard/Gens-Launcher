@@ -1,4 +1,4 @@
-const { existsSafe } = require('./src/main/fs-utils');
+const { existsSafe, createSandboxValidator } = require('./src/main/fs-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
 const path = require("path");
@@ -13,6 +13,7 @@ if (process.platform === 'linux' && process.env.APPIMAGE) {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-setuid-sandbox');
 }
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 function sanitizeShortcutName(name) {
     return String(name)
@@ -32,7 +33,7 @@ function parseAutoLaunchArg(argv) {
         return val;
     }
 }
-const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net", "sessionserver.mojang.com", "assets.mojang.com"];
+const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "piston-meta.mojang.com", "piston-data.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net", "sessionserver.mojang.com", "assets.mojang.com"];
 const SKIN_HOSTS = ["mc-heads.net", "crafatar.com", "mineatar.io", "s.optifine.net"];
 const DISCORD_CLIENT_ID = "1490353507218227301";
 let mainWindow;
@@ -106,16 +107,7 @@ const mainInitPromise = (async () => {
  * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
  * tournent dans le main process — on re-valide ici les chemins sensibles.
  */
-function assertPathUnderSandbox(p) {
-    const resolved = path.resolve(p);
-    const isWin = process.platform === 'win32';
-    const checkResolved = isWin ? resolved.toLowerCase() : resolved;
-    const checkSafe = isWin ? safeDataDir.toLowerCase() : safeDataDir;
-    if (!checkResolved.startsWith(checkSafe + path.sep) && checkResolved !== checkSafe) {
-        throw new Error('Chemin hors du sandbox GensLauncher');
-    }
-    return resolved;
-}
+const assertPathUnderSandbox = createSandboxValidator(safeDataDir);
 /**
  * Envoie un message IPC au renderer en vérifiant que la fenêtre n'est pas détruite.
  * Évite les exceptions "Object has been destroyed" lors d'opérations longues (Horizon, zip...).
@@ -176,11 +168,13 @@ const context = {
     assertPathUnderSandbox, sanitizeShortcutName, shell
 };
 process.on('uncaughtException', (err) => {
-    mainLog("Erreur critique (uncaughtException) : " + err.stack);
-    app.quit();
+    mainLog("Erreur critique (uncaughtException) : " + (err?.stack || err));
+    // On laisse le flux de log se vider avant de quitter pour ne pas perdre la trace de l'erreur
+    if (_logStream && _logStream.writable) _logStream.end(() => app.quit());
+    else app.quit();
 });
-process.on('unhandledRejection', (reason, promise) => {
-    mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason.stack || reason));
+process.on('unhandledRejection', (reason) => {
+    mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason?.stack || reason));
 });
 
 async function decryptSettingsMainProc(text) { // AUDIT-14 : rendu async pour utiliser await
@@ -265,6 +259,9 @@ app.whenReady().then(async () => {
     let dynamicChromeUA = session.defaultSession.getUserAgent();
 
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        if (details.resourceType !== 'mainFrame' && !details.url.startsWith('file://')) {
+            return callback({ responseHeaders: details.responseHeaders });
+        }
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
@@ -354,10 +351,9 @@ app.whenReady().then(async () => {
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } });
     } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
-    const isFlatpak = !!process.env.FLATPAK_ID;
-    const isLinuxManaged = (process.platform === 'linux' && !process.env.APPIMAGE) || isFlatpak;
+    const isLinuxManaged = process.platform === 'linux' && !process.env.APPIMAGE;
     if (isLinuxManaged) {
-        // .deb (APT) ou Flatpak (sandbox Flathub) : neutralisation complète d'electron-updater pour éviter pkexec ou EROFS
+        // .deb (APT) : neutralisation complète d'electron-updater pour éviter pkexec (les MAJ passent par apt)
         autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = false;
         autoUpdater.checkForUpdates = async () => null;
@@ -405,9 +401,7 @@ app.whenReady().then(async () => {
         }
     }, 3000);
 });
-ipcMain.on("get-paths-sync", (event) => {
-    event.returnValue = { appData: app.getPath("appData"), platform: process.platform, arch: process.arch, version: app.getVersion() };
-});
+// get-paths-sync supprimé : chemins transmis via BrowserWindow.additionalArguments
 
 const https = require('https');
 // Note : le module 'http' n'est pas importé — seul HTTPS est autorisé pour les téléchargements.
@@ -416,7 +410,9 @@ const ALLOWED_DOMAINS = [
     'github.com', 'githubusercontent.com', 'modrinth.com',
     'curseforge.com', 'curseforge.net', 'cursecdn.com', 'forgecdn.net',
     'mojang.com', 'minecraft.net', 'edgecastcdn.net',
-    'googleapis.com', 'cloudfront.net', 'amazonaws.com'
+    'googleapis.com', 'cloudfront.net', 'amazonaws.com',
+    'fabricmc.net', 'quiltmc.org', 'minecraftforge.net', 'neoforged.net',
+    'bangbang93.com', 'adoptium.net'
 ];
 
 async function downloadFile(url, dest, redirectCount = 0) {
@@ -424,14 +420,15 @@ async function downloadFile(url, dest, redirectCount = 0) {
         throw new Error("Trop de redirections (max 5)");
     }
     
+    let parsedUrl;
     try {
-        const parsedUrl = new URL(url);
-        const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
-        if (!isAllowed) {
-            throw new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`);
-        }
-    } catch(e) {
+        parsedUrl = new URL(url);
+    } catch (e) {
         throw new Error("URL invalide");
+    }
+    const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
+    if (!isAllowed) {
+        throw new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`);
     }
     
     if (!url.startsWith('https://')) {
@@ -446,7 +443,9 @@ async function downloadFile(url, dest, redirectCount = 0) {
         
         if ([301, 302, 303, 307, 308].includes(res.status)) {
             clearTimeout(timeout);
-            const locationUrl = new URL(res.headers.get('location'), url).href;
+            const location = res.headers.get('location');
+            if (!location) throw new Error(`Redirection ${res.status} sans en-tête Location pour '${url}'`);
+            const locationUrl = new URL(location, url).href;
             return downloadFile(locationUrl, dest, redirectCount + 1);
         }
         
@@ -454,6 +453,7 @@ async function downloadFile(url, dest, redirectCount = 0) {
             throw new Error(`Failed to get '${url}' (${res.status})`);
         }
         
+        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
         const fileStream = fs.createWriteStream(dest);
         const { pipeline } = require('stream/promises');
         await pipeline(res.body, fileStream);
@@ -512,8 +512,11 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         // 2. Valider la signature magique du fichier
         const fd = await fs.promises.open(srcPath, 'r');
         const magicBuf = Buffer.alloc(8);
-        await fd.read(magicBuf, 0, 8, 0);
-        await fd.close();
+        try {
+            await fd.read(magicBuf, 0, 8, 0);
+        } finally {
+            await fd.close();
+        }
 
         const sig = MAGIC_SIGNATURES.find(s => s.ext.includes(ext));
         if (sig) {

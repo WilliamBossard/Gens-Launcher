@@ -2,7 +2,6 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const child = require('child_process')
-let counter = 0
 
 const yauzl = require('yauzl-promise');
 const { pipeline } = require('stream/promises');
@@ -14,10 +13,14 @@ class Zip {
   
   async extractAllTo(dest, overwrite) {
     const zipfile = await yauzl.open(this.zipPath);
+    const resolvedTarget = path.resolve(dest);
     try {
       for await (const entry of zipfile) {
-        const destPath = path.join(dest, entry.filename);
-        if (entry.filename.endsWith('/')) {
+        const entryName = entry.filename || entry.fileName;
+        const destPath = path.join(dest, entryName);
+        const resDest = path.resolve(destPath);
+        if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) continue;
+        if (entryName.endsWith('/')) {
           await fs.promises.mkdir(destPath, { recursive: true });
         } else {
           await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
@@ -65,7 +68,11 @@ async function pMap(array, limit, asyncCallback) {
     const p = Promise.resolve().then(() => asyncCallback(array[i], i, array));
     results.push(p);
     if (limit <= array.length) {
-      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+      const e = p.finally(() => {
+        const index = executing.indexOf(e);
+        if (index !== -1) executing.splice(index, 1);
+      });
+      e.catch(() => {});
       executing.push(e);
       if (executing.length >= limit) {
         await Promise.race(executing);
@@ -82,6 +89,23 @@ class Handler {
 
   }
 
+  static pMap(array, limit, asyncCallback) {
+    return pMap(array, limit, asyncCallback);
+  }
+
+  pMap(array, limit, asyncCallback) {
+    return pMap(array, limit, asyncCallback);
+  }
+
+
+  async baseRequest(url, cb) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (cb) cb(null, { statusCode: res.status }, null);
+    } catch (e) {
+      if (cb) cb(e, null, null);
+    }
+  }
 
   async fetchText(url) {
     try {
@@ -102,7 +126,8 @@ class Handler {
             message: error
           })
         } else {
-          this.client.emit('debug', `[Gens-Core]: Using Java version ${stderr.match(/"(.*?)"/).pop()} ${stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`)
+          const verMatch = stderr.match(/"(.*?)"/) || stdout.match(/"(.*?)"/);
+          this.client.emit('debug', `[Gens-Core]: Using Java version ${verMatch ? verMatch[1] : 'unknown'} ${stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`)
           resolve({
             run: true
           })
@@ -128,7 +153,7 @@ class Handler {
     if (!response.ok) {
       this.client.emit('debug', `[Gens-Core]: Failed to download ${url} due to: ${response.statusText}`);
       if (retry) return await this.downloadAsync(url, directory, name, false, type);
-      return false;
+      return { failed: true, asset: null };
     }
 
     const totalBytes = parseInt(response.headers.get('content-length') || '0');
@@ -150,6 +175,7 @@ class Handler {
       });
     });
 
+    bodyStream.on('error', err => dest.destroy(err));
     bodyStream.pipe(dest);
 
     return new Promise((resolve, reject) => {
@@ -159,7 +185,7 @@ class Handler {
       });
       dest.on('error', async (e) => {
         if (fs.existsSync(path.join(directory, name))) await fs.promises.unlink(path.join(directory, name));
-        if (retry) return resolve(await this.downloadAsync(url, directory, name, false, type));
+        if (retry && (!this.client || !this.client.aborted)) return resolve(await this.downloadAsync(url, directory, name, false, type));
         resolve({ failed: true, asset: null });
       });
     });
@@ -170,13 +196,16 @@ class Handler {
       const hashStream = crypto.createHash('sha1');
       const fileStream = fs.createReadStream(file);
 
-      fileStream.on('error', (err) => {
+      const onError = (err) => {
         this.client.emit('debug', `[Gens-Core]: Failed to check file hash due to ${err}`);
         resolve(false);
-      });
+      };
+
+      fileStream.on('error', onError);
+      hashStream.on('error', onError);
 
       hashStream.on('finish', () => {
-        const sum = hashStream.read().toString('hex');
+        const sum = hashStream.read()?.toString('hex');
         resolve(hash === sum);
       });
 
@@ -184,24 +213,64 @@ class Handler {
     });
   }
 
+  async verifyFileFast(filePath, expectedSize, expectedSha1) {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (typeof expectedSize === 'number' && expectedSize > 0) {
+        return stat.size === expectedSize;
+      }
+      if (expectedSha1) {
+        return await this.checkSum(expectedSha1, filePath);
+      }
+      return stat.size > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   getVersion() {
-    return new Promise(async resolve => {
+    return new Promise(async (resolve, reject) => {
       const versionJsonPath = this.options.overrides.versionJson || path.join(this.options.directory, `${this.options.version.number}.json`);
       if (fs.existsSync(versionJsonPath)) {
         this.version = JSON.parse(await fs.promises.readFile(versionJsonPath, 'utf8'));
         return resolve(this.version);
       }
 
-      const manifest = `${this.options.overrides.url.meta}/mc/game/version_manifest.json`;
       const cache = this.options.cache ? `${this.options.cache}/json` : `${this.options.root}/cache/json`;
+      const cachedVersionJson = path.join(cache, `${this.options.version.number}.json`);
+      const baseVersionJson = path.join(this.options.root, 'versions', `${this.options.version.number}`, `${this.options.version.number}.json`);
+
+      for (const candidate of [baseVersionJson, cachedVersionJson]) {
+        if (fs.existsSync(candidate)) {
+          try {
+            this.version = JSON.parse(await fs.promises.readFile(candidate, 'utf8'));
+            return resolve(this.version);
+          } catch (_) { /* ignore corrupted cache and refetch */ }
+        }
+      }
+
+      const manifestUrls = [
+        'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json',
+        `${this.options.overrides.url.meta}/mc/game/version_manifest.json`
+      ];
 
       try {
         if (!(fs.existsSync(cache))) {
           await fs.promises.mkdir(cache, { recursive: true });
         }
-        const manifestBody = await this.fetchText(manifest);
+        let parsed = null;
+        let manifestBody = null;
+        for (const url of manifestUrls) {
+          try {
+            manifestBody = await this.fetchText(url);
+            parsed = JSON.parse(manifestBody);
+            if (parsed && parsed.versions) break;
+          } catch (_) { /* try fallback */ }
+        }
+        if (!parsed || !parsed.versions) {
+          throw new Error('Failed to fetch version_manifest.json from Mojang mirrors');
+        }
         await fs.promises.writeFile(path.join(cache, 'version_manifest.json'), manifestBody);
-        const parsed = JSON.parse(manifestBody);
         const desiredVersion = Object.values(parsed.versions).find(version => version.id === this.options.version.number);
         if (desiredVersion) {
           const versionBody = await this.fetchText(desiredVersion.url);
@@ -213,35 +282,55 @@ class Handler {
         }
       } catch (e) {
         try {
-          if (fs.existsSync(path.join(cache, `${this.options.version.number}.json`))) {
-            this.version = JSON.parse(await fs.promises.readFile(path.join(cache, `${this.options.version.number}.json`), 'utf8'));
+          if (fs.existsSync(cachedVersionJson)) {
+            this.version = JSON.parse(await fs.promises.readFile(cachedVersionJson, 'utf8'));
             return resolve(this.version);
           }
         } catch (err) { }
-        return resolve(e);
+        return reject(e);
       }
     })
   }
 
   async getJar() {
     const jarPath = path.join(this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`);
-    if (fs.existsSync(jarPath) && await this.checkSum(this.version.downloads.client.sha1, jarPath)) {
+    const clientSha1 = this.version?.downloads?.client?.sha1;
+    if (fs.existsSync(jarPath) && (!clientSha1 || await this.checkSum(clientSha1, jarPath))) {
       this.client.emit('debug', '[Gens-Core]: Using existing version jar');
     } else {
-      await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
+      const vanillaJar = this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.number, `${this.options.version.number}.jar`) : null;
+      if (vanillaJar && fs.existsSync(vanillaJar) && (!clientSha1 || await this.checkSum(clientSha1, vanillaJar))) {
+        this.client.emit('debug', '[Gens-Core]: Reusing vanilla version jar for custom loader');
+        await fs.promises.mkdir(this.options.directory, { recursive: true });
+        await fs.promises.copyFile(vanillaJar, jarPath);
+      } else if (this.version?.downloads?.client?.url) {
+        await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
+      }
     }
+    await fs.promises.mkdir(this.options.directory, { recursive: true });
     await fs.promises.writeFile(path.join(this.options.directory, `${this.options.version.number}.json`), JSON.stringify(this.version, null, 4));
     return this.client.emit('debug', '[Gens-Core]: Downloaded version jar and wrote version json');
   }
 
+  getAssetIndexName() {
+    if (this.options.overrides && this.options.overrides.assetIndex) return this.options.overrides.assetIndex;
+    const assetDirectory = path.resolve((this.options.overrides && this.options.overrides.assetRoot) || path.join(this.options.root, 'assets'));
+    const defaultId = (this.version && this.version.assetIndex && this.version.assetIndex.id) || this.options.version.number;
+    const customId = this.options.version && this.options.version.custom;
+    if (fs.existsSync(path.join(assetDirectory, 'indexes', `${defaultId}.json`))) return defaultId;
+    if (customId && fs.existsSync(path.join(assetDirectory, 'indexes', `${customId}.json`))) return customId;
+    return defaultId;
+  }
+
   async getAssets() {
     const assetDirectory = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'))
-    const assetId = this.options.version.custom || this.options.version.number
+    const assetId = this.getAssetIndexName()
     if (!(fs.existsSync(path.join(assetDirectory, 'indexes', `${assetId}.json`)))) {
       await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
     }
 
     const index = JSON.parse(await fs.promises.readFile(path.join(assetDirectory, 'indexes', `${assetId}.json`), { encoding: 'utf8' }))
+    let counter = 0
 
     this.client.emit('progress', {
       type: 'assets',
@@ -251,12 +340,18 @@ class Handler {
 
     await pMap(Object.keys(index.objects), 50, async asset => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
-      const hash = index.objects[asset].hash
+      const assetObj = index.objects[asset]
+      const hash = assetObj.hash
+      const expectedSize = assetObj.size
       const subhash = hash.substring(0, 2)
       const subAsset = path.join(assetDirectory, 'objects', subhash)
+      const assetFile = path.join(subAsset, hash)
 
-      if (!(fs.existsSync(path.join(subAsset, hash))) || !await this.checkSum(hash, path.join(subAsset, hash))) {
+      if (!(await this.verifyFileFast(assetFile, expectedSize, hash))) {
         await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
+        if (!(await this.checkSum(hash, assetFile))) {
+          await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
+        }
       }
       counter++
       this.client.emit('progress', {
@@ -265,9 +360,9 @@ class Handler {
         total: Object.keys(index.objects).length
       })
     })
-    counter = 0
 
-    if (this.isLegacy()) {
+
+    if (this.isLegacy()) { counter = 0;
       if (fs.existsSync(path.join(assetDirectory, 'legacy'))) {
         this.client.emit('debug', '[Gens-Core]: The \'legacy\' directory is no longer used as Minecraft looks ' +
           'for the resouces folder regardless of what is passed in the assetDirecotry launch option. I\'d ' +
@@ -307,14 +402,31 @@ class Handler {
         })
       })
     }
-    counter = 0
+
 
     this.client.emit('debug', '[Gens-Core]: Downloaded assets')
   }
 
   parseVersion(versionStr) {
     if (!versionStr) return { major: 0, minor: 0, patch: 0 };
-    const parts = String(versionStr).split('.');
+    const str = String(versionStr);
+    const mcMatch = str.match(/1\.(\d+)(?:\.(\d+))?/);
+    if (mcMatch) {
+      return {
+        major: 1,
+        minor: parseInt(mcMatch[1], 10) || 0,
+        patch: parseInt(mcMatch[2], 10) || 0
+      };
+    }
+    const modernMatch = str.match(/(?:^|[^\d])(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (modernMatch) {
+      return {
+        major: parseInt(modernMatch[1], 10) || 0,
+        minor: parseInt(modernMatch[2], 10) || 0,
+        patch: parseInt(modernMatch[3], 10) || 0
+      };
+    }
+    const parts = str.split('.');
     if (parts[0] === '1') {
       return {
         major: 1,
@@ -338,8 +450,10 @@ class Handler {
   }
 
   isVersionAtLeast(targetMajor, targetMinor, targetPatch = 0) {
-    if (!this.version || !this.version.id) return false;
-    const parsed = this.parseVersion(this.version.id);
+    const rawId = (this.options && this.options.version && this.options.version.number)
+      || (this.version && (this.version.inheritsFrom || this.version.id));
+    if (!rawId) return false;
+    const parsed = this.parseVersion(rawId);
     return this.compareVersion(parsed, { major: targetMajor, minor: targetMinor, patch: targetPatch }) >= 0;
   }
 
@@ -353,28 +467,28 @@ class Handler {
             if ((lib.name.endsWith('-x86') || lib.name.includes('-x86:')) && !isX86) return true;
         }
 
-        if (lib.rules) {
-            if (lib.rules.length > 1) {
-                if (lib.rules[0].action === 'allow' && lib.rules[1].action === 'disallow' && lib.rules[1].os.name === 'osx') {
-                    return this.getOS() === 'osx'
-                }
-                return true
-            } else {
-                if (lib.rules[0].action === 'allow' && lib.rules[0].os) {
-                    if (lib.rules[0].os.name !== this.getOS()) return true;
-                    if (lib.rules[0].os.arch) {
-                        const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
-                        const ruleArch = lib.rules[0].os.arch;
-                        if (ruleArch === 'x86' && arch !== 'x86') return true;
-                        if (ruleArch === 'x86_64' && arch !== 'x86_64') return true;
-                        if (ruleArch === 'arm64' && arch !== 'arm64') return true;
+        if (lib.rules && lib.rules.length > 0) {
+            const currentOS = this.getOS();
+            const currentArch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
+            let allowed = !lib.rules.some(r => r && r.action === 'allow');
+            for (const rule of lib.rules) {
+                if (!rule) continue;
+                let matches = true;
+                if (rule.os) {
+                    if (rule.os.name && rule.os.name !== currentOS) matches = false;
+                    if (matches && rule.os.arch) {
+                        try {
+                            matches = new RegExp(rule.os.arch).test(currentArch);
+                        } catch (_) {
+                            matches = (rule.os.arch === currentArch);
+                        }
                     }
-                    return false;
                 }
+                if (matches) allowed = (rule.action === 'allow');
             }
-        } else {
-            return false
+            return !allowed;
         }
+        return false;
     }
 
   async getNatives() {
@@ -413,6 +527,7 @@ class Handler {
         return natives
       }
       const stat = await natives()
+      let counter = 0
 
       this.client.emit('progress', {
         type: 'natives',
@@ -443,7 +558,7 @@ class Handler {
       this.client.emit('debug', '[Gens-Core]: Downloaded and extracted natives')
     }
 
-    counter = 0
+
     this.client.emit('debug', `[Gens-Core]: Set native path to ${nativeDirectory}`)
 
     return nativeDirectory
@@ -461,10 +576,13 @@ class Handler {
   }
 
     isModernForge(json) {
-        if (!json.inheritsFrom) return false;
-        const parts = json.inheritsFrom.split('.');
+        if (!json) return false;
+        const verStr = json.inheritsFrom || (typeof json.id === 'string' ? json.id.split('-')[0] : '');
+        if (!verStr) return false;
+        const parts = verStr.split('.');
         if (parts[0] === '1') {
-            return parseInt(parts[1]) >= 13 || (parts[1] === '12' && parts[2] === '2' && !(json.id.split('.')[json.id.split('.').length - 1] === '2847'));
+            const idParts = String(json.id || '').split('.');
+            return parseInt(parts[1]) >= 13 || (parts[1] === '12' && parts[2] === '2' && !(idParts[idParts.length - 1] === '2847'));
         }
         return parseInt(parts[0]) >= 2;
     }
@@ -529,7 +647,7 @@ class Handler {
         json.mainClass = 'io.github.zekerzhayard.forgewrapper.installer.Main'
         jarEnding = 'launcher'
 
-        for (const library of json.mavenFiles) {
+        for (const library of (json.mavenFiles || [])) {
           const lib = library.name.split(':')
           if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
             library.downloads.artifact.url = this.options.overrides.url.mavenForge + library.downloads.artifact.path
@@ -537,16 +655,18 @@ class Handler {
           }
         }
       } else {
-        for (const library in json.mavenFiles) {
-          const lib = json.mavenFiles[library].name.split(':')
-          if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
-            delete json.mavenFiles[library]
-            break
+        if (json.mavenFiles) {
+          for (const library in json.mavenFiles) {
+            const lib = json.mavenFiles[library]?.name?.split(':');
+            if (lib && lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
+              delete json.mavenFiles[library];
+              break;
+            }
           }
         }
       }
     } else {
-      await pMap(json.libraries, 50, async library => {
+      await pMap(json.libraries || [], 50, async library => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const lib = library.name.split(':')
         if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) return
@@ -563,7 +683,7 @@ class Handler {
         }
         library.url = url
         const downloadLink = `${url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`
-        this.baseRequest(downloadLink, (error, response, body) => {
+        await this.baseRequest(downloadLink, (error, response, body) => {
           if (error) {
             this.client.emit('debug', `[Gens-Core]: Failed checking request for ${downloadLink}`)
           } else {
@@ -572,14 +692,14 @@ class Handler {
         })
       })
     }
-    if (json.libraries[0].downloads) {
+    if (json.libraries && json.libraries[0] && json.libraries[0].downloads) {
       const name = json.libraries[0].name
       if (name.includes('minecraftforge:forge') && !name.includes('universal')) {
         json.libraries[0].name = name + `:${jarEnding}`
         json.libraries[0].downloads.artifact.path = json.libraries[0].downloads.artifact.path.replace('.jar', `-${jarEnding}.jar`)
         json.libraries[0].downloads.artifact.url = this.options.overrides.url.mavenForge + json.libraries[0].downloads.artifact.path
       }
-    } else {
+    } else if (json.libraries && json.libraries[0]) {
       delete json.libraries[0]
     }
 
@@ -600,12 +720,16 @@ class Handler {
 
   async downloadToDirectory(directory, libraries, eventName) {
     const libs = []
+    let counter = 0
 
     await pMap(libraries, 50, async library => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       if (!library) return
       if (this.parseRule(library)) return
       const lib = library.name.split(':')
+      const libNameClean = lib[1] || ''
+      const libVersionClean = (lib[2] || '').replace(/@jar$/i, '')
+      const libClassifier = lib[3] ? `-${lib[3].replace(/@jar$/i, '')}` : ''
 
       let jarPath
       let name
@@ -613,22 +737,30 @@ class Handler {
         name = library.downloads.artifact.path.split('/')[library.downloads.artifact.path.split('/').length - 1]
         jarPath = path.join(directory, this.popString(library.downloads.artifact.path))
       } else {
-        name = `${lib[1]}-${lib[2]}${lib[3] ? '-' + lib[3] : ''}.jar`
-        jarPath = path.join(directory, `${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}`)
+        name = `${libNameClean}-${libVersionClean}${libClassifier}.jar`
+        jarPath = path.join(directory, `${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}`)
       }
 
       const downloadLibrary = async library => {
         if (library.url) {
-          const url = `${library.url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`
+          const baseUrl = library.url.endsWith('/') ? library.url : `${library.url}/`
+          const url = `${baseUrl}${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}/${name}`
           await this.downloadAsync(url, jarPath, name, true, eventName)
         } else if (library.downloads && library.downloads.artifact && library.downloads.artifact.url) {
           await this.downloadAsync(library.downloads.artifact.url, jarPath, name, true, eventName)
         }
       }
 
-      if (!(fs.existsSync(path.join(jarPath, name)))) await downloadLibrary(library)
-      if (library.downloads && library.downloads.artifact) {
-        if (!await this.checkSum(library.downloads.artifact.sha1, path.join(jarPath, name))) await downloadLibrary(library)
+      const libFile = path.join(jarPath, name)
+      const artifact = library.downloads && library.downloads.artifact
+      const expectedSize = artifact ? artifact.size : undefined
+      const expectedSha1 = artifact ? artifact.sha1 : undefined
+
+      if (!(await this.verifyFileFast(libFile, expectedSize, expectedSha1))) {
+        await downloadLibrary(library)
+        if (expectedSha1 && !(await this.checkSum(expectedSha1, libFile))) {
+          await downloadLibrary(library)
+        }
       }
 
       counter++
@@ -639,7 +771,7 @@ class Handler {
       })
       libs.push(`${jarPath}${path.sep}${name}`)
     })
-    counter = 0
+
 
     return libs
   }
@@ -658,7 +790,8 @@ class Handler {
 
     const parsed = this.version.libraries.filter(lib => {
       if (lib.downloads && lib.downloads.artifact && !this.parseRule(lib)) {
-        if (!classJson || !classJson.libraries.some(l => l.name.split(':')[1] === lib.name.split(':')[1])) {
+        const getLibIdentity = (n) => { const p = String(n || '').split(':'); return `${p[0] || ''}:${p[1] || ''}:${p[3] || ''}`; };
+        if (!classJson || !classJson.libraries.some(l => l && getLibIdentity(l.name) === getLibIdentity(lib.name))) {
           return true
         }
       }
@@ -667,7 +800,7 @@ class Handler {
 
     libs = libs.concat((await this.downloadToDirectory(libraryDirectory, parsed, 'classes')))
     libs = libs.filter(l => !l.includes('-installer.jar') && !l.includes('forge-installer'))
-    counter = 0
+
 
     this.client.emit('debug', '[Gens-Core]: Collected class paths')
     return libs
@@ -712,7 +845,7 @@ class Handler {
       ? path.join(this.options.root, 'resources')
       : path.join(assetRoot)
 
-    const minArgs = this.options.overrides.minArgs || this.isLegacy() ? 5 : 11
+    const minArgs = this.options.overrides.minArgs || (this.isLegacy() ? 5 : 11)
     if (args.length < minArgs) args = args.concat(this.version.minecraftArguments ? this.version.minecraftArguments.split(' ') : this.version.arguments.game)
     if (this.options.customLaunchArgs) args = args.concat(this.options.customLaunchArgs)
 
@@ -727,7 +860,7 @@ class Handler {
       '${user_properties}': this.options.authorization.user_properties,
       '${user_type}': this.options.authorization.meta.type,
       '${version_name}': this.options.version.number || this.options.overrides.versionName,
-      '${assets_index_name}': this.options.overrides.assetIndex || this.options.version.custom || this.options.version.number,
+      '${assets_index_name}': this.getAssetIndexName(),
       '${game_directory}': this.options.overrides.gameDirectory || this.options.root,
       '${assets_root}': assetPath,
       '${game_assets}': assetPath,
@@ -805,11 +938,21 @@ class Handler {
 
   async getJVMArgs(modifyJson, nativePath) {
     const args = [];
+    const libraryDirectory = path.resolve(this.options.overrides.libraryRoot || path.join(this.options.root, 'libraries'));
+    const assetRoot = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'));
+    const classpathSep = this.getOS() === 'windows' ? ';' : ':';
+    const versionName = (this.options.version && (this.options.version.custom || this.options.version.number)) || this.options.overrides.versionName || '';
     const fields = {
       '${natives_directory}': nativePath,
       '${launcher_name}': this.options.overrides.launcherBrand || 'Gens-Launcher',
       '${launcher_version}': this.options.overrides.launcherVersion || '1.0.0',
-      '${classpath}': ''
+      '${classpath}': '',
+      '${library_directory}': libraryDirectory,
+      '${classpath_separator}': classpathSep,
+      '${version_name}': versionName,
+      '${game_directory}': this.options.overrides.gameDirectory || this.options.root,
+      '${assets_root}': assetRoot,
+      '${assets_index_name}': this.getAssetIndexName()
     };
 
     const checkRule = (rule) => {
@@ -838,8 +981,9 @@ class Handler {
         if (entry === '-cp' || entry === '${classpath}') return;
         let val = entry;
         for (const [k, v] of Object.entries(fields)) {
-          val = val.replace(new RegExp('\\' + k, 'g'), v);
+          val = val.split(k).join(v);
         }
+        if ((val.startsWith('-D') || val.startsWith('-XX:')) && args.includes(val)) return;
         args.push(val);
       } else if (typeof entry === 'object' && entry !== null) {
         if (entry.rules) {

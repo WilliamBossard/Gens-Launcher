@@ -30,14 +30,14 @@ export function setup() {
         window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
         await yieldUI();
         let hashes = {};
-        for (let f of files) {
+        await Promise.all(files.map(async (f) => {
             try {
                 const hash = await window.api.tools.hashFile(path.join(modsPath, f), "sha1");
                 if (hash) hashes[hash] = f;
             } catch (err) {
                 sysLog(`[MODS] Erreur calcul hash pour ${f} : ${err.message}`, true);
             }
-        }
+        }));
         if (Object.keys(hashes).length === 0) {
             window.hideLoading();
             window.showToast(t("msg_err_hash", "Impossible de calculer les empreintes des mods."), "error");
@@ -133,6 +133,7 @@ export function setup() {
                 let buffer;
                 try {
                     const dlRes = await fetch(update.newFileObj.url, { signal: dlController.signal });
+                    if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
                     buffer = await dlRes.arrayBuffer();
                 } finally {
                     clearTimeout(dlTimeout);

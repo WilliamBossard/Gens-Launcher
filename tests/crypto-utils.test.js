@@ -10,9 +10,9 @@ const mockElectron = {
         getPath: () => os.tmpdir(),
     },
     safeStorage: {
-        isEncryptionAvailable: () => true,
-        encryptString: (str) => Buffer.from(`ENCRYPTED_${str}`, 'utf8'),
-        decryptString: (buf) => buf.toString('utf8').replace('ENCRYPTED_', '')
+        isAsyncEncryptionAvailable: async () => true,
+        encryptStringAsync: async (str) => Buffer.from(`ENCRYPTED_${str}`, 'utf8'),
+        decryptStringAsync: async (buf) => ({ result: buf.toString('utf8').replace('ENCRYPTED_', ''), shouldReEncrypt: false })
     }
 };
 
@@ -38,7 +38,7 @@ test('Crypto Utils - safeStorage (mocked)', async (t) => {
 });
 
 test('Crypto Utils - AES fallback', async (t) => {
-    mockElectron.safeStorage.isEncryptionAvailable = () => false;
+    mockElectron.safeStorage.isAsyncEncryptionAvailable = async () => false;
 
     const text = 'my super secret string';
     const encrypted = await encryptText(text);
@@ -50,7 +50,7 @@ test('Crypto Utils - AES fallback', async (t) => {
 });
 
 test('Crypto Utils - Legacy AES', async (t) => {
-    mockElectron.safeStorage.isEncryptionAvailable = () => false;
+    mockElectron.safeStorage.isAsyncEncryptionAvailable = async () => false;
 
     const key = await _getMainProcSecretKey();
     const iv = crypto.randomBytes(16);

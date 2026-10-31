@@ -8,6 +8,8 @@ class DiscordRPC {
         this.socket = null;
         this.connected = false;
         this.reconnectTimer = null;
+        this.activityTimeout = null;
+        this.manualDisconnect = false;
     }
 
     getIpcPath(id) {
@@ -21,11 +23,12 @@ class DiscordRPC {
 
     async connect() {
         if (this.connected) return;
+        this.manualDisconnect = false;
 
         return new Promise((resolve) => {
             const tryConnect = (id) => {
                 if (id > 9) {
-                    this.scheduleReconnect();
+                    if (!this.manualDisconnect) this.scheduleReconnect();
                     return resolve(false);
                 }
 
@@ -73,7 +76,9 @@ class DiscordRPC {
                     }
                     this.connected = false;
                     this.socket = null;
-                    this.scheduleReconnect();
+                    if (!this.manualDisconnect) {
+                        this.scheduleReconnect();
+                    }
                 });
 
                 socket.on('data', (data) => {
@@ -86,17 +91,18 @@ class DiscordRPC {
     }
 
     scheduleReconnect() {
+        if (this.manualDisconnect) return;
         if (!this.reconnectTimer) {
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
-                this.connect();
+                if (!this.manualDisconnect) this.connect();
             }, 5000);
         }
     }
 
     send(opcode, payload, targetSocket = null) {
         const sock = targetSocket || this.socket;
-        if (!sock) return;
+        if (!sock || sock.destroyed) return;
         
         const data = JSON.stringify(payload);
         const len = Buffer.byteLength(data);
@@ -159,6 +165,7 @@ class DiscordRPC {
         } else {
             if (this.activityTimeout) clearTimeout(this.activityTimeout);
             this.activityTimeout = setTimeout(() => {
+                this.activityTimeout = null;
                 this.lastActivityUpdate = Date.now();
                 this.send(1, payload);
             }, 15000 - (now - this.lastActivityUpdate));
@@ -166,10 +173,19 @@ class DiscordRPC {
     }
 
     disconnect() {
-        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.manualDisconnect = true;
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        if (this.activityTimeout) {
+            clearTimeout(this.activityTimeout);
+            this.activityTimeout = null;
+        }
         if (this.socket) {
             this.send(2, {}); // Close
             this.socket.destroy();
+            this.socket = null;
         }
         this.connected = false;
     }

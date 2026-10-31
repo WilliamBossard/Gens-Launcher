@@ -74,18 +74,15 @@ The application has been audited and follows the **Defense in Depth** principle:
 The Launcher is packaged and distributed across multiple ecosystems through automated GitHub Actions:
 
 ### 5.1 Artifacts & Target Platforms
-- **Windows**: NSIS Installer (`.exe`) distributed directly via GitHub Releases and published to **WinGet** (`WilliamBossard.GensLauncher`).
+- **Windows**: NSIS Installer (`.exe`) distributed directly via GitHub Releases.
 - **Linux**:
-  - **Flatpak (Flathub)**: Sandboxed distribution for general Linux and Steam Deck users (`com.gens.launcher`), with automatic updates handled by the host software center (`flatpak update`). Internal `electron-updater` is automatically neutralized when `process.env.FLATPAK_ID` is detected to prevent sandboxed read-only file system conflicts.
-  - **APT Repository (Debian/Ubuntu)**: Official signed repository deployed to GitHub Pages (`apt.yml`) using automated GPG signing (`dpkg-scanpackages`, `apt-ftparchive`, `Release.gpg`, `InRelease`).
+  - **APT Repository (Debian/Ubuntu)**: Official signed repository (internal `electron-updater` is neutralized for `.deb` installs; updates go through `apt`) deployed to GitHub Pages (`apt.yml`) using automated GPG signing (`dpkg-scanpackages`, `apt-ftparchive`, `Release.gpg`, `InRelease`).
   - **AppImage**: Standalone portable executable with built-in background `electron-updater`.
 - **macOS**: DMG image (`.dmg`).
 
 ### 5.2 Multi-Distribution Workflows
 1. **`release.yml`**: Compiles cross-platform binaries using `electron-builder` and publishes releases with checksums on GitHub.
 2. **`apt.yml`**: Triggered on published release, compiles VitePress documentation, pulls the newly generated `.deb`, signs the APT catalog with GPG, and publishes to GitHub Pages.
-3. **`winget.yml`**: Uses `vedantmgoyal9/winget-releaser` to submit updated manifests to Microsoft's official `microsoft/winget-pkgs` repository upon each release.
-4. **`flatpak-check.yml`**: Continuously validates AppStream metadata (`appstreamcli validate`) and Flatpak configuration files located in `build/flatpak/`.
 
 ### 5.3 Code Signing
 *Not applicable — Gens Launcher is a free open-source project without a commercial corporate EV certificate. On Windows, SmartScreen may display an initial warning on unverified installers. Users can click on "More info" → "Run anyway". All source code and build workflows are 100% public and auditable.*

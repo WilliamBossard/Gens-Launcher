@@ -183,21 +183,38 @@ async function init() {
         window._serverStatusInterval = setInterval(() => {
             if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
         }, 120000);
+        const cachePath = path.join(store.dataDir, "versions_cache.json");
         try {
-            const res = await fetch("https://launchermeta.mojang.com/mc/game/version_manifest.json");
-            const data = await res.json();
-            if (!data || !Array.isArray(data.versions)) throw new Error("Format manifest invalide");
-            store.rawVersions = data.versions;
-            window.safeWriteJSONAsync(path.join(store.dataDir, "versions_cache.json"), data.versions);
-            if (window.updateVersionList) window.updateVersionList(false);
-        } catch (e) {
-            const cachePath = path.join(store.dataDir, "versions_cache.json");
-            try {
-                await fs.promises.access(cachePath);
-                store.rawVersions = JSON.parse(await fs.promises.readFile(cachePath, "utf8"));
-                if (window.updateVersionList) window.updateVersionList(false);
-            } catch (err) { }
-        }
+            if (await window.existsSafe(cachePath)) {
+                const cached = JSON.parse(await fs.promises.readFile(cachePath, "utf8"));
+                if (Array.isArray(cached) && cached.length > 0) {
+                    store.rawVersions = cached;
+                    if (window.updateVersionList) window.updateVersionList(false);
+                }
+            }
+        } catch (_) { /* ignore cache error */ }
+
+        (async () => {
+            const manifestUrls = [
+                "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+                "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+            ];
+            for (const manifestUrl of manifestUrls) {
+                try {
+                    const fetchFn = typeof window.fetchWithTimeout === 'function'
+                        ? (u) => window.fetchWithTimeout(u, { timeout: 7000 })
+                        : fetch;
+                    const res = await fetchFn(manifestUrl);
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    if (!data || !Array.isArray(data.versions)) continue;
+                    store.rawVersions = data.versions;
+                    window.safeWriteJSONAsync(cachePath, data.versions);
+                    if (window.updateVersionList) window.updateVersionList(false);
+                    break;
+                } catch (_) { /* try next mirror */ }
+            }
+        })();
     } catch (e) {
         console.error("Critical error in init():", e);
         window.api.send('show-window');
@@ -209,7 +226,9 @@ window.ctxSyncCloud = async () => {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
-            await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+            const slug = window.safeDir(inst.name);
+            await window.api.invoke("call-horizon", ['--sync', slug]);
+            if (window.mergeInstanceConfigFromDisk) await window.mergeInstanceConfigFromDisk(slug);
             inst._iconCacheBuster = Date.now();
             if (window.renderUI) window.renderUI();
         } finally {
@@ -223,6 +242,7 @@ window.ctxUploadCloud = async () => {
         document.getElementById("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
+            if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst);
             await window.api.invoke("call-horizon", ['--upload', window.safeDir(inst.name)]);
         } finally {
             window._isManualHorizon = false;
@@ -596,22 +616,32 @@ window.api.on("horizon-status", async (data) => {
                     try { await window.api.fs.promises.access(jsonPath); exists = true; } catch (e) { /* ignore */ }
                     if (exists) {
                         const parsed = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
+                        const diskTs = Number(parsed._localConfigUpdatedAt || parsed._cloudExportedAt) || 0;
+                        const memTs  = Number(localInst._localConfigUpdatedAt) || 0;
 
-                        const oldRam = localInst.ram;
-                        const oldJava = localInst.javaPath;
-                        const oldArgs = localInst.customArgs;
-                        const oldWidth = localInst.windowWidth;
-                        const oldHeight = localInst.windowHeight;
+                        if (memTs > 0 && diskTs <= memTs) {
+                            await window.api.fs.promises.writeFile(jsonPath, JSON.stringify(localInst, null, 2), "utf8");
+                            if (window.writeInstanceMetaForCloud) {
+                                await window.writeInstanceMetaForCloud(localInst, { preserveTimestamp: true });
+                            }
+                        } else {
+                            const oldRam = localInst.ram;
+                            const oldJava = localInst.javaPath;
+                            const oldArgs = localInst.jvmArgs;
+                            const oldWidth = localInst.resW;
+                            const oldHeight = localInst.resH;
 
-                        Object.assign(localInst, parsed);
+                            Object.assign(localInst, parsed);
+                            if (diskTs > 0) localInst._localConfigUpdatedAt = diskTs;
 
-                        if (oldRam !== undefined) localInst.ram = oldRam;
-                        if (oldJava !== undefined) localInst.javaPath = oldJava;
-                        if (oldArgs !== undefined) localInst.customArgs = oldArgs;
-                        if (oldWidth !== undefined) localInst.windowWidth = oldWidth;
-                        if (oldHeight !== undefined) localInst.windowHeight = oldHeight;
+                            if (oldRam !== undefined) localInst.ram = oldRam;
+                            if (oldJava !== undefined) localInst.javaPath = oldJava;
+                            if (oldArgs !== undefined) localInst.jvmArgs = oldArgs;
+                            if (oldWidth !== undefined) localInst.resW = oldWidth;
+                            if (oldHeight !== undefined) localInst.resH = oldHeight;
 
-                        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                        }
                     }
                 } catch (e) { console.error("Erreur màj instance.json après sync:", e); }
 
@@ -689,7 +719,7 @@ window.ctxRestoreCloud = async () => {
             group: t("lbl_group_general", "Général")
         };
         store.allInstances.push(phantom);
-        if (window.updateIconCache) window.updateIconCache(phantom);
+        if (window.updateIconCache) await window.updateIconCache(phantom);
         window.renderUI();
     }
     window._isManualHorizon = true;
@@ -755,7 +785,7 @@ window.ctxRestoreCloud = async () => {
         try { window.safeWriteJSONAsync(jsonPath, store.allInstances[idx]); } catch (e) { }
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
-    if (window.updateIconCache) window.updateIconCache(store.allInstances[idx]);
+    if (window.updateIconCache) await window.updateIconCache(store.allInstances[idx]);
     window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
     window.renderUI();
 };
@@ -779,6 +809,7 @@ window.ctxSyncCloudFromMenu = async () => {
     window._isManualHorizon = true;
     try {
         await window.api.invoke("call-horizon", ['--sync', slug]);
+        if (window.mergeInstanceConfigFromDisk) await window.mergeInstanceConfigFromDisk(slug);
         const inst = store.allInstances.find(i => window.safeDir(i.name) === slug);
         if (inst) {
             inst._iconCacheBuster = Date.now();
@@ -797,6 +828,8 @@ window.ctxUploadCloudFromMenu = async () => {
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
+        const inst = store.allInstances.find(i => window.safeDir(i.name) === slug);
+        if (inst && window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst);
         await window.api.invoke("call-horizon", ['--upload', slug]);
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     } finally {

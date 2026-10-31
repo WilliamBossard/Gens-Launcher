@@ -257,7 +257,7 @@ export function setup() {
                     for (const item of items) {
                         const itemPath = path.join(tmpExtractDir, item);
                         const stat = await fs.promises.stat(itemPath);
-                        if (stat.isDirectory() && (await window.existsSafe(path.join(itemPath, "level.dat")))) {
+                        const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir && (await window.existsSafe(path.join(itemPath, "level.dat")))) {
                             foundFolder = itemPath;
                             break;
                         }

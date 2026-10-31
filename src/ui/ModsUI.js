@@ -306,7 +306,13 @@ function setupMods() {
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {
               for (let dep of fileData.dependencies) {
                 if (dep.dependency_type === "required") {
-                  let depId = dep.project_id || dep.version_id;
+                  let depId = dep.project_id;
+                  if (!depId && dep.version_id) {
+                    try {
+                      const vRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/version/${encodeURIComponent(dep.version_id)}`);
+                      if (vRes.ok) { const vData = await vRes.json(); depId = vData?.project_id; }
+                    } catch (_) {}
+                  }
                   if (depId) {
                     statusText.innerText = t("msg_deps", "Dépendances...");
                     await window.installGlobalMod(depId, true, "mod", "modrinth", visitedDeps);
@@ -750,7 +756,7 @@ if (!isDependency) {
                 </div>
                 <span style="font-size:0.7rem; color:#aaa;">${typeLabel}</span>`;
             item.querySelector(".builder-remove-btn").addEventListener("click", () => {
-                window.removeModFromBuilder(safeId);
+                window.removeModFromBuilder(mod.id);
             });
             list.appendChild(item);
         });
@@ -807,11 +813,18 @@ if (!isDependency) {
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
             return;
         }
+        let resolvedLoaderVer = "";
+        try {
+            if (loader !== "vanilla" && window.fetchLoaderVersions) {
+                const lVers = await window.fetchLoaderVersions(loader, version);
+                if (Array.isArray(lVers) && lVers.length > 0) resolvedLoaderVer = lVers[0];
+            }
+        } catch (_) {}
         const newInst = {
             name: packName,
             version: version,
             loader: loader,
-            loaderVersion: "",
+            loaderVersion: resolvedLoaderVer,
             ram: String(store.globalSettings.defaultRam || 4096),
             javaPath: "",
             jvmArgs: "",
@@ -872,6 +885,19 @@ const queue = [...modsToDownload];
                             done++; continue;
                         }
                         const cfFile = data.data[0];
+                        if (!cfFile.downloadUrl && cfFile.id && cfFile.fileName) {
+                            try {
+                                const dlUrlRes = await window.api.invoke("fetch-curseforge", {
+                                    url: `https://api.curseforge.com/v1/mods/${encodeURIComponent(mod.id)}/files/${encodeURIComponent(cfFile.id)}/download-url`,
+                                    apiKey
+                                });
+                                if (dlUrlRes?.success && dlUrlRes?.data?.data) cfFile.downloadUrl = dlUrlRes.data.data;
+                            } catch (_) {}
+                            if (!cfFile.downloadUrl) {
+                                const cdnUrls = getCurseForgeCdnUrls(cfFile.id, cfFile.fileName);
+                                if (cdnUrls.length > 0) cfFile.downloadUrl = cdnUrls[0];
+                            }
+                        }
                         if (!cfFile.downloadUrl || !cfFile.fileName) {
                             sysLog(`Téléchargement sécurisé requis pour ${mod.name}`, false);
                             failed.push(mod.name);
@@ -941,8 +967,11 @@ const queue = [...modsToDownload];
         await Promise.all(workers);
 window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         store.allInstances.push(newInst);
+        newInst._localConfigUpdatedAt = Date.now();
+        if (window.updateIconCache) await window.updateIconCache(newInst);
         const instJsonPath = path.join(instDir, "instance.json");
         try { await fs.promises.writeFile(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
+        if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -998,7 +1027,9 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             
             if (targetInstIdx !== null && store.allInstances[targetInstIdx]) {
                 store.allInstances[targetInstIdx].modpackVersion = versionNumber;
-                window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                store.allInstances[targetInstIdx]._localConfigUpdatedAt = Date.now();
+                await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(store.allInstances[targetInstIdx], { preserveTimestamp: true });
             }
             
             await fs.promises.unlink(tempPath);

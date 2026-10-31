@@ -3,6 +3,23 @@ import { sysLog, yieldUI } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
+async function ensureZipInSandbox(zipPath) {
+    const resolved = path.resolve(zipPath);
+    const sandboxRoot = path.resolve(store.dataDir);
+    const sep = path.sep || (resolved.includes('/') ? '/' : '\\');
+    const isWin = window.api?.platform === "win32";
+    const r = isWin ? resolved.toLowerCase() : resolved;
+    const s = isWin ? sandboxRoot.toLowerCase() : sandboxRoot;
+    const isInSandbox = r.startsWith(s + (s.endsWith(sep) ? '' : sep)) || r === s;
+    if (isInSandbox) return { path: zipPath, isTemp: false };
+    const destName = "temp_mrpack_import_" + Date.now() + ".mrpack";
+    const res = await window.api.invoke("copy-file-to-sandbox", { srcPath: zipPath, destName });
+    if (!res || !res.success) {
+        throw new Error((res && res.error) || "Impossible de copier le fichier dans le sandbox.");
+    }
+    return { path: res.destPath, isTemp: true };
+}
+
 export function setup() {
     window.doMrPackUpdate = async function(packPath, inst) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
@@ -10,7 +27,13 @@ export function setup() {
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
       const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
       try {
-        const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        const sandboxZip = await ensureZipInSandbox(packPath);
+        let exRes;
+        try {
+            exRes = await window.api.invoke("extract-zip", { zipPath: sandboxZip.path, destDir: tempExtractDir });
+        } finally {
+            if (sandboxZip.isTemp) { try { await fs.promises.unlink(sandboxZip.path); } catch (_) {} }
+        }
         if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
         if (!(await window.existsSafe(indexPath))) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
@@ -66,6 +89,14 @@ export function setup() {
                     const res = await window.fetchWithTimeout(downloadUrl, { timeout: 120000 });
                     if (res.ok) {
                         const fileBytes = new Uint8Array(await res.arrayBuffer());
+                        if (modFile.hashes?.sha1) {
+                            const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                            if (dlHash !== modFile.hashes.sha1) {
+                                sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
+                                downloadedCount++;
+                                continue;
+                            }
+                        }
                         await fs.promises.writeFile(modPath, fileBytes);
                     }
                 } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
@@ -74,8 +105,11 @@ export function setup() {
             }
         });
         await Promise.all(workers);
+        inst._localConfigUpdatedAt = Date.now();
         try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
-        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+        await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+        if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
+        if (window.updateIconCache) await window.updateIconCache(inst);
         window.showToast(window.t("msg_modpack_updated", "Modpack mis à jour avec succès !"), "success");
       } catch (err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
@@ -90,7 +124,13 @@ export function setup() {
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
       try {
-        const exRes = await window.api.invoke("extract-zip", { zipPath: packPath, destDir: tempExtractDir });
+        const sandboxZip = await ensureZipInSandbox(packPath);
+        let exRes;
+        try {
+            exRes = await window.api.invoke("extract-zip", { zipPath: sandboxZip.path, destDir: tempExtractDir });
+        } finally {
+            if (sandboxZip.isTemp) { try { await fs.promises.unlink(sandboxZip.path); } catch (_) {} }
+        }
         if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
         if (!(await window.existsSafe(indexPath))) {
@@ -181,6 +221,7 @@ export function setup() {
                         if (modFile.hashes?.sha1) {
                             const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
                             if (dlHash !== modFile.hashes.sha1) {
+                                sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
                                 downloadedCount++;
                                 continue;
                             }
@@ -204,19 +245,23 @@ export function setup() {
             store.allInstances.push(newInst);
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         }
-        if (window.updateIconCache) window.updateIconCache(newInst);
+        newInst._localConfigUpdatedAt = Date.now();
+        if (window.updateIconCache) await window.updateIconCache(newInst);
         try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
-        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-        if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
-        window.showToast(t("msg_install_success", "Installation réussie !"), "success");
+        await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+        if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
+        if (updateTargetInstIdx === null) {
+            window.showToast(t("msg_mrpack_success", "Modpack installé avec succès !"), "success");
+        }
+        if (window.checkAchievement) window.checkAchievement("modder");
       } catch (err) {
-        sysLog("Erreur Modpack Modrinth : " + err.message, true);
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
+        console.error(err);
       } finally {
-         try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
-         window.hideLoading();
-         window.renderUI();
+        try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+        window.hideLoading();
+        window.renderUI();
       }
     };
 }

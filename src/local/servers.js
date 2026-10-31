@@ -197,12 +197,17 @@ export function setup() {
                 if (freshDiv) freshDiv.innerHTML = `<span style="color:#f87171;">[x] ${t("msg_err_ping", "Erreur")}</span>`;
             }
         };
-const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
-        for (let i = 0; i < servers.length; i++) {
-            if (signal.aborted) break;
-            pingOne(servers[i], i);
-            await new Promise(r => setTimeout(r, 200)); 
+        const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
+        const pingPromises = [];
+        try {
+            for (let i = 0; i < servers.length; i++) {
+                if (signal.aborted) break;
+                pingPromises.push(pingOne(servers[i], i));
+                await new Promise(r => setTimeout(r, 200)); 
+            }
+            await Promise.allSettled(pingPromises);
+        } finally {
+            clearTimeout(timeoutId);
         }
-        clearTimeout(timeoutId);
     };
 }

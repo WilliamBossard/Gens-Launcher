@@ -15,13 +15,14 @@ async function extractArchive({ archivePath, destDir, isWin }) {
             const resolvedTarget = path.resolve(destDir);
 
             for await (const entry of zipfile) {
-                const dest = path.join(destDir, entry.fileName);
+                const entryName = entry.filename || entry.fileName;
+                const dest = path.join(destDir, entryName);
                 const resDest = path.resolve(dest);
                 if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
-                    parentPort.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entry.fileName });
+                    parentPort.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entryName });
                     continue;
                 }
-                if (/\/$/.test(entry.fileName)) {
+                if (/\/$/.test(entryName)) {
                     await fs.promises.mkdir(dest, { recursive: true });
                 } else {
                     await fs.promises.mkdir(path.dirname(dest), { recursive: true });

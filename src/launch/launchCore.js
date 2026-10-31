@@ -31,7 +31,7 @@ const CLOUD_META_SUBPATH = ['gens', 'launcher_config.json'];
  *
  * @param {object} inst - L'objet instance depuis store.allInstances.
  */
-export async function writeInstanceMetaForCloud(inst) {
+export async function writeInstanceMetaForCloud(inst, opts = {}) {
     if (!inst) return;
     try {
         const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
@@ -41,14 +41,24 @@ export async function writeInstanceMetaForCloud(inst) {
         // Créer le dossier gens/ s'il n'existe pas encore
         await fs.promises.mkdir(metaDir, { recursive: true });
 
+        const now = Date.now();
+        const ts = (opts.preserveTimestamp && inst._localConfigUpdatedAt)
+            ? Number(inst._localConfigUpdatedAt)
+            : Math.max(now, Number(inst._localConfigUpdatedAt) || 0);
+        inst._localConfigUpdatedAt = ts;
+
         const config = {};
         for (const key of INSTANCE_CONFIG_KEYS) {
             if (key in inst) config[key] = inst[key];
         }
-        // Horodatage pour que l'autre PC puisse savoir si c'est plus récent
-        config._cloudExportedAt = Date.now();
+        // Horodatage pour que ce PC et les autres PC sachent quelle version de la config est la plus récente
+        config._cloudExportedAt = ts;
+        config._localConfigUpdatedAt = ts;
 
         await fs.promises.writeFile(metaPath, JSON.stringify(config, null, 2), 'utf8');
+        try {
+            await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
+        } catch (_) { /* ignore */ }
         sysLog(`[HORIZON] Métadonnées d'instance écrites pour upload : "${inst.name}"`);
     } catch (e) {
         sysLog(`[HORIZON] Erreur écriture métadonnées cloud pour "${inst?.name}" : ${e.message}`, true);
@@ -58,7 +68,8 @@ export async function writeInstanceMetaForCloud(inst) {
 /**
  * Après un --sync Horizon, relit {instanceFolder}/gens/launcher_config.json
  * (écrit par l'autre PC avant son upload) et merge les champs de config
- * dans store.allInstances, puis persiste instances.json.
+ * dans store.allInstances uniquement si la config cloud est plus récente que
+ * la dernière modification locale (_localConfigUpdatedAt), puis persiste instances.json.
  *
  * @param {string|null} instanceSafeName - Si fourni, ne merge que cette instance.
  *                                         Si null, merge toutes les instances connues.
@@ -80,16 +91,46 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                 // Vérification de cohérence minimale
                 if (!cloudConfig || typeof cloudConfig !== 'object') continue;
 
+                const cloudTs = Number(cloudConfig._cloudExportedAt || cloudConfig._localConfigUpdatedAt) || 0;
+                const localTs = Number(inst._localConfigUpdatedAt) || 0;
+
+                // Si la configuration locale a été modifiée plus récemment (ou au même moment) que le snapshot cloud,
+                // on ne doit SURTOUT PAS écraser les changements locaux (ex: changement de version du loader Fabric).
+                if (localTs > 0 && cloudTs <= localTs) {
+                    if (cloudTs < localTs) {
+                        sysLog(`[HORIZON] Config locale de "${inst.name}" plus récente que le cloud — conservation des paramètres locaux.`);
+                        await writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
+                    }
+                    continue;
+                }
+
+                let instChanged = false;
+                let loaderOrVerChanged = false;
                 for (const key of INSTANCE_CONFIG_KEYS) {
                     if (key in cloudConfig && JSON.stringify(cloudConfig[key]) !== JSON.stringify(inst[key])) {
+                        if (key === 'version' || key === 'loader' || key === 'loaderVersion') {
+                            loaderOrVerChanged = true;
+                        }
                         inst[key] = cloudConfig[key];
+                        instChanged = true;
                         changed = true;
                     }
                 }
 
-                if (changed) {
+                if (cloudTs > 0) {
+                    inst._localConfigUpdatedAt = cloudTs;
+                }
+
+                if (instChanged) {
                     sysLog(`[HORIZON] Config de "${inst.name}" mise à jour depuis le cloud ` +
-                           `(exportée le ${new Date(cloudConfig._cloudExportedAt || 0).toLocaleString()}).`);
+                           `(exportée le ${new Date(cloudTs).toLocaleString()}).`);
+                    try {
+                        await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
+                    } catch (_) { /* ignore */ }
+                    if (loaderOrVerChanged && typeof window !== 'undefined' && window.showToast && window.t) {
+                        const msg = window.t("msg_cloud_config_updated", `Configuration de "{name}" mise à jour depuis le Cloud.`).replace("{name}", inst.name);
+                        window.showToast(msg, "info");
+                    }
                 }
             } catch (e) {
                 if (e && e.code !== 'ENOENT') {
@@ -148,18 +189,18 @@ export async function performAutoBackup(inst, mode, ui) {
         for (const saveDir of saves) {
             const src = path.join(savesDir, saveDir);
             const statSave = await fs.promises.stat(src);
-            if (!statSave.isDirectory) continue;
+            if (!(typeof statSave.isDirectory === 'function' ? statSave.isDirectory() : statSave.isDirectory)) continue;
 
             const zipPath = path.join(backupDir, `${saveDir}_backup_auto_${timestamp}.zip`);
             
-            const onProg = (_, data) => {
+            const onProg = (eventOrData, maybeData) => { const data = maybeData !== undefined ? maybeData : eventOrData; if (!data || typeof data.percent !== "number") return;
                 if (ui && ui.showLoading) {
                     ui.showLoading(window.t("msg_autobackup_running", "Auto-Backup en cours...") + ` ${data.percent}%`);
                 }
             };
             const cleanupProgress = window.api.on("zip-progress", onProg);
-            await window.api.invoke("compress-folder", { src, dest: zipPath });
-            if (cleanupProgress) cleanupProgress();
+            try { await window.api.invoke("compress-folder", { src, dest: zipPath }); } finally { if (cleanupProgress) cleanupProgress(); }
+
 
             const limit = inst.backupLimit || 5;
             const allBackups = await fs.promises.readdir(backupDir);
@@ -208,6 +249,61 @@ export function getRequiredJavaVersion(mcVersion) {
     if (minor > 20 || (minor === 20 && patch >= 5)) return 21;
     if (minor >= 17) return 17;
     return 8;
+}
+
+/**
+ * Lit dynamiquement la version majeure de Java requise (`javaVersion.majorVersion`)
+ * directement depuis le JSON officiel de Mojang (sur disque ou pré-téléchargé dans cache/json),
+ * avec repli sur `getRequiredJavaVersion(mcVersion)`.
+ * Permet de supporter automatiquement les futures versions de Minecraft et de Java (Java 25, 29, etc.)
+ * pendant 5+ ans sans mise à jour du code du launcher.
+ */
+export async function detectRequiredJavaVersion(inst, instancePath) {
+    const mcVersion = typeof inst === "string" ? inst : inst?.version;
+    const fallback = getRequiredJavaVersion(mcVersion);
+    if (!mcVersion || !instancePath) return fallback;
+
+    const candidates = [
+        path.join(instancePath, "versions", mcVersion, `${mcVersion}.json`),
+        path.join(instancePath, "cache", "json", `${mcVersion}.json`),
+    ];
+
+    for (const jsonPath of candidates) {
+        try {
+            if (await window.existsSafe(jsonPath)) {
+                const parsed = JSON.parse(await fs.promises.readFile(jsonPath, "utf8"));
+                const major = parsed?.javaVersion?.majorVersion;
+                if (typeof major === "number" && major >= 8 && major <= 99) {
+                    return major;
+                }
+            }
+        } catch (_) { /* ignore */ }
+    }
+
+    // Si le JSON n'est pas encore sur le disque et que nous avons l'URL dans store.rawVersions,
+    // le pré-télécharger dans cache/json/<mcVersion>.json (économise aussi 1 requête lors du lancement MCLC).
+    const isOffline = store.globalSettings?.offlineMode || (typeof window !== "undefined" && window.isTrulyOnline === false);
+    if (!isOffline && Array.isArray(store.rawVersions)) {
+        const vEntry = store.rawVersions.find(v => v && v.id === mcVersion && v.url);
+        if (vEntry && typeof window !== "undefined" && typeof window.fetchWithTimeout === "function") {
+            try {
+                const res = await window.fetchWithTimeout(vEntry.url, {}, 5000);
+                if (res && res.ok) {
+                    const body = await res.text();
+                    const parsed = JSON.parse(body);
+                    const cacheDir = path.join(instancePath, "cache", "json");
+                    await fs.promises.mkdir(cacheDir, { recursive: true });
+                    await fs.promises.writeFile(path.join(cacheDir, `${mcVersion}.json`), body, "utf8");
+                    const major = parsed?.javaVersion?.majorVersion;
+                    if (typeof major === "number" && major >= 8 && major <= 99) {
+                        return major;
+                    }
+                }
+            } catch (_) { /* ignore, fallback */ }
+        }
+    }
+
+    return fallback;
 }
 
 export async function analyzeCrash(instanceName) {

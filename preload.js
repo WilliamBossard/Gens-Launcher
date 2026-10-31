@@ -37,10 +37,17 @@ const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
  * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
  */
 const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
+const _isWin = _appPaths.platform === 'win32';
+const _normPath = (s) => _isWin ? s.toLowerCase() : s;
+function _isUnderDir(target, base) {
+    const nt = _normPath(target);
+    const nb = _normPath(base);
+    return nt.startsWith(nb + path.sep) || nt === nb;
+}
 function enforceReadSandbox(p, silent = false) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
     const resolved = path.resolve(p);
-    const isInDataDir = resolved.startsWith(safeDataDir + path.sep) || resolved === safeDataDir;
+    const isInDataDir = _isUnderDir(resolved, safeDataDir);
     // AUDIT-10 : isMinecraftDir restreint aux chemins .minecraft connus (AppData, macOS, Linux)
     // pour éviter que tout dossier nommé 'minecraft' dans n'importe quel chemin bypasse le sandbox.
     const KNOWN_MC_PATHS = [
@@ -48,10 +55,8 @@ function enforceReadSandbox(p, silent = false) {
         path.join(os.homedir(), 'Library', 'Application Support', 'minecraft'),          // macOS
         path.join(os.homedir(), '.minecraft'),                                           // Linux
     ];
-    const isMinecraftDir = KNOWN_MC_PATHS.some(mc =>
-        resolved.startsWith(mc + path.sep) || resolved === mc
-    );
-    const isTempDir = resolved.startsWith(path.join(os.tmpdir(), "GensLauncher"));
+    const isMinecraftDir = KNOWN_MC_PATHS.some(mc => _isUnderDir(resolved, mc));
+    const isTempDir = _isUnderDir(resolved, path.join(os.tmpdir(), "GensLauncher"));
     const isSafeExtension = safeReadRegex.test(resolved);
     if (!isInDataDir && !isMinecraftDir && !isTempDir && !isSafeExtension) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
@@ -62,7 +67,7 @@ function enforceReadSandbox(p, silent = false) {
 function enforceSandbox(p) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
     const resolved = path.resolve(p);
-    if (!resolved.startsWith(safeDataDir + path.sep) && resolved !== safeDataDir) {
+    if (!_isUnderDir(resolved, safeDataDir)) {
         console.error(`SÉCURITÉ : Écriture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en écriture refusé par le système de sécurité du Launcher.");
     }
@@ -76,7 +81,7 @@ function safeExternalUrl(url) {
     return url;
 }
 // Note : deobfuscateDataAsync a été supprimé (SEC-02) — 'decrypt-string' gère déjà le fallback legacy en cascade.
-const validSendChannels = ["set-auto-download", "download-update", "hide-window", "minimize-window", "show-window", "restore-main-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"];
+const validSendChannels = ["set-auto-download", "set-offline-mode", "download-update", "hide-window", "minimize-window", "show-window", "restore-main-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"];
 const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile", "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "copy-file-to-sandbox", "delete-msa-cache", "hash-file", "check-internet", "do-deb-update", "run-forge-installer"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
 const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
 contextBridge.exposeInMainWorld("api", {
@@ -184,7 +189,7 @@ contextBridge.exposeInMainWorld("api", {
             readdir: (p) => fs.promises.readdir(enforceReadSandbox(p)),
             stat: async (p) => {
                 const s = await fs.promises.stat(enforceReadSandbox(p));
-                return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, birthtime: s.birthtime };
+                return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, mtimeMs: s.mtimeMs, birthtime: s.birthtime };
             },
             writeFile: async (p, d) => {
                 const safePath = enforceSandbox(p);

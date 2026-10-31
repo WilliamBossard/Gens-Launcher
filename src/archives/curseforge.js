@@ -369,8 +369,10 @@ export function setup() {
                     );
                 }
             });
+            inst._localConfigUpdatedAt = Date.now();
             try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
-            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
             window.showToast(window.t("msg_modpack_updated", "Modpack mis à jour avec succès !"), "success");
         } catch (err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
@@ -484,11 +486,13 @@ export function setup() {
             if (await window.existsSafe(defaultOpt) && !(await window.existsSafe(instOpt))) {
                 try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             }
-            if (window.updateIconCache) window.updateIconCache(newInst);
+            newInst._localConfigUpdatedAt = Date.now();
+            if (window.updateIconCache) await window.updateIconCache(newInst);
             try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
-            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {
@@ -598,12 +602,14 @@ export function setup() {
                     }
                 }
             }
+            instData._localConfigUpdatedAt = Date.now();
             store.allInstances.push(instData);
-            if (window.updateIconCache) window.updateIconCache(instData);
+            if (window.updateIconCache) await window.updateIconCache(instData);
             try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
-            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(instData, { preserveTimestamp: true });
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
         } catch (err) {

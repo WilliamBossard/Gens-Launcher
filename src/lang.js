@@ -3,48 +3,6 @@ const fs = window.api.fs;
 const path = window.api.path;
 
 export async function setupLang() {
-
-
-    let defaultFr = {};
-    let defaultEn = {};
-
-    try {
-        let appDir = decodeURIComponent(window.location.pathname);
-        if (appDir.startsWith("/") && appDir.match(/^\/[a-zA-Z]:/)) {
-            appDir = appDir.substring(1);
-        }
-        appDir = path.dirname(appDir);
-
-        const frPath = path.join(appDir, "src", "locales", "fr.json");
-        const frContent = await fs.promises.readFile(frPath, "utf8");
-        defaultFr = JSON.parse(frContent);
-
-        const enPath = path.join(appDir, "src", "locales", "en.json");
-        const enContent = await fs.promises.readFile(enPath, "utf8");
-        defaultEn = JSON.parse(enContent);
-    } catch (e) {
-        console.error("Erreur de lecture des traductions internes:", e);
-    }
-
-    async function syncLangFile(filePath, defaultObj) {
-        let current = {};
-        if (await window.existsSafe(filePath)) {
-            try { current = JSON.parse(await fs.promises.readFile(filePath, "utf8")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
-        }
-        const merged = Object.assign({}, defaultObj, current);
-        const dir = path.dirname(filePath);
-        if (!(await window.existsSafe(dir))) {
-            await fs.promises.mkdir(dir, { recursive: true });
-        }
-        const mergedJson = JSON.stringify(merged, null, 2);
-        if (JSON.stringify(current, null, 2) !== mergedJson) {
-            await fs.promises.writeFile(filePath, mergedJson);
-        }
-    }
-
-    await syncLangFile(path.join(store.langDir, "fr.json"), defaultFr);
-    await syncLangFile(path.join(store.langDir, "en.json"), defaultEn);
-
     window.applyTranslations = () => {
         document.querySelectorAll("[data-i18n]").forEach((el) => {
             const key = el.getAttribute("data-i18n");
@@ -68,7 +26,50 @@ export async function setupLang() {
         if (window.updateRPC) window.updateRPC();
     };
 
+    const syncReadyPromise = (async () => {
+        let defaultFr = {};
+        let defaultEn = {};
+
+        try {
+            let appDir = decodeURIComponent(window.location.pathname);
+            if (appDir.startsWith("/") && appDir.match(/^\/[a-zA-Z]:/)) {
+                appDir = appDir.substring(1);
+            }
+            appDir = path.dirname(appDir);
+
+            const frPath = path.join(appDir, "src", "locales", "fr.json");
+            const frContent = await fs.promises.readFile(frPath, "utf8");
+            defaultFr = JSON.parse(frContent);
+
+            const enPath = path.join(appDir, "src", "locales", "en.json");
+            const enContent = await fs.promises.readFile(enPath, "utf8");
+            defaultEn = JSON.parse(enContent);
+        } catch (e) {
+            console.error("Erreur de lecture des traductions internes:", e);
+        }
+
+        async function syncLangFile(filePath, defaultObj) {
+            let current = {};
+            if (await window.existsSafe(filePath)) {
+                try { current = JSON.parse(await fs.promises.readFile(filePath, "utf8")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
+            }
+            const merged = Object.assign({}, defaultObj, current);
+            const dir = path.dirname(filePath);
+            if (!(await window.existsSafe(dir))) {
+                await fs.promises.mkdir(dir, { recursive: true });
+            }
+            const mergedJson = JSON.stringify(merged, null, 2);
+            if (JSON.stringify(current, null, 2) !== mergedJson) {
+                await fs.promises.writeFile(filePath, mergedJson);
+            }
+        }
+
+        await syncLangFile(path.join(store.langDir, "fr.json"), defaultFr);
+        await syncLangFile(path.join(store.langDir, "en.json"), defaultEn);
+    })();
+
     window.loadLanguage = async (code) => {
+        await syncReadyPromise;
         const p = path.join(store.langDir, `${code}.json`);
         if (await window.existsSafe(p)) {
             try {
@@ -110,6 +111,7 @@ export async function setupLang() {
     };
 
     window.populateLangDropdown = async () => {
+        await syncReadyPromise;
         const select = document.getElementById("global-lang");
         if (!select) return;
         select.innerHTML = "";
@@ -123,4 +125,6 @@ export async function setupLang() {
             select.appendChild(opt);
         });
     };
+
+    await syncReadyPromise;
 }

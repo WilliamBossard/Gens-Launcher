@@ -28,34 +28,21 @@ Welcome to Gens Launcher! Here is how to install the software on your PC in just
 ### Step 1: Download the Installer
 1. On this GitHub page, look on the right side under the **"Releases"** section and click on the latest release (e.g., `v1.5.0`).
 2. Scroll down to the "Assets" section at the bottom and download the file for your Operating System:
-   - **For Windows (WinGet):** Open PowerShell or Terminal and run `winget install WilliamBossard.GensLauncher`
    - **For Windows (Installer):** Download **`Gens-Launcher-Setup-X.X.X.exe`**
-   - **For Linux (Flatpak / Flathub):** Run `flatpak install flathub com.gens.launcher`
    - **For Linux (Debian/Ubuntu via APT):** Use the official APT repository (see below)
    - **For Linux (AppImage):** Download **`GensLauncher-X.X.X-x86_64.AppImage`**
    - **For macOS:** Download **`GensLauncher-X.X.X-mac.dmg`**
 
 ### Step 2: Run the Installation
 
-**For Windows - Option A: WinGet (Recommended, automated)**
-```powershell
-winget install WilliamBossard.GensLauncher
-```
-
-**For Windows - Option B: Setup Installer (.exe)**
+**For Windows: Setup Installer (.exe)**
 1. Once the download is complete, double-click the `.exe` file to start the installation.
 2. **Important (Windows Alert):** Because this launcher is an independent project, Windows Defender might display a blue screen saying *"Windows protected your PC"*. This is completely normal for unverified indie apps.
    - Simply click on the **"More info"** text.
    - Then click the **"Run anyway"** button.
 3. Follow the on-screen instructions, leave the boxes checked to create shortcuts, and click "Install".
 
-**For Linux - Option A: Flatpak (Flathub / Steam Deck)**
-```bash
-flatpak install flathub com.gens.launcher
-flatpak run com.gens.launcher
-```
-
-**For Linux - Option B: APT Repository (Debian/Ubuntu)**
+**For Linux - Option A: APT Repository (Debian/Ubuntu)**
 
 This method integrates Gens Launcher into your system's package manager, so it updates automatically with `apt upgrade` like any other application.
 
@@ -77,7 +64,7 @@ To update in the future:
 sudo apt update && sudo apt upgrade gens-launcher
 ```
 
-**For Linux - Option C: AppImage (Universal, no install required)**
+**For Linux - Option B: AppImage (Universal, no install required)**
 1. Right-click the `.AppImage` file and select **Properties**.
 2. Go to the **Permissions** tab and check the box **"Allow executing file as program"**.
 3. Double-click the `.AppImage` to launch Gens Launcher!

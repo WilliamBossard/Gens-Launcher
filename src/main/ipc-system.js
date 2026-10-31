@@ -1,4 +1,4 @@
-const { existsSafe } = require('./fs-utils');
+const { existsSafe, parseMotdComponent } = require('./fs-utils');
 const { Worker } = require('worker_threads');
 
 module.exports = function setupSystemHandlers(context) {
@@ -11,7 +11,9 @@ module.exports = function setupSystemHandlers(context) {
         src = assertPathUnderSandbox(src);
         dest = assertPathUnderSandbox(dest);
 
-        return new Promise((resolve) => {
+        return new Promise((resolveRaw) => {
+            let settled = false;
+            const resolve = (v) => { if (!settled) { settled = true; resolveRaw(v); } };
             const worker = new Worker(path.join(__dirname, '..', 'workers', 'compress-worker.js'), {
                 workerData: { src, dest, exclude }
             });
@@ -32,9 +34,10 @@ module.exports = function setupSystemHandlers(context) {
             });
 
             worker.on('exit', (code) => {
-                if (code !== 0) {
-                    resolve({ success: false, error: `Worker stopped with exit code ${code}` });
-                }
+                // Si le worker se termine sans avoir envoyé 'done', on débloque quand même l'appelant
+                resolve(code === 0
+                    ? { success: false, error: "Worker terminé sans résultat" }
+                    : { success: false, error: `Worker stopped with exit code ${code}` });
             });
         });
     });
@@ -42,8 +45,9 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
         archivePath = assertPathUnderSandbox(archivePath);
         destDir = assertPathUnderSandbox(destDir);
-        return new Promise((resolve) => {
-            const { Worker } = require("worker_threads");
+        return new Promise((resolveRaw) => {
+            let settled = false;
+            const resolve = (v) => { if (!settled) { settled = true; resolveRaw(v); } };
             const workerPath = path.join(__dirname, '..', "workers", "extract-worker.js");
             const worker = new Worker(workerPath, {
                 workerData: { archivePath, destDir, isWin: process.platform === "win32" }
@@ -54,7 +58,9 @@ module.exports = function setupSystemHandlers(context) {
             });
             worker.on("error", (err) => resolve({ success: false, error: err.message }));
             worker.on("exit", (code) => {
-                if (code !== 0) resolve({ success: false, error: `Worker stopped with exit code ${code}` });
+                resolve(code === 0
+                    ? { success: false, error: "Worker terminé sans résultat" }
+                    : { success: false, error: `Worker stopped with exit code ${code}` });
             });
         });
     });
@@ -67,13 +73,14 @@ module.exports = function setupSystemHandlers(context) {
             const zipfile = await yauzl.open(zipPath);
             try {
                 for await (const entry of zipfile) {
-                    if (targets.has(entry.fileName)) {
+                    if (targets.has(entry.filename)) {
                         const readStream = await entry.openReadStream();
-                        let data = '';
+                        const chunks = [];
                         for await (const chunk of readStream) {
-                            data += chunk;
+                            chunks.push(chunk);
                         }
-                        return { success: true, text: data, file: entry.fileName };
+                        // Concaténation binaire puis décodage : évite de couper un caractère UTF-8 multi-octets
+                        return { success: true, text: Buffer.concat(chunks).toString('utf8'), file: entry.filename };
                     }
                 }
                 return { success: false };
@@ -102,15 +109,21 @@ module.exports = function setupSystemHandlers(context) {
                 const total = zipfile.entryCount;
                 let processed = 0;
                 let lastProgress = -1;
+                const failedEntries = [];
                 const resolvedTarget = path.resolve(destDir);
 
                 for await (const entry of zipfile) {
+                    // Ignorer les entrées symlink Unix (S_IFLNK = 0o120000)
+                    if (((entry.externalFileAttributes >>> 16) & 0o170000) === 0o120000) {
+                        continue;
+                    }
                     const destPath = path.join(destDir, entry.filename);
                     const resDest = path.resolve(destPath);
                     
                     if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
                         continue;
                     }
+                    assertPathUnderSandbox(resDest);
 
                     if (/\/$/.test(entry.filename)) {
                         if (!(await existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
@@ -122,6 +135,7 @@ module.exports = function setupSystemHandlers(context) {
                             const writeStream = fs.createWriteStream(destPath);
                             await pipeline(readStream, writeStream);
                         } catch (streamErr) {
+                            failedEntries.push(entry.filename);
                             mainLog(`[extract-zip] Erreur sur l'entrée ${entry.filename}: ${streamErr.message}`);
                         }
                         processed++;
@@ -134,6 +148,15 @@ module.exports = function setupSystemHandlers(context) {
                             }
                         }
                     }
+                }
+                if (failedEntries.length > 0) {
+                    mainLog(`[extract-zip] Extraction terminée avec ${failedEntries.length} erreur(s) (${processed}/${total} entrées).`);
+                    // Rétro-compatible : success reste true si au moins une partie a été extraite,
+                    // les appelants peuvent consulter failedEntries pour avertir l'utilisateur.
+                    const extracted = processed - failedEntries.length;
+                    return extracted > 0
+                        ? { success: true, failedEntries }
+                        : { success: false, error: "Aucune entrée n'a pu être extraite.", failedEntries };
                 }
                 mainLog(`[extract-zip] Extraction terminée avec succès (${processed}/${total} entrées).`);
                 return { success: true };
@@ -151,85 +174,8 @@ module.exports = function setupSystemHandlers(context) {
             const { Ping } = require('../gens-core');
             const data = await Ping.pingServer(ip, 5000);
             
-            const mcColorMap = {
-                'black': '#000000', 'dark_blue': '#0000AA', 'dark_green': '#00AA00', 'dark_aqua': '#00AAAA',
-                'dark_red': '#AA0000', 'dark_purple': '#AA00AA', 'gold': '#FFAA00', 'gray': '#AAAAAA',
-                'dark_gray': '#555555', 'blue': '#5555FF', 'green': '#55FF55', 'aqua': '#55FFFF',
-                'red': '#FF5555', 'light_purple': '#FF55FF', 'yellow': '#FFFF55', 'white': '#FFFFFF'
-            };
-            const legacyMap = {
-                '0': '#000', '1': '#00a', '2': '#0a0', '3': '#0aa',
-                '4': '#a00', '5': '#a0a', '6': '#fa0', '7': '#aaa',
-                '8': '#555', '9': '#55f', 'a': '#5f5', 'b': '#5ff',
-                'c': '#f55', 'd': '#f5f', 'e': '#ff5', 'f': '#fff'
-            };
-
-            function parseLegacy(raw) {
-                if (!raw) return '';
-                let html = '';
-                let spanCount = 0;
-                const parts = raw.split('§');
-                html += parts[0];
-                for (let i = 1; i < parts.length; i++) {
-                    const part = parts[i];
-                    if (part.length === 0) continue;
-                    const code = part[0].toLowerCase();
-                    const text = part.substring(1);
-                    if (legacyMap[code]) {
-                        html += '</span>'.repeat(spanCount);
-                        spanCount = 0;
-                        html += `<span style="color: ${legacyMap[code]};">`;
-                        spanCount++;
-                    } else if (code === 'l') {
-                        html += `<span style="font-weight: bold;">`;
-                        spanCount++;
-                    } else if (code === 'o') {
-                        html += `<span style="font-style: italic;">`;
-                        spanCount++;
-                    } else if (code === 'n') {
-                        html += `<span style="text-decoration: underline;">`;
-                        spanCount++;
-                    } else if (code === 'm') {
-                        html += `<span style="text-decoration: line-through;">`;
-                        spanCount++;
-                    } else if (code === 'r') {
-                        html += '</span>'.repeat(spanCount);
-                        spanCount = 0;
-                    }
-                    html += text;
-                }
-                html += '</span>'.repeat(spanCount);
-                return html.replace(/\n/g, '  ');
-            }
-
-            function parseComponent(comp) {
-                if (typeof comp === 'string') return parseLegacy(comp);
-                if (!comp) return '';
-                if (Array.isArray(comp)) return comp.map(parseComponent).join('');
-                
-                let style = '';
-                if (comp.color) {
-                    const c = comp.color;
-                    if (c.startsWith('#')) style += `color: ${c}; `;
-                    else if (mcColorMap[c]) style += `color: ${mcColorMap[c]}; `;
-                }
-                if (comp.bold) style += 'font-weight: bold; ';
-                if (comp.italic) style += 'font-style: italic; ';
-                if (comp.underlined) style += 'text-decoration: underline; ';
-                if (comp.strikethrough) style += 'text-decoration: line-through; ';
-                
-                let html = '';
-                if (style) html += `<span style="${style}">`;
-                html += parseLegacy(comp.text || '');
-                if (Array.isArray(comp.extra)) {
-                    for (const child of comp.extra) html += parseComponent(child);
-                }
-                if (style) html += '</span>';
-                return html;
-            }
-
             let motdHtml = '';
-            if (data.description) motdHtml = parseComponent(data.description);
+            if (data.description) motdHtml = parseMotdComponent(data.description);
 
             const mappedData = {
                 online: true,
@@ -247,6 +193,17 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("copy-file-to-sandbox", async (_, { srcPath, destName }) => {
         let destPath = null;
         try {
+            if (typeof srcPath !== 'string' || !srcPath.trim()) {
+                return { success: false, error: "Chemin source invalide." };
+            }
+            const ALLOWED_IMPORT_EXTS = /.(zip|mrpack|jar|json|png|jpe?g|gif|webp|bmp|ico)$/i;
+            if (!ALLOWED_IMPORT_EXTS.test(srcPath)) {
+                return { success: false, error: "Extension de fichier non autorisée pour l'import." };
+            }
+            const stat = await fs.promises.stat(srcPath);
+            if (!stat.isFile()) {
+                return { success: false, error: "Le chemin source n'est pas un fichier." };
+            }
             // Validate destination name — no path traversal allowed
             const safeName = String(destName || "").replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
             if (!safeName) return { success: false, error: "Nom de fichier de destination invalide." };
@@ -269,7 +226,23 @@ module.exports = function setupSystemHandlers(context) {
             let basePaths = [ path.join(safeDataDir, "java") ];
             
             if (process.platform === "win32") {
-                basePaths.push("C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java", path.join(app.getPath("appData"), ".minecraft", "runtime"));
+                const pf = process.env.ProgramFiles || "C:\\Program Files";
+                const pfx86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+                const localAppData = process.env.LOCALAPPDATA || "";
+                basePaths.push(
+                    path.join(pf, "Java"),
+                    path.join(pfx86, "Java"),
+                    path.join(pf, "Eclipse Adoptium"),
+                    path.join(pf, "Microsoft"),
+                    path.join(pf, "Zulu"),
+                    path.join(pf, "BellSoft"),
+                    path.join(pf, "Amazon Corretto"),
+                    path.join(pf, "Semeru"),
+                    path.join(app.getPath("appData"), ".minecraft", "runtime")
+                );
+                if (localAppData) {
+                    basePaths.push(path.join(localAppData, "Programs", "Eclipse Adoptium"));
+                }
             } else if (process.platform === "linux") {
                 basePaths.push("/usr/lib/jvm", "/usr/java", "/opt/jdk");
             } else if (process.platform === "darwin") {
@@ -305,7 +278,7 @@ module.exports = function setupSystemHandlers(context) {
             });
             
             await Promise.all(searchPromises);
-            return { success: true, paths: foundPaths };
+            return { success: true, paths: [...new Set(foundPaths)] };
         } catch (err) {
             mainLog(`[scan-java-versions] Error: ${err.message}`);
             return { success: false, paths: [] };

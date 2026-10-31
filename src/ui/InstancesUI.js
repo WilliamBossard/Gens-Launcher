@@ -63,31 +63,48 @@ export function setupInstances() {
             return 0;
         };
 
+        const fetchFn = typeof window !== 'undefined' && typeof window.fetchWithTimeout === 'function'
+            ? (u, opts) => window.fetchWithTimeout(u, { timeout: 10000, ...opts })
+            : (u, opts) => fetch(u, opts);
+
         if (loader === "fabric") {
-            const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
+            const res = await fetchFn(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Fabric API HTTP ${res.status}`);
             return (await res.json()).map(d => d.loader.version);
         }
         if (loader === "quilt") {
-            const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
+            const res = await fetchFn(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Quilt API HTTP ${res.status}`);
             const data = await res.json();
             const versions = data.map(d => d.loader.version);
             return versions.sort(sortSemverDesc);
         }
         if (loader === "forge") {
-            const res = await fetch(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
-            if (!res.ok) throw new Error(`Forge officiel HTTP ${res.status}`);
-            const all = await res.json();
-            const vers = all[mcVer] || [];
-            return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
+            try {
+                const res = await fetchFn(`https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json`);
+                if (res.ok) {
+                    const all = await res.json();
+                    const vers = all[mcVer] || [];
+                    if (vers.length > 0) return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
+                }
+            } catch (_) { /* fallback to mirror below */ }
+            try {
+                const mirrorRes = await fetchFn(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVer}`);
+                if (mirrorRes.ok) {
+                    const data = await mirrorRes.json();
+                    if (Array.isArray(data)) {
+                        return data.map(item => item.version).filter(Boolean).sort(sortSemverDesc);
+                    }
+                }
+            } catch (_) {}
+            throw new Error(`Forge API introuvable pour MC ${mcVer}`);
         }
         if (loader === "neoforge") {
             const parts = mcVer.split(".");
             const p1 = parts.length > 2 ? parts[1] : parts[0];
             const p2 = parts.length > 2 ? parts[2] : (parts[1] || "0");
             const prefix = p1 + "." + p2 + ".";
-            const neoRes = await fetch("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
+            const neoRes = await fetchFn("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
             if (!neoRes.ok) throw new Error(`NeoForge API HTTP ${neoRes.status}`);
             const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
             const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent);
@@ -95,6 +112,7 @@ export function setupInstances() {
         }
         return [];
     }
+    window.fetchLoaderVersions = fetchLoaderVersions;
     window.updateVersionList = (showSnapshots) => {
         const select1 = document.getElementById("new-version");
         const select2 = document.getElementById("catalog-version");
@@ -415,8 +433,9 @@ export function setupInstances() {
             jvmProfile: "none",
             notes: "", icon: "", resW: "", resH: "",
             playTime: 0, lastPlayed: 0, sessionHistory: [], group: "", servers: [], backupMode: "none", backupLimit: 5,
+            _localConfigUpdatedAt: Date.now(),
         };
-        if (window.updateIconCache) window.updateIconCache(newInst);
+        if (window.updateIconCache) await window.updateIconCache(newInst);
         store.allInstances.push(newInst);
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
@@ -428,6 +447,7 @@ export function setupInstances() {
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
         if (await fs.promises.exists(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
         try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+        await writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
         window.renderUI();
         window.closeInstanceModal();
     };
@@ -641,8 +661,10 @@ export function setupInstances() {
             delete inst._iconCache;
             delete inst._iconCacheKey;
         }
-        if (window.updateIconCache) window.updateIconCache(inst);
-        window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+        inst._localConfigUpdatedAt = Date.now();
+        if (window.updateIconCache) await window.updateIconCache(inst);
+        await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+        await writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
         window.selectInstance(store.selectedInstanceIdx);
         try { await fs.promises.writeFile(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         if (iconWasChanged && inst._hasDesktopShortcut) {
@@ -716,16 +738,18 @@ export function setupInstances() {
                 async function calcSize(dir) {
                     try {
                         const entries = await fs.promises.readdir(dir);
-                        for (const entry of entries) {
+                        await Promise.all(entries.map(async (entry) => {
                             const full = path.join(dir, entry);
                             const stat = await fs.promises.stat(full);
-                            if (stat.isDirectory) await calcSize(full);
+                            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
+                            if (isDir) await calcSize(full);
                             else totalBytes += stat.size;
-                        }
+                        }));
                     } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                 }
                 await calcSize(oldPath);
 
+                let lastCopiedPct = -1;
                 async function doCopy(s, d) {
                     await fs.promises.mkdir(d, { recursive: true });
                     const entries = await fs.promises.readdir(s);
@@ -740,9 +764,13 @@ export function setupInstances() {
                                 await fs.promises.copyFile(srcPath, destPath);
                                 copiedBytes += stat.size;
                                 if (totalBytes > 0 && window.updateLoadingPercent) {
-                                    window.updateLoadingPercent(Math.min(100, Math.floor((copiedBytes / totalBytes) * 100)));
+                                    const pct = Math.min(100, Math.floor((copiedBytes / totalBytes) * 100));
+                                    if (pct !== lastCopiedPct) {
+                                        lastCopiedPct = pct;
+                                        window.updateLoadingPercent(pct);
+                                        await yieldUI();
+                                    }
                                 }
-                                await new Promise(r => setTimeout(r, 0));
                             }
                         } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                     }
@@ -810,7 +838,7 @@ export function setupInstances() {
                     }
                 } catch(cloudErr) {
                     sysLog(`[CLOUD] Échec de la suppression Cloud pour ${instName}: ${cloudErr.message}`, true);
-                    window.showToast(window.t("msg_warn_cloud_del", "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."), "code");
+                    window.showToast(window.t("msg_warn_cloud_del", "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."), "warning");
                 }
             }
             const instFolder = path.join(store.instancesRoot, safeName);
@@ -915,7 +943,7 @@ export function setupInstances() {
                 const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
                 const mime = mimeMap[ext] || 'image/png';
                 const stat = await window.api.fs.promises.stat(foundIconPath).catch(() => null);
-                const mtime = stat ? Math.floor(stat.mtimeMs) : Date.now();
+                const mtime = stat ? Math.floor(stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : Date.now())) : Date.now();
                 const expectedUrl = window.pathToFileUrl(foundIconPath);
                 
                 iconSrc = inst._iconCacheBuster
@@ -1226,12 +1254,12 @@ const groups = {};
                 const inst = store.allInstances[idx];
                 const iconEl = document.getElementById("auto-icon");
                 if (iconEl) {
-                    const iconSrc = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons["vanilla"];
+                    const iconSrc = inst._cachedIconSrc || inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons["vanilla"];
                     iconEl.src = iconSrc;
                 }
                 const bgEl = document.getElementById("auto-bg-screenshot");
-                if (bgEl && inst.icon) {
-                    bgEl.style.backgroundImage = `url('${inst.icon}')`;
+                if (bgEl && (inst._cachedIconSrc || inst.icon)) {
+                    bgEl.style.backgroundImage = `url('${inst._cachedIconSrc || inst.icon}')`;
                     bgEl.style.opacity = "1";
                 }
                 const nameEl = document.getElementById("auto-inst-name");

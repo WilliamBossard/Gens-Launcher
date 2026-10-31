@@ -46,7 +46,7 @@ export function setupAccountUI() {
         const cache = await getCustomSkinCache();
         return cache[name] || null;
     };
-    (async function migrateSkins() {
+    (window.migrateSkins = async function migrateSkins() {
         let changed = false;
         store.allAccounts.forEach(acc => {
             if (acc.skinBase64) {
@@ -199,7 +199,7 @@ export function setupAccountUI() {
                 if (accToDel.type === "microsoft") {
                     const msaCacheKey = accToDel.mclcAuth?.meta?.msaCacheKey;
                     if (msaCacheKey) {
-                        window.api.send("delete-msa-cache", msaCacheKey);
+                        await window.api.invoke("delete-msa-cache", msaCacheKey);
                     }
                 }
                 store.allAccounts.splice(store.uiSelectedAccRow, 1);
@@ -434,7 +434,7 @@ export function setupAccountUI() {
             const img = new Image();
             img.onload = () => {
                 if (img.width !== 64 || (img.height !== 64 && img.height !== 32)) {
-                    if (window.showToast) window.showToast("Erreur: Le fichier doit Ãªtre une image de Skin Minecraft valide (64x64 pixels).", "error");
+                    if (window.showToast) window.showToast(window.t("msg_err_skin_invalid", "Erreur: Le fichier doit être une image de Skin Minecraft valide (64x64 pixels)."), "error");
                     return;
                 }
                 if (fullscreenSkinViewer) {

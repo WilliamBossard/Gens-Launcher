@@ -10,7 +10,7 @@ export function setupSettings() {
     window.showJavaTypeModal = (version) => {
         return showJavaTypeModal(version, window.t);
     };
-    window.updateJavaButtonsDisplay = async () => {
+    window.updateJavaButtonsDisplay = async () => { let cachedScanRes = null;
         for (const v of [25, 21, 17, 8]) {
             const btn = document.getElementById("btn-dl-java-" + v);
             if (!btn) continue;
@@ -20,7 +20,7 @@ export function setupSettings() {
             let isSystemInstalled = false;
             if (!isLauncherInstalled) {
                 try {
-                    const res = await window.api.invoke("scan-java-versions");
+                    if (!cachedScanRes) cachedScanRes = await window.api.invoke("scan-java-versions"); const res = cachedScanRes;
                     if (res && res.success) {
                         isSystemInstalled = res.paths.some(p => {
                             const pLower = p.toLowerCase();
@@ -432,7 +432,8 @@ export function setupSettings() {
                 await fs.promises.rm(extractDir, { recursive: true, force: true });
             }
             if (platform === "windows") {
-                await window.api.invoke("extract-zip", { zipPath: archivePath, destDir: extractDir }); 
+                const zipRes = await window.api.invoke("extract-zip", { zipPath: archivePath, destDir: extractDir }); 
+                if (!zipRes || !zipRes.success) throw new Error(zipRes?.error || "Erreur extraction ZIP");
             } else {
                 await fs.promises.mkdir(extractDir, { recursive: true });
                 const extractRes = await window.api.tools.extractTar(archivePath, extractDir);
@@ -586,7 +587,7 @@ window.refreshHorizonUI = async () => {
             }
         };
         window.toggleDeltaThresholdRow = () => {
-            const modeSelect = document.getElementById("horizon-select-syncmode");
+            const modeSelect = document.getElementById("select-horizon-sync-mode");
             const row        = document.getElementById("delta-threshold-row");
             if (modeSelect && row) {
                 row.style.display = modeSelect.value === "FULL" ? "none" : "block";

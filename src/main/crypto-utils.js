@@ -18,7 +18,7 @@ let _mainKeyPromise = null;
 function _getMainProcSecretKey() {
     if (_mainKeyPromise) return _mainKeyPromise;
 
-    _mainKeyPromise = new Promise(async (resolve, reject) => {
+    _mainKeyPromise = (async () => {
         // 1. Lire ou générer le secret applicatif
         const secretPath = path.join(app.getPath('appData'), 'GensLauncher', '.secret_key');
         let secret;
@@ -47,20 +47,22 @@ function _getMainProcSecretKey() {
         } catch (saltErr) {
             // Si le FS est inaccessible, on ne peut pas chiffrer de façon sécurisée.
             // Mieux vaut échouer tôt que silencieusement utiliser un salt prévisible.
-            return reject(new Error(
+            throw new Error(
                 `[crypto-utils] Impossible de lire/créer le salt PBKDF2 (${saltErr.message}). ` +
                 `Vérifiez les permissions sur %AppData%/GensLauncher/.`
-            ));
+            );
         }
 
         // 3. Dérivation asynchrone via thread pool — ne bloque pas l'event loop
-        crypto.pbkdf2(secret, salt, PBKDF2_ITERATIONS, 32, 'sha256', (err, derivedKey) => {
-            if (err) return reject(err);
-            _cachedMainSecretKey = derivedKey;
-            resolve(_cachedMainSecretKey);
+        const derivedKey = await new Promise((resolve, reject) => {
+            crypto.pbkdf2(secret, salt, PBKDF2_ITERATIONS, 32, 'sha256', (err, key) => err ? reject(err) : resolve(key));
         });
-    });
+        _cachedMainSecretKey = derivedKey;
+        return _cachedMainSecretKey;
+    })();
 
+    // En cas d'échec, on autorise une nouvelle tentative au prochain appel au lieu de mémoriser l'erreur
+    _mainKeyPromise.catch(() => { _mainKeyPromise = null; });
     return _mainKeyPromise;
 }
 
@@ -81,8 +83,8 @@ async function _getLegacyKey() {
 }
 
 async function encryptText(text) {
-    if (safeStorage.isEncryptionAvailable()) {
-        return 'safeStorage:' + safeStorage.encryptString(text).toString('hex');
+    if (await safeStorage.isAsyncEncryptionAvailable()) {
+        return 'safeStorage:' + (await safeStorage.encryptStringAsync(text)).toString('hex');
     } else {
         const key = await _getMainProcSecretKey();
         const iv = crypto.randomBytes(12);
@@ -96,16 +98,17 @@ async function encryptText(text) {
 async function decryptText(hexText) {
     // Tentative 1 : nouvelle clé PBKDF2
     const key = await _getMainProcSecretKey();
-    const result = _tryDecrypt(hexText, key);
+    const result = await _tryDecrypt(hexText, key);
     if (result !== null) return result;
     // Tentative 2 : ancienne clé SHA-256 (migration des données pré-PBKDF2)
     return _tryDecrypt(hexText, await _getLegacyKey());
 }
 
-function _tryDecrypt(hexText, key) {
+async function _tryDecrypt(hexText, key) {
     try {
-        if (hexText.startsWith('safeStorage:') && safeStorage.isEncryptionAvailable()) {
-            return safeStorage.decryptString(Buffer.from(hexText.split(':')[1], 'hex'));
+        if (hexText.startsWith('safeStorage:') && await safeStorage.isAsyncEncryptionAvailable()) {
+            const { result } = await safeStorage.decryptStringAsync(Buffer.from(hexText.split(':')[1], 'hex'));
+            return result;
         }
         if (hexText.startsWith('aes-gcm:')) {
             const parts = hexText.split(':');

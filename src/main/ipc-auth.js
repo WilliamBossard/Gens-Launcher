@@ -161,7 +161,8 @@ module.exports = function setupAuthHandlers(context) {
                 }
             }
             if (uuid) {
-                const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`);
+                if (typeof uuid !== "string" || !/^[0-9a-f-]{32,36}$/i.test(uuid)) throw new Error("UUID invalide");
+                const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(uuid)}`);
                 if (!profileRes.ok) throw new Error("profile not found: " + profileRes.status);
                 const profile = await profileRes.json();
                 const encoded = profile.properties?.find(p => p.name === "textures")?.value;
@@ -186,8 +187,8 @@ module.exports = function setupAuthHandlers(context) {
                     activeUuid = data.id;
                 }
             }
-            if (!activeUuid) throw new Error("No UUID found");
-            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${activeUuid}`);
+            if (!activeUuid || typeof activeUuid !== "string" || !/^[0-9a-f-]{32,36}$/i.test(activeUuid)) throw new Error("No valid UUID found");
+            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(activeUuid)}`);
             if (!profileRes.ok) throw new Error("Profile fetch failed");
             const profile = await profileRes.json();
             const encoded = profile.properties?.find(p => p.name === "textures")?.value;
@@ -196,7 +197,11 @@ module.exports = function setupAuthHandlers(context) {
             const skinUrl = textures?.SKIN?.url;
             if (!skinUrl) throw new Error("No skin URL");
             
-            const skinRes = await fetch(skinUrl.replace('http://', 'https://'));
+            const safeSkinUrl = new URL(skinUrl.replace('http://', 'https://'));
+            if (safeSkinUrl.protocol !== 'https:' || (!safeSkinUrl.hostname.endsWith('.minecraft.net') && !safeSkinUrl.hostname.endsWith('.mojang.com'))) {
+                throw new Error("Domaine de skin non autorisé");
+            }
+            const skinRes = await fetch(safeSkinUrl.toString());
             if (!skinRes.ok) throw new Error("Failed to download skin image");
             
             const buffer = await skinRes.arrayBuffer();

@@ -33,10 +33,15 @@ class MicrosoftAuth {
         };
     }
 
-    async pollDeviceCode(deviceCode, interval) {
+    async pollDeviceCode(deviceCode, interval, expiresIn = 900) {
+        let currentInterval = Math.max(0.01, Number(interval) || 5);
+        const deadline = Date.now() + (Number(expiresIn) || 900) * 1000;
+        let transientErrors = 0;
+
         return new Promise((resolve, reject) => {
             const poll = async () => {
                 if (this.cancelled) return reject(new URIError("Microsoft login cancelled"));
+                if (Date.now() > deadline) return reject(new Error("Device code expired"));
                 try {
                     const res = await fetch('https://login.live.com/oauth20_token.srf', {
                         method: 'POST',
@@ -48,15 +53,24 @@ class MicrosoftAuth {
                         })
                     });
                     const data = await res.json();
+                    transientErrors = 0;
                     if (data.error === 'authorization_pending') {
-                        setTimeout(poll, interval * 1000);
+                        setTimeout(poll, currentInterval * 1000);
+                    } else if (data.error === 'slow_down') {
+                        currentInterval += (interval < 1 ? 0.01 : 5);
+                        setTimeout(poll, currentInterval * 1000);
                     } else if (data.access_token) {
                         resolve(data);
                     } else {
                         reject(new Error("Polling failed: " + JSON.stringify(data)));
                     }
                 } catch (e) {
-                    reject(e);
+                    transientErrors++;
+                    if (transientErrors <= 3 && !this.cancelled) {
+                        setTimeout(poll, currentInterval * 1000);
+                    } else {
+                        reject(e);
+                    }
                 }
             };
             poll();
@@ -162,7 +176,7 @@ class MicrosoftAuth {
     async flowDeviceCode(onCode) {
         const devCodeInfo = await this.getDeviceCode();
         onCode(devCodeInfo);
-        const tokenRes = await this.pollDeviceCode(devCodeInfo.device_code, devCodeInfo.interval);
+        const tokenRes = await this.pollDeviceCode(devCodeInfo.device_code, devCodeInfo.interval, devCodeInfo.expires_in);
         return this.exchangeTokens(tokenRes.access_token, tokenRes.refresh_token);
     }
 

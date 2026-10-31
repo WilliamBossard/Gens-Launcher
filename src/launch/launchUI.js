@@ -55,7 +55,10 @@ export function setupLauncher() {
     };
     window.getRequiredJavaVersion = getRequiredJavaVersion;
     window.analyzeCrash = analyzeCrash;
+    window.writeInstanceMetaForCloud = writeInstanceMetaForCloud;
+    window.mergeInstanceConfigFromDisk = mergeInstanceConfigFromDisk;
     let lastLogPerc = -1;
+    let lastProgressPerc = -1;
     let menuTimers = {};
     let currentServerIPs = {};
     window.api.on("launch-game-rejected", (payload) => {
@@ -63,7 +66,8 @@ export function setupLauncher() {
         store.activeInstances.delete(instanceId);
         window.setUIState();
         if (window.renderUI) window.renderUI();
-        document.getElementById("status-text").innerText = t("status_ready", "Prêt");
+        const statusText = document.getElementById("status-text");
+        if (statusText) statusText.innerText = t("status_ready", "Prêt");
         sysLog(`Lancement rejeté pour [${instanceId}] : instance déjà en cours.`, true);
         window.showToast(t("msg_already_running", "Cette instance est déjà en cours d'exécution."), "info");
     });
@@ -72,9 +76,13 @@ export function setupLauncher() {
         if (inst && payload.instanceId === inst.name) {
             let perc = 0;
             if (payload.total > 0) perc = Math.min(100, Math.max(0, Math.round((payload.task / payload.total) * 100)));
+            if (perc === lastProgressPerc && payload.task < payload.total) return;
+            lastProgressPerc = perc;
             const displayTxt = perc === 100 ? t("msg_verifying", "Vérification...") : `${t("msg_dl", "Téléchargement :")} ${perc}%`;
-            document.getElementById("progress-bar").style.width = perc + "%";
-            document.getElementById("status-text").innerText = displayTxt;
+            const pBar = document.getElementById("progress-bar");
+            if (pBar) pBar.style.width = perc + "%";
+            const sText = document.getElementById("status-text");
+            if (sText) sText.innerText = displayTxt;
             const autoStatus = document.getElementById("auto-status-text");
             if (autoStatus) autoStatus.innerText = displayTxt;
             const autoBar = document.getElementById("auto-progress-bar");
@@ -89,6 +97,7 @@ export function setupLauncher() {
         }
     });
     window.api.on("mc-started", (payload) => {
+        lastProgressPerc = -1;
         const instanceId = payload.instanceId;
         if (window._isAutoLaunch) {
             window.api.send("hide-window");
@@ -282,7 +291,9 @@ export function setupLauncher() {
                             const newJava = await window.downloadJavaAuto(closedInst?.javaVersion || 17);
                             if (newJava && closedInst) {
                                 closedInst.javaPath = newJava;
-                                await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                                closedInst._localConfigUpdatedAt = Date.now();
+                                await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                                await writeInstanceMetaForCloud(closedInst, { preserveTimestamp: true });
                                 window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", closedInst.javaVersion || 17), "success");
                             }
                         }
@@ -335,7 +346,9 @@ export function setupLauncher() {
                         document.getElementById('modal-crash').style.display = 'none';
                         if (closedInst && existingJavaPath) {
                             closedInst.javaPath = existingJavaPath;
-                            await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                            closedInst._localConfigUpdatedAt = Date.now();
+                            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                            await writeInstanceMetaForCloud(closedInst, { preserveTimestamp: true });
                             window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", targetVerStr), "success");
                         }
                     });
@@ -347,7 +360,9 @@ export function setupLauncher() {
                         const newJava = await window.downloadJavaAuto(targetVer);
                         if (newJava && closedInst) {
                             closedInst.javaPath = newJava;
-                            await window.safeWriteJSONAsync(store.instancesFile, store.allInstances);
+                            closedInst._localConfigUpdatedAt = Date.now();
+                            await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+                            await writeInstanceMetaForCloud(closedInst, { preserveTimestamp: true });
                             window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", targetVer), "success");
                         }
                     });
@@ -387,6 +402,7 @@ export function setupLauncher() {
                         // Écrire la config launcher dans gens/launcher_config.json AVANT l'upload
                         // pour que l'autre PC puisse récupérer version, loader, RAM, JVM…
                         await writeInstanceMetaForCloud(closedInst);
+                        await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                         const hRes = await window.api.invoke("call-horizon", ['--upload', window.safeDir(instanceId)]);
                         if (hRes && hRes.lastJson && hRes.lastJson.type === "ERROR") {
                             let msg = hRes.lastJson.message;

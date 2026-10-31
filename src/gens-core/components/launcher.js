@@ -59,9 +59,16 @@ class MCLCore extends EventEmitter {
       this.options.mcPath = mcPath
       const nativePath = await this.handler.getNatives()
 
-      if (!fs.existsSync(mcPath) && !this.options.offline) {
-        this.emit('debug', '[Gens-Core]: Attempting to download Minecraft version jar')
-        await this.handler.getJar()
+      if (!fs.existsSync(mcPath)) {
+        const vanillaJar = this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.number, `${this.options.version.number}.jar`) : null;
+        if (vanillaJar && fs.existsSync(vanillaJar)) {
+          this.emit('debug', '[Gens-Core]: Copying vanilla jar to custom version path');
+          await fs.promises.mkdir(path.dirname(mcPath), { recursive: true });
+          await fs.promises.copyFile(vanillaJar, mcPath);
+        } else if (!this.options.offline) {
+          this.emit('debug', '[Gens-Core]: Attempting to download Minecraft version jar');
+          await this.handler.getJar();
+        }
       }
 
       const modifyJson = await this.getModifyJson()
@@ -124,6 +131,7 @@ class MCLCore extends EventEmitter {
 
       return this.startMinecraft(launchArguments)
     } catch (e) {
+      if (e && e.message === "Launch aborted by user") throw e;
       this.emit('debug', `[Gens-Core]: Failed to start due to ${e}, closing...`)
       return null
     }
