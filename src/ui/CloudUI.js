@@ -23,12 +23,8 @@ export function setupCloud() {
             if (!autoSyncEnabled) return;
             
             const status = await window.api.invoke("check-horizon-status");
-            if (status.installed && !status.offline) {
-                const checkResult = await window.api.invoke("call-horizon", ["--check"]);
-                const payload = checkResult?.lastJson || checkResult;
-                if (payload && (payload.status === "UPDATE_AVAILABLE" || (payload.type === "CHECK_RESULT" && payload.status === "UPDATE_AVAILABLE"))) {
-                    window.showToast(window.t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
-                }
+            if (status.installed && status.linked && !status.offline) {
+                await window.api.invoke("call-horizon", ["--check"]);
             }
         } catch (e) { console.error("🚨 Erreur démarrage Cloud:", e); }
     };

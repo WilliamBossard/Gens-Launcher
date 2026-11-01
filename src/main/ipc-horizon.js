@@ -79,6 +79,24 @@ module.exports = function setupHorizonHandlers(context) {
     // AUDIT-12 : validation du hash avant utilisation pour éviter l'injection d'un hash malformé depuis le cache local
     function isValidSha256(h) { return typeof h === 'string' && /^[a-f0-9]{64}$/i.test(h); }
 
+    function findCompatibleHorizonAsset(assets) {
+        if (!Array.isArray(assets)) return null;
+        const platform = process.platform;
+        if (platform === 'win32') {
+            return assets.find(a => a.name.endsWith('.exe'));
+        }
+        if (platform === 'darwin') {
+            return assets.find(a => {
+                const n = a.name.toLowerCase();
+                return (n.includes('macos') || n.includes('darwin') || n.includes('mac')) && !n.endsWith('.sha256');
+            }) || assets.find(a => !path.extname(a.name));
+        }
+        return assets.find(a => {
+            const n = a.name.toLowerCase();
+            return n.includes('linux') && !n.endsWith('.sha256');
+        }) || assets.find(a => !path.extname(a.name));
+    }
+
     async function fetchHorizonRelease(targetVersion = null, forceBypassCache = false) {
         if (!forceBypassCache && githubReleaseCache && Date.now() - githubReleaseCacheTime < 2 * 60 * 60 * 1000) {
             if (!targetVersion || githubReleaseCache.tag_name === targetVersion) {
@@ -145,7 +163,7 @@ module.exports = function setupHorizonHandlers(context) {
         // AUDIT-11 : validation durcie des arguments — les arguments positionnels (noms d'instance) n'acceptent plus '/' ni '.'
         const isSafeChars = _lockArgs.every((arg, i) => {
             if (i === 0) return ALLOWED_COMMANDS.includes(arg); // commande principale déjà validée ci-dessus
-            if (arg.startsWith('--')) return /^--[a-zA-Z\-]+(=[a-zA-Z0-9]+)?$/.test(arg); // flags booléens ou simples
+            if (arg.startsWith('--')) return /^--[a-zA-Z\-]+(=[a-zA-Z0-9_\-\.]+)?$/.test(arg); // flags booléens ou avec valeur
             // Argument positionnel (nom d'instance) : pas de slash, pas de point, pas de séquence ..
             return /^[a-zA-Z0-9_\-\u00C0-\u017F ]+$/.test(arg) && !arg.includes('..');
         });
@@ -172,7 +190,7 @@ module.exports = function setupHorizonHandlers(context) {
                     } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
 
                     const data = await fetchHorizonRelease(localVersion);
-                    const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
+                    const asset = findCompatibleHorizonAsset(data.assets);
                     if (asset) {
                         const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
                         if (shaAsset) {
@@ -230,17 +248,27 @@ module.exports = function setupHorizonHandlers(context) {
             } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
             if (!isNaN(rawPid)) {
                 let alive = false;
-                try { process.kill(rawPid, 0); alive = true; } catch (killErr) {
+                try {
+                    process.kill(rawPid, 0);
+                    const stat = await fs.promises.stat(lockFile);
+                    const age = Date.now() - stat.mtimeMs;
+                    if (age > 30000) {
+                        mainLog(`[Horizon] Lock PID ${rawPid} actif mais heartbeat obsolète (${Math.round(age/1000)}s > 30s) — PID recyclé détecté.`);
+                        alive = false;
+                    } else {
+                        alive = true;
+                    }
+                } catch (killErr) {
                     if (killErr.code === 'EPERM') {
                         try {
                             const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
-                            if (age > 2 * 60 * 60 * 1000) {
-                                await fs.promises.rm(lockFile, { force: true });
+                            if (age > 30000) {
+                                alive = false;
                             } else {
                                 alive = true;
                             }
                         } catch (_) {
-                            await fs.promises.rm(lockFile, { force: true });
+                            alive = false;
                         }
                     }
                 }
@@ -260,7 +288,7 @@ module.exports = function setupHorizonHandlers(context) {
             const args = Array.isArray(action) ? action : [action];
             mainLog(`[Horizon] Exécution : ${args.join(' ')}`);
 
-            const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir, env: { ...process.env, HORIZON_DATA_DIR: horizonBinDir } });
+            const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir, env: { ...process.env, HORIZON_DATA_DIR: horizonBinDir, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') } });
             let settled = false;
             let killTimer;
             let shutdownTimer;
@@ -428,7 +456,7 @@ module.exports = function setupHorizonHandlers(context) {
     ipcMain.handle('install-horizon', async (event) => {
         try {
             const data = await fetchHorizonRelease(null, true);
-            const asset = data.assets.find(a => isWin ? a.name.endsWith('.exe') : a.name.toLowerCase().includes('linux')) || data.assets.find(a => !path.extname(a.name));
+            const asset = findCompatibleHorizonAsset(data.assets);
             if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
 
             const response = await fetch(asset.browser_download_url);

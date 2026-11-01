@@ -11,7 +11,7 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/crypto-utils.test.js tests/utils.test.js tests/curseforge.test.js tests/security-and-zip.test.js",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/crypto-utils.test.js tests/utils.test.js tests/curseforge.test.js tests/security-and-zip.test.js tests/ipc-fs.test.js tests/preload-sandbox.test.js tests/crash-and-preflight.test.js",
     "docs:dev": "npm --prefix docs run docs:dev",
     "docs:build": "npm --prefix docs run docs:build"
   },
@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "electron": "^45.2.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.1"
   },
   "build": {
     "appId": "com.gens.launcher",
@@ -79,7 +79,19 @@
     "deb": {
       "priority": "optional",
       "maintainer": "William Bossard <wbossard@free.fr>"
-    }
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "src/**/*",
+      "assets/**/*",
+      "!**/tests/**",
+      "!**/docs/**",
+      "!**/*.test.js",
+      "!**/*.map"
+    ]
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true

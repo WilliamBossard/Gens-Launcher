@@ -104,9 +104,28 @@ export async function launchInstance(inst, acc, ui) {
     let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
     if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
     ramMB = Math.max(1024, ramMB);
+
+    // Contrôle pré-vol Anti-Freeze RAM
+    const totalMemBytes = window.api?.os?.totalmem ? window.api.os.totalmem() : 0;
+    const totalMemMB = totalMemBytes > 0 ? Math.floor(totalMemBytes / (1024 * 1024)) : 0;
+    if (totalMemMB > 0 && ramMB > (totalMemMB - 512)) {
+        const safeMaxRam = Math.max(1024, totalMemMB - 1024);
+        sysLog(`[Pre-flight] RAM demandée (${ramMB} Mo) excessive pour la machine (${totalMemMB} Mo). Plafonnement sécurisé à ${safeMaxRam} Mo.`);
+        if (ui.showToast) {
+            ui.showToast(window.t("msg_ram_auto_adjusted", "RAM ajustée à {ram} Mo pour protéger la stabilité de votre système.").replace("{ram}", safeMaxRam), "info");
+        }
+        ramMB = safeMaxRam;
+    }
     const defaultJavaExe = window.api.platform === "win32" ? "javaw" : "java";
     const instanceJavaPath = inst.javaPath?.trim() || "";
-    let jPath = instanceJavaPath || store.globalSettings.defaultJavaPath || defaultJavaExe;
+    let validInstanceJava = false;
+    if (instanceJavaPath) {
+        validInstanceJava = await window.existsSafe(instanceJavaPath);
+        if (!validInstanceJava) {
+            sysLog(`[LaunchManager] Chemin Java configuré introuvable ("${instanceJavaPath}"), bascule sur la détection automatique.`);
+        }
+    }
+    let jPath = (validInstanceJava ? instanceJavaPath : "") || store.globalSettings.defaultJavaPath || defaultJavaExe;
     let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
 
     const requiredJava = await detectRequiredJavaVersion(inst, instancePath);
@@ -134,7 +153,7 @@ export async function launchInstance(inst, acc, ui) {
 
     sysLog(`Version MC: ${inst.version} → Java requis: ${requiredJava}`);
 
-    if (!instanceJavaPath) {
+    if (!validInstanceJava) {
         jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
 
@@ -199,16 +218,35 @@ export async function launchInstance(inst, acc, ui) {
     const errorStr = (res.err ? res.err.message + res.stdout + res.stderr : "").toLowerCase();
     const javaExists = !(res.err && (errorStr.includes("not recognized") || errorStr.includes("non reconnu") || errorStr.includes("introuvable") || res.err.code === "ENOENT"));
 
-    if (!javaExists) {
-        if (ui.showCustomConfirm && await ui.showCustomConfirm(window.t("msg_java_not_found_prompt", "Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ") + requiredJava + " ?")) {
+    let detectedMajor = null;
+    const verText = `${res?.stderr || ""} ${res?.stdout || ""}`;
+    const verMatch = verText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+    if (verMatch) {
+        detectedMajor = verMatch[1] === "1" ? parseInt(verMatch[2], 10) : parseInt(verMatch[1], 10);
+    }
+
+    const isVersionIncompatible = detectedMajor !== null && (
+        (requiredJava >= 17 && detectedMajor < requiredJava) ||
+        (requiredJava === 8 && detectedMajor > 8)
+    );
+
+    if (!javaExists || isVersionIncompatible) {
+        const confirmMsg = !javaExists
+            ? window.t("msg_java_not_found_prompt", "Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ") + requiredJava + " ?"
+            : window.t("msg_java_version_mismatch_prompt", "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?").replace("{req}", requiredJava).replace("{cur}", detectedMajor);
+
+        if (ui.showCustomConfirm && await ui.showCustomConfirm(confirmMsg)) {
             const newJava = ui.downloadJavaAuto ? await ui.downloadJavaAuto(requiredJava) : null;
-            if (newJava) jPath = newJava;
-            else {
+            if (newJava) {
+                jPath = newJava;
+                inst.javaPath = newJava;
+                window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+            } else {
                 if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
                 if (ui.abortAutoLaunch) ui.abortAutoLaunch();
                 return;
             }
-        } else {
+        } else if (!javaExists) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
@@ -433,8 +471,10 @@ export async function launchInstance(inst, acc, ui) {
         const hasVersionsDir = await window.existsSafe(versionsDir);
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
-            const forgeDir = subDirs.find(d => d.toLowerCase().includes(inst.loader) && (!inst.loaderVersion || d.includes(inst.loaderVersion)))
-                || subDirs.find(d => d.toLowerCase().includes(inst.loader));
+            const forgeDir = subDirs.find(d => {
+                const lower = d.toLowerCase();
+                return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
+            });
             if (forgeDir) {
                 const customJsonFile = path.join(versionsDir, forgeDir, `${forgeDir}.json`);
                 const hasCustomJson = await window.existsSafe(customJsonFile);
@@ -569,8 +609,10 @@ export async function launchInstance(inst, acc, ui) {
                         const instVersionsDir = path.join(instancePath, "versions");
                         if (await window.existsSafe(instVersionsDir)) {
                             const instSubDirs = await fs.promises.readdir(instVersionsDir);
-                            const forgeDir = instSubDirs.find(d => d.toLowerCase().includes(inst.loader) && (!inst.loaderVersion || d.includes(inst.loaderVersion)))
-                                || instSubDirs.find(d => d.toLowerCase().includes(inst.loader));
+                            const forgeDir = instSubDirs.find(d => {
+                                const lower = d.toLowerCase();
+                                return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
+                            });
                             if (forgeDir) {
                                 opts.version.custom = forgeDir;
                             } else {

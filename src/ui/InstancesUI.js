@@ -40,7 +40,7 @@ export function setupInstances() {
             for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
                 const na = pa[i] || 0;
                 const nb = pb[i] || 0;
-                if (na !== nb) return nb - na; // Descending
+                if (na !== nb) return nb - na;
             }
             
             if (!preA && preB) return -1;
@@ -733,53 +733,19 @@ export function setupInstances() {
             const oldPath = path.join(store.instancesRoot, window.safeDir(oldInst.name));
             const newPath = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (await fs.promises.exists(oldPath)) {
-                let totalBytes = 0;
-                let copiedBytes = 0;
-                async function calcSize(dir) {
-                    try {
-                        const entries = await fs.promises.readdir(dir);
-                        await Promise.all(entries.map(async (entry) => {
-                            const full = path.join(dir, entry);
-                            const stat = await fs.promises.stat(full);
-                            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
-                            if (isDir) await calcSize(full);
-                            else totalBytes += stat.size;
-                        }));
-                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
-                }
-                await calcSize(oldPath);
-
-                let lastCopiedPct = -1;
-                async function doCopy(s, d) {
-                    await fs.promises.mkdir(d, { recursive: true });
-                    const entries = await fs.promises.readdir(s);
-                    for (const entry of entries) {
-                        const srcPath = path.join(s, entry);
-                        const destPath = path.join(d, entry);
-                        try {
-                            const stat = await fs.promises.stat(srcPath);
-                            if (stat.isDirectory) {
-                                await doCopy(srcPath, destPath);
-                            } else {
-                                await fs.promises.copyFile(srcPath, destPath);
-                                copiedBytes += stat.size;
-                                if (totalBytes > 0 && window.updateLoadingPercent) {
-                                    const pct = Math.min(100, Math.floor((copiedBytes / totalBytes) * 100));
-                                    if (pct !== lastCopiedPct) {
-                                        lastCopiedPct = pct;
-                                        window.updateLoadingPercent(pct);
-                                        await yieldUI();
-                                    }
-                                }
-                            }
-                        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
-                    }
-                }
-                
-                if (totalBytes === 0) {
-                    await fs.promises.cp(oldPath, newPath, { recursive: true });
-                } else {
-                    await doCopy(oldPath, newPath);
+                let copyOk = false;
+                try {
+                    const dupRes = await window.api.invoke("duplicate-instance-folder", { srcPath: oldPath, destPath: newPath });
+                    if (dupRes && dupRes.success) copyOk = true;
+                } catch (_) {}
+                if (!copyOk) {
+                    await fs.promises.cp(oldPath, newPath, {
+                        recursive: true,
+                        filter: (src) => {
+                            const base = path.basename(src).toLowerCase();
+                            return base !== 'instance.lock' && !base.endsWith('.log') && !base.endsWith('.tmp');
+                        }
+                    });
                 }
             }
             const safeOldName = window.safeDir(oldInst.name);

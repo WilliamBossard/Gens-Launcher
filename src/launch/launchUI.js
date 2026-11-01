@@ -300,12 +300,14 @@ export function setupLauncher() {
                     });
                 } else {
                     document.getElementById("console-container").style.display = "block";
-                    const analysis = await window.analyzeCrash(instanceId);
+                    const analysis = await window.analyzeCrash(instanceId, code);
                     document.getElementById("crash-summary").innerText = t("msg_game_closed_error", "Le jeu s'est arrêté avec une erreur (code {code}).").replace("{code}", code);
                     document.getElementById("crash-cause").innerText = analysis.cause || t("cause_unknown", "Raison inconnue");
                     let actionHtml = analysis.action || "Aucune action spécifique recommandée.";
                     if (analysis.mod) {
-                        actionHtml += `<br><button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">Ouvrir le gestionnaire de mods</button>`;
+                        const safeModLabel = window.escapeHTML(analysis.mod);
+                        actionHtml += `<br><button id="btn-crash-disable-mod" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px; background: #e11d48; border-color: #e11d48; margin-right: 8px;">${t("btn_crash_disable_mod", "Désactiver le mod {mod}").replace("{mod}", safeModLabel)}</button>`;
+                        actionHtml += `<button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${t("btn_open_mods", "Ouvrir le gestionnaire de mods")}</button>`;
                     }
                     let existingJavaPath = null;
                     let targetVerStr = null;
@@ -337,6 +339,34 @@ export function setupLauncher() {
                         }
                     }
                     document.getElementById("crash-action").innerHTML = actionHtml;
+                    document.getElementById("crash-action").querySelector('#btn-crash-disable-mod')?.addEventListener('click', async () => {
+                        try {
+                            const instDir = path.join(store.instancesRoot, window.safeDir(instanceId));
+                            const modsDir = path.join(instDir, "mods");
+                            if (await window.existsSafe(modsDir)) {
+                                const files = await fs.promises.readdir(modsDir);
+                                const targetMod = analysis.mod.toLowerCase().replace(/[^a-z0-9]/g, "");
+                                let disabledCount = 0;
+                                for (const f of files) {
+                                    if (!f.endsWith(".jar")) continue;
+                                    const cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, "");
+                                    if (cleanF.includes(targetMod) || (targetMod.length > 3 && targetMod.includes(cleanF.replace("jar", "")))) {
+                                        await fs.promises.rename(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
+                                        disabledCount++;
+                                    }
+                                }
+                                document.getElementById('modal-crash').style.display = 'none';
+                                if (disabledCount > 0) {
+                                    window.showToast(t("msg_mod_disabled_success", "Le mod {mod} a été désactivé avec succès !").replace("{mod}", analysis.mod), "success");
+                                } else {
+                                    window.openEditModal('tab-mods');
+                                }
+                            }
+                        } catch (e) {
+                            window.showToast(t("msg_err_disable_mod", "Erreur lors de la désactivation du mod : ") + e.message, "error");
+                        }
+                    });
+
                     document.getElementById("crash-action").querySelector('#btn-crash-open-mods')?.addEventListener('click', () => {
                         document.getElementById('modal-crash').style.display = 'none';
                         window.openEditModal('tab-mods');
@@ -381,7 +411,7 @@ export function setupLauncher() {
             await performAutoBackup(closedInst, "on_close", { showLoading: window.showLoading, hideLoading: window.hideLoading });
             const horizonStatus = await window.api.invoke("check-horizon-status");
             const cloudPrefs = await getCloudSettings();
-            if (horizonStatus.installed && cloudPrefs.systemEnabled) {
+            if (horizonStatus.installed && horizonStatus.linked && cloudPrefs.systemEnabled) {
                 if (closedInst.disableHorizon) {
                     sysLog(`[HORIZON] Upload ignoré pour "${instanceId}" (désactivé dans les paramètres de l'instance).`);
                 } else if (cloudPrefs.autoUpload) {

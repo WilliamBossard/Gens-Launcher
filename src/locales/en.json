@@ -706,5 +706,18 @@
   "msg_err_no_account": "Please add an account in the Account tab to play.",
   "msg_cloud_config_updated": "Configuration of \"{name}\" updated from the Cloud.",
   "ctx_tray_show": "Show Gens Launcher",
-  "ctx_tray_quit": "Quit"
+  "ctx_tray_quit": "Quit",
+  "crash_gl_buffer_overrun_cause": "Critical GPU driver crash or Buffer Overrun (Code -1073740791)",
+  "crash_gl_buffer_overrun_action": "The graphics driver or an overlay (Discord, GeForce Experience, RivaTuner) forced the game to stop. Disable overlays and update your GPU drivers.",
+  "crash_access_violation_cause": "Native memory access violation (Code -1073741819)",
+  "crash_access_violation_action": "A native library (GPU driver, OpenAL, or native mod) attempted to access invalid memory. Update your GPU drivers or disable recent mods.",
+  "crash_win_oom_cause": "System memory exhausted (Code -805306369)",
+  "crash_linux_oom_cause": "Process terminated by Linux OOM Killer (Code 137)",
+  "crash_linux_oom_action": "The Linux system killed Minecraft due to insufficient RAM. Lower the allocated memory or close background apps.",
+  "crash_linux_segv_cause": "Native segmentation fault (Code 139 / SIGSEGV)",
+  "btn_crash_disable_mod": "Disable mod {mod}",
+  "msg_mod_disabled_success": "Mod {mod} was successfully disabled!",
+  "msg_err_disable_mod": "Error disabling mod: ",
+  "msg_ram_auto_adjusted": "RAM automatically adjusted to {ram} MB to protect system stability.",
+  "msg_java_version_mismatch_prompt": "This Minecraft version requires Java {req}, but your setup uses Java {cur}.\nWould you like to automatically download and use Java {req}?"
 }

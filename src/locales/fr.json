@@ -711,5 +711,18 @@
   "msg_err_no_account": "Veuillez ajouter un compte dans l'onglet Compte pour pouvoir jouer.",
   "msg_cloud_config_updated": "Configuration de \"{name}\" mise à jour depuis le Cloud.",
   "ctx_tray_show": "Afficher Gens Launcher",
-  "ctx_tray_quit": "Quitter"
+  "ctx_tray_quit": "Quitter",
+  "crash_gl_buffer_overrun_cause": "Crash critique du pilote GPU ou Buffer Overrun (Code -1073740791)",
+  "crash_gl_buffer_overrun_action": "Le pilote graphique ou une superposition (overlay Discord, GeForce Experience, RivaTuner) a forcé l'arrêt du jeu. Désactivez les overlays et mettez à jour votre pilote graphique.",
+  "crash_access_violation_cause": "Violation d'accès mémoire native (Code -1073741819)",
+  "crash_access_violation_action": "Une bibliothèque native (pilote GPU, OpenAL ou mod natif) a tenté d'accéder à une zone mémoire invalide. Mettez à jour vos pilotes graphiques ou désactivez les mods récents.",
+  "crash_win_oom_cause": "Mémoire système saturée (Code -805306369)",
+  "crash_linux_oom_cause": "Processus tué par l'OOM Killer Linux (Code 137)",
+  "crash_linux_oom_action": "Le système Linux a tué Minecraft par manque de mémoire RAM. Réduisez la mémoire allouée ou fermez les applications en arrière-plan.",
+  "crash_linux_segv_cause": "Erreur de segmentation native (Code 139 / SIGSEGV)",
+  "btn_crash_disable_mod": "Désactiver le mod {mod}",
+  "msg_mod_disabled_success": "Le mod {mod} a été désactivé avec succès !",
+  "msg_err_disable_mod": "Erreur lors de la désactivation du mod : ",
+  "msg_ram_auto_adjusted": "RAM ajustée à {ram} Mo pour protéger la stabilité de votre système.",
+  "msg_java_version_mismatch_prompt": "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?"
 }

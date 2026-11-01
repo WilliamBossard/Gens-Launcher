@@ -94,14 +94,20 @@ class MCLCore extends EventEmitter {
       if (parsedVer.major === 1 && parsedVer.minor < 17) {
         if (!jvm.find(arg => arg.includes('Dlog4j.configurationFile'))) {
           const configPath = path.resolve(this.options.overrides.cwd || this.options.root)
-          if (parsedVer.minor >= 12) {
-            await this.handler.downloadAsync('https://launcher.mojang.com/v1/objects/02937d122c86ce73319ef9975b58896fc1b491d1/log4j2_112-116.xml',
-              configPath, 'log4j2_112-116.xml', true, 'log4j')
-            jvm.push('-Dlog4j.configurationFile=log4j2_112-116.xml')
-          } else if (parsedVer.minor >= 7) {
-            await this.handler.downloadAsync('https://launcher.mojang.com/v1/objects/dd2b723346a8dcd48e7f4d245f6bf09e98db9696/log4j2_17-111.xml',
-              configPath, 'log4j2_17-111.xml', true, 'log4j')
-            jvm.push('-Dlog4j.configurationFile=log4j2_17-111.xml')
+          const xmlName = parsedVer.minor >= 12 ? 'log4j2_112-116.xml' : (parsedVer.minor >= 7 ? 'log4j2_17-111.xml' : null);
+          if (xmlName) {
+            const xmlUrl = parsedVer.minor >= 12
+              ? 'https://launcher.mojang.com/v1/objects/02937d122c86ce73319ef9975b58896fc1b491d1/log4j2_112-116.xml'
+              : 'https://launcher.mojang.com/v1/objects/dd2b723346a8dcd48e7f4d245f6bf09e98db9696/log4j2_17-111.xml';
+            const fullXmlPath = path.join(configPath, xmlName);
+
+            if (!fs.existsSync(fullXmlPath) && !this.options.offline) {
+              await this.handler.downloadAsync(xmlUrl, configPath, xmlName, true, 'log4j');
+            }
+
+            if (fs.existsSync(fullXmlPath)) {
+              jvm.push(`-Dlog4j.configurationFile=${fullXmlPath}`);
+            }
           }
         }
       }

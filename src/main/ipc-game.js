@@ -274,7 +274,17 @@ ipcMain.handle("check-java", async (_, javaPath) => {
         const launcher = new Client();
         activeMinecraftClients.set(instanceId, { launcher });
 
-        launcher.on("progress", (e) => sendToWindow("mc-progress", { instanceId, ...e }));
+        let lastReportedPct = -1;
+        let lastProgressTime = 0;
+        launcher.on("progress", (e) => {
+            const now = Date.now();
+            const pct = e.total > 0 ? Math.round((e.task / e.total) * 100) : 0;
+            if (pct !== lastReportedPct || (now - lastProgressTime) > 80 || e.task === e.total) {
+                lastReportedPct = pct;
+                lastProgressTime = now;
+                sendToWindow("mc-progress", { instanceId, ...e });
+            }
+        });
         launcher.on("data", (e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
         launcher.on("debug", (e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
 

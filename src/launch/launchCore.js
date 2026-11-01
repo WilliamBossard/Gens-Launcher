@@ -108,6 +108,13 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                 let loaderOrVerChanged = false;
                 for (const key of INSTANCE_CONFIG_KEYS) {
                     if (key in cloudConfig && JSON.stringify(cloudConfig[key]) !== JSON.stringify(inst[key])) {
+                        if (key === 'javaPath' && cloudConfig.javaPath) {
+                            const exists = await window.existsSafe(cloudConfig.javaPath);
+                            if (!exists) {
+                                sysLog(`[HORIZON] Ignoré javaPath du cloud introuvable sur cette machine : "${cloudConfig.javaPath}"`);
+                                continue;
+                            }
+                        }
                         if (key === 'version' || key === 'loader' || key === 'loaderVersion') {
                             loaderOrVerChanged = true;
                         }
@@ -306,7 +313,7 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
     return fallback;
 }
 
-export async function analyzeCrash(instanceName) {
+export async function analyzeCrash(instanceName, exitCode = null) {
     // Wait for all IPC log events and DOM updates to finish (fixes race conditions)
     await new Promise(resolve => setTimeout(resolve, 500));
     
@@ -431,6 +438,17 @@ export async function analyzeCrash(instanceName) {
             result.logExcerpt = depMatch[0];
             return result;
         }
+
+        const neoForgeMatch = combinedLog.match(/ModLoadingException:[\s\S]{0,300}/i) ||
+            combinedLog.match(/Mod file (.*?) needs (.*?) of (.*?),/i) ||
+            combinedLog.match(/Incompatible mods found![\s\S]{0,300}/i) ||
+            combinedLog.match(/ModResolutionException: (.*?)\n/i);
+        if (neoForgeMatch) {
+            result.cause = window.t("crash_dep_cause", "Dépendance de mod manquante");
+            result.action = window.t("crash_dep_action", "Un mod requiert un autre mod pour fonctionner. Lisez l'extrait pour savoir quel mod télécharger et l'ajouter via le gestionnaire de mods.");
+            result.logExcerpt = neoForgeMatch[0];
+            return result;
+        }
         const susMatch = latestReport.match(/Suspected\s+Mods?:\s+([^\n(]+?)(?:\s*\(|$)/i);
         let suspectedMod = null;
         if (susMatch) {
@@ -473,6 +491,32 @@ export async function analyzeCrash(instanceName) {
         }
         const lines = combinedLog.split('\n').filter(l => l.trim().length > 0);
         result.logExcerpt = lines.slice(-15).join('\n');
+
+        // Analyse avancée basée sur le code de sortie OS natif
+        if (exitCode !== null && exitCode !== undefined && (result.cause === window.t("cause_unknown", "Raison inconnue") || !result.cause)) {
+            const numCode = Number(exitCode);
+            if (numCode === -1073740791 || numCode === 3221226505 || numCode === 0xC0000409) {
+                result.cause = window.t("crash_gl_buffer_overrun_cause", "Crash critique du pilote GPU ou Buffer Overrun (Code -1073740791)");
+                result.action = window.t("crash_gl_buffer_overrun_action", "Le pilote graphique ou une superposition (overlay Discord, GeForce Experience, RivaTuner) a forcé l'arrêt du jeu. Désactivez les overlays et mettez à jour votre pilote graphique.");
+                result.logExcerpt = "Exit Code 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) — Crash soudain du sous-système graphique.";
+            } else if (numCode === -1073741819 || numCode === 3221225477 || numCode === 0xC0000005) {
+                result.cause = window.t("crash_access_violation_cause", "Violation d'accès mémoire native (Code -1073741819)");
+                result.action = window.t("crash_access_violation_action", "Une bibliothèque native (pilote GPU, OpenAL ou mod natif) a tenté d'accéder à une mémoire inaccessible. Mettez à jour vos pilotes graphiques.");
+                result.logExcerpt = "Exit Code 0xC0000005 (STATUS_ACCESS_VIOLATION) — Erreur mémoire native.";
+            } else if (numCode === -805306369 || numCode === 0xCFFFFFFF) {
+                result.cause = window.t("crash_win_oom_cause", "Mémoire saturée / Arrêt forcé par l'OS (Code -805306369)");
+                result.action = window.t("crash_mem_heap_action", "Le jeu manque de mémoire vive. Augmentez la RAM allouée dans les paramètres de l'instance.");
+                result.logExcerpt = "Exit Code 0xCFFFFFFF — Windows a interrompu le processus par manque de mémoire.";
+            } else if (numCode === 137) {
+                result.cause = window.t("crash_linux_oom_cause", "Processus tué par l'OOM Killer Linux (Code 137)");
+                result.action = window.t("crash_linux_oom_action", "Le système a tué Minecraft par manque de mémoire RAM. Réduisez la mémoire allouée ou fermez d'autres programmes.");
+                result.logExcerpt = "Exit Code 137 (SIGKILL) — Processus tué par le gestionnaire de mémoire Linux.";
+            } else if (numCode === 139) {
+                result.cause = window.t("crash_linux_segv_cause", "Erreur de segmentation (Code 139 / SIGSEGV)");
+                result.action = window.t("crash_driver_action", "Mettez à jour vos pilotes graphiques. Si le problème persiste, désactivez les mods d'optimisation graphique.");
+                result.logExcerpt = "Exit Code 139 (SIGSEGV) — Crash natif dans une bibliothèque partagée.";
+            }
+        }
     } catch (e) {
         console.error("Crash analyzer error:", e);
         sysLog("Crash analyzer erreur : " + e.message, true);

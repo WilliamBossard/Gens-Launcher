@@ -285,4 +285,97 @@ module.exports = function setupSystemHandlers(context) {
         }
     });
 
+    ipcMain.handle("duplicate-instance-folder", async (_, { srcPath, destPath }) => {
+        try {
+            srcPath = assertPathUnderSandbox(srcPath);
+            destPath = assertPathUnderSandbox(destPath);
+            await fs.promises.cp(srcPath, destPath, {
+                recursive: true,
+                filter: (src) => {
+                    const base = path.basename(src).toLowerCase();
+                    return base !== 'instance.lock' && !base.endsWith('.log') && !base.endsWith('.tmp');
+                }
+            });
+            return { success: true };
+        } catch (e) {
+            mainLog(`[duplicate-instance-folder] Erreur : ${e.message}`);
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("system:open-external", async (_, url) => {
+        try {
+            if (typeof url !== 'string' || !url.startsWith('https://')) {
+                return { success: false, error: "Seuls les liens HTTPS sont autorisés." };
+            }
+            await shell.openExternal(url);
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("system:open-path", async (_, p) => {
+        try {
+            const safe = assertPathUnderSandbox(p);
+            const res = await shell.openPath(safe);
+            return { success: !res, error: res || null };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("system:show-item-in-folder", async (_, p) => {
+        try {
+            const safe = assertPathUnderSandbox(p);
+            shell.showItemInFolder(safe);
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("system:clipboard-write-text", async (_, text) => {
+        try {
+            const { clipboard } = require("electron");
+            clipboard.writeText(String(text || ''));
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("hash-buffer", async (_, { buffer, algo }) => {
+        try {
+            const cryptoModule = context.crypto || require('crypto');
+            const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
+            if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme non autorisé : ${algo}`);
+            const hash = cryptoModule.createHash(algo).update(Buffer.from(buffer)).digest("hex");
+            return { success: true, hash };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("nbt:parse", async (_, arr) => {
+        try {
+            const nbt = require('../gens-core/components/nbt.js');
+            if (arr && arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
+            const parsed = await nbt.parse(Buffer.from(arr));
+            return { success: true, data: parsed };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle("nbt:write", async (_, data) => {
+        try {
+            const nbt = require('../gens-core/components/nbt.js');
+            const buf = nbt.writeUncompressed(data);
+            return { success: true, data: Array.from(new Uint8Array(buf)) };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
 };
+

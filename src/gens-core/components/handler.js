@@ -119,15 +119,24 @@ class Handler {
 
   checkJava(java) {
     return new Promise(resolve => {
-      child.execFile(java, ['-version'], (error, stdout, stderr) => {
+      let javaConsole = java;
+      if (typeof javaConsole === 'string' && process.platform === 'win32') {
+        if (javaConsole.toLowerCase().endsWith('javaw.exe')) {
+          javaConsole = javaConsole.slice(0, -9) + 'java.exe';
+        } else if (javaConsole.toLowerCase().endsWith('javaw')) {
+          javaConsole = javaConsole.slice(0, -5) + 'java';
+        }
+      }
+
+      child.execFile(javaConsole, ['-version'], (error, stdout, stderr) => {
         if (error) {
           resolve({
             run: false,
             message: error
           })
         } else {
-          const verMatch = stderr.match(/"(.*?)"/) || stdout.match(/"(.*?)"/);
-          this.client.emit('debug', `[Gens-Core]: Using Java version ${verMatch ? verMatch[1] : 'unknown'} ${stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`)
+          const verMatch = (stderr && stderr.match(/"(.*?)"/)) || (stdout && stdout.match(/"(.*?)"/));
+          this.client.emit('debug', `[Gens-Core]: Using Java version ${verMatch ? verMatch[1] : 'unknown'} ${stderr && stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`)
           resolve({
             run: true
           })
@@ -503,10 +512,10 @@ class Handler {
       return nativeDirectory;
     }
 
+    const stampFile = path.join(nativeDirectory, '.natives_complete');
     let hasNatives = false;
-    if (fs.existsSync(nativeDirectory)) {
-      const files = await fs.promises.readdir(nativeDirectory);
-      if (files.length > 0) hasNatives = true;
+    if (fs.existsSync(stampFile)) {
+      hasNatives = true;
     }
     if (!hasNatives) {
       await fs.promises.mkdir(nativeDirectory, { recursive: true })
@@ -555,6 +564,7 @@ class Handler {
           total: stat.length
         })
       })
+      await fs.promises.writeFile(stampFile, Date.now().toString(), 'utf8');
       this.client.emit('debug', '[Gens-Core]: Downloaded and extracted natives')
     }
 

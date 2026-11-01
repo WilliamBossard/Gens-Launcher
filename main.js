@@ -85,8 +85,6 @@ const mainInitPromise = (async () => {
             }
         }
     } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage logs: ${err.message}`); }
-    // Nettoyage automatique du cache Electron si la version a changé
-    // Évite l'exécution d'ancien bytecode compilé après réinstallation
     try {
         const userDataPath = app.getPath('userData');
         const versionSentinelPath = path.join(userDataPath, '.launcher-version');
@@ -103,15 +101,9 @@ const mainInitPromise = (async () => {
         }
     } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${err.message}`); }
 })();
-/**
- * DÉCISION : le preload sandboxe le renderer, mais les handlers ipcMain
- * tournent dans le main process — on re-valide ici les chemins sensibles.
- */
+
 const assertPathUnderSandbox = createSandboxValidator(safeDataDir);
-/**
- * Envoie un message IPC au renderer en vérifiant que la fenêtre n'est pas détruite.
- * Évite les exceptions "Object has been destroyed" lors d'opérations longues (Horizon, zip...).
- */
+
 function safeSend(event, channel, payload) {
     if (event && !event.sender.isDestroyed()) {
         event.sender.send(channel, payload);
@@ -169,7 +161,6 @@ const context = {
 };
 process.on('uncaughtException', (err) => {
     mainLog("Erreur critique (uncaughtException) : " + (err?.stack || err));
-    // On laisse le flux de log se vider avant de quitter pour ne pas perdre la trace de l'erreur
     if (_logStream && _logStream.writable) _logStream.end(() => app.quit());
     else app.quit();
 });
@@ -177,7 +168,7 @@ process.on('unhandledRejection', (reason) => {
     mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason?.stack || reason));
 });
 
-async function decryptSettingsMainProc(text) { // AUDIT-14 : rendu async pour utiliser await
+async function decryptSettingsMainProc(text) { 
     try {
         const decrypted = await decryptText(text);
         if (decrypted !== null) return decrypted;
@@ -206,19 +197,50 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            sandbox: false,
+            sandbox: true,
             preload: path.join(__dirname, "preload.js"),
-            // Injection des chemins système via additionalArguments (remplace sendSync 'get-paths-sync')
             additionalArguments: [
                 `--app-data=${app.getPath('appData')}`,
                 `--app-platform=${process.platform}`,
                 `--app-arch=${process.arch}`,
                 `--app-version=${app.getVersion()}`,
+                `--app-homedir=${encodeURIComponent(os.homedir())}`,
+                `--app-username=${encodeURIComponent((os.userInfo && os.userInfo().username) || '')}`,
+                `--app-totalmem=${os.totalmem()}`,
+                `--app-hostname=${encodeURIComponent(os.hostname())}`,
+                `--app-tempdir=${encodeURIComponent(os.tmpdir())}`,
+                ...(process.env.APPIMAGE ? ['--is-appimage'] : []),
                 ...(isAutoLaunch ? ['--is-auto-launch'] : [])
             ]
         },
     });
     mainWindow.setMenuBarVisibility(false);
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+        event.preventDefault();
+        try { console.error(`SÉCURITÉ : Navigation du webContents bloquée -> ${url}`); } catch (_) {}
+    });
+
+    const rendererCSP = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https://*",
+        "connect-src 'self' https://* wss://*",
+        "font-src 'self' data:",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "object-src 'none'",
+    ].join("; ") + ";";
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+            responseHeaders: {
+                ...(details.responseHeaders || {}),
+                "Content-Security-Policy": [rendererCSP],
+            },
+        });
+    });
+
     mainWindow.loadFile("index.html");
 }
 const gotTheLock = app.requestSingleInstanceLock();
@@ -265,9 +287,6 @@ app.whenReady().then(async () => {
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
-                // Tous les handlers inline (onclick/onchange) ont été migrés vers event-listeners.js.
-                // 'unsafe-inline' n'est plus nécessaire pour script-src.
-                // 'unsafe-eval' supprimé (SEC-03) — aucune utilisation d'eval() détectée dans le code source.
                 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
             }
         });
@@ -353,7 +372,6 @@ app.whenReady().then(async () => {
     } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
     const isLinuxManaged = process.platform === 'linux' && !process.env.APPIMAGE;
     if (isLinuxManaged) {
-        // .deb (APT) : neutralisation complète d'electron-updater pour éviter pkexec (les MAJ passent par apt)
         autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = false;
         autoUpdater.checkForUpdates = async () => null;
@@ -401,10 +419,8 @@ app.whenReady().then(async () => {
         }
     }, 3000);
 });
-// get-paths-sync supprimé : chemins transmis via BrowserWindow.additionalArguments
 
 const https = require('https');
-// Note : le module 'http' n'est pas importé — seul HTTPS est autorisé pour les téléchargements.
 
 const ALLOWED_DOMAINS = [
     'github.com', 'githubusercontent.com', 'modrinth.com',
@@ -436,7 +452,7 @@ async function downloadFile(url, dest, redirectCount = 0) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000); // 5 minutes max pour gros mods et modpacks
+    const timeout = setTimeout(() => controller.abort(), 300000); 
     
     try {
         const res = await fetch(url, { redirect: 'manual', signal: controller.signal });
@@ -479,9 +495,6 @@ ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
     }
 });
 
-/**
- * Validation : extension + signature magique du fichier (PNG/JPEG/GIF/WEBP/BMP).
- */
 ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDir }) => {
     try {
         const ALLOWED_IMG_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'];
@@ -494,7 +507,6 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             { ext: ['.ico'],              bytes: [0x00, 0x00, 0x01, 0x00], offset: 0 },
         ];
 
-        // 0. Valider la taille et le type
         const stat = await fs.promises.stat(srcPath);
         if (!stat.isFile()) {
             return { success: false, error: "Le chemin spécifié n'est pas un fichier." };
@@ -503,13 +515,11 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             return { success: false, error: "L'image est trop volumineuse (max 20 Mo)." };
         }
 
-        // 1. Valider l'extension
         const ext = path.extname(srcPath).toLowerCase();
         if (!ALLOWED_IMG_EXTS.includes(ext)) {
             return { success: false, error: `Extension non autorisée : ${ext}` };
         }
 
-        // 2. Valider la signature magique du fichier
         const fd = await fs.promises.open(srcPath, 'r');
         const magicBuf = Buffer.alloc(8);
         try {
@@ -526,18 +536,16 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             }
         }
 
-        // 3. Déterminer le dossier de destination (optionnellement dans un sous-dossier du sandbox)
         const safeName = String(destName || 'image').replace(/[^a-z0-9_\-\.]/gi, '_').substring(0, 64);
         let destDir = safeDataDir;
         if (subDir) {
-            // subDir est un chemin relatif au sandbox — on valide qu'il reste dedans
             const candidate = path.join(safeDataDir, subDir);
-            assertPathUnderSandbox(candidate); // lève une erreur si hors-sandbox
+            assertPathUnderSandbox(candidate); 
             destDir = candidate;
         }
         await fs.promises.mkdir(destDir, { recursive: true });
         const destPath = path.join(destDir, safeName + ext);
-        assertPathUnderSandbox(destPath); // double vérification
+        assertPathUnderSandbox(destPath); 
         await fs.promises.copyFile(srcPath, destPath);
 
         return { success: true, destPath };
@@ -589,6 +597,7 @@ require('./src/main/ipc-auth')(context);
 require('./src/main/ipc-horizon')(context);
 require('./src/main/ipc-game')(context);
 require('./src/main/ipc-system')(context);
+require('./src/main/ipc-fs')(context);
 require('./src/main/shortcuts')(context);
 require('./src/main/updater')(context);
 const DiscordRPC = require('./src/gens-core/components/discord.js');
@@ -667,12 +676,7 @@ ipcMain.handle('encrypt-string', async (event, text) => {
 ipcMain.handle('decrypt-string', async (event, hexText) => {
     return decryptText(hexText);
 });
-// AUDIT-02 : handler 'legacy-decrypt' supprimé — la migration est gérée en interne par decryptText() via _tryDecrypt
 
-/**
- * AUDIT-06 : Handler hash-file — remplace fs.readFileSync bloquant dans le Renderer.
- * Stream SHA-256 async : ne bloque pas le thread de rendu, même sur de gros JARs (200+ Mo).
- */
 ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
     const ALLOWED_ALGOS = ['sha1', 'sha256', 'sha512', 'md5'];
     if (!ALLOWED_ALGOS.includes(algo)) return { success: false, error: `Algorithme non autorisé : ${algo}` };

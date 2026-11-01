@@ -1,62 +1,299 @@
-const { existsSafe } = require('./src/main/fs-utils');
 /**
  * ==============================================================================
- * GENS LAUNCHER - PRELOAD & SÉCURITÉ (BRIDGE IPC)
+ * GENS LAUNCHER - PRELOAD & SÉCURITÉ (BRIDGE IPC SANDBOXÉ)
  * ==============================================================================
- * Ce fichier fait le pont entre le système (Node.js) et l'interface (HTML/JS).
- * * DÉCISION ARCHITECTURALE (SANDBOX) :
- * - ÉCRITURE / SUPPRESSION : Strictement limitées au dossier de l'application 
- * via la fonction `enforceSandbox()`. Cela empêche toute altération du système.
- * - LECTURE : Laissée libre (non-sandboxée) par nécessité métier. Le launcher 
- * doit pouvoir scanner le PC (ex: trouver Java dans "C:\Program Files", 
- * importer des mondes depuis "%appdata%\.minecraft", charger des fonds d'écran).
+ * Ce fichier fait le pont entre le système (Main Process) et l'interface (HTML/JS).
+ * En mode Sandbox (sandbox: true), AUCUN module Node.js n'est chargé ici :
+ * toutes les opérations I/O et système passent par IPC validé et shims JS purs.
  * ==============================================================================
  */
-const { contextBridge, ipcRenderer, shell, clipboard, webUtils } = require("electron");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const nbt = require("./src/gens-core/components/nbt.js");
-const crypto = require("crypto");
-// Lecture des chemins système injectés par BrowserWindow.additionalArguments (sans sendSync)
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
+
+function createPathShim(isWin) {
+    const sep = isWin ? '\\' : '/';
+    const delimiter = isWin ? ';' : ':';
+
+    function normalizeArray(parts, allowAboveRoot) {
+        const res = [];
+        for (let i = 0; i < parts.length; i++) {
+            const p = parts[i];
+            if (!p || p === '.') continue;
+            if (p === '..') {
+                if (res.length > 0 && res[res.length - 1] !== '..') {
+                    res.pop();
+                } else if (allowAboveRoot) {
+                    res.push('..');
+                }
+            } else {
+                res.push(p);
+            }
+        }
+        return res;
+    }
+
+    function join(...args) {
+        const paths = args.filter(p => typeof p === 'string' && p.length > 0);
+        if (paths.length === 0) return '.';
+        
+        let joined = paths.join(sep);
+        if (isWin) joined = joined.replace(/\//g, '\\');
+        
+        const isAbsolute = isWin ? /^[a-zA-Z]:\\|^\\\\/.test(joined) : joined.startsWith('/');
+        const driveMatch = isWin ? joined.match(/^([a-zA-Z]:)(.*)/) : null;
+        let prefix = '';
+        let rest = joined;
+        if (driveMatch) {
+            prefix = driveMatch[1];
+            rest = driveMatch[2];
+        } else if (isAbsolute && !isWin) {
+            prefix = '/';
+        }
+        
+        const splitSep = isWin ? /[\\\/]+/ : /\/+/;
+        const parts = rest.split(splitSep);
+        const normParts = normalizeArray(parts, !isAbsolute);
+        
+        let result = prefix + (isAbsolute ? (isWin ? (prefix ? '\\' : '') : (prefix ? '' : '/')) : '') + normParts.join(sep);
+        if (isWin && prefix && !normParts.length && !result.endsWith('\\')) {
+            result += '\\';
+        }
+        return result || (isAbsolute ? sep : '.');
+    }
+
+    function dirname(p) {
+        if (typeof p !== 'string' || !p.length) return '.';
+        const s = isWin ? p.replace(/\//g, '\\') : p;
+        const lastSlash = isWin ? s.lastIndexOf('\\') : s.lastIndexOf('/');
+        if (lastSlash === -1) return '.';
+        if (lastSlash === 0) return isWin ? (s.startsWith('\\\\') ? '\\\\' : '\\') : '/';
+        if (isWin && /^[a-zA-Z]:\\?$/.test(s.slice(0, lastSlash + 1))) {
+            return s.slice(0, lastSlash + 1);
+        }
+        return s.slice(0, lastSlash);
+    }
+
+    function basename(p, ext) {
+        if (typeof p !== 'string' || !p.length) return '';
+        const s = isWin ? p.replace(/\//g, '\\') : p;
+        const lastSlash = isWin ? s.lastIndexOf('\\') : s.lastIndexOf('/');
+        let base = lastSlash === -1 ? s : s.slice(lastSlash + 1);
+        if (ext && typeof ext === 'string' && base.endsWith(ext) && base !== ext) {
+            base = base.slice(0, -ext.length);
+        }
+        return base;
+    }
+
+    function extname(p) {
+        if (typeof p !== 'string' || !p.length) return '';
+        const base = basename(p);
+        const lastDot = base.lastIndexOf('.');
+        if (lastDot <= 0) return '';
+        return base.slice(lastDot);
+    }
+
+    function resolve(...args) {
+        let resolvedPath = '';
+        let resolvedAbsolute = false;
+
+        for (let i = args.length - 1; i >= 0 && !resolvedAbsolute; i--) {
+            const p = args[i];
+            if (typeof p !== 'string' || !p.length) continue;
+
+            const isAbs = isWin ? /^[a-zA-Z]:[\\\/]|^\\\\/.test(p) : p.startsWith('/');
+            resolvedPath = p + (resolvedPath ? sep + resolvedPath : '');
+            if (isAbs) resolvedAbsolute = true;
+        }
+
+        return join(resolvedPath);
+    }
+
+    return { join, resolve, dirname, basename, extname, sep, delimiter };
+}
+
+const TAG_END = 0;
+const TAG_BYTE = 1;
+const TAG_SHORT = 2;
+const TAG_INT = 3;
+const TAG_LONG = 4;
+const TAG_FLOAT = 5;
+const TAG_DOUBLE = 6;
+const TAG_BYTE_ARRAY = 7;
+const TAG_STRING = 8;
+const TAG_LIST = 9;
+const TAG_COMPOUND = 10;
+const TAG_INT_ARRAY = 11;
+const TAG_LONG_ARRAY = 12;
+
+const typeIds = {
+    'end': TAG_END,
+    'byte': TAG_BYTE,
+    'short': TAG_SHORT,
+    'int': TAG_INT,
+    'long': TAG_LONG,
+    'float': TAG_FLOAT,
+    'double': TAG_DOUBLE,
+    'byteArray': TAG_BYTE_ARRAY,
+    'string': TAG_STRING,
+    'list': TAG_LIST,
+    'compound': TAG_COMPOUND,
+    'intArray': TAG_INT_ARRAY,
+    'longArray': TAG_LONG_ARRAY
+};
+
+class PureNBTWriter {
+    constructor() {
+        this.buffer = new Uint8Array(1024 * 64);
+        this.view = new DataView(this.buffer.buffer);
+        this.offset = 0;
+        this.encoder = new TextEncoder();
+    }
+
+    ensureCapacity(size) {
+        if (this.offset + size > this.buffer.length) {
+            const newBuf = new Uint8Array(this.buffer.length * 2 + size);
+            newBuf.set(this.buffer);
+            this.buffer = newBuf;
+            this.view = new DataView(this.buffer.buffer);
+        }
+    }
+
+    writeByte(v) { this.ensureCapacity(1); this.view.setInt8(this.offset, v); this.offset += 1; }
+    writeShort(v) { this.ensureCapacity(2); this.view.setInt16(this.offset, v, false); this.offset += 2; }
+    writeInt(v) { this.ensureCapacity(4); this.view.setInt32(this.offset, v, false); this.offset += 4; }
+    writeLong(v) { 
+        this.ensureCapacity(8);
+        if (Array.isArray(v)) {
+            this.view.setInt32(this.offset, v[0], false);
+            this.view.setInt32(this.offset + 4, v[1], false);
+        } else if (typeof v === 'bigint') {
+            this.view.setBigInt64(this.offset, v, false);
+        } else {
+            this.view.setInt32(this.offset, 0, false);
+            this.view.setInt32(this.offset + 4, v, false);
+        }
+        this.offset += 8; 
+    }
+    writeFloat(v) { this.ensureCapacity(4); this.view.setFloat32(this.offset, v, false); this.offset += 4; }
+    writeDouble(v) { this.ensureCapacity(8); this.view.setFloat64(this.offset, v, false); this.offset += 8; }
+    
+    writeString(v) {
+        const encoded = this.encoder.encode(v || '');
+        const len = encoded.length;
+        this.ensureCapacity(2 + len);
+        this.view.setUint16(this.offset, len, false);
+        this.offset += 2;
+        this.buffer.set(encoded, this.offset);
+        this.offset += len;
+    }
+
+    writeTag(type, value) {
+        switch (type) {
+            case TAG_BYTE: this.writeByte(value); break;
+            case TAG_SHORT: this.writeShort(value); break;
+            case TAG_INT: this.writeInt(value); break;
+            case TAG_LONG: this.writeLong(value); break;
+            case TAG_FLOAT: this.writeFloat(value); break;
+            case TAG_DOUBLE: this.writeDouble(value); break;
+            case TAG_BYTE_ARRAY: {
+                this.writeInt(value.length);
+                this.ensureCapacity(value.length);
+                for (let i = 0; i < value.length; i++) this.buffer[this.offset++] = value[i];
+                break;
+            }
+            case TAG_STRING: this.writeString(value); break;
+            case TAG_LIST: {
+                const listType = value.type === 'end' ? 0 : typeIds[value.type];
+                this.writeByte(listType);
+                this.writeInt(value.value.length);
+                for (const item of value.value) {
+                    this.writeTag(listType, item);
+                }
+                break;
+            }
+            case TAG_COMPOUND: {
+                for (const [name, tag] of Object.entries(value)) {
+                    const t = typeIds[tag.type];
+                    this.writeByte(t);
+                    this.writeString(name);
+                    this.writeTag(t, tag.value);
+                }
+                this.writeByte(TAG_END);
+                break;
+            }
+            case TAG_INT_ARRAY: {
+                this.writeInt(value.length);
+                for (const item of value) this.writeInt(item);
+                break;
+            }
+            case TAG_LONG_ARRAY: {
+                this.writeInt(value.length);
+                for (const item of value) this.writeLong(item);
+                break;
+            }
+        }
+    }
+
+    writeRoot(root) {
+        const type = typeIds[root.type];
+        this.writeByte(type);
+        this.writeString(root.name || '');
+        this.writeTag(type, root.value);
+        return this.buffer.subarray(0, this.offset);
+    }
+}
+
+function writePureNBT(data) {
+    const writer = new PureNBTWriter();
+    return writer.writeRoot(data);
+}
+
 function _getArgValue(key) {
     const prefix = `--${key}=`;
-    const arg = process.argv.find(a => a.startsWith(prefix));
+    const arg = (process.argv || []).find(a => a && a.startsWith(prefix));
     return arg ? arg.slice(prefix.length) : null;
 }
+
 const _appPaths = {
     appData: _getArgValue('app-data') || '',
-    platform: _getArgValue('app-platform') || process.platform,
-    arch: _getArgValue('app-arch') || process.arch,
+    platform: _getArgValue('app-platform') || (typeof process !== 'undefined' ? process.platform : 'win32'),
+    arch: _getArgValue('app-arch') || (typeof process !== 'undefined' ? process.arch : 'x64'),
     version: _getArgValue('app-version') || '',
-    isAutoLaunch: process.argv.includes('--is-auto-launch')
+    isAutoLaunch: (process.argv || []).includes('--is-auto-launch')
 };
-const safeDataDir = path.join(_appPaths.appData, "GensLauncher");
-/**
- * Bouclier de sécurité pour les opérations destructrices (Écriture/Suppression).
- * Si un chemin pointe en dehors du dossier "GensLauncher", l'opération est bloquée.
- */
-const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
+
+const _osInfo = {
+    homedir: decodeURIComponent(_getArgValue('app-homedir') || ''),
+    username: decodeURIComponent(_getArgValue('app-username') || ''),
+    totalmem: Number(_getArgValue('app-totalmem') || 0),
+    hostname: decodeURIComponent(_getArgValue('app-hostname') || ''),
+    tempdir: decodeURIComponent(_getArgValue('app-tempdir') || '')
+};
+
 const _isWin = _appPaths.platform === 'win32';
+const pathShim = createPathShim(_isWin);
+const safeDataDir = pathShim.join(_appPaths.appData, "GensLauncher");
+
+const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
 const _normPath = (s) => _isWin ? s.toLowerCase() : s;
+
 function _isUnderDir(target, base) {
+    if (!target || !base) return false;
     const nt = _normPath(target);
     const nb = _normPath(base);
-    return nt.startsWith(nb + path.sep) || nt === nb;
+    return nt.startsWith(nb + pathShim.sep) || nt === nb;
 }
+
 function enforceReadSandbox(p, silent = false) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
-    const resolved = path.resolve(p);
+    const resolved = pathShim.resolve(p);
     const isInDataDir = _isUnderDir(resolved, safeDataDir);
-    // AUDIT-10 : isMinecraftDir restreint aux chemins .minecraft connus (AppData, macOS, Linux)
-    // pour éviter que tout dossier nommé 'minecraft' dans n'importe quel chemin bypasse le sandbox.
     const KNOWN_MC_PATHS = [
-        path.join(_appPaths.appData, '.minecraft'),                                      // Windows / AppData
-        path.join(os.homedir(), 'Library', 'Application Support', 'minecraft'),          // macOS
-        path.join(os.homedir(), '.minecraft'),                                           // Linux
+        pathShim.join(_appPaths.appData, '.minecraft'),
+        pathShim.join(_osInfo.homedir, 'Library', 'Application Support', 'minecraft'),
+        pathShim.join(_osInfo.homedir, '.minecraft'),
     ];
     const isMinecraftDir = KNOWN_MC_PATHS.some(mc => _isUnderDir(resolved, mc));
-    const isTempDir = _isUnderDir(resolved, path.join(os.tmpdir(), "GensLauncher"));
+    const isTempDir = _isUnderDir(resolved, pathShim.join(_osInfo.tempdir, "GensLauncher"));
     const isSafeExtension = safeReadRegex.test(resolved);
     if (!isInDataDir && !isMinecraftDir && !isTempDir && !isSafeExtension) {
         if (!silent) console.error(`SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
@@ -64,33 +301,88 @@ function enforceReadSandbox(p, silent = false) {
     }
     return resolved;
 }
+
 function enforceSandbox(p) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
-    const resolved = path.resolve(p);
+    const resolved = pathShim.resolve(p);
     if (!_isUnderDir(resolved, safeDataDir)) {
         console.error(`SÉCURITÉ : Écriture hors-périmètre bloquée vers ${resolved}`);
         throw new Error("Accès en écriture refusé par le système de sécurité du Launcher.");
     }
     return resolved;
 }
+
 function safeExternalUrl(url) {
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        console.error(`SÉCURITÉ : Protocole interdit bloqué : ${url}`);
-        throw new Error("Seuls les liens HTTP/HTTPS sont autorisés.");
+    if (typeof url !== "string") {
+        throw new Error("URL invalide (type non supporté).");
     }
-    return url;
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (_) {
+        console.error(`SÉCURITÉ : URL malformée bloquée : ${url}`);
+        throw new Error("URL malformée ou non autorisée.");
+    }
+    if (parsed.protocol !== "https:") {
+        console.error(`SÉCURITÉ : Protocole interdit bloqué : ${url}`);
+        throw new Error("Seuls les liens HTTPS sont autorisés.");
+    }
+    if (parsed.username || parsed.password) {
+        console.error(`SÉCURITÉ : Identifiants dans l'URL bloqués : ${url}`);
+        throw new Error("Les identifiants dans l'URL sont refusés.");
+    }
+    return parsed.href;
 }
-// Note : deobfuscateDataAsync a été supprimé (SEC-02) — 'decrypt-string' gère déjà le fallback legacy en cascade.
-const validSendChannels = ["set-auto-download", "set-offline-mode", "download-update", "hide-window", "minimize-window", "show-window", "restore-main-window", "restart_app", "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft", "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"];
-const validInvokeChannels = ["ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings", "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile", "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game", "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut", "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip", "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream", "copy-image-to-sandbox", "copy-file-to-sandbox", "delete-msa-cache", "hash-file", "check-internet", "do-deb-update", "run-forge-installer"]; // AUDIT-28 : delete-msa-cache (on→handle) | AUDIT-06 : hash-file
-const validReceiveChannels = ["trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress", "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data", "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected", "horizon-install-progress"];
+
+const validSendChannels = [
+    "set-auto-download", "set-offline-mode", "download-update", "hide-window",
+    "minimize-window", "show-window", "restore-main-window", "restart_app",
+    "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft",
+    "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"
+];
+
+const validInvokeChannels = [
+    "ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings",
+    "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon",
+    "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile",
+    "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game",
+    "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut",
+    "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip",
+    "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream",
+    "copy-image-to-sandbox", "copy-file-to-sandbox", "delete-msa-cache", "hash-file",
+    "check-internet", "do-deb-update", "run-forge-installer", "duplicate-instance-folder",
+    "fs:readFile", "fs:writeFile", "fs:readdir", "fs:stat", "fs:mkdir", "fs:rm",
+    "fs:unlink", "fs:rename", "fs:cp", "fs:copyFile", "fs:chmod", "fs:appendFile",
+    "fs:access", "fs:exists", "system:open-external", "system:open-path",
+    "system:show-item-in-folder", "system:clipboard-write-text", "hash-buffer",
+    "nbt:parse", "nbt:write"
+];
+
+const validReceiveChannels = [
+    "trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress",
+    "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data",
+    "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected",
+    "horizon-install-progress"
+];
+
+async function _fsIpcCall(channel, ...args) {
+    const res = await ipcRenderer.invoke(channel, ...args);
+    if (!res || !res.ok) {
+        const msg = res?.error?.message || "Erreur système de fichiers";
+        const err = new Error(msg);
+        if (res?.error?.code) err.code = res.error.code;
+        throw err;
+    }
+    return res.data;
+}
+
 contextBridge.exposeInMainWorld("api", {
     send: (channel, data) => {
         if (validSendChannels.includes(channel)) ipcRenderer.send(channel, data);
     },
     invoke: (channel, data) => {
         if (validInvokeChannels.includes(channel)) return ipcRenderer.invoke(channel, data);
-        return Promise.reject(new Error("Canal non autorisé"));
+        return Promise.reject(new Error("Canal non autorisé: " + channel));
     },
     on: (channel, func) => {
         if (validReceiveChannels.includes(channel)) {
@@ -101,50 +393,78 @@ contextBridge.exposeInMainWorld("api", {
     },
     nbt: {
         parse: async (arr) => {
-            if (arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
-            return await nbt.parse(Buffer.from(arr));
+            if (arr && arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
+            const res = await ipcRenderer.invoke("nbt:parse", arr);
+            if (!res || !res.success) throw new Error(res?.error || "Erreur de parsing NBT");
+            return res.data;
         },
-        write: (data) => new Uint8Array(nbt.writeUncompressed(data))
+        write: (data) => writePureNBT(data)
     },
     security: (() => {
+        const _pendingWrites = new Map();
+
         const _writeJSONAsync = async (filePath, data) => {
+            const safePath = enforceSandbox(filePath);
             const jsonString = JSON.stringify(data, null, 2);
             const encrypted = await ipcRenderer.invoke('encrypt-string', jsonString);
-            const safePath = enforceSandbox(filePath);
-            const tempPath = safePath + '.tmp.' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
-            try {
-                await fs.promises.writeFile(tempPath, encrypted, 'utf8');
-                await fs.promises.rename(tempPath, safePath);
-            } catch (e) {
-                try { await fs.promises.unlink(tempPath); } catch (err) { if (err.code !== 'ENOENT') console.error("Temp cleanup failed", err); }
-                throw e;
-            }
+
+            let previousWrite = _pendingWrites.get(safePath) || Promise.resolve();
+            const currentWrite = previousWrite.then(async () => {
+                const randomHex = (typeof crypto !== 'undefined' && crypto.getRandomValues)
+                    ? Array.from(crypto.getRandomValues(new Uint8Array(4))).map(b => b.toString(16).padStart(2, '0')).join('')
+                    : Math.random().toString(36).slice(2, 10);
+                const tempPath = safePath + '.tmp.' + Date.now() + '_' + randomHex;
+                try {
+                    await _fsIpcCall('fs:writeFile', tempPath, encrypted, 'utf8');
+                    let renamed = false;
+                    let lastErr = null;
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        try {
+                            await _fsIpcCall('fs:rename', tempPath, safePath);
+                            renamed = true;
+                            break;
+                        } catch (err) {
+                            lastErr = err;
+                            if (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') {
+                                await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+                            } else {
+                                throw err;
+                            }
+                        }
+                    }
+                    if (!renamed && lastErr) throw lastErr;
+                } finally {
+                    try {
+                        const exists = await ipcRenderer.invoke('fs:exists', tempPath);
+                        if (exists?.data) await _fsIpcCall('fs:unlink', tempPath);
+                    } catch (_) {}
+                }
+            });
+
+            _pendingWrites.set(safePath, currentWrite);
+            return currentWrite;
         };
         const _readJSONAsync = async (filePath) => {
             const safePath = enforceSandbox(filePath);
-            if (!(await existsSafe(safePath))) return null;
-            const raw = await fs.promises.readFile(safePath, 'utf8');
+            const exists = await ipcRenderer.invoke('fs:exists', safePath);
+            if (!exists?.data) return null;
+            const raw = await _fsIpcCall('fs:readFile', safePath, 'utf8');
             let parsedData = null;
             let needsMigration = false;
-            // AUDIT-03 : correction du double appel identique decrypt-string.
-            // La cascade PBKDF2 -> AES-CBC est gérée en interne par decryptText() côté Main Process.
             if (raw.startsWith('{') || raw.startsWith('[')) {
-                // Fichier non chiffré (données héritées) — migration automatique
                 parsedData = JSON.parse(raw);
                 needsMigration = true;
             } else {
-                // Tentative de déchiffrement (PBKDF2 puis fallback AES-CBC en cascade interne)
                 const decrypted = await ipcRenderer.invoke('decrypt-string', raw);
                 if (decrypted) {
                     parsedData = JSON.parse(decrypted);
-                    // Fichier AES-CBC (format legacy) : migration vers AES-GCM
                     if (raw.startsWith('aes:')) needsMigration = true;
                 }
             }
             if (parsedData && needsMigration) {
                 try {
                     const encrypted = await ipcRenderer.invoke('encrypt-string', JSON.stringify(parsedData, null, 2));
-                    await fs.promises.writeFile(safePath, encrypted, 'utf8');
+                    await _fsIpcCall('fs:writeFile', safePath, encrypted, 'utf8');
                     console.log(`[Sécurité] Fichier migré vers le nouveau format de chiffrement : ${safePath}`);
                 } catch (e) {
                     console.error("Échec de la migration du chiffrement :", e);
@@ -160,8 +480,6 @@ contextBridge.exposeInMainWorld("api", {
         };
     })(),
     tools: {
-        // AUDIT-06 : hashFile migré vers un appel IPC async dans le Main Process.
-        // Remplace fs.readFileSync bloquant qui gelait le thread de rendu sur de gros fichiers JAR.
         hashFile: async (filePath, algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
@@ -169,81 +487,79 @@ contextBridge.exposeInMainWorld("api", {
             if (!result.success) throw new Error(result.error);
             return result.hash;
         },
-        hashBuffer: (arr, algo) => {
+        hashBuffer: async (arr, algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
-            return crypto.createHash(algo).update(Buffer.from(arr)).digest("hex");
+            const res = await ipcRenderer.invoke('hash-buffer', { buffer: arr, algo });
+            if (!res || !res.success) throw new Error(res?.error || "Hash failed");
+            return res.hash;
         },
         extractTar: (archivePath, destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
     },
     path: {
-        join: (...args) => path.join(...args),
-        resolve: (...args) => path.resolve(...args),
-        extname: (p) => path.extname(p),
-        dirname: (p) => path.dirname(p),
-        basename: (p, ext) => path.basename(p, ext),
+        join: (...args) => pathShim.join(...args),
+        resolve: (...args) => pathShim.resolve(...args),
+        extname: (p) => pathShim.extname(p),
+        dirname: (p) => pathShim.dirname(p),
+        basename: (p, ext) => pathShim.basename(p, ext),
     },
     fs: {
         promises: {
-            readFile: (p, enc) => fs.promises.readFile(enforceReadSandbox(p), enc),
-            readdir: (p) => fs.promises.readdir(enforceReadSandbox(p)),
+            readFile: (p, enc) => _fsIpcCall('fs:readFile', p, enc),
+            readdir: (p) => _fsIpcCall('fs:readdir', p),
             stat: async (p) => {
-                const s = await fs.promises.stat(enforceReadSandbox(p));
-                return { isDirectory: s.isDirectory(), size: s.size, mtime: s.mtime, mtimeMs: s.mtimeMs, birthtime: s.birthtime };
+                const s = await _fsIpcCall('fs:stat', p);
+                return {
+                    isDirectory: s.isDirectory,
+                    isFile: s.isFile,
+                    size: s.size,
+                    mtime: s.mtime,
+                    mtimeMs: s.mtimeMs,
+                    birthtime: s.birthtime
+                };
             },
-            writeFile: async (p, d) => {
-                const safePath = enforceSandbox(p);
-                const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            writeFile: (p, d, enc) => _fsIpcCall('fs:writeFile', p, d, enc),
+            rm: (p, opts) => _fsIpcCall('fs:rm', p, opts),
+            cp: (s, d, o) => _fsIpcCall('fs:cp', s, d, o),
+            unlink: (p) => _fsIpcCall('fs:unlink', p),
+            chmod: (p, mode) => _fsIpcCall('fs:chmod', p, mode),
+            mkdir: (p, opts) => _fsIpcCall('fs:mkdir', p, opts),
+            rename: (oldP, newP) => _fsIpcCall('fs:rename', oldP, newP),
+            appendFile: (p, d, enc) => _fsIpcCall('fs:appendFile', p, d, enc),
+            access: (p, mode) => _fsIpcCall('fs:access', p, mode),
+            copyFile: (src, dest) => _fsIpcCall('fs:copyFile', src, dest),
+            exists: async (p) => {
                 try {
-                    await fs.promises.writeFile(tempPath, d);
-                    await fs.promises.rename(tempPath, safePath);
-                } catch (e) {
-                    try { await fs.promises.unlink(tempPath); } catch (err) { if (err.code !== 'ENOENT') console.error("Temp cleanup failed", err); }
-                    throw e;
+                    const res = await ipcRenderer.invoke('fs:exists', p);
+                    return Boolean(res?.data);
+                } catch {
+                    return false;
                 }
-            },
-            rm: (p, opts) => fs.promises.rm(enforceSandbox(p), opts),
-            cp: (s, d, o) => fs.promises.cp(enforceReadSandbox(s), enforceSandbox(d), o),
-            unlink: (p) => fs.promises.unlink(enforceSandbox(p)),
-            chmod: (p, mode) => fs.promises.chmod(enforceSandbox(p), mode),
-            mkdir: (p, opts) => fs.promises.mkdir(enforceSandbox(p), opts),
-            rename: (oldP, newP) => fs.promises.rename(enforceSandbox(oldP), enforceSandbox(newP)),
-            appendFile: (p, d) => fs.promises.appendFile(enforceSandbox(p), d),
-            access: (p, mode) => fs.promises.access(enforceReadSandbox(p), mode),
-            copyFile: (src, dest) => fs.promises.copyFile(enforceReadSandbox(src), enforceSandbox(dest)),
-            exists: async (p) => { try { await fs.promises.access(enforceReadSandbox(p, true)); return true; } catch { return false; } }
+            }
         }
     },
     os: {
-        totalmem: () => os.totalmem(),
-        freemem: () => os.freemem(),
-        cpus: () => os.cpus(),
-        hostname: () => os.hostname(),
-        userInfo: () => os.userInfo()
+        totalmem: () => _osInfo.totalmem,
+        freemem: () => Math.round(_osInfo.totalmem * 0.4),
+        cpus: () => [],
+        hostname: () => _osInfo.hostname,
+        userInfo: () => ({ username: _osInfo.username, homedir: _osInfo.homedir })
     },
     shell: {
-        openExternal: (url) => shell.openExternal(safeExternalUrl(url)),
-        openPath: (p) => shell.openPath(enforceSandbox(p)),
-        showItemInFolder: (p) => shell.showItemInFolder(enforceSandbox(p))
+        openExternal: (url) => ipcRenderer.invoke('system:open-external', safeExternalUrl(url)),
+        openPath: (p) => ipcRenderer.invoke('system:open-path', enforceSandbox(p)),
+        showItemInFolder: (p) => ipcRenderer.invoke('system:show-item-in-folder', enforceSandbox(p))
     },
     clipboard: {
-        writeText: (text) => clipboard.writeText(text)
+        writeText: (text) => ipcRenderer.invoke('system:clipboard-write-text', text)
     },
     appData: _appPaths.appData,
     platform: _appPaths.platform,
     arch: _appPaths.arch,
     version: _appPaths.version,
     isAutoLaunch: _appPaths.isAutoLaunch,
-    isAppImage: process.platform === 'linux' && !!process.env.APPIMAGE,
+    isAppImage: (process.argv || []).includes('--is-appimage'),
     getFilePath: (file) => webUtils.getPathForFile(file),
-    /**
-     * Copie une image depuis n'importe où sur le disque vers le sandbox GensLauncher.
-     * Le main process valide l'extension et la signature magique avant la copie.
-     * @param {string} srcPath - Chemin source (hors sandbox)
-     * @param {string} destName - Nom du fichier de destination (sans extension)
-     * @param {string} [subDir] - Sous-dossier relatif au sandbox (ex: 'instances/MonInstance')
-     * @returns {Promise<{success: boolean, destPath?: string, error?: string}>}
-     */
     copyImageToSandbox: (srcPath, destName, subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
     copyFileToSandbox: (srcPath, destName) => ipcRenderer.invoke('copy-file-to-sandbox', { srcPath, destName }),
 });

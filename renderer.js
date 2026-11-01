@@ -25,12 +25,12 @@ const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
 const path = window.api.path;
-// Initialisation immédiate et synchrone du flag auto-launch (avant tout chargement async)
+
 if (window.api.isAutoLaunch) {
     window._isAutoLaunch = true;
     document.body.classList.add("is-auto-launch");
 }
-// Détection AppImage (utilisé par SettingsUI pour distinguer .deb vs AppImage)
+
 window._isAppImage = window.api.isAppImage || false;
 const _setupFunctions = [
     ["initRPC", initRPC],
@@ -69,7 +69,6 @@ ipcRenderer.on("update-msg", (data) => {
 });
 ipcRenderer.on("update-available-prompt", async (info) => {
     store.pendingLauncherUpdate = info;
-    // Ne pas déclencher la MAJ automatique en mode auto-launch (overlay raccourci)
     if (window.api.isAutoLaunch) return;
     const badge = document.getElementById("settings-update-badge");
     if (badge) badge.style.display = "block";
@@ -104,7 +103,7 @@ ipcRenderer.on("update-downloaded", async () => {
     if (overlay) overlay.style.display = "none";
     const msg = t("msg_update_restart", "Mise à jour prête ! Voulez-vous redémarrer maintenant ?");
     if (await window.showCustomConfirm(msg)) {
-        ipcRenderer.send("confirm-update"); // Validation explicite par l'utilisateur
+        ipcRenderer.send("confirm-update"); 
         ipcRenderer.send("restart_app");
     } else {
         const statusDiv = document.getElementById("update-status");
@@ -231,6 +230,7 @@ window.ctxSyncCloud = async () => {
             if (window.mergeInstanceConfigFromDisk) await window.mergeInstanceConfigFromDisk(slug);
             inst._iconCacheBuster = Date.now();
             if (window.renderUI) window.renderUI();
+            if (window.horizonScheduleCloudRefresh) await window.horizonScheduleCloudRefresh({ refreshQuota: true });
         } finally {
             window._isManualHorizon = false;
         }
@@ -244,6 +244,7 @@ window.ctxUploadCloud = async () => {
         try {
             if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst);
             await window.api.invoke("call-horizon", ['--upload', window.safeDir(inst.name)]);
+            if (window.horizonScheduleCloudRefresh) await window.horizonScheduleCloudRefresh({ refreshQuota: true });
         } finally {
             window._isManualHorizon = false;
         }
@@ -854,7 +855,7 @@ window.horizonOpFailed = (result) => {
     if (result.lastJson?.type === "ERROR") return true;
     return false;
 };
-/** Rafraîchit la grille cloud + quota après la fin de l'opération en cours (file d'attente main). */
+
 window.horizonScheduleCloudRefresh = async (opts = {}) => {
     const { refreshQuota = false } = opts;
     try {
