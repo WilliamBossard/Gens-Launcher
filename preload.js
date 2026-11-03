@@ -334,6 +334,7 @@ function safeExternalUrl(url) {
     return parsed.href;
 }
 
+// Keep these channel lists in sync with src/types/ipc.ts during TS migration.
 const validSendChannels = [
     "set-auto-download", "set-offline-mode", "download-update", "hide-window",
     "minimize-window", "show-window", "restore-main-window", "restart_app",

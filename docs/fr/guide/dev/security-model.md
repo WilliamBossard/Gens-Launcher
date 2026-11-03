@@ -12,7 +12,7 @@ La conception de Gens-Launcher repose sur le principe fondamental de **Défense 
 
 ## 1. Isolation de Contexte et Exposition Scellée
 
-- **`contextIsolation: true`** : Les prototypes Javascript du Main Process et du Renderer Process sont totalement disjoints.
+- **`contextIsolation: true`** : Les prototypes JavaScript du Main Process et du Renderer Process sont totalement disjoints.
 - **`nodeIntegration: false`** : L'environnement Node.js natif est inaccessible depuis le DOM.
 - **Surface d'Exposition `window.api`** : Seules les fonctions strictement répertoriées dans `preload.js` sont accessibles par l'interface utilisateur.
 

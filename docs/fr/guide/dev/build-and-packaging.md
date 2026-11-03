@@ -29,6 +29,9 @@ Gens-Launcher utilise **`electron-builder`** pour générer les paquets de distr
 # Lancer le projet en mode développement avec hot-reloading
 npm start
 
+# Vérification statique du typage (migration TypeScript)
+npm run typecheck
+
 # Exécuter la suite de tests unitaires (Node.js test runner)
 npm test
 

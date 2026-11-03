@@ -7,6 +7,8 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
@@ -22,8 +24,11 @@
     "yauzl-promise": "^4.0.0"
   },
   "devDependencies": {
+    "@types/electron": "^1.4.38",
+    "@types/node": "^26.6.6",
     "electron": "^45.2.1",
-    "electron-builder": "^26.18.1"
+    "electron-builder": "^26.18.1",
+    "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.gens.launcher",

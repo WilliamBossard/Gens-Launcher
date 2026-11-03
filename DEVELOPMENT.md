@@ -2,6 +2,8 @@
 
 This document describes the architecture, security model, data flows, and development best practices for the **Gens-Launcher** project. It serves as a technical reference (Single Source of Truth) for any contributor or security auditor.
 
+TypeScript migration status is documented in `docs/guide/dev/typescript-migration.md` (and `docs/fr/guide/dev/typescript-migration.md`).
+
 ---
 
 ## 1. Overview & Global Architecture
@@ -41,7 +43,7 @@ To limit the attack surface and drastically reduce application weight, the use o
   - Exposes `window.api.copyImageToSandbox(srcPath, destName, subDir?)`: allows the UI to request a secure copy of an image (wallpaper, instance icon) from any path to the sandbox. Validation (extension + **binary magic signature** PNG/JPEG/GIF/WEBP/BMP/ICO) and copying are performed exclusively in the Main Process.
 
 ### 2.3 Renderer Process
-- **`renderer.js` / HTML / CSS**: The Vanilla JS interface. Has no access to `require()`. All system interactions are done by calling the asynchronous `window.api.invoke()` channels.
+- **`renderer.js` / HTML / CSS**: Lightweight interface currently in JavaScript, migrating to a TypeScript-first codebase. It has no access to `require()`. All system interactions are done by calling the asynchronous `window.api.invoke()` channels.
 
 ---
 
@@ -49,7 +51,7 @@ To limit the attack surface and drastically reduce application weight, the use o
 
 The application has been audited and follows the **Defense in Depth** principle:
 
-1. **Context Isolation**: Always enabled (`contextIsolation: true`). The Javascript prototype of the Renderer is isolated from that of the Main.
+1. **Context Isolation**: Always enabled (`contextIsolation: true`). The JavaScript prototype of the Renderer is isolated from that of the Main.
 2. **IPC Sandboxing**: Native `sandbox: false` is used (required for preload's Node.js access), but compensated by hyper-strict application sandboxing in `preload.js`. Only reads in `.minecraft/` or Java directories are tolerated outside of `GensLauncher/`.
 3. **Dual-Layer CSP Architecture**:
     - *Layer 1 (main.js)*: The HTTP header applies `script-src 'self'` (without `unsafe-inline` or `unsafe-eval`). All images and connections are limited to **HTTPS only**.
@@ -59,6 +61,19 @@ The application has been audited and follows the **Defense in Depth** principle:
 6. **HTTPS Only**: The `http` module is not imported in `main.js`. The `downloadFile()` function rejects any non-HTTPS URL and applies a whitelist of authorized domains (`github.com`, `mojang.com`, `modrinth.com`, etc.).
 7. **Image Integrity**: The `copy-image-to-sandbox` handler validates the file extension AND its magic bytes (binary signature). A `.jpg` file with malicious content would be rejected.
 8. **Smart Offline Mode**: A centralized system (`uiCore.js`) dynamically reacts to `online/offline` events. When no connection is detected, the application physically locks the GUI (Java downloads, Horizon updates, Mods catalogs) and defuses asynchronous background pings to prevent silent Timeout errors and block unnecessary communications.
+
+---
+
+## 6. TypeScript Migration (In Progress)
+
+- **Branch:** `feat/typescript-migration`
+- **Current policy:** incremental migration with no runtime regression.
+- **Required local checks before merging:**
+
+```bash
+npm run typecheck
+npm test
+```
 
 ---
 

@@ -39,8 +39,8 @@ L'architecture respecte scrupuleusement le paradigme natif d'Electron en scindan
                                   |
                                   v
 +-------------------------------------------------------------------+
-|                   RENDERER PROCESS (Vanilla JS)                   |
-|  - renderer.js, HTML5, Vanilla CSS                                |
+|                   RENDERER PROCESS (TypeScript-First)             |
+|  - renderer.js (migration vers .ts), HTML5, Vanilla CSS           |
 |  - Aucune dépendance Node.js directe (require() interdit)         |
 |  - Gestionnaires UI : AccountUI, InstancesUI, ModsUI, CloudUI     |
 +-------------------------------------------------------------------+
@@ -66,7 +66,7 @@ Il s'exécute dans un contexte Node.js complet avec accès au système de fichie
   - La lecture hors sandbox est restreinte aux répertoires légitimes (`.minecraft/`, runtimes Java identifiés et dossiers temporaires autorisés).
 
 ### 3. Renderer Process (Interface Utilisateur)
-- **`renderer.js` / HTML / CSS** : Développé en **Vanilla JS** pour des performances optimales sans framework lourd.
+- **`renderer.js` / HTML / CSS** : Interface légère historiquement en JavaScript, en migration vers **TypeScript** tout en conservant le même modèle d'exécution et les mêmes performances de démarrage.
 - L'interface n'a aucun accès direct à `require()` ou à `process`.
 - Toutes les actions système (lancer le jeu, explorer un fichier, synchroniser le cloud) s'effectuent par appels asynchrones sur `window.api.invoke()`.
 

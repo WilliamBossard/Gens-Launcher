@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Gens Launcher"
   text: "Redefining your Minecraft experience."
-  tagline: "High-performance, secure open-source launcher powered by Gens-Horizon Delta Sync technology"
+  tagline: "High-performance, secure open-source launcher powered by Gens-Horizon Delta Sync and a TypeScript-first migration"
   image:
     src: /icon.png
     alt: Gens Launcher Logo
@@ -23,6 +23,8 @@ hero:
       link: https://github.com/WilliamBossard/Gens-Launcher
 
 features:
+  - title: TypeScript Migration In Progress
+    details: The launcher is transitioning to a TypeScript-first codebase to strengthen IPC safety and reduce regressions while preserving runtime behavior.
   - title: Horizon Delta Sync
     details: Headless cloud synchronization engine that uploads and downloads only modified bytes, drastically saving bandwidth and storage.
   - title: Multi-Modloader Support

@@ -70,6 +70,7 @@ export default defineConfig({
             collapsed: false,
             items: [
               { text: 'System Architecture', link: '/guide/dev/architecture' },
+              { text: 'TypeScript Migration', link: '/guide/dev/typescript-migration' },
               { text: 'Security Model & Sandbox', link: '/guide/dev/security-model' },
               { text: 'Native Gens-Core Modules', link: '/guide/dev/native-modules' },
               { text: 'IPC Channel Reference', link: '/guide/dev/ipc-reference' },
@@ -124,6 +125,7 @@ export default defineConfig({
             collapsed: false,
             items: [
               { text: 'Architecture Système', link: '/fr/guide/dev/architecture' },
+              { text: 'Migration TypeScript', link: '/fr/guide/dev/typescript-migration' },
               { text: 'Modèle de Sécurité & Sandbox', link: '/fr/guide/dev/security-model' },
               { text: 'Modules Natifs Gens-Core', link: '/fr/guide/dev/native-modules' },
               { text: 'Spécification Canaux IPC', link: '/fr/guide/dev/ipc-reference' },

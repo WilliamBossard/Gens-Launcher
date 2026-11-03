@@ -346,9 +346,9 @@ window.api.on("horizon-status", async (data) => {
                 }
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
-            const fallbackSafe = store.defaultIcons.vanilla.replace(/'/g, "\\'");
+            const fallbackSafeIcon = window.escapeHTML(store.defaultIcons.vanilla);
             html += `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
-                <img class="instance-icon" src="${safeIconSrc}" onerror="if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';">
+                <img class="instance-icon" src="${safeIconSrc}" data-fallback-icon="${fallbackSafeIcon}">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
@@ -361,6 +361,13 @@ window.api.on("horizon-status", async (data) => {
             const isLoc = card.dataset.isLocal === 'true';
             const slug = card.dataset.slug || window.safeDir(name);
             card.addEventListener('contextmenu', (e) => openCloudContextMenu(e, name, isLoc, slug));
+        });
+        grid.querySelectorAll('.instance-card .instance-icon').forEach((img) => {
+            img.addEventListener('error', () => {
+                if (img.dataset.fallbackApplied === '1') return;
+                img.dataset.fallbackApplied = '1';
+                img.src = img.dataset.fallbackIcon || store.defaultIcons.vanilla;
+            });
         });
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");

@@ -2,6 +2,8 @@
 
 Modern and lightweight open-source Minecraft launcher based on Electron. Integrates a native catalog mod,shader,texture (Modrinth), secure Microsoft authentication, and advanced instance management inspired by MultiMC (Fabric/Forge, import/export, Java auto-detection).
 
+TypeScript migration is in progress on branch `feat/typescript-migration`.
+
 <img width="884" height="593" alt="image" src="https://github.com/user-attachments/assets/a9d5026b-2db1-411d-9d77-03930b884fa0" />
 
 ## Key Features
@@ -105,6 +107,11 @@ npm install
 Run the launcher in development mode:
 ```bash
 npm start
+```
+
+Run static typing checks (TypeScript migration):
+```bash
+npm run typecheck
 ```
 
 ### Compiling the App (Windows, macOS & Linux)

@@ -39,8 +39,8 @@ The architecture strictly follows Electron's process separation model by splitti
                                   |
                                   v
 +-------------------------------------------------------------------+
-|                   RENDERER PROCESS (Vanilla JS)                   |
-|  - renderer.js, HTML5, Vanilla CSS                                |
+|                   RENDERER PROCESS (TypeScript-First)             |
+|  - renderer.js (migrating to .ts), HTML5, Vanilla CSS             |
 |  - Zero direct Node.js access (require() forbidden)               |
 |  - UI Managers: AccountUI, InstancesUI, ModsUI, CloudUI           |
 +-------------------------------------------------------------------+
@@ -66,7 +66,7 @@ Runs in a full Node.js environment with native file system and low-level network
   - File reading outside the sandbox is limited to verified paths (`.minecraft/`, detected Java runtimes, and temporary directories).
 
 ### 3. Renderer Process (User Interface)
-- **`renderer.js` / HTML / CSS**: Built with lightweight **Vanilla JS** for instant startup and low memory footprint.
+- **`renderer.js` / HTML / CSS**: Lightweight interface currently in JavaScript, migrating to **TypeScript** while preserving the same runtime model and startup performance.
 - No direct access to `require()` or `process`.
 - All interactions with the underlying operating system go through asynchronous calls on `window.api.invoke()`.
 

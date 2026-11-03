@@ -536,6 +536,24 @@ export function setupSettings() {
     };
 }
 export function setupHorizonSettings() {
+const sanitizeHtmlForCsp = (html) => {
+    if (typeof html !== "string") return html;
+    return html
+        .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+        .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "");
+};
+
+const bindSafeCloudIconFallbacks = (root) => {
+    if (!root) return;
+    root.querySelectorAll('.instance-card .instance-icon').forEach((img) => {
+        img.addEventListener('error', () => {
+            if (img.dataset.fallbackApplied === '1') return;
+            img.dataset.fallbackApplied = '1';
+            img.src = img.dataset.fallbackIcon || store.defaultIcons.vanilla;
+        });
+    });
+};
+
 window.refreshHorizonUI = async () => {
         const container = document.getElementById("horizon-container");
         if (!container) return;
@@ -544,7 +562,8 @@ window.refreshHorizonUI = async () => {
                 const binDir = window.api.path.join(store.dataDir, "bin");
                 const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
                 if (await window.api.fs.promises.exists(htmlCachePath)) {
-                    window._lastCloudGridHtml = await window.api.fs.promises.readFile(htmlCachePath, "utf8");
+                    const cachedHtml = await window.api.fs.promises.readFile(htmlCachePath, "utf8");
+                    window._lastCloudGridHtml = sanitizeHtmlForCsp(cachedHtml);
                 }
             } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
         }
@@ -750,7 +769,8 @@ window.refreshHorizonUI = async () => {
                 </div>
             </div>`;
         }
-        container.innerHTML = html;
+        container.innerHTML = sanitizeHtmlForCsp(html);
+        bindSafeCloudIconFallbacks(container);
         // ── Attacher tous les événements après injection HTML (remplace les handlers inline) ──
         container.querySelector('#btn-horizon-disconnect')?.addEventListener('click', () => disconnectHorizon());
         container.querySelector('#btn-horizon-link')?.addEventListener('click', () => runHorizonLogin(document.getElementById('horizon-provider-select')?.value));

@@ -12,7 +12,7 @@ The design of Gens-Launcher is founded on the **Defense in Depth** principle. Mu
 
 ## 1. Context Isolation and Sealed Exposure
 
-- **`contextIsolation: true`**: The Javascript prototype spaces of the Main Process and Renderer Process are fully separated.
+- **`contextIsolation: true`**: The JavaScript prototype spaces of the Main Process and Renderer Process are fully separated.
 - **`nodeIntegration: false`**: Node.js core modules cannot be accessed from DOM scripts.
 - **`window.api` Exposure Surface**: Only methods statically verified in `preload.js` are exposed to the user interface via `contextBridge.exposeInMainWorld`.
 

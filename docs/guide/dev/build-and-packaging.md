@@ -29,6 +29,9 @@ The root `package.json` provides standard automation commands:
 # Start the launcher in development mode
 npm start
 
+# Static type check (TypeScript migration)
+npm run typecheck
+
 # Run unit tests (Node.js test runner)
 npm test
 
