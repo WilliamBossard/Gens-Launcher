@@ -1,3 +1,4 @@
+// Keep these channel lists in sync with preload.js (vérifié par tests/ipc-channels.test.js).
 export const SEND_CHANNELS = [
   "set-auto-download", "set-offline-mode", "download-update", "hide-window",
   "minimize-window", "show-window", "restore-main-window", "restart_app",
@@ -35,19 +36,26 @@ export type ReceiveChannel = (typeof RECEIVE_CHANNELS)[number];
 
 export type Unsubscribe = () => void;
 
+/**
+ * Union de littéraux qui reste ouverte à d'autres chaînes SANS perdre l'autocomplétion.
+ * (`"A" | string` s'effondre en `string`, alors que `"A" | (string & {})` garde les suggestions.)
+ */
+export type OpenString<T extends string> = T | (string & {});
+
+export type ToastType = "info" | "success" | "error" | "warning";
+
 export interface UpdateMsgEvent {
   key?: string;
   text?: string;
-  type?: string;
-  [key: string]: unknown;
+  type?: ToastType;
 }
 
 export interface LaunchGameRejectedEvent {
   instanceId: string;
-  reason: "ALREADY_RUNNING" | string;
-  [key: string]: unknown;
+  reason: OpenString<"ALREADY_RUNNING">;
 }
 
+/** Les champs proviennent de gens-core (`{ instanceId, ...e }`) : contenu volontairement ouvert. */
 export interface McProgressEvent {
   instanceId: string;
   task?: number;
@@ -70,17 +78,157 @@ export interface McCloseEvent {
   code: number;
 }
 
-export interface HorizonStatusEvent {
-  type?: "PROGRESS" | "INFO" | "SUCCESS" | "ERROR" | "ROLLBACK_LIST" | "CHECK_RESULT" | "CLOUD_LIST" | "OFFLINE" | string;
-  step?: string;
-  value?: number;
+// ─────────────────────────────────────────────────────────────────────────────
+// Protocole Horizon (stdout JSON, une ligne = un message)
+// Source de vérité côté launcher : sert aussi de cahier des charges pour un
+// éventuel portage d'Horizon (ex. Go). Toute évolution d'Horizon doit être
+// reflétée ici.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type HorizonProgressStep =
+  | "CHECKING"
+  | "DOWNLOADING"
+  | "VERIFYING"
+  | "EXTRACTING"
+  | "APPLYING_DELTA"
+  | "COMPRESSING"
+  | "UPLOADING";
+
+export type HorizonErrorCode = "ERR_ALREADY_RUNNING" | "AUTH_EXPIRED" | "NOT_ON_CLOUD";
+
+export type HorizonUploadMode = "FULL" | "SMART" | "REPACK";
+
+/** Progression d'une opération (sync.js / upload.js). `value` est un pourcentage 0-100. */
+export interface HorizonProgressMessage {
+  type: "PROGRESS";
+  step: HorizonProgressStep;
+  value: number;
+  instance: string;
+  /** Nom du fichier delta en cours (étape APPLYING_DELTA uniquement). */
+  delta?: string;
+}
+
+export interface HorizonInfoMessage {
+  type: "INFO";
+  message: string;
+  instance?: string;
+}
+
+/**
+ * Succès. Champs selon la commande :
+ * - upload : `mode` (+ `summary` en SMART), pas de `message`
+ * - sync   : `base`, `deltas`, `message`
+ * - rollback / login / delete : `message`
+ */
+export interface HorizonSuccessMessage {
+  type: "SUCCESS";
   instance?: string;
   message?: string;
-  errorCode?: string;
-  data?: unknown;
-  richData?: unknown;
-  delta?: string;
-  [key: string]: unknown;
+  mode?: HorizonUploadMode;
+  summary?: string;
+  base?: boolean;
+  deltas?: number;
+}
+
+export interface HorizonErrorMessage {
+  type: "ERROR";
+  message: string;
+  instance?: string;
+  errorCode?: OpenString<HorizonErrorCode>;
+  /** true si un dossier `_rollback_` est disponible pour restaurer l'instance. */
+  hasRollback?: boolean;
+  status?: "ERROR";
+}
+
+export interface HorizonOfflineMessage {
+  type: "OFFLINE";
+  message: string;
+  status?: "OFFLINE";
+}
+
+export interface HorizonCheckResultMessage {
+  type: "CHECK_RESULT";
+  status: "UP_TO_DATE" | "UPDATE_AVAILABLE" | "NOT_LOGGED_IN";
+  /** Noms (canoniques) des instances ayant une version plus récente sur le Cloud. */
+  updates: string[];
+  message?: string;
+}
+
+export interface HorizonCloudInstance {
+  /** Nom canonique (safeDir) utilisé sur le Cloud. */
+  name: string;
+  realName: string;
+  deltaCount: number;
+  sizeBytes: number;
+  /** Date ISO du backup de base. */
+  lastBackup: string | null;
+  /** Data-URL de l'icône, si connue. */
+  iconData: string | null;
+  loader: string | null;
+}
+
+export interface HorizonCloudListMessage {
+  type: "CLOUD_LIST";
+  /** Noms canoniques des instances présentes sur le Cloud. */
+  data: string[];
+  richData: HorizonCloudInstance[];
+}
+
+export interface HorizonQuotaInstance {
+  name: string;
+  bytes: number;
+  deltaCount: number;
+}
+
+export interface HorizonQuotaMessage {
+  type: "QUOTA";
+  provider: string;
+  /** 0 = illimité / inconnu. */
+  totalBytes: number;
+  usedBytes: number;
+  horizonBytes: number;
+  instances: HorizonQuotaInstance[];
+}
+
+export interface HorizonRollbackEntry {
+  folder: string;
+  instance: string;
+  /** Date ISO, ou null si le timestamp du dossier est illisible. */
+  timestamp: string | null;
+}
+
+export interface HorizonRollbackListMessage {
+  type: "ROLLBACK_LIST";
+  data: HorizonRollbackEntry[];
+}
+
+export interface HorizonLogMessage {
+  type: "LOG";
+  level?: OpenString<"INFO" | "WARN" | "ERROR">;
+  message: string;
+}
+
+/** Union discriminée par `type` : `if (msg.type === "QUOTA") msg.totalBytes` est typé. */
+export type HorizonStatusEvent =
+  | HorizonProgressMessage
+  | HorizonInfoMessage
+  | HorizonSuccessMessage
+  | HorizonErrorMessage
+  | HorizonOfflineMessage
+  | HorizonCheckResultMessage
+  | HorizonCloudListMessage
+  | HorizonQuotaMessage
+  | HorizonRollbackListMessage
+  | HorizonLogMessage;
+
+export type HorizonMessageType = HorizonStatusEvent["type"];
+
+/** Résultat de `invoke("call-horizon", ...)` (voir runHorizonAction dans ipc-horizon.js). */
+export interface HorizonCallResult {
+  /** Code de sortie du processus, -1 si annulé / refusé / tué. */
+  exitCode: number;
+  /** Dernier message JSON reçu sur stdout. */
+  lastJson: HorizonStatusEvent | null;
 }
 
 export interface HorizonEngineStatus {
@@ -93,22 +241,21 @@ export interface HorizonEngineStatus {
   offline?: boolean;
 }
 
+/** Clés acceptées par `save-horizon-settings` (ALLOWED_KEYS dans ipc-horizon.js). */
 export interface HorizonSettings {
   systemEnabled?: boolean;
-  syncMode?: string;
+  syncMode?: "SMART" | "FULL";
   autoSync?: boolean;
   autoUpload?: boolean;
-  provider?: string;
+  provider?: OpenString<"google" | "dropbox" | "onedrive">;
   maxRetries?: number;
   retryBaseDelay?: number;
   deltaCleanupThreshold?: number;
-  [key: string]: unknown;
 }
 
 export interface OperationResult {
   success: boolean;
   error?: string;
-  [key: string]: unknown;
 }
 
 export interface InvokeArgByChannel {
@@ -122,7 +269,7 @@ export interface InvokeResultByChannel {
   "get-horizon-settings": HorizonSettings;
   "save-horizon-settings": OperationResult;
   "install-horizon": OperationResult & { version?: string };
-  "call-horizon": unknown;
+  "call-horizon": HorizonCallResult;
   "check-internet": boolean;
 }
 

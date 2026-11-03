@@ -2,11 +2,6 @@
 
 import { store } from "../store.js";
 
-/** @typedef {import("../types/ipc").HorizonEngineStatus} HorizonEngineStatus */
-
-/** @type {any} */
-const w = window;
-
 /**
  * Normalize persisted booleans that may be saved as true/false or "true"/"false".
  * @param {unknown} value
@@ -29,9 +24,9 @@ async function readJsonObject(filePath) {
 }
 
 export function setupCloud() {
-    w.checkCloudAtStartup = async () => {
+    window.checkCloudAtStartup = async () => {
         const gs = /** @type {{offlineMode?: boolean}} */ (store.globalSettings);
-        if (gs.offlineMode || !w.isTrulyOnline) return;
+        if (gs.offlineMode || !window.isTrulyOnline) return;
         try {
             const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
             const setPath = window.api.path.join(binPath, "horizon_settings.json");
@@ -50,7 +45,6 @@ export function setupCloud() {
             if (!systemEnabled) return; 
             if (!autoSyncEnabled) return;
             
-            /** @type {HorizonEngineStatus} */
             const status = await window.api.invoke("check-horizon-status");
             if (status.installed && status.linked && !status.offline) {
                 await window.api.invoke("call-horizon", ["--check"]);
@@ -58,9 +52,9 @@ export function setupCloud() {
         } catch (e) { console.error("🚨 Erreur démarrage Cloud:", e); }
     };
 
-    w.checkHorizonUpdateAtStartup = async () => {
+    window.checkHorizonUpdateAtStartup = async () => {
         const gs = /** @type {{offlineMode?: boolean}} */ (store.globalSettings);
-        if (gs.offlineMode || !w.isTrulyOnline) {
+        if (gs.offlineMode || !window.isTrulyOnline) {
             store.horizonActive = false;
             return;
         }
@@ -94,7 +88,6 @@ export function setupCloud() {
         }
         
         try {
-            /** @type {HorizonEngineStatus} */
             const status = await window.api.invoke("check-horizon-status");
             const isActive = status.installed && !status.offline;
             if (isActive) {
@@ -110,8 +103,8 @@ export function setupCloud() {
             if (horizonBadge) horizonBadge.style.display = "block";
             const tabBadge = document.getElementById("horizon-tab-badge");
             if (tabBadge) tabBadge.style.display = "block";
-            const msg = w.t("horizon_update_toast", "Gens Horizon a une mise à jour disponible ({version}). Ouvrez les Paramètres → Horizon pour l'installer.").replace("{version}", status.latestVersion || "");
-            w.showToast(msg, "info");
+            const msg = window.t("horizon_update_toast", "Gens Horizon a une mise à jour disponible ({version}). Ouvrez les Paramètres → Horizon pour l'installer.").replace("{version}", status.latestVersion || "");
+            window.showToast(msg, "info");
         } catch (e) {
             const message = (e && typeof e === 'object' && 'message' in e) ? /** @type {{message?: string}} */ (e).message : String(e);
             console.log("[Horizon] Vérification MAJ démarrage échouée :", message);

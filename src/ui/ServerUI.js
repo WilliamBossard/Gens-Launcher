@@ -2,19 +2,16 @@
 
 import { store } from "../store.js";
 
-/** @type {any} */
-const w = window;
-
 export function setupServer() {
     let _isCheckingServer = false;
-    w.checkServerStatus = async () => {
+    window.checkServerStatus = async () => {
         if (_isCheckingServer) return;
         
         const gs = /** @type {{serverIp?: string; offlineMode?: boolean}} */ (store.globalSettings);
         const ip = gs.serverIp ? gs.serverIp.trim() : "";
         const banner = document.getElementById("server-banner-container");
         if (!banner) return;
-        if (!ip || gs.offlineMode || !w.isTrulyOnline) {
+        if (!ip || gs.offlineMode || !window.isTrulyOnline) {
             banner.style.display = "none";
             return;
         }
@@ -22,7 +19,7 @@ export function setupServer() {
         _isCheckingServer = true;
         banner.style.display = "flex";
         if (banner.innerHTML === "") {
-            banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${w.t("msg_server_search", "Recherche du serveur")} ${w.escapeHTML(ip)}...</div>`;
+            banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${window.t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
         }
         try {
             const res = /** @type {{success?: boolean; error?: string; data?: any}} */ (await window.api.invoke("ping-server", ip));
@@ -30,7 +27,7 @@ export function setupServer() {
             const data = res.data;
             if (data.online) {
                 const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
-                let iconHtml = safeIcon ? `<img src="${w.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
+                let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
                 let motdHtml = "Serveur Minecraft";
                 if (data.motd && data.motd.html) {
                     const parser = new DOMParser();
@@ -67,23 +64,23 @@ export function setupServer() {
                 banner.innerHTML = `
                 ${iconHtml}
                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${w.escapeHTML(ip)}</div>
+                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
                     <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; line-height: 1.2;">${motdHtml}</div>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
-                    <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${w.t("msg_online", "En ligne")}</div>
-                    <div style="color: var(--text-light);">${data.players?.online ?? "?"} / ${data.players?.max ?? "?"} ${w.t("lbl_players", "joueurs")}</div>
+                    <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${window.t("msg_online", "En ligne")}</div>
+                    <div style="color: var(--text-light);">${data.players?.online ?? "?"} / ${data.players?.max ?? "?"} ${window.t("lbl_players", "joueurs")}</div>
                 </div>`;
             } else {
                 banner.innerHTML = `
                 <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${w.escapeHTML(ip)}</div>
-                    <div style="font-size: 0.85rem; color: #f87171;">${w.t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
+                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
+                    <div style="font-size: 0.85rem; color: #f87171;">${window.t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
                 </div>`;
             }
         } catch (e) {
-            banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${w.t("msg_server_error", "Erreur de connexion à")} ${w.escapeHTML(ip)}</div>`;
+            banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${window.t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
         } finally {
             _isCheckingServer = false;
         }
