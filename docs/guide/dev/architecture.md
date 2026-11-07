@@ -7,6 +7,7 @@
 </div>
 
 Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on **Electron**, its primary role is to orchestrate:
+
 1. Secure player authentication via Microsoft and Xbox Live APIs.
 2. Asset verification, dependency downloading, and launching Minecraft via the in-house `gens-core` engine.
 3. Asynchronous execution and communication with **Gens-Horizon**, the companion differential cloud sync engine.
@@ -17,14 +18,15 @@ Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosyst
 
 The architecture strictly follows Electron's process separation model by splitting responsibilities across three isolated realms:
 
-```
+```text
 +-------------------------------------------------------------------+
 |                        MAIN PROCESS (Node.js)                     |
 |  - main.js: App lifecycle, windows, global CSP                   |
 |  - src/main/ipc-auth.js: Mojang proxy, Microsoft tokens           |
-|  - src/main/ipc-game.js: JVM preparation, child_process execFile  |
-|  - src/main/ipc-horizon.js: Horizon.exe binary bridge             |
-|  - src/main/crypto-utils.js: PBKDF2 / AES-256-GCM primitives      |
+|  - src/main/ipc-game.js: JVM preparation, child_process spawn     |
+|  - src/main/ipc-fs.js: Confined sandboxed file operations         |
+|  - src/main/ipc-horizon.js: Horizon binary bridge                 |
+|  - src/main/crypto-utils.js: safeStorage & PBKDF2 / AES-256-GCM   |
 +---------------------------------+---------------------------------+
                                   |
                Async IPC          | (ipcMain.handle / invoke)
@@ -32,15 +34,15 @@ The architecture strictly follows Electron's process separation model by splitti
                                   v
 +-------------------------------------------------------------------+
 |                    SECURITY BRIDGE (preload.js)                   |
-|  - contextIsolation: true                                         |
+|  - contextIsolation: true & sandbox: true                         |
 |  - enforceSandbox() / enforceReadSandbox(): Blocks Zip Slip       |
 |  - window.api: Exclusive surface exposed to the DOM               |
 +---------------------------------+---------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
-|                   RENDERER PROCESS (TypeScript-First)             |
-|  - renderer.js (migrating to .ts), HTML5, Vanilla CSS             |
+|               RENDERER PROCESS (Strict TypeScript)                |
+|  - renderer.js (JSDoc TypeScript strict mode), HTML5, Vanilla CSS |
 |  - Zero direct Node.js access (require() forbidden)               |
 |  - UI Managers: AccountUI, InstancesUI, ModsUI, CloudUI           |
 +-------------------------------------------------------------------+
@@ -51,22 +53,27 @@ The architecture strictly follows Electron's process separation model by splitti
 ## Component Breakdown
 
 ### 1. Main Process
+
 Runs in a full Node.js environment with native file system and low-level network access:
-- **`main.js`**: Application entry point. Instantiates `BrowserWindow`, enforces global `Content-Security-Policy` (CSP) headers, and registers IPC handlers.
+
+- **`main.js`**: Application entry point. Instantiates `BrowserWindow`, enforces global `Content-Security-Policy` (CSP) headers, and registers IPC handlers via a typed `MainContext`.
 - **`src/main/ipc-auth.js`**: Manages OAuth2 flows and acts as a secure reverse proxy for Mojang APIs (skins and capes), bypassing CORS without exposing the renderer.
-- **`src/main/ipc-game.js`**: Launch engine. Builds JVM startup arguments, downloads dependencies, and spawns the game via `child_process.execFile` (guaranteeing shell-injection immunity).
-- **`src/main/ipc-horizon.js`**: Exclusive communication bridge for `Horizon.exe`. Validates local binary SHA-256 hash against official GitHub releases (cached for 2 hours) and whitelists executable flags.
-- **`src/main/crypto-utils.js`**: Cryptographic routines. Encryption keys are derived using **PBKDF2** (600,000 iterations with a dedicated 16-byte salt in `.key_salt`) and authenticated via **AES-256-GCM**.
+- **`src/main/ipc-game.js`**: Launch engine. Builds JVM startup arguments, downloads dependencies, and spawns the game via `child_process` without shell evaluation.
+- **`src/main/ipc-fs.js`**: Sandboxed filesystem service enforcing both lexical boundaries and `fs.realpathSync` symlink/junction verification (`assertPathUnderSandbox`).
+- **`src/main/ipc-horizon.js`**: Exclusive communication bridge for `Horizon.exe` / `Horizon`. Validates local binary SHA-256 hash against official GitHub releases (cached for 2 hours) and whitelists executable flags.
+- **`src/main/crypto-utils.js`**: Cryptographic routines. Uses OS-native `safeStorage` when available, falling back to **PBKDF2** (600,000 iterations with a dedicated 16-byte salt in `.key_salt`) and **AES-256-GCM**.
 
 ### 2. The Security Bridge (Preload)
-- **`preload.js`**: Executes in renderer context but configures boundaries before locking down internal APIs:
+
+- **`preload.js`**: Executes in an isolated preload context before locking down internal APIs:
   - Exposes a hardened `window.api` object to the DOM via `contextBridge.exposeInMainWorld`.
   - Implements the **Software Security Shield**: `enforceSandbox()` and `enforceReadSandbox()` mathematically inspect all path operations to prevent `Zip Slip` and `Path Traversal`.
   - Disk write operations are strictly restricted to `%AppData%\GensLauncher`.
   - File reading outside the sandbox is limited to verified paths (`.minecraft/`, detected Java runtimes, and temporary directories).
 
 ### 3. Renderer Process (User Interface)
-- **`renderer.js` / HTML / CSS**: Lightweight interface currently in JavaScript, migrating to **TypeScript** while preserving the same runtime model and startup performance.
+
+- **`renderer.js` / HTML / CSS**: Lightweight modular interface strictly type-checked with **TypeScript** (`checkJs: true`, `strict: true`), preserving zero-build-step startup performance.
 - No direct access to `require()` or `process`.
 - All interactions with the underlying operating system go through asynchronous calls on `window.api.invoke()`.
 

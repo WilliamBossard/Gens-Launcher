@@ -1,8 +1,6 @@
 # Gens Launcher
 
-Modern and lightweight open-source Minecraft launcher based on Electron. Integrates a native catalog mod,shader,texture (Modrinth), secure Microsoft authentication, and advanced instance management inspired by MultiMC (Fabric/Forge, import/export, Java auto-detection).
-
-TypeScript migration is in progress on branch `feat/typescript-migration`.
+Modern and lightweight open-source Minecraft launcher based on Electron. Integrates a native mod, shader, and resource pack catalog (Modrinth & CurseForge), secure Microsoft authentication, Horizon Delta Cloud Sync, and advanced instance management inspired by MultiMC (Fabric/Forge/Quilt/NeoForge, import/export, Java auto-detection).
 
 <img width="884" height="593" alt="image" src="https://github.com/user-attachments/assets/a9d5026b-2db1-411d-9d77-03930b884fa0" />
 
@@ -11,9 +9,10 @@ TypeScript migration is in progress on branch `feat/typescript-migration`.
 - **Advanced Instance Management:** Create Vanilla, Forge, Fabric, Quilt, or NeoForge instances in just a few clicks.
 - **Integrated Mod Browser:** Search, download, and update mods directly from Modrinth and CurseForge without leaving the app.
 - **Microsoft Multi-Account Support:** Securely log in and manage multiple Microsoft accounts.
-- **Enterprise-Grade Security:** File integrity verification (SHA1), strict HTTPS enforcement, and a "Safe Write" anti-corruption save system.
+- **Enterprise-Grade Security:** File integrity verification (SHA-1 / SHA-256), strict sandbox confinement, HTTPS enforcement, OS Keychain (`safeStorage`) + PBKDF2/AES-256-GCM encryption, and an atomic "Safe Write" anti-corruption save system.
+- **Strict TypeScript Type Safety:** 100% static type checking across Main, Preload, Renderer, and `gens-core` (`checkJs: true`, `strict: true`) with zero build-step overhead.
 - **Windows Integration (Jump List):** Launch your favorite instances directly from the Windows taskbar via right-click.
-- **Linux APT Repository:** Install and update Gens Launcher on Debian/Ubuntu systems using the official signed APT repository.
+- **Linux APT Repository:** Install and update Gens Launcher on Debian/Ubuntu systems using the official GPG-signed APT repository.
 - **Total Customization:** Dynamic themes, custom wallpapers, blur effects (Acrylic/Mica), and an option to disable animations for low-end PCs.
 - **Discord Rich Presence:** Show off the instance you are currently playing directly on your Discord profile.
 
@@ -28,7 +27,8 @@ TypeScript migration is in progress on branch `feat/typescript-migration`.
 Welcome to Gens Launcher! Here is how to install the software on your PC in just a few minutes.
 
 ### Step 1: Download the Installer
-1. On this GitHub page, look on the right side under the **"Releases"** section and click on the latest release (e.g., `v1.5.0`).
+
+1. On this GitHub page, look on the right side under the **"Releases"** section and click on the latest release (e.g., `v1.9.2`).
 2. Scroll down to the "Assets" section at the bottom and download the file for your Operating System:
    - **For Windows (Installer):** Download **`Gens-Launcher-Setup-X.X.X.exe`**
    - **For Linux (Debian/Ubuntu via APT):** Use the official APT repository (see below)
@@ -37,14 +37,15 @@ Welcome to Gens Launcher! Here is how to install the software on your PC in just
 
 ### Step 2: Run the Installation
 
-**For Windows: Setup Installer (.exe)**
+#### For Windows: Setup Installer (.exe)
+
 1. Once the download is complete, double-click the `.exe` file to start the installation.
 2. **Important (Windows Alert):** Because this launcher is an independent project, Windows Defender might display a blue screen saying *"Windows protected your PC"*. This is completely normal for unverified indie apps.
    - Simply click on the **"More info"** text.
    - Then click the **"Run anyway"** button.
 3. Follow the on-screen instructions, leave the boxes checked to create shortcuts, and click "Install".
 
-**For Linux - Option A: APT Repository (Debian/Ubuntu)**
+#### For Linux - Option A: APT Repository (Debian/Ubuntu)
 
 This method integrates Gens Launcher into your system's package manager, so it updates automatically with `apt upgrade` like any other application.
 
@@ -62,21 +63,25 @@ sudo apt update && sudo apt install gens-launcher
 ```
 
 To update in the future:
+
 ```bash
 sudo apt update && sudo apt upgrade gens-launcher
 ```
 
-**For Linux - Option B: AppImage (Universal, no install required)**
+#### For Linux - Option B: AppImage (Universal, no install required)
+
 1. Right-click the `.AppImage` file and select **Properties**.
 2. Go to the **Permissions** tab and check the box **"Allow executing file as program"**.
 3. Double-click the `.AppImage` to launch Gens Launcher!
 
-**For macOS (.dmg):**
+#### For macOS (.dmg)
+
 1. Double-click the downloaded `.dmg` file to open it.
 2. Drag and drop the **Gens Launcher** icon into the **Applications** folder shortcut.
 3. Go to your Applications folder and launch the app from there! *(Note: The Auto-Updater requires the app to be run from the Applications folder, not directly from the DMG).*
 
-### Step 3: Play!
+### Step 3: Play
+
 - Open Gens Launcher using the new shortcut on your Desktop or in your application menu.
 - Click on the Microsoft button to log in securely with your Minecraft account.
 - Create your first instance, download your mods, and enjoy the game!
@@ -89,50 +94,62 @@ sudo apt update && sudo apt upgrade gens-launcher
 ## Installation & Build Guide (DEV)
 
 ### Prerequisites
-- **Node.js** (version 18 or higher recommended)
+
+- **Node.js** (version 22 or 24 LTS recommended)
 - A Microsoft account with a valid Minecraft Java Edition license
 
 ### Local Development
+
 Clone the repository:
+
 ```bash
-git clone https://github.com/YourUsername/gens-launcher.git
-cd gens-launcher
+git clone https://github.com/WilliamBossard/Gens-Launcher.git
+cd Gens-Launcher
 ```
 
 Install the dependencies:
+
 ```bash
 npm install
 ```
 
 Run the launcher in development mode:
+
 ```bash
 npm start
 ```
 
-Run static typing checks (TypeScript migration):
+Run static type checks and automated unit tests:
+
 ```bash
 npm run typecheck
+npm test
 ```
 
 ### Compiling the App (Windows, macOS & Linux)
+
 To generate the final professional installers ready to be distributed to players, run the following commands based on your target OS:
 
-**For Windows (.exe):**
+#### For Windows (.exe)
+
 ```bash
 npm run dist:win
 ```
 
-**For macOS (.dmg):**
+#### For macOS (.dmg)
+
 ```bash
 npx electron-builder --mac
 ```
 
-**For Linux (.deb & .AppImage):**
+#### For Linux (.deb & .AppImage)
+
 ```bash
 npm run dist:linux
 ```
 
-**For all platforms:**
+#### For all platforms
+
 ```bash
 npm run dist:all
 ```
@@ -140,9 +157,11 @@ npm run dist:all
 The generated executables will be located in the `dist/` folder.
 
 ## Contributing
+
 Contributions are always welcome! Feel free to open an Issue to report a bug or suggest a feature, or submit a Pull Request.
 
 ## License
+
 This project is licensed under the MIT License. See the LICENSE file for more details.
 
 *(Note: Minecraft is a trademark of Mojang Synergies AB. This project is not affiliated with Mojang or Microsoft).*

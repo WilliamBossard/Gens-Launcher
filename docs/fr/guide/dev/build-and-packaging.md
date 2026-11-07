@@ -12,7 +12,7 @@ Gens-Launcher utilise **`electron-builder`** pour générer les paquets de distr
 
 ## 1. Prérequis de Développement
 
-- **Node.js :** Version 20 LTS ou 24 recommandée.
+- **Node.js :** Version 22 LTS ou 24 recommandée.
 - **Gestionnaire de paquets :** `npm` (version 10 ou supérieure).
 - **Système d'exploitation :**
   - La compilation Windows (`.exe` NSIS) s'effectue sous Windows ou via Wine/Docker.
@@ -26,10 +26,10 @@ Gens-Launcher utilise **`electron-builder`** pour générer les paquets de distr
 À la racine du projet, vous disposez des scripts suivants :
 
 ```bash
-# Lancer le projet en mode développement avec hot-reloading
+# Lancer le projet en mode développement
 npm start
 
-# Vérification statique du typage (migration TypeScript)
+# Vérification statique du typage (TypeScript mode strict)
 npm run typecheck
 
 # Exécuter la suite de tests unitaires (Node.js test runner)
@@ -52,7 +52,7 @@ npm run dist:all
 
 ## 3. Configuration `electron-builder`
 
-Dans le fichier `package.json`, la section `build` définit les métadonnées de packaging :
+Dans le fichier `package.json`, la section `build` définit les métadonnées de packaging ainsi que le filtrage strict des fichiers embarqués dans l'archive ASAR (excluant les tests, la documentation et les fichiers de types `.ts` / `.d.ts`) :
 
 ```json
 {
@@ -66,12 +66,6 @@ Dans le fichier `package.json`, la section `build` définit les métadonnées de
       "target": ["nsis"],
       "icon": "assets/icon.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
-    },
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Game",
@@ -81,19 +75,44 @@ Dans le fichier `package.json`, la section `build` définit les métadonnées de
       "target": ["dmg", "zip"],
       "icon": "assets/icon-512.png",
       "category": "public.app-category.games"
-    }
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "src/**/*",
+      "assets/**/*",
+      "!**/tests/**",
+      "!**/docs/**",
+      "!**/*.test.js",
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.d.ts",
+      "!**/tsconfig*.json",
+      "!**/.git*",
+      "!**/.vscode*",
+      "!**/*.md"
+    ]
   }
 }
 ```
 
 ---
 
-## 4. Pipeline CI/CD et Dépôt APT Automatisé (`apt.yml`)
+## 4. Pipelines CI/CD (`.github/workflows/`)
 
-Lorsqu'une nouvelle release est publiée sur GitHub, le workflow `.github/workflows/apt.yml` prend le relais automatiquement :
+Gens-Launcher s'appuie sur trois workflows GitHub Actions automatisés :
 
-```
+1. **`ci.yml` (Intégration Continue) :** Déclenché à chaque `push` et `pull_request` sur `main`/`master`. Exécute `npm ci`, `npm run typecheck` et `npm test` sous Ubuntu et Windows (Node.js 22 & 24).
+2. **`release.yml` (Compilation & Publication Multi-OS) :** Crée le tag de version depuis `package.json`, vérifie `npm run typecheck` et `npm test`, puis compile et publie les installateurs Windows, Linux et macOS sur GitHub Releases.
+3. **`apt.yml` (Dépôt APT Automatisé & Documentation) :** Lorsqu'une nouvelle release est publiée sur GitHub, `.github/workflows/apt.yml` déploie la documentation et met à jour le dépôt Debian signé :
+
+```text
 [ Déclencheur GitHub Release ]
+              |
+              v
+ [ Compilation VitePress (docs:build -> website/) ]
               |
               v
  [ Téléchargement du .deb compilé ]
@@ -119,4 +138,4 @@ Lorsqu'une nouvelle release est publiée sur GitHub, le workflow `.github/workfl
    - Mise en ligne atomique sur williambossard.github.io/Gens-Launcher/
 ```
 
-Grâce à cette organisation, les utilisateurs de Debian et Ubuntu bénéficient d'un canal de mise à jour sécurisé et automatisé sans intervention manuelle.
+Grâce à cette organisation, les utilisateurs de Debian et Ubuntu bénéficient d'un canal de mise à jour sécurisé et automatisé via `apt upgrade`.

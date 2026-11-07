@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Gens Launcher"
   text: "Redéfinissez votre expérience Minecraft."
-  tagline: "Lanceur open-source sécurisé et ultra-rapide propulsé par Gens-Horizon Delta Sync et une migration TypeScript"
+  tagline: "Lanceur open-source sécurisé et ultra-rapide propulsé par Gens-Horizon Delta Sync et une architecture TypeScript stricte"
   image:
     src: /icon.png
     alt: Logo Gens Launcher
@@ -23,8 +23,6 @@ hero:
       link: https://github.com/WilliamBossard/Gens-Launcher
 
 features:
-  - title: Migration TypeScript en Cours
-    details: Le launcher passe progressivement vers une base orientee TypeScript pour renforcer la securite IPC et limiter les regressions, sans changer le comportement runtime.
   - title: Horizon Delta Sync
     details: Moteur de synchronisation cloud déporté ne transférant que les octets modifiés pour des sauvegardes instantanées et légères.
   - title: Multi-Modloaders Intégrés
@@ -37,6 +35,8 @@ features:
     details: Authentification officielle Microsoft Device Code et bascule dynamique en mode hors-ligne sans requêtes réseau fantômes.
   - title: Dépôt APT Linux Officiel
     details: Mises à jour automatisées sur Debian et Ubuntu via un dépôt APT officiel signé par clé GPG, avec paquets AppImage, Windows et macOS.
+  - title: Architecture TypeScript Stricte
+    details: Base de code 100% vérifiée statiquement (Main, Preload, Renderer et Gens-Core) garantissant la sûreté des canaux IPC sans étape de transpilation.
 ---
 
 <LauncherMockup lang="fr" />

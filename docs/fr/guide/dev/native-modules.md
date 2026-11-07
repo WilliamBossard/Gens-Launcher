@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/S%C3%A9curit%C3%A9-Surface%20d'Attaque%20Minimale-orange.svg" alt="Sécurité" />
 </div>
 
-Afin de réduire drastiquement le poids de l'exécutable, d'accélérer les temps de chargement et de supprimer les vulnérabilités liées à la chaîne d'approvisionnement (*Supply Chain Attacks*), Gens-Launcher bannit les bibliothèques tierces volumineuses au profit de modules **100% natifs développés en interne**.
+Afin de réduire drastiquement le poids de l'exécutable, d'accélérer les temps de chargement et de supprimer les vulnérabilités liées à la chaîne d'approvisionnement (*Supply Chain Attacks*), Gens-Launcher bannit les bibliothèques tierces volumineuses au profit de modules **100 % natifs développés en interne** dans `src/gens-core/components/` (tous intégralement vérifiés par TypeScript via `// @ts-check`).
 
 ---
 
@@ -15,11 +15,11 @@ Afin de réduire drastiquement le poids de l'exécutable, d'accélérer les temp
 Plutôt que d'importer `@xhayper/discord-rpc` ou le SDK Discord officiel (qui pèsent plusieurs mégaoctets et multiplient les dépendances transitives), Gens-Launcher intègre son propre client RPC basé sur les **Named Pipes** du système d'exploitation :
 
 - **Protocole Bas Niveau :**
-  - **Windows :** Connexion directe sur `\\?\pipe\discord-ipc-0`.
-  - **Linux / macOS :** Connexion par socket Unix sur `$XDG_RUNTIME_DIR/discord-ipc-0` ou `/tmp/discord-ipc-0`.
-- **Analyseur de Trame Binaire (IPC Framer) :** Encode et décode les opcodes RPC (`HANDSHAKE = 0`, `FRAME = 1`, `CLOSE = 2`, `PING = 3`, `PONG = 4`) directement avec des Buffers natifs Node.js.
-- **Rate-Limiter Intégré :** Empêche tout dépassement des quotas d'événements de l'API Discord.
-- **Gestion Stricte du Mode Hors-Ligne :** Lorsque l'application démarre sans connexion Internet, `discord.js` consulte localement `settings.json` et coupe toute tentative de socket en boucle pour éviter la création de processus zombies.
+  - **Windows :** Connexion directe sur `\\?\pipe\discord-ipc-0..9`.
+  - **Linux / macOS :** Connexion par socket Unix sur `$XDG_RUNTIME_DIR/discord-ipc-0..9` ou `/tmp/discord-ipc-0..9`.
+- **Analyseur de Trame Binaire (IPC Framer) :** Encode les opcodes RPC (`HANDSHAKE = 0`, `FRAME = 1`, `CLOSE = 2`) directement avec des Buffers natifs Node.js.
+- **Rate-Limiter Intégré :** Régule les mises à jour de statut sur une fenêtre de 15 secondes conformément aux quotas Discord.
+- **Gestion Propre des Déconnexions :** Nettoie immédiatement les timers et sockets lors d'un `disconnect()` et bloque toute reconnexion automatique en mode hors-ligne.
 
 ---
 
@@ -28,29 +28,31 @@ Plutôt que d'importer `@xhayper/discord-rpc` ou le SDK Discord officiel (qui p�
 Le format NBT (*Named Binary Tag*) est le standard binaire utilisé par Minecraft pour stocker les mondes, les inventaires et la liste des serveurs multijoueur (`servers.dat`).
 
 Gens-Launcher remplace `prismarine-nbt` par une implémentation légère basée sur l'API native `node:zlib` :
-- **Compression GZIP / ZLIB :** Détection automatique de l'en-tête de compression ou lecture non compressée.
-- **Types Supportés :** TAG_End (0), TAG_Byte (1), TAG_Short (2), TAG_Int (3), TAG_Long (4), TAG_Float (5), TAG_Double (6), TAG_Byte_Array (7), TAG_String (8), TAG_List (9), TAG_Compound (10), TAG_Int_Array (11), TAG_Long_Array (12).
-- **Prise en charge des BigInt :** Manipulation sans perte des entiers 64 bits (`TAG_Long`).
+
+- **Compression GZIP :** Détection automatique de l'en-tête GZIP ou lecture non compressée.
+- **Types Supportés :** `TAG_End` (0), `TAG_Byte` (1), `TAG_Short` (2), `TAG_Int` (3), `TAG_Long` (4), `TAG_Float` (5), `TAG_Double` (6), `TAG_Byte_Array` (7), `TAG_String` (8), `TAG_List` (9), `TAG_Compound` (10), `TAG_Int_Array` (11), `TAG_Long_Array` (12).
+- **Entiers 64 bits (`TAG_Long`) :** Manipulation sans perte sous forme de paires 32 bits signées `[hi, lo]`.
 - **Édition Sécurisée de `servers.dat` :** Permet à l'interface de lire, réordonner et insérer des serveurs favoris sans jamais corrompre la structure du fichier du joueur.
 
 ---
 
 ## 3. Authentification Microsoft Native (`auth.js`)
 
-L'authentification officielle Microsoft a été réécrite de zéro pour se dispenser de bibliothèques tierces :
+L'authentification officielle Microsoft a été réécrite de zéro sans dépendance OAuth externe :
 
-```
+```text
 [ Étape 1 : Device Code ]
-POST https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode
-  -> Obtention de user_code et verification_uri
+POST https://login.live.com/oauth20_connect.srf
+  -> Obtention de user_code, device_code et verification_uri
 
 [ Étape 2 : Polling du Jeton OAuth2 ]
-POST https://login.microsoftonline.com/consumers/oauth2/v2.0/token
-  -> Obtention du refresh_token et access_token
+POST https://login.live.com/oauth20_token.srf
+  -> Échange du device_code contre refresh_token et access_token
+  -> Gestion native de authorization_pending, slow_down et des micro-coupures réseau
 
 [ Étape 3 : Authentification Xbox Live (XBL) ]
 POST https://user.auth.xboxlive.com/user/authenticate
-  -> Obtention du token XBL et du UserHash
+  -> Obtention du token XBL et du UserHash (uhs)
 
 [ Étape 4 : Autorisation XSTS (Minecraft Services) ]
 POST https://xsts.auth.xboxlive.com/xsts/authorize
@@ -66,14 +68,24 @@ GET https://api.minecraftservices.com/minecraft/profile
 ```
 
 - **Sécurité :** Tous les flux transitent exclusivement via HTTPS avec validation stricte des certificats TLS.
-- **Rafraîchissement Silencieux :** Le `refresh_token` est stocké chiffré et renouvelé en arrière-plan sans interrompre l'expérience de jeu.
+- **Rafraîchissement Silencieux :** Le `refresh_token` est stocké chiffré et renouvelé automatiquement via `flowRefresh()`.
 
 ---
 
-## 4. Moteur de Lancement (`src/gens-core/components/launcher.js`)
+## 4. Ping Serveur Minecraft Natif (`ping.js`)
 
-Le lanceur prépare et exécute le processus Java de Minecraft :
-- **Vérification d'Intégrité :** Chaque bibliothèque (.jar) et asset est comparé à son empreinte SHA-1 officielle avant exécution.
-- **Assemblage du Classpath :** Construction dynamique du paramètre `-cp` avec séparateur natif (`;` sous Windows, `:` sous Linux/macOS).
-- **Extraction des Bibliothèques Natives :** Extraction des fichiers `.dll`, `.so` ou `.dylib` dans un dossier temporaire isolé nettoyé à la fermeture.
-- **Exécution Sécurisée :** Utilisation stricte de `child_process.execFile` (et non `exec`), garantissant l'impossibilité d'injecter des commandes shell arbitraires via les arguments JVM ou les noms d'instance.
+Interroge l'état en direct des serveurs Minecraft (MOTD, nombre de joueurs connectés, version du protocole et icône base64) directement en TCP :
+
+- **Résolution DNS SRV :** Résout automatiquement les enregistrements `_minecraft._tcp.<host>` avec un délai de repli de 1,5 seconde.
+- **Encodage VarInt :** Encode et décode les VarInts et chaînes UTF-8 du protocole Minecraft pour le paquet `0x00` (Handshake + Status Request).
+- **Support IPv4 / IPv6 & Ports Personnalisés :** Analyse complète des adresses IPv6 entre crochets et des ports dédiés.
+
+---
+
+## 5. Moteur de Lancement (`launcher.js` & `handler.js`)
+
+Prépare et exécute le processus Java de Minecraft :
+
+- **Vérification Rapide & SHA-1 :** Contrôle la taille et l'empreinte SHA-1 des bibliothèques et assets (`verifyFileFast` & `checkSum`) avec téléchargement parallèle borné (`pMap`).
+- **Assemblage du Classpath & Arguments JVM :** Construction dynamique du `-cp` et des arguments JVM (`getJVMArgs`), avec prise en charge des versions modernes de Minecraft (26.x / 27.x et `-XX:StackShadowPages=32`) ainsi que de ForgeWrapper.
+- **Extraction Sécurisée :** Utilise `yauzl-promise` avec vérification stricte des chemins de sortie pour empêcher toute attaque Zip Slip.

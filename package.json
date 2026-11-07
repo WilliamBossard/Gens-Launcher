@@ -1,6 +1,6 @@
 {
   "name": "gens-launcher",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
@@ -100,6 +100,7 @@
       "!**/tsconfig*.json",
       "!**/.git*",
       "!**/.vscode*",
+      "!**/.markdownlint*",
       "!**/*.md"
     ]
   },

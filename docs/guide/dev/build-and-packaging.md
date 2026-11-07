@@ -12,7 +12,7 @@ Gens-Launcher relies on **`electron-builder`** to produce production-grade insta
 
 ## 1. Development Prerequisites
 
-- **Node.js:** Version 20 LTS or 24 recommended.
+- **Node.js:** Version 22 LTS or 24 recommended.
 - **Package Manager:** `npm` (version 10 or newer).
 - **Target OS Nuances:**
   - Windows builds (`.exe` NSIS) can be generated natively on Windows or via Wine/Docker.
@@ -29,7 +29,7 @@ The root `package.json` provides standard automation commands:
 # Start the launcher in development mode
 npm start
 
-# Static type check (TypeScript migration)
+# Static type checking (TypeScript strict mode)
 npm run typecheck
 
 # Run unit tests (Node.js test runner)
@@ -52,7 +52,7 @@ npm run dist:all
 
 ## 3. Packaging Configuration
 
-The `build` object in `package.json` defines metadata and packaging rules:
+The `build` object in `package.json` defines metadata, targets, and strict ASAR file filtering (excluding tests, docs, and TypeScript declaration files from the production binary):
 
 ```json
 {
@@ -66,12 +66,6 @@ The `build` object in `package.json` defines metadata and packaging rules:
       "target": ["nsis"],
       "icon": "assets/icon.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
-    },
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Game",
@@ -81,19 +75,44 @@ The `build` object in `package.json` defines metadata and packaging rules:
       "target": ["dmg", "zip"],
       "icon": "assets/icon-512.png",
       "category": "public.app-category.games"
-    }
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "src/**/*",
+      "assets/**/*",
+      "!**/tests/**",
+      "!**/docs/**",
+      "!**/*.test.js",
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.d.ts",
+      "!**/tsconfig*.json",
+      "!**/.git*",
+      "!**/.vscode*",
+      "!**/*.md"
+    ]
   }
 }
 ```
 
 ---
 
-## 4. CI/CD and Automated APT Workflow (`apt.yml`)
+## 4. CI/CD Pipelines (`.github/workflows/`)
 
-When a new release tag is published on GitHub, `.github/workflows/apt.yml` handles repo deployment:
+Gens-Launcher uses three automated GitHub Actions workflows:
 
-```
+1. **`ci.yml` (Continuous Integration):** Triggered on every `push` and `pull_request` to `main`/`master`. Runs `npm ci`, `npm run typecheck`, and `npm test` across Ubuntu and Windows (Node.js 22 & 24).
+2. **`release.yml` (Multi-OS Release Builder):** Tags the version from `package.json`, runs `npm run typecheck` and `npm test`, then builds and publishes Windows, Linux, and macOS installers to GitHub Releases.
+3. **`apt.yml` (Automated APT Repository & Docs Deployment):** When a new release is published on GitHub, `.github/workflows/apt.yml` deploys the documentation and signed Debian repository:
+
+```text
 [ GitHub Release Event ]
+            |
+            v
+ [ Compile VitePress Docs (docs:build -> website/) ]
             |
             v
  [ Download compiled .deb package ]
