@@ -237,8 +237,15 @@ module.exports = function setupSystemHandlers(context) {
         }
     });
 
+    /** @type {string[] | null} */
+    let _javaScanCache = null;
+    let _javaScanCacheTime = 0;
+
     ipcMain.handle("scan-java-versions", async (event) => {
         try {
+            if (_javaScanCache && (Date.now() - _javaScanCacheTime < 30000)) {
+                return { success: true, paths: _javaScanCache };
+            }
             const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
             let basePaths = [ path.join(safeDataDir, "java") ];
             
@@ -275,10 +282,14 @@ module.exports = function setupSystemHandlers(context) {
              * @param {number} [depth=0]
              */
             async function findJavaAsync(dir, depth = 0) {
-                if (depth > 6) return;
+                if (depth > 4) return;
                 try {
                     const entries = await fs.promises.readdir(dir);
                     for (const entryName of entries) {
+                        // Évite de parcourir Edge / WebView2 dans C:\Program Files\Microsoft
+                        if (depth === 0 && dir.endsWith("Microsoft") && !/jdk|jre|java|openjdk/i.test(entryName)) {
+                            continue;
+                        }
                         const full = path.join(dir, entryName);
                         try {
                             const stats = await fs.promises.stat(full);
@@ -309,7 +320,10 @@ module.exports = function setupSystemHandlers(context) {
             });
             
             await Promise.all(searchPromises);
-            return { success: true, paths: [...new Set(foundPaths)] };
+            const uniquePaths = [...new Set(foundPaths)];
+            _javaScanCache = uniquePaths;
+            _javaScanCacheTime = Date.now();
+            return { success: true, paths: uniquePaths };
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             mainLog(`[scan-java-versions] Error: ${error}`);

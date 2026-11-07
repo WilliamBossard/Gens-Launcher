@@ -35,6 +35,40 @@ window.openSystemPath = (/** @type {string} */ p) => {
         shell.openPath(p);
     }
 };
+
+window.getHorizonDir = () => path.join(store.dataDir, "Horizon");
+window.getHorizonLegacyBinDir = () => path.join(store.dataDir, "bin");
+
+/**
+ * Résout le chemin d'un fichier Horizon avec fallback automatique sur l'ancien dossier bin
+ * @param {'root' | 'auth' | 'metadata' | 'manifests' | 'cache'} category
+ * @param {string} fileName
+ * @returns {Promise<string>}
+ */
+window.resolveHorizonFilePath = async (category, fileName) => {
+    const sub = category === 'root' ? '' : category;
+    const newPath = sub ? path.join(store.dataDir, "Horizon", sub, fileName) : path.join(store.dataDir, "Horizon", fileName);
+    if (await window.existsSafe(newPath)) return newPath;
+
+    const rootPath = path.join(store.dataDir, "Horizon", fileName);
+    if (await window.existsSafe(rootPath)) return rootPath;
+
+    const legacyPath = path.join(store.dataDir, "bin", fileName);
+    if (await window.existsSafe(legacyPath)) return legacyPath;
+
+    return newPath;
+};
+
+/**
+ * Retourne le chemin cible propre pour l'écriture d'un fichier Horizon
+ * @param {'root' | 'auth' | 'metadata' | 'manifests' | 'cache'} category
+ * @param {string} fileName
+ * @returns {string}
+ */
+window.getHorizonWritePath = (category, fileName) => {
+    const sub = category === 'root' ? '' : category;
+    return sub ? path.join(store.dataDir, "Horizon", sub, fileName) : path.join(store.dataDir, "Horizon", fileName);
+};
 const _logsDirReady = (async () => {
     try {
         if (!(await window.existsSafe(store.logsDir))) {

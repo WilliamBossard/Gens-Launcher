@@ -542,8 +542,7 @@ async function fetchLoaderVersions(loader, mcVer) {
                             await writeInstanceMetaForCloud(inst);
                             await window.api.invoke("call-horizon", ['--upload', safeNewName]);
 
-                            const binDir = path.join(store.dataDir, "bin");
-                            const syncPath = path.join(binDir, "last_sync.json");
+                            const syncPath = await window.resolveHorizonFilePath('root', 'last_sync.json');
                             if (await window.existsSafe(syncPath)) {
                                 try {
                                     const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
@@ -554,15 +553,22 @@ async function fetchLoaderVersions(loader, mcVer) {
                                     }
                                 } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                             }
-                            for (const prefix of ["meta_", "manifest_"]) {
-                                const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
-                                const newCache = path.join(binDir, `${prefix}${safeNewName}.json`);
+                            for (const item of [
+                                { cat: /** @type {'metadata'} */ ('metadata'), prefix: 'meta_' },
+                                { cat: /** @type {'manifests'} */ ('manifests'), prefix: 'manifest_' }
+                            ]) {
+                                const oldFile = `${item.prefix}${safeOldName}.json`;
+                                const newFile = `${item.prefix}${safeNewName}.json`;
+                                const oldResolved = await window.resolveHorizonFilePath(item.cat, oldFile);
+                                const newTarget = window.getHorizonWritePath(item.cat, newFile);
                                 try {
-                                    if (await window.existsSafe(oldCache)) {
-                                        if (await window.existsSafe(newCache)) {
-                                            await fs.promises.unlink(newCache);
+                                    if (await window.existsSafe(oldResolved)) {
+                                        const targetDir = path.dirname(newTarget);
+                                        try { await fs.promises.access(targetDir); } catch { await fs.promises.mkdir(targetDir, { recursive: true }); }
+                                        if (await window.existsSafe(newTarget) && newTarget !== oldResolved) {
+                                            await fs.promises.unlink(newTarget);
                                         }
-                                        await fs.promises.rename(oldCache, newCache);
+                                        await fs.promises.rename(oldResolved, newTarget);
                                     }
                                 } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                             }
@@ -795,9 +801,8 @@ async function fetchLoaderVersions(loader, mcVer) {
             let deleteCloudToo = false;
             try {
                 if (store.horizonActive) {
-                    const binDir = path.join(store.dataDir, "bin");
-                    const metaPath = path.join(binDir, `meta_${safeName}.json`);
-                    const onCloud = (window._cloudInstances && window._cloudInstances.includes(safeName)) || await fs.promises.exists(metaPath);
+                    const metaPath = await window.resolveHorizonFilePath('metadata', `meta_${safeName}.json`);
+                    const onCloud = (window._cloudInstances && window._cloudInstances.includes(safeName)) || await window.existsSafe(metaPath);
                     if (onCloud) {
                         const confirmMsg = t("msg_also_delete_cloud", 'Voulez-vous ÉGALEMENT supprimer "{name}" du Cloud ?').replace("{name}", instName);
                         deleteCloudToo = await window.showCustomConfirm(confirmMsg, true);

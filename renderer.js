@@ -181,8 +181,10 @@ async function init() {
         window.dispatchEvent(new Event('resize'));
         if (window.restoreRunningInstances) window.restoreRunningInstances();
         if (window.loadNews) window.loadNews();
-        if (window.checkCloudAtStartup) window.checkCloudAtStartup();
-        setTimeout(() => { if (window.checkHorizonUpdateAtStartup) window.checkHorizonUpdateAtStartup(); }, 0);
+        setTimeout(() => {
+            if (window.checkCloudAtStartup) window.checkCloudAtStartup();
+            if (window.checkHorizonUpdateAtStartup) window.checkHorizonUpdateAtStartup();
+        }, 1200);
         window.checkServerStatus();
         window._serverStatusInterval = setInterval(() => {
             if (store.globalSettings.serverIp?.trim()) window.checkServerStatus();
@@ -263,7 +265,7 @@ window.api.on("horizon-status", async (data) => {
         const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
         if (localInst) return localInst.name;
         try {
-            const metaPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", `meta_${safeName}.json`);
+            const metaPath = await window.resolveHorizonFilePath('metadata', `meta_${safeName}.json`);
             await window.api.fs.promises.access(metaPath);
             const meta = JSON.parse(await window.api.fs.promises.readFile(metaPath, "utf8"));
             if (meta.realName) return meta.realName;
@@ -377,11 +379,11 @@ window.api.on("horizon-status", async (data) => {
             });
         });
         try {
-            const binDir = window.api.path.join(store.dataDir, "bin");
-            try { await window.api.fs.promises.access(binDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
-            const cachePath = window.api.path.join(binDir, "horizon_cloud_cache.json");
+            const cachePath = window.getHorizonWritePath('cache', "horizon_cloud_cache.json");
+            const cacheDir = window.api.path.dirname(cachePath);
+            try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
             await window.api.fs.promises.writeFile(cachePath, JSON.stringify(data), "utf8");
-            const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
+            const htmlCachePath = window.getHorizonWritePath('cache', "horizon_cloud_html_cache.txt");
             await window.api.fs.promises.writeFile(htmlCachePath, html, "utf8");
         } catch (/** @type {any} */ e) { }
         return;
@@ -447,17 +449,23 @@ window.api.on("horizon-status", async (data) => {
             <div style="font-size:0.78rem; color:#888; margin-bottom:6px;">${t("horizon_quota_per_instance", "Détail par instance")}</div>
             ${instRows}
             ` : `<div style="font-size:0.78rem; color:#555;">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`}
-            <button id="btn-refresh-quota" class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px;">
-                ↻ ${t("horizon_quota_refresh", "Actualiser")}
+            <button id="btn-refresh-quota" class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px; display:inline-flex; align-items:center; gap:6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                    <path d="M16 16h5v5"></path>
+                </svg>
+                <span>${t("horizon_quota_refresh", "Actualiser")}</span>
             </button>`;
         window._lastQuotaHtml = el.innerHTML;
         el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
         try {
-            const binDir = window.api.path.join(store.dataDir, "bin");
-            try { await window.api.fs.promises.access(binDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
-            const quotaCachePath = window.api.path.join(binDir, "horizon_quota_cache.json");
+            const quotaCachePath = window.getHorizonWritePath('cache', "horizon_quota_cache.json");
+            const cacheDir = window.api.path.dirname(quotaCachePath);
+            try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
             await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
-            const quotaHtmlCachePath = window.api.path.join(binDir, "horizon_quota_html_cache.txt");
+            const quotaHtmlCachePath = window.getHorizonWritePath('cache', "horizon_quota_html_cache.txt");
             await window.api.fs.promises.writeFile(quotaHtmlCachePath, el.innerHTML, "utf8");
         } catch (/** @type {any} */ e) { }
         return;
@@ -565,41 +573,71 @@ window.api.on("horizon-status", async (data) => {
             if (!window._isManualHorizon) return;
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
-        else if (errCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée")) {
+        else if (errCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée") || finalMsg.toLowerCase().includes("session expired")) {
             finalMsg = t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte dans l'onglet Gérer.");
             if (window.refreshHorizonUI) {
                 window.refreshHorizonUI();
             }
         }
-        else if (errCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
+        else if (errCode === "NOT_ON_CLOUD" || errCode === "NOT_FOUND" || finalMsg.includes("n'existe pas sur le Cloud") || finalMsg.toLowerCase().includes("not on cloud") || finalMsg.toLowerCase().includes("not found")) {
             if (!window._isManualHorizon) return;
             finalMsg = t("msg_not_on_cloud", "Cette instance n'existe pas sur le Cloud.");
         }
-        else if (finalMsg.includes("introuvable localement")) {
+        else if (finalMsg.includes("introuvable localement") || finalMsg.toLowerCase().includes("not found locally")) {
             if (!window._isManualHorizon) return;
             finalMsg = t("msg_err_local_not_found", "Instance introuvable localement.");
         }
-        else if (finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
+        else if (errCode === "UP_TO_DATE_CLOUD" || finalMsg.includes("déjà à jour sur le Cloud") || finalMsg.toLowerCase().includes("already up to date on cloud")) {
+            finalMsg = t("horizon_instance_cloud_up_to_date", "Instance déjà à jour sur le Cloud.");
+        }
+        else if (errCode === "UP_TO_DATE" || finalMsg.includes("déjà à jour") || finalMsg.toLowerCase().includes("already up to date")) {
+            finalMsg = t("horizon_instance_up_to_date", "Instance déjà à jour.");
+        }
+        else if (errCode === "ROLLBACK_SUCCESS" || finalMsg.includes("Rollback effectué avec succès") || finalMsg.toLowerCase().includes("rollback completed")) {
+            finalMsg = t("horizon_rollback_success", "Rollback effectué avec succès.");
+        }
+        else if (errCode === "NO_ROLLBACK" || finalMsg.includes("Aucune sauvegarde rollback") || finalMsg.toLowerCase().includes("no rollback available")) {
+            finalMsg = t("horizon_no_rollback", "Aucun rollback disponible.");
+        }
+        else if (errCode === "CONFLICT_DETECTED" || finalMsg.toLowerCase().includes("conflict")) {
+            finalMsg = t("horizon_conflict_detected", "Une version plus récente existe sur le Cloud.");
+            setTimeout(async () => {
+                const promptMsg = t("horizon_conflict_prompt", "Une version plus récente de cette instance existe sur le Cloud (sauvegardée depuis un autre appareil).\n\nVoulez-vous forcer l'envoi et remplacer la sauvegarde distante ?");
+                const wantsForce = await window.showCustomConfirm(promptMsg, true);
+                if (wantsForce && data.instance) {
+                    const slug = window.safeDir(data.instance);
+                    window.showToast(t("horizon_uploading", "Envoi de") + " " + data.instance + "...", "info");
+                    window._isManualHorizon = true;
+                    try {
+                        await window.api.invoke("call-horizon", ['--upload', slug, '--force']);
+                        if (window.horizonScheduleCloudRefresh) await window.horizonScheduleCloudRefresh({ refreshQuota: true });
+                    } finally {
+                        window._isManualHorizon = false;
+                    }
+                }
+            }, 300);
+        }
+        else if (errCode === "PORT_IN_USE" || finalMsg.includes("EADDRINUSE") || (finalMsg.toLowerCase().includes("port") && data.type === "ERROR")) {
             const portMatch = finalMsg.match(/\d{4,5}/);
             finalMsg = t("horizon_login_error_port", "Port déjà utilisé").replace("{port}", portMatch ? portMatch[0] : "");
         }
-        else if (finalMsg.includes("Serveur Horizon prêt")) {
+        else if (finalMsg.includes("Serveur Horizon prêt") || finalMsg.toLowerCase().includes("server ready")) {
             const portMatch = finalMsg.match(/\d{4,5}/);
             finalMsg = t("horizon_login_ready", "Prêt...").replace("{port}", portMatch ? portMatch[0] : "");
         }
-        else if (finalMsg.includes("Jeton sauvegardé")) {
+        else if (errCode === "AUTH_SUCCESS" || finalMsg.includes("Jeton sauvegardé") || finalMsg.includes("Connexion réussie") || finalMsg.toLowerCase().includes("token saved") || finalMsg.toLowerCase().includes("authentication successful")) {
             finalMsg = t("horizon_login_success", "Connexion réussie !");
         }
-        else if (finalMsg.includes("session d'upload")) {
+        else if (finalMsg.includes("session d'upload") || finalMsg.toLowerCase().includes("upload session")) {
             finalMsg = t("msg_err_cloud_session", "Erreur de session Cloud.");
         }
         else if (finalMsg.includes("401")) {
             finalMsg = t("msg_session_expired_cloud", "Session Cloud expirée.");
         }
-        else if (finalMsg.includes("delta(s) appliqué(s)") || finalMsg.includes("Base +")) {
+        else if (finalMsg.includes("delta(s) appliqué(s)") || finalMsg.includes("Base +") || finalMsg.toLowerCase().includes("delta(s) applied")) {
             finalMsg = t("horizon_done_success", "récupérée et importée avec succès !");
         }
-        else if (finalMsg.includes("Supprimé du cloud")) {
+        else if (errCode === "DELETED_CLOUD" || finalMsg.includes("Supprimé du cloud") || finalMsg.toLowerCase().includes("deleted from cloud")) {
             finalMsg = t("horizon_deleted_cloud", "supprimée du Cloud avec succès.");
         }
         if (data.type === "SUCCESS" && !data.message) {
@@ -870,8 +908,7 @@ window.refreshHorizonQuota = async () => {
     if (!el) return;
     if (!window._lastQuotaHtml) {
         try {
-            const binDir = window.api.path.join(store.dataDir, "bin");
-            const quotaCachePath = window.api.path.join(binDir, "horizon_quota_cache.json");
+            const quotaCachePath = await window.resolveHorizonFilePath('cache', "horizon_quota_cache.json");
             try {
                 await window.api.fs.promises.access(quotaCachePath);
                 const cached = JSON.parse(await window.api.fs.promises.readFile(quotaCachePath, "utf8"));
@@ -882,9 +919,14 @@ window.refreshHorizonQuota = async () => {
         } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.error('[renderer.js] Erreur silencieuse interceptée:', _.message || _); }
     }
     if (!window._lastQuotaHtml) {
-        el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">
-            <span style="display:inline-block; animation:spin 1s linear infinite; margin-right:6px;">⟳</span>
-            ${store.currentLangObj?.["msg_loading"] || "Chargement..."}
+        el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0; display:inline-flex; align-items:center; gap:6px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; animation:spin 1s linear infinite; flex-shrink:0;">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                <path d="M16 16h5v5"></path>
+            </svg>
+            <span>${store.currentLangObj?.["msg_loading"] || "Chargement..."}</span>
         </div>`;
     } else {
         el.innerHTML = window._lastQuotaHtml;

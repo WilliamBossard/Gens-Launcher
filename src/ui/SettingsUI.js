@@ -79,12 +79,12 @@ export function setupSettings() {
         }
     };
     window.openGlobalSettings = () => {
+        $("modal-settings").style.display = "flex";
         $("current-app-version").innerText = window.api.version || "1.0.0";
         window.renderUpdateTab();
         if (window.populateLangDropdown) window.populateLangDropdown();
         $("global-ram-input").value = store.globalSettings.defaultRam;
         $("global-ram-slider").value = store.globalSettings.defaultRam;
-        window.scanJavaVersions("global-java", true, false, store.globalSettings.defaultJavaPath); 
         $("global-cf-api").value = store.globalSettings.cfApiKey || ""; 
         $("global-server-ip").value = store.globalSettings.serverIp || "";
         $("global-accent").value = store.globalSettings.theme?.accent || "#007acc";
@@ -126,10 +126,12 @@ export function setupSettings() {
             });
             srvSelect.appendChild(frag);
         }
-        window.updateJavaButtonsDisplay();
         window.switchTabGlob("tab-glob-gen");
-        $("modal-settings").style.display = "flex";
         document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
+        setTimeout(() => {
+            window.scanJavaVersions("global-java", true, false, store.globalSettings.defaultJavaPath);
+            window.updateJavaButtonsDisplay();
+        }, 0);
     };
     window.closeGlobalSettings = () => {
         document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
@@ -572,9 +574,8 @@ window.refreshHorizonUI = async () => {
         if (!container) return;
         if (!window._lastCloudGridHtml) {
             try {
-                const binDir = window.api.path.join(store.dataDir, "bin");
-                const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
-                if (await window.api.fs.promises.exists(htmlCachePath)) {
+                const htmlCachePath = await window.resolveHorizonFilePath('cache', "horizon_cloud_html_cache.txt");
+                if (await window.existsSafe(htmlCachePath)) {
                     const cachedHtml = await window.api.fs.promises.readFile(htmlCachePath, "utf8");
                     window._lastCloudGridHtml = sanitizeHtmlForCsp(cachedHtml);
                 }
@@ -582,9 +583,8 @@ window.refreshHorizonUI = async () => {
         }
         if (!window._lastQuotaHtml) {
             try {
-                const binDir = window.api.path.join(store.dataDir, "bin");
-                const quotaHtmlCachePath = window.api.path.join(binDir, "horizon_quota_html_cache.txt");
-                if (await window.api.fs.promises.exists(quotaHtmlCachePath)) {
+                const quotaHtmlCachePath = await window.resolveHorizonFilePath('cache', "horizon_quota_html_cache.txt");
+                if (await window.existsSafe(quotaHtmlCachePath)) {
                     window._lastQuotaHtml = await window.api.fs.promises.readFile(quotaHtmlCachePath, "utf8");
                 }
             } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
@@ -652,16 +652,20 @@ window.refreshHorizonUI = async () => {
             if (await window.showCustomConfirm(confirmMsg, true)) {
                 try {
                     const provider = currentProvider || "google";
-                    const binPath = window.api.path.join(store.dataDir, "bin");
-                    const tokenPath = window.api.path.join(binPath, `token_${provider}.json`);
-                    const legacyPath = window.api.path.join(binPath, "token.json");
-                    if (await window.api.fs.promises.exists(tokenPath)) {
-                        await window.api.fs.promises.unlink(tokenPath);
+                    const tokenFiles = [`token_${provider}.json`];
+                    if (provider === "google") tokenFiles.push("token.json");
+                    for (const tf of tokenFiles) {
+                        const candidates = [
+                            window.getHorizonWritePath('auth', tf),
+                            window.api.path.join(store.dataDir, "Horizon", tf),
+                            window.api.path.join(store.dataDir, "bin", tf)
+                        ];
+                        for (const cp of candidates) {
+                            if (await window.existsSafe(cp)) {
+                                try { await window.api.fs.promises.unlink(cp); } catch (/** @type {any} */ _) {}
+                            }
+                        }
                     }
-                    if (provider === "google" && await window.api.fs.promises.exists(legacyPath)) {
-                        await window.api.fs.promises.unlink(legacyPath);
-                    }
-                    
                     
                     const cacheFiles = [
                         "horizon_cloud_cache.json",
@@ -670,9 +674,15 @@ window.refreshHorizonUI = async () => {
                         "horizon_quota_html_cache.txt"
                     ];
                     for (const f of cacheFiles) {
-                        const p = window.api.path.join(binPath, f);
-                        if (await window.api.fs.promises.exists(p)) {
-                            try { await window.api.fs.promises.unlink(p); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                        const candidates = [
+                            window.getHorizonWritePath('cache', f),
+                            window.api.path.join(store.dataDir, "Horizon", f),
+                            window.api.path.join(store.dataDir, "bin", f)
+                        ];
+                        for (const cp of candidates) {
+                            if (await window.existsSafe(cp)) {
+                                try { await window.api.fs.promises.unlink(cp); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                            }
                         }
                     }
 
@@ -774,6 +784,15 @@ window.refreshHorizonUI = async () => {
                 <div id="horizon-quota-zone" style="padding: 6px 0 12px 0;">
                     ${window._lastQuotaHtml || `<div style="color:#888; font-size:0.82rem;">${t("msg_loading", "Chargement...")}</div>`}
                 </div>
+                <div style="margin-top: 6px;">
+                    <button id="btn-horizon-clean-cloud" class="btn-secondary" style="height: 28px; padding: 0 14px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                            <path d="m14 11 4.5-4.5a2.121 2.121 0 0 0-3-3L11 8"></path>
+                            <path d="m11 8-6.5 6.5A3 3 0 0 0 3.5 17L2 22l5-1.5a3 3 0 0 0 2.5-1L16 13"></path>
+                        </svg>
+                        <span>${t("btn_horizon_clean_cloud", "Nettoyer le stockage Cloud")}</span>
+                    </button>
+                </div>
             </div>
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
                 <div style="font-weight: bold; color: var(--text-light); margin-bottom: 10px;">${t("horizon_cloud_instances", "Vos Instances Cloud")}</div>
@@ -795,6 +814,7 @@ window.refreshHorizonUI = async () => {
         container.querySelector('#select-horizon-auto-sync')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('autoSync', e.target.value));
         container.querySelector('#select-horizon-auto-upload')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('autoUpload', e.target.value));
         container.querySelector('#horizon-max-retries')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('maxRetries', Math.max(0, Math.min(10, parseInt(e.target.value) || 0))));
+        container.querySelector('#btn-horizon-clean-cloud')?.addEventListener('click', () => window.cleanHorizonCloud());
         if (isEnabled && status.linked) {
             if (window.horizonScheduleCloudRefresh) {
                 window.horizonScheduleCloudRefresh({ refreshQuota: true });
@@ -816,7 +836,6 @@ window.refreshHorizonUI = async () => {
         await window.saveHorizonConfig('provider', newProvider);
         
         
-        const binPath = window.api.path.join(store.dataDir, "bin");
         const cacheFiles = [
             "horizon_cloud_cache.json",
             "horizon_cloud_html_cache.txt",
@@ -824,9 +843,15 @@ window.refreshHorizonUI = async () => {
             "horizon_quota_html_cache.txt"
         ];
         for (const f of cacheFiles) {
-            const p = window.api.path.join(binPath, f);
-            if (await window.api.fs.promises.access(p).then(() => true).catch(() => false)) {
-                try { await window.api.fs.promises.unlink(p); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+            const candidates = [
+                window.getHorizonWritePath('cache', f),
+                window.api.path.join(store.dataDir, "Horizon", f),
+                window.api.path.join(store.dataDir, "bin", f)
+            ];
+            for (const cp of candidates) {
+                if (await window.existsSafe(cp)) {
+                    try { await window.api.fs.promises.unlink(cp); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
+                }
             }
         }
         
@@ -878,6 +903,74 @@ window.runHorizonLogin = async (/** @type {string} */ provider) => {
                 const bar = $("horizon-bar");
                 if (bar) bar.style.width = "0%";
             }, 2000);
+        }
+    };
+    let _isHorizonCleaning = false;
+    window.cleanHorizonCloud = async () => {
+        if (_isHorizonCleaning) return;
+        _isHorizonCleaning = true;
+        try {
+            const status = await window.api.invoke("check-horizon-status");
+            if (!status || !status.installed) {
+                if (window.showToast) window.showToast(t("horizon_not_installed", "Module Cloud non détecté"), "error");
+                return;
+            }
+            if (!status.linked) {
+                if (window.showToast) window.showToast(t("msg_err_provider", "Veuillez associer un compte Cloud d'abord."), "error");
+                return;
+            }
+
+            if (window.showLoading) window.showLoading(t("horizon_cleaning_preview", "Analyse du stockage Cloud en cours..."));
+            const previewRes = await window.api.invoke("call-horizon", ["--clean"]);
+            if (window.hideLoading) window.hideLoading();
+
+            const previewLast = /** @type {any} */ (previewRes?.lastJson);
+            if (!previewRes || previewRes.exitCode !== 0 || !previewLast || previewLast.type === "ERROR") {
+                const errMsg = previewLast?.message || t("horizon_cleaning_error", "Erreur lors du nettoyage du Cloud.");
+                if (window.showToast) window.showToast(errMsg, "error");
+                return;
+            }
+
+            const report = previewLast;
+            const count = typeof report.count === 'number' ? report.count : (Array.isArray(report.items) ? report.items.length : 0);
+            if (count === 0) {
+                if (window.showToast) window.showToast(t("horizon_cleaning_none", "Votre stockage Cloud est parfaitement propre ! Aucun fichier obsolète détecté."), "info");
+                return;
+            }
+
+            const freedText = report.freedFormatted || "0 o";
+            const confirmMsg = t("horizon_clean_confirm", "L'analyse a détecté {count} fichier(s) orphelin(s) ou consolidé(s) ({freed}).\n\nVoulez-vous les supprimer définitivement du Cloud pour libérer cet espace ?")
+                .replace("{count}", String(count))
+                .replace("{freed}", freedText);
+
+            if (await window.showCustomConfirm(confirmMsg, true)) {
+                if (window.showLoading) window.showLoading(t("horizon_cleaning_exec", "Nettoyage du Cloud en cours..."));
+                const applyRes = await window.api.invoke("call-horizon", ["--clean", "--apply"]);
+                if (window.hideLoading) window.hideLoading();
+
+                const applyLast = /** @type {any} */ (applyRes?.lastJson);
+                if (!applyRes || applyRes.exitCode !== 0 || !applyLast || applyLast.type === "ERROR") {
+                    const errMsg = applyLast?.message || t("horizon_cleaning_error", "Erreur lors du nettoyage du Cloud.");
+                    if (window.showToast) window.showToast(errMsg, "error");
+                    return;
+                }
+
+                const freedDone = applyLast.freedFormatted || freedText;
+                const successMsg = `${t("horizon_clean_done", "Stockage Cloud nettoyé avec succès !")} (${freedDone})`;
+                if (window.showToast) window.showToast(successMsg, "success");
+
+                if (window.horizonScheduleCloudRefresh) {
+                    window.horizonScheduleCloudRefresh({ refreshQuota: true });
+                } else if (window.refreshHorizonUI) {
+                    window.refreshHorizonUI();
+                }
+            }
+        } catch (err) {
+            if (window.hideLoading) window.hideLoading();
+            console.error("[Horizon Clean] Erreur:", err);
+            if (window.showToast) window.showToast(t("horizon_cleaning_error", "Erreur lors du nettoyage du Cloud."), "error");
+        } finally {
+            _isHorizonCleaning = false;
         }
     };
     window.handleHorizonInstall = async () => {

@@ -28,8 +28,7 @@ export function setupCloud() {
         const gs = /** @type {{offlineMode?: boolean}} */ (store.globalSettings);
         if (gs.offlineMode || !window.isTrulyOnline) return;
         try {
-            const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-            const setPath = window.api.path.join(binPath, "horizon_settings.json");
+            const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
             let systemEnabled = false;
             let autoSyncEnabled = false; 
             
@@ -47,9 +46,9 @@ export function setupCloud() {
             
             const status = await window.api.invoke("check-horizon-status");
             if (status.installed && status.linked && !status.offline) {
-                await window.api.invoke("call-horizon", ["--check"]);
+                window.api.invoke("call-horizon", ["--check"]).catch(() => {});
             }
-        } catch (e) { console.error("🚨 Erreur démarrage Cloud:", e); }
+        } catch (e) { console.error("[Cloud] Erreur démarrage:", e); }
     };
 
     window.checkHorizonUpdateAtStartup = async () => {
@@ -59,11 +58,10 @@ export function setupCloud() {
             return;
         }
         try {
-            const binPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
             const isWin = window.api.platform === 'win32';
             const exeName = isWin ? "Horizon.exe" : "Horizon";
-            const exePath = window.api.path.join(binPath, exeName);
-            const setPath = window.api.path.join(binPath, "horizon_settings.json");
+            const exePath = await window.resolveHorizonFilePath('root', exeName);
+            const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
             
             let isInstalled = false;
             try {
@@ -92,7 +90,7 @@ export function setupCloud() {
             const isActive = status.installed && !status.offline;
             if (isActive) {
                 try {
-                    const setPath = window.api.path.join(window.api.appData, "GensLauncher", "bin", "horizon_settings.json");
+                    const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
                     await window.api.fs.promises.access(setPath);
                     const parsed = await readJsonObject(setPath);
                     store.horizonActive = asBool(parsed.systemEnabled);

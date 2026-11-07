@@ -59,6 +59,10 @@ declare global {
     checkOffline: (e?: any) => boolean;
     openDir: (subDir: string) => Promise<void>;
     openSystemPath: (p: string) => void | Promise<any>;
+    getHorizonDir: () => string;
+    getHorizonLegacyBinDir: () => string;
+    resolveHorizonFilePath: (category: 'root' | 'auth' | 'metadata' | 'manifests' | 'cache', fileName: string) => Promise<string>;
+    getHorizonWritePath: (category: 'root' | 'auth' | 'metadata' | 'manifests' | 'cache', fileName: string) => string;
 
     // ── UI Managers & Rendering ──
     renderUI: (skipStats?: boolean, ...args: any[]) => void;
@@ -224,6 +228,7 @@ declare global {
     runHorizonLogin: (provider?: any) => Promise<void>;
     runHorizon: (cmd: string, args?: string[]) => Promise<any>;
     disconnectHorizon: () => Promise<void>;
+    cleanHorizonCloud: () => Promise<void>;
     handleHorizonInstall: () => Promise<void>;
     horizonScheduleCloudRefresh: (opts?: any) => Promise<void> | void;
     horizonOpFailed: (result: any) => boolean;

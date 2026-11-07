@@ -53,11 +53,37 @@ ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
 const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
 const logsDir = path.join(safeDataDir, "logs");
 const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
-const horizonBinDir = path.join(safeDataDir, "bin");
+
 const isWin = process.platform === "win32";
 const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
-const horizonExePath = path.join(horizonBinDir, horizonBinName);
-const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
+
+// Nouveau dossier structuré pour Horizon avec sous-dossiers dédiés
+const horizonDir = path.join(safeDataDir, "Horizon");
+const horizonLegacyBinDir = path.join(safeDataDir, "bin");
+const horizonAuthDir = path.join(horizonDir, "auth");
+const horizonMetaDir = path.join(horizonDir, "metadata");
+const horizonManifestsDir = path.join(horizonDir, "manifests");
+const horizonCacheDir = path.join(horizonDir, "cache");
+
+const horizonBinDir = horizonDir;
+const horizonExePath = path.join(horizonDir, horizonBinName);
+const horizonVersionPath = path.join(horizonDir, "horizon_version.json");
+
+/**
+ * Compare deux versions sémantiques (ex: 'v1.4.2' >= '1.4.2')
+ * @param {string | null | undefined} versionStr
+ * @param {string} [minVersion="1.4.2"]
+ * @returns {boolean}
+ */
+function isHorizonVersionAtLeast(versionStr, minVersion = "1.4.2") {
+    if (!versionStr || typeof versionStr !== 'string') return false;
+    const clean = (/** @type {string} */ v) => v.replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
+    const [maj1, min1, pat1] = clean(versionStr);
+    const [maj2, min2, pat2] = clean(minVersion);
+    if (maj1 !== maj2) return maj1 > maj2;
+    if (min1 !== min2) return min1 > min2;
+    return (pat1 || 0) >= (pat2 || 0);
+}
 
 /** @type {fs.WriteStream | null} */
 let _logStream = null;
@@ -66,11 +92,89 @@ let _logStreamBytes = 0;
 const mainInitPromise = (async () => {
     await fs.promises.mkdir(safeDataDir, { recursive: true });
     await fs.promises.mkdir(logsDir, { recursive: true });
-    await fs.promises.mkdir(horizonBinDir, { recursive: true });
+    await fs.promises.mkdir(horizonDir, { recursive: true });
+    await fs.promises.mkdir(horizonAuthDir, { recursive: true });
+    await fs.promises.mkdir(horizonMetaDir, { recursive: true });
+    await fs.promises.mkdir(horizonManifestsDir, { recursive: true });
+    await fs.promises.mkdir(horizonCacheDir, { recursive: true });
     await fs.promises.writeFile(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
     _logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
     _logStreamBytes = 0;
+
+    // Détection de la version installée de Horizon
+    let installedHorizonVersion = null;
+    for (const vFile of [path.join(horizonDir, "horizon_version.json"), path.join(horizonLegacyBinDir, "horizon_version.json")]) {
+        try {
+            if (await existsSafe(vFile)) {
+                const parsed = JSON.parse(await fs.promises.readFile(vFile, "utf8"));
+                if (parsed && parsed.version) {
+                    installedHorizonVersion = parsed.version;
+                    break;
+                }
+            }
+        } catch (_) {}
+    }
+
+    // Le dossier bin/ n'est purgé QUE si la version installée de Horizon est >= 1.4.2
+    const canPurgeLegacyBin = isHorizonVersionAtLeast(installedHorizonVersion, "1.4.2");
+
+    // Rétrocompatibilité & Migration transparente : copier les fichiers de bin vers Horizon
+    try {
+        if (await existsSafe(horizonLegacyBinDir)) {
+            const legacyFiles = await fs.promises.readdir(horizonLegacyBinDir);
+            for (const file of legacyFiles) {
+                const oldPath = path.join(horizonLegacyBinDir, file);
+                try {
+                    const st = await fs.promises.stat(oldPath);
+                    if (!st.isFile()) continue;
+
+                    let target = null;
+                    if (file === horizonBinName) {
+                        target = path.join(horizonDir, file);
+                    } else if (file === "horizon_version.json" || file === "horizon_settings.json" || file === "last_sync.json") {
+                        target = path.join(horizonDir, file);
+                    } else if (file === ".machine_id" || file === "salt.key" || file.startsWith("token_") || file === "token.json") {
+                        target = path.join(horizonAuthDir, file);
+                    } else if (file.startsWith("meta_") && file.endsWith(".json")) {
+                        target = path.join(horizonMetaDir, file);
+                    } else if (file.startsWith("manifest_") && file.endsWith(".json")) {
+                        target = path.join(horizonManifestsDir, file);
+                    } else if (file.startsWith("horizon_") && file.includes("cache")) {
+                        target = path.join(horizonCacheDir, file);
+                    }
+
+                    if (target) {
+                        if (!(await existsSafe(target))) {
+                            await fs.promises.copyFile(oldPath, target);
+                            mainLog(`[Init] Migration de ${file} vers ${path.relative(safeDataDir, target)}`);
+                        }
+                        // Suppression de l'ancien fichier UNIQUEMENT si Horizon >= 1.4.2
+                        if (canPurgeLegacyBin) {
+                            await fs.promises.unlink(oldPath);
+                        }
+                    }
+                } catch (e) {
+                    mainLog(`[Init] Erreur migration fichier ${file}: ${e}`);
+                }
+            }
+
+            // Suppression du dossier bin/ UNIQUEMENT si Horizon >= 1.4.2 et qu'il est vide
+            if (canPurgeLegacyBin) {
+                try {
+                    const remaining = await fs.promises.readdir(horizonLegacyBinDir);
+                    if (remaining.length === 0) {
+                        await fs.promises.rm(horizonLegacyBinDir, { recursive: true, force: true });
+                        mainLog(`[Init] Horizon ${installedHorizonVersion} >= 1.4.2 détecté : ancien dossier bin/ purgé et supprimé.`);
+                    }
+                } catch (rmErr) {
+                    mainLog(`[Init] Erreur suppression bin/ : ${rmErr}`);
+                }
+            }
+        }
+    } catch (migrErr) {
+        mainLog(`[Init] Erreur globale migration Horizon: ${migrErr}`);
+    }
 
     try {
         const files = await fs.promises.readdir(safeDataDir);
@@ -195,6 +299,7 @@ const context = {
     execFile, spawn,
     autoUpdater,
     horizonBinDir, horizonExePath, horizonVersionPath,
+    horizonDir, horizonLegacyBinDir, horizonAuthDir, horizonMetaDir, horizonManifestsDir, horizonCacheDir,
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
     assertPathUnderSandbox, sanitizeShortcutName, shell
 };

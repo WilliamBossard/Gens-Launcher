@@ -208,6 +208,30 @@ export interface HorizonLogMessage {
   message: string;
 }
 
+export interface HorizonCleanItem {
+  id: string;
+  name: string;
+  size: number;
+  reason: string;
+}
+
+export interface HorizonCleanPreviewMessage {
+  type: "CLEAN_PREVIEW";
+  count: number;
+  freedBytes: number;
+  freedFormatted: string;
+  items: HorizonCleanItem[];
+}
+
+export interface HorizonCleanCompleteMessage {
+  type: "CLEAN_COMPLETE";
+  count: number;
+  freedBytes: number;
+  freedFormatted: string;
+  items: HorizonCleanItem[];
+  message: string;
+}
+
 /** Union discriminée par `type` : `if (msg.type === "QUOTA") msg.totalBytes` est typé. */
 export type HorizonStatusEvent =
   | HorizonProgressMessage
@@ -219,6 +243,8 @@ export type HorizonStatusEvent =
   | HorizonCloudListMessage
   | HorizonQuotaMessage
   | HorizonRollbackListMessage
+  | HorizonCleanPreviewMessage
+  | HorizonCleanCompleteMessage
   | HorizonLogMessage;
 
 export type HorizonMessageType = HorizonStatusEvent["type"];

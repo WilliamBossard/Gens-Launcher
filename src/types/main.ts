@@ -26,6 +26,12 @@ export interface MainContext {
   horizonBinDir: string;
   horizonExePath: string;
   horizonVersionPath: string;
+  horizonDir?: string;
+  horizonLegacyBinDir?: string;
+  horizonAuthDir?: string;
+  horizonMetaDir?: string;
+  horizonManifestsDir?: string;
+  horizonCacheDir?: string;
   isWin: boolean;
   safeSend: (event: IpcMainEvent | IpcMainInvokeEvent | { sender: any } | null | undefined, channel: string, payload?: unknown) => void;
   mainSafeDir: (name: string) => string;
