@@ -1,6 +1,11 @@
+// @ts-check
+
 const { existsSafe, parseMotdComponent } = require('./fs-utils');
 const { Worker } = require('worker_threads');
 
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function setupSystemHandlers(context) {
     const {
         ipcMain, getMainWindow, mainLog, path, fs, execFile,
@@ -13,7 +18,7 @@ module.exports = function setupSystemHandlers(context) {
 
         return new Promise((resolveRaw) => {
             let settled = false;
-            const resolve = (v) => { if (!settled) { settled = true; resolveRaw(v); } };
+            const resolve = (/** @type {any} */ v) => { if (!settled) { settled = true; resolveRaw(v); } };
             const worker = new Worker(path.join(__dirname, '..', 'workers', 'compress-worker.js'), {
                 workerData: { src, dest, exclude }
             });
@@ -22,15 +27,19 @@ module.exports = function setupSystemHandlers(context) {
                 if (msg.type === 'log') {
                     mainLog(msg.message);
                 } else if (msg.type === 'progress') {
-                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+                    try { event.sender.send("zip-progress", { percent: msg.percent }); } catch (e) {
+                        const anyE = /** @type {any} */ (e);
+                        if (anyE && anyE.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (anyE.message || anyE));
+                    }
                 } else if (msg.type === 'done') {
                     resolve({ success: msg.success, error: msg.error });
                 }
             });
 
             worker.on('error', (err) => {
-                mainLog(`[compress-folder worker] Fatal Error: ${err.message}`);
-                resolve({ success: false, error: err.message });
+                const msg = err instanceof Error ? err.message : String(err);
+                mainLog(`[compress-folder worker] Fatal Error: ${msg}`);
+                resolve({ success: false, error: msg });
             });
 
             worker.on('exit', (code) => {
@@ -47,7 +56,7 @@ module.exports = function setupSystemHandlers(context) {
         destDir = assertPathUnderSandbox(destDir);
         return new Promise((resolveRaw) => {
             let settled = false;
-            const resolve = (v) => { if (!settled) { settled = true; resolveRaw(v); } };
+            const resolve = (/** @type {any} */ v) => { if (!settled) { settled = true; resolveRaw(v); } };
             const workerPath = path.join(__dirname, '..', "workers", "extract-worker.js");
             const worker = new Worker(workerPath, {
                 workerData: { archivePath, destDir, isWin: process.platform === "win32" }
@@ -56,7 +65,7 @@ module.exports = function setupSystemHandlers(context) {
                 if (msg.type === "log") mainLog(msg.message);
                 else if (msg.type === "done") resolve({ success: msg.success, error: msg.error });
             });
-            worker.on("error", (err) => resolve({ success: false, error: err.message }));
+            worker.on("error", (err) => resolve({ success: false, error: err instanceof Error ? err.message : String(err) }));
             worker.on("exit", (code) => {
                 resolve(code === 0
                     ? { success: false, error: "Worker terminé sans résultat" }
@@ -88,7 +97,8 @@ module.exports = function setupSystemHandlers(context) {
                 await zipfile.close();
             }
         } catch (err) {
-            mainLog(`[read-zip-text] Exception critique : ${err.message}`);
+            const msg = err instanceof Error ? err.message : String(err);
+            mainLog(`[read-zip-text] Exception critique : ${msg}`);
             return { success: false };
         }
     });
@@ -102,6 +112,7 @@ module.exports = function setupSystemHandlers(context) {
             const yauzl = require("yauzl-promise");
             const { pipeline } = require("stream/promises");
             
+            /** @type {any} */
             let zipfile;
             try {
                 zipfile = await yauzl.open(zipPath);
@@ -136,7 +147,8 @@ module.exports = function setupSystemHandlers(context) {
                             await pipeline(readStream, writeStream);
                         } catch (streamErr) {
                             failedEntries.push(entry.filename);
-                            mainLog(`[extract-zip] Erreur sur l'entrée ${entry.filename}: ${streamErr.message}`);
+                            const msg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+                            mainLog(`[extract-zip] Erreur sur l'entrée ${entry.filename}: ${msg}`);
                         }
                         processed++;
                         
@@ -144,7 +156,10 @@ module.exports = function setupSystemHandlers(context) {
                             const pct = Math.min(100, Math.round((processed / total) * 100));
                             if (pct !== lastProgress) {
                                 lastProgress = pct;
-                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+                                try { event.sender.send("zip-progress", { percent: pct }); } catch (e) {
+                                    const anyE = /** @type {any} */ (e);
+                                    if (anyE && anyE.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (anyE.message || anyE));
+                                }
                             }
                         }
                     }
@@ -164,8 +179,9 @@ module.exports = function setupSystemHandlers(context) {
                 if (zipfile) await zipfile.close();
             }
         } catch (e) {
-            mainLog(`[extract-zip] Exception: ${e.message}`);
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            mainLog(`[extract-zip] Exception: ${error}`);
+            return { success: false, error };
         }
     });
 
@@ -186,7 +202,8 @@ module.exports = function setupSystemHandlers(context) {
 
             return { success: true, data: mappedData };
         } catch (err) {
-            return { success: true, data: { online: false, error: err.message } };
+            const error = err instanceof Error ? err.message : String(err);
+            return { success: true, data: { online: false, error } };
         }
     });
 
@@ -212,11 +229,12 @@ module.exports = function setupSystemHandlers(context) {
             await pipeline(fs.createReadStream(srcPath), fs.createWriteStream(destPath));
             return { success: true, destPath };
         } catch (e) {
-            mainLog(`[copy-file-to-sandbox] Erreur : ${e.message}`);
+            const error = e instanceof Error ? e.message : String(e);
+            mainLog(`[copy-file-to-sandbox] Erreur : ${error}`);
             if (destPath) {
                 try { if (await existsSafe(destPath)) await fs.promises.unlink(destPath); } catch (_) { /* noop */ }
             }
-            return { success: false, error: e.message };
+            return { success: false, error };
         }
     });
 
@@ -250,8 +268,13 @@ module.exports = function setupSystemHandlers(context) {
             }
 
             const javaExeName = (process.platform === "win32") ? "javaw.exe" : "java";
+            /** @type {string[]} */
             let foundPaths = [];
 
+            /**
+             * @param {string} dir
+             * @param {number} [depth=0]
+             */
             async function findJavaAsync(dir, depth = 0) {
                 if (depth > 6) return;
                 try {
@@ -265,22 +288,32 @@ module.exports = function setupSystemHandlers(context) {
                             } else if (entryName.toLowerCase() === javaExeName) {
                                 foundPaths.push(full);
                             }
-                        } catch (errStat) { if (errStat.code !== 'ENOENT') mainLog("[ipc-system] Erreur interceptée: " + errStat.message); }
+                        } catch (errStat) {
+                            const anyStat = /** @type {any} */ (errStat);
+                            if (anyStat?.code !== 'ENOENT') mainLog("[ipc-system] Erreur interceptée: " + (anyStat?.message || anyStat));
+                        }
                     }
-                } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
+                } catch (err) {
+                    const anyErr = /** @type {any} */ (err);
+                    if (anyErr?.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + (anyErr?.message || anyErr));
+                }
             }
 
             const searchPromises = basePaths.map(async (bp) => {
                 try {
                     await fs.promises.access(bp);
                     await findJavaAsync(bp);
-                } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
+                } catch (err) {
+                    const anyErr = /** @type {any} */ (err);
+                    if (anyErr?.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + (anyErr?.message || anyErr));
+                }
             });
             
             await Promise.all(searchPromises);
             return { success: true, paths: [...new Set(foundPaths)] };
         } catch (err) {
-            mainLog(`[scan-java-versions] Error: ${err.message}`);
+            const error = err instanceof Error ? err.message : String(err);
+            mainLog(`[scan-java-versions] Error: ${error}`);
             return { success: false, paths: [] };
         }
     });
@@ -298,8 +331,9 @@ module.exports = function setupSystemHandlers(context) {
             });
             return { success: true };
         } catch (e) {
-            mainLog(`[duplicate-instance-folder] Erreur : ${e.message}`);
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            mainLog(`[duplicate-instance-folder] Erreur : ${error}`);
+            return { success: false, error };
         }
     });
 
@@ -311,7 +345,8 @@ module.exports = function setupSystemHandlers(context) {
             await shell.openExternal(url);
             return { success: true };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -321,7 +356,8 @@ module.exports = function setupSystemHandlers(context) {
             const res = await shell.openPath(safe);
             return { success: !res, error: res || null };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -331,7 +367,8 @@ module.exports = function setupSystemHandlers(context) {
             shell.showItemInFolder(safe);
             return { success: true };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -341,7 +378,8 @@ module.exports = function setupSystemHandlers(context) {
             clipboard.writeText(String(text || ''));
             return { success: true };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -353,7 +391,8 @@ module.exports = function setupSystemHandlers(context) {
             const hash = cryptoModule.createHash(algo).update(Buffer.from(buffer)).digest("hex");
             return { success: true, hash };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -364,7 +403,8 @@ module.exports = function setupSystemHandlers(context) {
             const parsed = await nbt.parse(Buffer.from(arr));
             return { success: true, data: parsed };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -374,7 +414,8 @@ module.exports = function setupSystemHandlers(context) {
             const buf = nbt.writeUncompressed(data);
             return { success: true, data: Array.from(new Uint8Array(buf)) };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 };

@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "../store.js";
 import { yieldUI } from "../utils.js";
 const fs = window.api.fs;
@@ -15,11 +16,14 @@ export function setup() {
             return path.join(os.userInfo().homedir || path.join(window.api.appData, "..", ".."), ".minecraft", "saves");
         }
     }
+
     window.openImportMCWorldsModal = async () => {
         const mcDir = getMinecraftSavesDir();
         const listDiv = document.getElementById("mc-worlds-list");
+        if (!listDiv) return;
         listDiv.innerHTML = "";
-        document.getElementById("modal-import-mc").style.display = "flex";
+        const modal = document.getElementById("modal-import-mc");
+        if (modal) modal.style.display = "flex";
         if (!(await window.existsSafe(mcDir))) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
             return;
@@ -28,7 +32,8 @@ export function setup() {
         const folders = [];
         for (const f of files) {
             const stat = await fs.promises.stat(path.join(mcDir, f));
-            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir) folders.push(f);
+            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
+            if (isDir) folders.push(f);
         }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
@@ -45,10 +50,15 @@ export function setup() {
         });
         listDiv.innerHTML = html;
         listDiv.querySelectorAll(".btn-import-world").forEach(btn => {
-            btn.addEventListener("click", () => window.importOfficialWorld(btn.dataset.folder));
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.folder) window.importOfficialWorld(htmlBtn.dataset.folder);
+            });
         });
     };
-    window.importOfficialWorld = async (folderName) => {
+
+    window.importOfficialWorld = async (/** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const mcDir = path.join(getMinecraftSavesDir(), folderName);
@@ -59,20 +69,25 @@ export function setup() {
             if (!(await window.existsSafe(path.dirname(targetDir)))) await fs.promises.mkdir(path.dirname(targetDir), { recursive: true });
             await fs.promises.cp(mcDir, targetDir, { recursive: true });
             window.showToast(t("msg_world_imported", "Monde importé avec succès !"), "success");
-            document.getElementById("modal-import-mc").style.display = "none";
+            const modal = document.getElementById("modal-import-mc");
+            if (modal) modal.style.display = "none";
             window.openWorldsModal();
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
     };
+
     window.openWorldsModal = async () => {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
         const listDiv = document.getElementById("worlds-list");
+        if (!listDiv) return;
         listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_loading", "Chargement...")}</div>`;
-        document.getElementById("modal-worlds").style.display = "flex";
+        const modal = document.getElementById("modal-worlds");
+        if (modal) modal.style.display = "flex";
         if (!(await window.existsSafe(savesDir))) {
             listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
@@ -81,7 +96,7 @@ export function setup() {
         const folders = [];
         for (const f of files) {
             const stat = await window.api.fs.promises.stat(path.join(savesDir, f));
-            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
+            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
             if (isDir) folders.push(f);
         }
         if (folders.length === 0) {
@@ -102,7 +117,7 @@ export function setup() {
                         worldName = parsed.value.Data.value.LevelName.value;
                     }
                 }
-            } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
+            } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             const created = stats.birthtime.toLocaleDateString() + " " + stats.birthtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const modified = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const safeWorldName = window.escapeHTML(worldName);
@@ -123,14 +138,41 @@ export function setup() {
             </div>`;
         }
         listDiv.innerHTML = html;
-        listDiv.querySelectorAll(".btn-restore-world").forEach(btn => btn.addEventListener("click", () => window.openRestoreModal(btn.dataset.folder)));
-        listDiv.querySelectorAll(".btn-backup-world").forEach(btn => btn.addEventListener("click", () => window.backupSingleWorld(btn.dataset.folder)));
-        listDiv.querySelectorAll(".btn-copy-world").forEach(btn  => btn.addEventListener("click", () => window.copySingleWorld(btn.dataset.folder)));
-        listDiv.querySelectorAll(".btn-delete-world").forEach(btn => btn.addEventListener("click", () => window.deleteSingleWorld(btn.dataset.folder)));
+        listDiv.querySelectorAll(".btn-restore-world").forEach(btn => {
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.folder) window.openRestoreModal(htmlBtn.dataset.folder);
+            });
+        });
+        listDiv.querySelectorAll(".btn-backup-world").forEach(btn => {
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.folder) window.backupSingleWorld(htmlBtn.dataset.folder);
+            });
+        });
+        listDiv.querySelectorAll(".btn-copy-world").forEach(btn  => {
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.folder) window.copySingleWorld(htmlBtn.dataset.folder);
+            });
+        });
+        listDiv.querySelectorAll(".btn-delete-world").forEach(btn => {
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.folder) window.deleteSingleWorld(htmlBtn.dataset.folder);
+            });
+        });
     };
-    window.closeWorldsModal = () => (document.getElementById("modal-worlds").style.display = "none");
-    window.copySingleWorld = async (folderName) => {
+
+    window.closeWorldsModal = () => {
+        const modal = document.getElementById("modal-worlds");
+        if (modal) modal.style.display = "none";
+    };
+
+    window.copySingleWorld = async (/** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
         const src = path.join(savesDir, folderName);
         let destName = folderName + t("lbl_copy_suffix", " - Copie");
@@ -145,15 +187,18 @@ export function setup() {
         try {
             await fs.promises.cp(src, dest, { recursive: true });
             window.showToast(t("msg_world_copied", "Monde copié avec succès !"), "success");
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
         window.openWorldsModal();
     };
-    window.deleteSingleWorld = async (folderName) => {
+
+    window.deleteSingleWorld = async (/** @type {string} */ folderName) => {
         if (await window.showCustomConfirm(t("msg_delete_world_confirm", "Voulez-vous vraiment supprimer ce monde définitivement ?"), true)) {
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
             const src = path.join(savesDir, folderName);
             window.showLoading(t("msg_deleting", "Suppression en cours..."));
@@ -161,15 +206,18 @@ export function setup() {
             try {
                 await fs.promises.rm(src, { recursive: true, force: true });
                 window.showToast(t("msg_world_deleted", "Monde supprimé !"), "success");
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
             }
             window.hideLoading();
             window.openWorldsModal();
         }
     };
-    window.backupSingleWorld = async (folderName) => {
+
+    window.backupSingleWorld = async (/** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
         const savesDir = path.join(instDir, "saves");
         const backupDir = path.join(instDir, "backups");
@@ -181,20 +229,26 @@ export function setup() {
         try {
             await window.api.invoke("compress-folder", { src, dest: zipPath });
             window.showToast(t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"), "success");
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
         }
         window.hideLoading();
     };
-    window.openRestoreModal = async (folderName) => {
+
+    window.openRestoreModal = async (/** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const backupDir = path.join(store.instancesRoot, window.safeDir(inst.name), "backups");
         const listDiv = document.getElementById("restore-list");
-        document.getElementById("restore-world-name").innerText = folderName;
+        const titleEl = document.getElementById("restore-world-name");
+        if (titleEl) titleEl.innerText = folderName;
+        if (!listDiv) return;
         listDiv.innerHTML = "";
+        const modal = document.getElementById("modal-restore");
         if (!(await window.existsSafe(backupDir))) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée.")}</div>`;
-            document.getElementById("modal-restore").style.display = "flex";
+            if (modal) modal.style.display = "flex";
             return;
         }
         const backupFiles = await fs.promises.readdir(backupDir);
@@ -206,8 +260,7 @@ export function setup() {
             }
         }
         backupsObj.sort((a, b) => b.mtime - a.mtime);
-        const backups = backupsObj.map(b => b.name);
-        if (backups.length === 0) {
+        if (backupsObj.length === 0) {
             listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée pour ce monde.")}</div>`;
         } else {
             let backupsHtml = "";
@@ -226,15 +279,23 @@ export function setup() {
             }
             listDiv.innerHTML = backupsHtml;
         }
-        document.getElementById("modal-restore").style.display = "flex";
+        if (modal) modal.style.display = "flex";
         listDiv.querySelectorAll(".btn-restore-backup").forEach(btn => {
-            btn.addEventListener("click", () => window.restoreWorldBackup(btn.dataset.zip, btn.dataset.folder));
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.zip && htmlBtn.dataset.folder) {
+                    window.restoreWorldBackup(htmlBtn.dataset.zip, htmlBtn.dataset.folder);
+                }
+            });
         });
     };
-   window.restoreWorldBackup = async (zipName, folderName) => {
+
+    window.restoreWorldBackup = async (/** @type {string} */ zipName, /** @type {string} */ folderName) => {
         const confirmMsg = t("msg_restore_confirm", "Voulez-vous vraiment restaurer \"{name}\" ?\n\n⚠️ Le monde actuel sera supprimé et remplacé !").replace("{name}", zipName);
         if (await window.showCustomConfirm(confirmMsg, true)) {
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const savesDir = path.join(instDir, "saves");
             const backupDir = path.join(instDir, "backups");
@@ -257,7 +318,8 @@ export function setup() {
                     for (const item of items) {
                         const itemPath = path.join(tmpExtractDir, item);
                         const stat = await fs.promises.stat(itemPath);
-                        const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir && (await window.existsSafe(path.join(itemPath, "level.dat")))) {
+                        const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
+                        if (isDir && (await window.existsSafe(path.join(itemPath, "level.dat")))) {
                             foundFolder = itemPath;
                             break;
                         }
@@ -276,9 +338,10 @@ export function setup() {
                     await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 }
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
-                document.getElementById("modal-restore").style.display = "none";
+                const modal = document.getElementById("modal-restore");
+                if (modal) modal.style.display = "none";
                 window.openWorldsModal(); 
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 if (await window.existsSafe(tmpExtractDir)) {
                     await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 }

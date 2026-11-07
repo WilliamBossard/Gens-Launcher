@@ -1,12 +1,17 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
+/**
+ * @param {string} zipPath
+ * @returns {Promise<{ path: string; isTemp: boolean }>}
+ */
 async function ensureZipInSandbox(zipPath) {
     const resolved = path.resolve(zipPath);
     const sandboxRoot = path.resolve(store.dataDir);
-    const sep = path.sep || (resolved.includes('/') ? '/' : '\\');
+    const sep = (/** @type {any} */ (path)).sep || (resolved.includes('/') ? '/' : '\\');
     const isWin = window.api?.platform === "win32";
     const r = isWin ? resolved.toLowerCase() : resolved;
     const s = isWin ? sandboxRoot.toLowerCase() : sandboxRoot;
@@ -21,7 +26,7 @@ async function ensureZipInSandbox(zipPath) {
 }
 
 export function setup() {
-    window.doMrPackUpdate = async function(packPath, inst) {
+    window.doMrPackUpdate = async function(/** @type {string} */ packPath, /** @type {any} */ inst) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
@@ -46,10 +51,10 @@ export function setup() {
         else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
         const modsDir = path.join(instDir, "mods");
         if (await window.existsSafe(modsDir)) {
-            try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+            try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
         }
         await fs.promises.mkdir(modsDir, { recursive: true });
-        const processOverrides = async (folderName) => {
+        const processOverrides = async (/** @type {string} */ folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
             if (await window.existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
@@ -57,7 +62,7 @@ export function setup() {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
                     if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcDir, item), destPath);
                 }
@@ -65,7 +70,7 @@ export function setup() {
         };
         await processOverrides("overrides");
         await processOverrides("client-overrides");
-        const queue = index.files.filter(f => !(f.env && f.env.client === "unsupported"));
+        const queue = index.files.filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
         const totalToDownload = queue.length;
         let downloadedCount = 0;
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
@@ -90,7 +95,7 @@ export function setup() {
                     if (res.ok) {
                         const fileBytes = new Uint8Array(await res.arrayBuffer());
                         if (modFile.hashes?.sha1) {
-                            const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                            const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
                             if (dlHash !== modFile.hashes.sha1) {
                                 sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
                                 downloadedCount++;
@@ -99,27 +104,27 @@ export function setup() {
                         }
                         await fs.promises.writeFile(modPath, fileBytes);
                     }
-                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+                } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
                 downloadedCount++;
                 window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
         await Promise.all(workers);
         inst._localConfigUpdatedAt = Date.now();
-        try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+        try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
         if (window.updateIconCache) await window.updateIconCache(inst);
         window.showToast(window.t("msg_modpack_updated", "Modpack mis à jour avec succès !"), "success");
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
       } finally {
-         try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+         try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
          window.hideLoading();
          window.renderUI();
       }
     };
-    window.handleMrPackImport = async function(packPath, projectId = null, updateTargetInstIdx = null, versionNumber = null) {
+    window.handleMrPackImport = async function(/** @type {string} */ packPath, projectId = null, updateTargetInstIdx = null, versionNumber = null) {
       window.showLoading(t("msg_extract", "Extraction..."), 0);
       await yieldUI();
       const tempExtractDir = path.join(store.dataDir, "temp_mrpack_" + Date.now());
@@ -151,11 +156,12 @@ export function setup() {
             const targetDir = path.join(store.instancesRoot, window.safeDir(finalName));
             const modsDir = path.join(targetDir, "mods");
             if (await window.existsSafe(modsDir)) {
-                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
+                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             }
         } else {
             finalName = window.nextAvailableInstanceName(packName);
         }
+        /** @type {any} */
         let newInst;
         if (updateTargetInstIdx !== null) {
             newInst = store.allInstances[updateTargetInstIdx];
@@ -175,14 +181,15 @@ export function setup() {
         if (versionNumber) newInst.modpackVersion = versionNumber;
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
-        const processOverrides = async (folderName) => {
+        const processOverrides = async (/** @type {string} */ folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
             if (await window.existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
                 for (const item of items) {
+                    if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
                     if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcDir, item), destPath);
                 }
@@ -190,7 +197,7 @@ export function setup() {
         };
         await processOverrides("overrides");
         await processOverrides("client-overrides");
-        const queue = index.files.filter(f => !(f.env && f.env.client === "unsupported"));
+        const queue = index.files.filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
         const totalToDownload = queue.length;
         let downloadedCount = 0;
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
@@ -219,7 +226,7 @@ export function setup() {
                     if (res.ok) {
                         const fileBytes = new Uint8Array(await res.arrayBuffer());
                         if (modFile.hashes?.sha1) {
-                            const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                            const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
                             if (dlHash !== modFile.hashes.sha1) {
                                 sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
                                 downloadedCount++;
@@ -228,7 +235,7 @@ export function setup() {
                         }
                         await fs.promises.writeFile(modPath, fileBytes);
                     }
-                } catch (e) {
+                } catch (/** @type {any} */ e) {
                     sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);
                 }
                 downloadedCount++;
@@ -239,7 +246,7 @@ export function setup() {
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         const instOpt = path.join(instDir, "options.txt");
         if (await window.existsSafe(defaultOpt) && !(await window.existsSafe(instOpt))) {
-            try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+            try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         }
         if (updateTargetInstIdx === null) {
             store.allInstances.push(newInst);
@@ -247,7 +254,7 @@ export function setup() {
         }
         newInst._localConfigUpdatedAt = Date.now();
         if (window.updateIconCache) await window.updateIconCache(newInst);
-        try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+        try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
         await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
@@ -255,11 +262,11 @@ export function setup() {
             window.showToast(t("msg_mrpack_success", "Modpack installé avec succès !"), "success");
         }
         if (window.checkAchievement) window.checkAchievement("modder");
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
         console.error(err);
       } finally {
-        try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+        try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
         window.hideLoading();
         window.renderUI();
       }

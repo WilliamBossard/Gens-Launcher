@@ -12,7 +12,7 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "types": ["node", "electron"]
+    "types": ["node"]
   },
   "include": [
     "main.js",

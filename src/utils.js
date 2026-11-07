@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "./store.js";
 const fs = window.api.fs;
 const path = window.api.path;
@@ -5,7 +6,7 @@ const shell = window.api.shell;
 
 window.existsSafe = async function(p) {
     try {
-        if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
+        if (typeof window.enforceReadSandbox !== 'undefined') p = window.enforceReadSandbox(p, true);
         await fs.promises.access(p);
         return true;
     } catch {
@@ -13,7 +14,7 @@ window.existsSafe = async function(p) {
     }
 };
 
-window.pathToFileUrl = (p) => {
+window.pathToFileUrl = (/** @type {string} */ p) => {
     const normalized = p.replace(/\\/g, "/");
     const prefix = normalized.startsWith("/") ? "file://" : "file:///";
     return prefix + encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F');
@@ -27,7 +28,7 @@ window.escapeHTML = (str) => {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 };
-window.openSystemPath = (p) => {
+window.openSystemPath = (/** @type {string} */ p) => {
     if (typeof p === "string" && p.startsWith("http")) {
         shell.openExternal(p);
     } else {
@@ -49,14 +50,14 @@ const _logsDirReady = (async () => {
         const launcherLogs = allLogs.filter(l => l.file.startsWith("launcher_"));
         if (launcherLogs.length > 4) {
             for (let i = 4; i < launcherLogs.length; i++) {
-                try { await fs.promises.unlink(path.join(store.logsDir, launcherLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+                try { await fs.promises.unlink(path.join(store.logsDir, launcherLogs[i].file)); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
             }
         }
 
         const gameLogs = allLogs.filter(l => l.file.startsWith("game_"));
         if (gameLogs.length > 5) {
             for (let i = 5; i < gameLogs.length; i++) {
-                try { await fs.promises.unlink(path.join(store.logsDir, gameLogs[i].file)); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+                try { await fs.promises.unlink(path.join(store.logsDir, gameLogs[i].file)); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
             }
         }
     } catch (e) {
@@ -74,14 +75,14 @@ let isWriting = false;
 window.safeUnlink = async (filePath) => {
     try {
         await fs.promises.unlink(filePath);
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
         if (err.code !== 'ENOENT') console.warn(`[utils.js] Échec suppression unlink : ${err.message}`);
     }
 };
 window.safeRm = async (targetPath, options = { recursive: true, force: true }) => {
     try {
         await fs.promises.rm(targetPath, options);
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
         if (err.code !== 'ENOENT') console.warn(`[utils.js] Échec suppression rm : ${err.message}`);
     }
 };
@@ -97,19 +98,17 @@ async function flushLogQueue() {
         await fs.promises.appendFile(currentLogFile, toWrite);
     } catch (e) {
         writeFailed = true;
-        // Évite toute fuite mémoire si le disque/dossier de logs est inaccessible
         if (logQueue.length < 65536) {
             logQueue = toWrite + logQueue;
         }
     } finally {
         isWriting = false;
-        // Ne relance pas immédiatement en boucle infinie si l'écriture vient d'échouer
         if (logQueue && !writeFailed) flushLogQueue();
     }
 }
 flushLogQueue();
 
-function sysLog(msg, isError = false) {
+function sysLog(/** @type {string} */ msg, isError = false) {
     const line = `[${new Date().toLocaleTimeString()}] ${isError ? "ERROR" : "INFO"}: ${msg}\n`;
     logQueue += line;
     flushLogQueue();
@@ -131,11 +130,11 @@ console.error = function (...args) {
     originalError.apply(console, args);
     sysLog(args.map(a => typeof a === "object" ? JSON.stringify(a) : a).join(" "), true);
 };
-window.appendLog = (html) => {
+window.appendLog = (/** @type {string} */ html) => {
     const logOutput = document.getElementById("log-output");
     if (!logOutput) return;
     logOutput.insertAdjacentHTML("beforeend", html);
-    while (logOutput.childElementCount > 500) {
+    while (logOutput.childElementCount > 500 && logOutput.firstChild) {
         logOutput.removeChild(logOutput.firstChild);
     }
     logOutput.scrollTop = logOutput.scrollHeight;
@@ -145,17 +144,15 @@ window.copyToClipboard = async (text) => {
     if (typeof text !== "string") text = String(text || "");
     if (!text) return false;
 
-    // 1. Essai avec l'API Electron native
     try {
         if (window.api && window.api.clipboard && window.api.clipboard.writeText) {
-            window.api.clipboard.writeText(text);
+            await window.api.clipboard.writeText(text);
             return true;
         }
     } catch (err) {
         console.warn("Electron clipboard.writeText a échoué, tentative de fallback:", err);
     }
 
-    // 2. Essai avec navigator.clipboard standard
     try {
         if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(text);
@@ -165,7 +162,6 @@ window.copyToClipboard = async (text) => {
         console.warn("navigator.clipboard.writeText a échoué, tentative de fallback:", err);
     }
 
-    // 3. Fallback avec élément textarea temporaire et execCommand('copy')
     try {
         const textArea = document.createElement("textarea");
         textArea.value = text;
@@ -183,11 +179,10 @@ window.copyToClipboard = async (text) => {
         console.warn("execCommand fallback a échoué:", err);
     }
 
-    // 4. Nouvel essai après un bref délai si le presse-papier Windows était temporairement verrouillé
     try {
         await new Promise(r => setTimeout(r, 100));
         if (window.api && window.api.clipboard && window.api.clipboard.writeText) {
-            window.api.clipboard.writeText(text);
+            await window.api.clipboard.writeText(text);
             return true;
         }
     } catch (err) {
@@ -204,7 +199,6 @@ window.copyLogs = async () => {
         return;
     }
 
-    // Récupérer le texte visible ou le textContent si l'élément était caché
     const text = (logOutput.innerText || logOutput.textContent || "").trim();
     if (!text) {
         window.showToast(t("msg_no_logs", "Aucun log à copier."), "info");
@@ -222,6 +216,7 @@ window.safeWriteJSON = (filePath, data) => {
     return window.safeWriteJSONAsync(filePath, data);
 };
 
+/** @type {Record<string, Promise<any>>} */
 const _writeQueues = {};
 
 window.safeWriteJSONAsync = (filePath, data) => {
@@ -243,7 +238,7 @@ window.safeWriteJSONAsync = (filePath, data) => {
                     await fs.promises.rename(tmp, filePath);
                     renamed = true;
                     break;
-                } catch (rErr) {
+                } catch (/** @type {any} */ rErr) {
                     lastErr = rErr;
                     if (rErr.code === 'EPERM' || rErr.code === 'EBUSY' || rErr.code === 'EACCES') {
                         await new Promise(r => setTimeout(r, 50));
@@ -253,14 +248,14 @@ window.safeWriteJSONAsync = (filePath, data) => {
                 }
             }
             if (!renamed && lastErr) throw lastErr;
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
             try {
                 const exists = window.existsSafe ? await window.existsSafe(tmp) : await fs.promises.access(tmp).then(() => true).catch(() => false);
                 if (exists) await fs.promises.unlink(tmp);
-            } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
+            } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
         }
-    }).catch(err => {
+    }).catch((/** @type {any} */ err) => {
         if (typeof sysLog !== 'undefined') sysLog("Erreur inattendue queue d'écriture " + filePath + " : " + err.message, true);
     });
     
@@ -296,24 +291,32 @@ window.showToast = (msg, type = "info") => {
 window.showCustomConfirm = (msg, isDestructive = false) => {
     return new Promise((resolve) => {
         const modal = document.getElementById("modal-confirm");
-        document.getElementById("confirm-message").innerText = msg;
+        const msgEl = document.getElementById("confirm-message");
         const yesBtn = document.getElementById("confirm-yes");
+        const noBtn = document.getElementById("confirm-no");
+        if (!modal || !msgEl || !yesBtn || !noBtn || !yesBtn.parentNode || !noBtn.parentNode) {
+            resolve(false);
+            return;
+        }
+        msgEl.innerText = msg;
         yesBtn.style.background = isDestructive ? "#f87171" : "var(--accent)";
         yesBtn.style.borderColor = isDestructive ? "#f87171" : "var(--accent)";
         modal.style.display = "flex";
         const newYes = yesBtn.cloneNode(true);
-        const newNo = document.getElementById("confirm-no").cloneNode(true);
+        const newNo = noBtn.cloneNode(true);
         yesBtn.parentNode.replaceChild(newYes, yesBtn);
-        document.getElementById("confirm-no").parentNode.replaceChild(newNo, document.getElementById("confirm-no"));
+        noBtn.parentNode.replaceChild(newNo, noBtn);
         newYes.addEventListener("click", () => { modal.style.display = "none"; resolve(true); });
         newNo.addEventListener("click", () => { modal.style.display = "none"; resolve(false); });
     });
 };
 window.showLoading = (text, percent = null) => {
-    document.getElementById("loading-text").innerText = text;
+    const txtEl = document.getElementById("loading-text");
+    if (txtEl) txtEl.innerText = text;
     const pctEl = document.getElementById("loading-percent");
     if (pctEl) pctEl.innerText = percent !== null ? percent + "%" : "";
-    document.getElementById("loading-overlay").style.display = "flex";
+    const overlay = document.getElementById("loading-overlay");
+    if (overlay) overlay.style.display = "flex";
     const autoStatus = document.getElementById("auto-status-text");
     const autoBar = document.getElementById("auto-progress-bar");
     if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
@@ -322,14 +325,18 @@ window.showLoading = (text, percent = null) => {
 window.updateLoadingPercent = (percent, text = null) => {
     const pctEl = document.getElementById("loading-percent");
     if (percent !== null && pctEl) pctEl.innerText = percent + "%";
-    if (text !== null) document.getElementById("loading-text").innerText = text;
+    if (text !== null) {
+        const txtEl = document.getElementById("loading-text");
+        if (txtEl) txtEl.innerText = text;
+    }
     const autoStatus = document.getElementById("auto-status-text");
     const autoBar = document.getElementById("auto-progress-bar");
     if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
     if (autoBar && percent !== null) autoBar.style.width = percent + "%";
 };
 window.hideLoading = () => {
-    document.getElementById("loading-overlay").style.display = "none";
+    const overlay = document.getElementById("loading-overlay");
+    if (overlay) overlay.style.display = "none";
 };
 
 if (window.api && window.api.on) {
@@ -340,14 +347,10 @@ if (window.api && window.api.on) {
     });
 }
 
-window.t = function (key, fallback) {
+window.t = function (key, fallback = "") {
     return store.currentLangObj[key] || fallback;
 };
-/**
- * DÉCISION : une instance a deux identifiants —
- * - inst.name : affichage, IPC jeu, logs
- * - safeDir(inst.name) : dossier disque, Horizon, locks
- */
+
 window.safeDir = function (name) {
     if (!name) return "";
     return name.replace(/[^a-z0-9]/gi, "_");
@@ -362,13 +365,13 @@ window.sameFsPath = function (a, b) {
     if (!a || !b) return false;
     return window.sameFolderSlug(path.resolve(String(a)), path.resolve(String(b)));
 };
-window.instanceNameTaken = function (name, exceptIdx = -1) {
+window.instanceNameTaken = function (/** @type {string} */ name, exceptIdx = -1) {
     const slug = window.safeDir(name);
     return store.allInstances.some((i, idx) =>
         idx !== exceptIdx && window.sameFolderSlug(window.safeDir(i.name), slug)
     );
 };
-window.nextAvailableInstanceName = function (baseName) {
+window.nextAvailableInstanceName = function (/** @type {string} */ baseName) {
     const name = String(baseName || "").trim() || "Instance";
     let candidate = name;
     let counter = 1;
@@ -390,13 +393,13 @@ window.resolveInstanceName = function (nameOrFolder) {
     );
     return inst ? inst.name : nameOrFolder;
 };
-const yieldUI = () => new Promise((resolve) => {
+const yieldUI = () => /** @type {Promise<void>} */ (new Promise((resolve) => {
     if (typeof requestAnimationFrame === "function") {
         requestAnimationFrame(() => resolve());
     } else {
         setTimeout(resolve, 0);
     }
-});
+}));
 window.sanitizeHTML = (str) => {
     if (!str) return "";
     const temp = document.createElement("div");
@@ -404,7 +407,7 @@ window.sanitizeHTML = (str) => {
     return temp.innerHTML;
 };
 
-window.fetchWithTimeout = async (resource, options = {}) => {
+window.fetchWithTimeout = async (/** @type {string | URL | Request} */ resource, /** @type {any} */ options = {}) => {
     const { timeout = 30000 } = options;
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
@@ -432,7 +435,7 @@ window.reconnectDiscord = async () => {
         } else {
             window.showToast(t("msg_rpc_error", "Erreur RPC : " + (res?.error || "Impossible de se connecter")), "error");
         }
-    } catch(e) {
+    } catch(/** @type {any} */ e) {
         window.showToast(t("msg_rpc_error", "Erreur RPC : " + e.message), "error");
     }
 };

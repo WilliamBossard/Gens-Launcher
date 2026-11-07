@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
@@ -8,9 +9,14 @@ const fs = window.api.fs;
 const path = window.api.path;
 const os = window.api.os;
 
+/** @type {Map<string, { res: any; ts: number }>} */
 const _javaCheckCache = new Map();
 const JAVA_CHECK_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * @param {string} javaPath
+ * @returns {Promise<any>}
+ */
 async function checkJavaCached(javaPath) {
     const now = Date.now();
     const cached = _javaCheckCache.get(javaPath);
@@ -24,6 +30,11 @@ async function checkJavaCached(javaPath) {
     return res;
 }
 
+/**
+ * @param {any} inst
+ * @param {any} acc
+ * @param {any} ui
+ */
 export async function launchInstance(inst, acc, ui) {
     if (!inst || !acc) return;
     delete inst._backupRunning;
@@ -62,7 +73,6 @@ export async function launchInstance(inst, acc, ui) {
                 window._isManualHorizon = false;
                 await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
                 sysLog(`[HORIZON] Synchronisation terminée.`);
-                // Merger la config de l'instance (version MC, loader, RAM, JVM…) uniquement si le cloud est plus récent
                 const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
                 if (configUpdated) {
                     const freshInst = store.allInstances.find(i => i.name === inst.name);
@@ -87,7 +97,7 @@ export async function launchInstance(inst, acc, ui) {
     window._gameLogFiles[inst.name] = window.api.path.join(store.logsDir, `game_${inst.name}_${dateStr}.log`);
     try {
         await window.api.fs.promises.writeFile(window._gameLogFiles[inst.name], `=== Gens Launcher Game Log - ${inst.name} - ${new Date().toLocaleString()} ===\n`);
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         sysLog("Erreur création fichier log jeu: " + e.message, true);
     }
 
@@ -98,21 +108,20 @@ export async function launchInstance(inst, acc, ui) {
     const destOptExists = await window.existsSafe(destOpt);
     const defaultOptExists = await window.existsSafe(defaultOpt);
     if (!destOptExists && defaultOptExists) {
-        try { await fs.promises.copyFile(defaultOpt, destOpt); sysLog("Injection du profil options.txt par défaut."); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", e); }
+        try { await fs.promises.copyFile(defaultOpt, destOpt); sysLog("Injection du profil options.txt par défaut."); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", e); }
     }
 
     let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
     if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
     ramMB = Math.max(1024, ramMB);
 
-    // Contrôle pré-vol Anti-Freeze RAM
     const totalMemBytes = window.api?.os?.totalmem ? window.api.os.totalmem() : 0;
     const totalMemMB = totalMemBytes > 0 ? Math.floor(totalMemBytes / (1024 * 1024)) : 0;
     if (totalMemMB > 0 && ramMB > (totalMemMB - 512)) {
         const safeMaxRam = Math.max(1024, totalMemMB - 1024);
         sysLog(`[Pre-flight] RAM demandée (${ramMB} Mo) excessive pour la machine (${totalMemMB} Mo). Plafonnement sécurisé à ${safeMaxRam} Mo.`);
         if (ui.showToast) {
-            ui.showToast(window.t("msg_ram_auto_adjusted", "RAM ajustée à {ram} Mo pour protéger la stabilité de votre système.").replace("{ram}", safeMaxRam), "info");
+            ui.showToast(window.t("msg_ram_auto_adjusted", "RAM ajustée à {ram} Mo pour protéger la stabilité de votre système.").replace("{ram}", String(safeMaxRam)), "info");
         }
         ramMB = safeMaxRam;
     }
@@ -157,6 +166,10 @@ export async function launchInstance(inst, acc, ui) {
         jPath = window.api.platform === "win32" ? "javaw" : "java";
         const javaExeName = (window.api.platform === "win32") ? "javaw.exe" : "java";
 
+        /**
+         * @param {string} baseDir
+         * @returns {Promise<string | null>}
+         */
         async function findLocalJava(baseDir) {
             try {
                 const direct = path.join(baseDir, "bin", javaExeName);
@@ -191,14 +204,14 @@ export async function launchInstance(inst, acc, ui) {
                     const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
                     const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
                     if (!versionMatch) continue;
-                    const major = versionMatch[1] === "1" ? parseInt(versionMatch[2], 10) : parseInt(versionMatch[1], 10);
+                    const major = versionMatch[1] === "1" ? parseInt(versionMatch[2] || "0", 10) : parseInt(versionMatch[1], 10);
                     if (major === requiredJava) {
                         jPath = candidate;
                         sysLog(`Auto-sélection de Java ${requiredJava} détecté sur le système : ${candidate}`);
                         break;
                     }
                 }
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 sysLog(`Détection automatique de Java impossible : ${e.message}`, true);
             }
             if (jPath === "javaw" || jPath === "java") {
@@ -222,7 +235,7 @@ export async function launchInstance(inst, acc, ui) {
     const verText = `${res?.stderr || ""} ${res?.stdout || ""}`;
     const verMatch = verText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
     if (verMatch) {
-        detectedMajor = verMatch[1] === "1" ? parseInt(verMatch[2], 10) : parseInt(verMatch[1], 10);
+        detectedMajor = verMatch[1] === "1" ? parseInt(verMatch[2] || "0", 10) : parseInt(verMatch[1], 10);
     }
 
     const isVersionIncompatible = detectedMajor !== null && (
@@ -233,7 +246,7 @@ export async function launchInstance(inst, acc, ui) {
     if (!javaExists || isVersionIncompatible) {
         const confirmMsg = !javaExists
             ? window.t("msg_java_not_found_prompt", "Java introuvable ou incorrect ! Voulez-vous installer automatiquement Java ") + requiredJava + " ?"
-            : window.t("msg_java_version_mismatch_prompt", "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?").replace("{req}", requiredJava).replace("{cur}", detectedMajor);
+            : window.t("msg_java_version_mismatch_prompt", "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?").replace("{req}", String(requiredJava)).replace("{cur}", String(detectedMajor));
 
         if (ui.showCustomConfirm && await ui.showCustomConfirm(confirmMsg)) {
             const newJava = ui.downloadJavaAuto ? await ui.downloadJavaAuto(requiredJava) : null;
@@ -256,7 +269,7 @@ export async function launchInstance(inst, acc, ui) {
     if (inst.servers?.length > 0) {
         try {
             const datPath = path.join(instancePath, "servers.dat");
-            let parsed = { type: "compound", name: "", value: { servers: { type: "list", value: { type: "compound", value: [] } } } };
+            let parsed = /** @type {any} */ ({ type: "compound", name: "", value: { servers: { type: "list", value: { type: "compound", value: [] } } } });
             const datExists = await window.existsSafe(datPath);
             if (datExists) {
                 const { parsed: p } = await window.api.nbt.parse(await fs.promises.readFile(datPath));
@@ -266,7 +279,7 @@ export async function launchInstance(inst, acc, ui) {
                     if (!parsed.value.servers.value.value) parsed.value.servers.value.value = [];
                 }
             }
-            const existingIps = parsed.value.servers.value.value.map(s => s.ip?.value || "");
+            const existingIps = parsed.value.servers.value.value.map((/** @type {any} */ s) => s.ip?.value || "");
             let changed = false;
             for (const ip of inst.servers) {
                 if (!existingIps.includes(ip)) {
@@ -293,7 +306,7 @@ export async function launchInstance(inst, acc, ui) {
                 window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
                 sessionValid = true;
             }
-        } catch (e) { sysLog("Erreur refresh token: " + e.message, true); }
+        } catch (/** @type {any} */ e) { sysLog("Erreur refresh token: " + e.message, true); }
 
         if (!sessionValid) {
             if (ui.showToast) ui.showToast(window.t("msg_session_expired", "Session expirée. Reconnexion requise..."), "info");
@@ -321,7 +334,7 @@ export async function launchInstance(inst, acc, ui) {
                     else if (result.errorCode === "ERR_NO_MC_PROFILE") errMsg = window.t("msg_err_no_mc_profile", "Aucun profil Minecraft trouvé.");
                     if (ui.showToast) ui.showToast(window.t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
                 }
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 if (ui.showToast) ui.showToast(window.t("msg_err_sys", "Erreur système : ") + e.message, "error");
             } finally {
                 window._msLoginSessionActive = false;
@@ -337,6 +350,7 @@ export async function launchInstance(inst, acc, ui) {
         authObj = acc.mclcAuth;
     }
 
+    /** @type {any} */
     let opts = {
         instanceId: inst.name,
         offline: isOffline,
@@ -370,7 +384,7 @@ export async function launchInstance(inst, acc, ui) {
             if (!loaderVer) {
                 const hasVersions = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
-                const match = dirs.find(d => d.startsWith("fabric-loader-") && d.endsWith(`-${inst.version}`));
+                const match = dirs.find((/** @type {string} */ d) => d.startsWith("fabric-loader-") && d.endsWith(`-${inst.version}`));
                 if (match) {
                     loaderVer = match.replace("fabric-loader-", "").replace(`-${inst.version}`, "");
                 }
@@ -395,7 +409,7 @@ export async function launchInstance(inst, acc, ui) {
                     await fs.promises.writeFile(jsonPath, await response.text());
                 }
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog("Erreur Fabric: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_fabric", "Erreur Fabric : ") + e.message, "error");
             return;
@@ -407,7 +421,7 @@ export async function launchInstance(inst, acc, ui) {
             if (!loaderVer) {
                 const hasVersions2 = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions2 ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
-                const match = dirs.find(d => d.startsWith("quilt-loader-") && d.endsWith(`-${inst.version}`));
+                const match = dirs.find((/** @type {string} */ d) => d.startsWith("quilt-loader-") && d.endsWith(`-${inst.version}`));
                 if (match) {
                     loaderVer = match.replace("quilt-loader-", "").replace(`-${inst.version}`, "");
                 }
@@ -432,7 +446,7 @@ export async function launchInstance(inst, acc, ui) {
                     await fs.promises.writeFile(jsonPath, await response.text());
                 }
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog("Erreur Quilt: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_quilt", "Erreur Quilt : ") + e.message, "error");
             return;
@@ -471,7 +485,7 @@ export async function launchInstance(inst, acc, ui) {
         const hasVersionsDir = await window.existsSafe(versionsDir);
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
-            const forgeDir = subDirs.find(d => {
+            const forgeDir = subDirs.find((/** @type {string} */ d) => {
                 const lower = d.toLowerCase();
                 return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
             });
@@ -518,7 +532,7 @@ export async function launchInstance(inst, acc, ui) {
                 try {
                     const shaRes = await window.fetchWithTimeout(sha1Url);
                     if (shaRes.ok) expectedSha1 = (await shaRes.text()).trim().toLowerCase().split(/\s/)[0];
-                } catch (e) { sysLog("Hash SHA1 non disponible : " + e.message, true); }
+                } catch (/** @type {any} */ e) { sysLog("Hash SHA1 non disponible : " + e.message, true); }
 
                 sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
                 const dlController = new AbortController();
@@ -569,7 +583,7 @@ export async function launchInstance(inst, acc, ui) {
 
                 if (expectedSha1) {
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_verify_hash", "Vérification de l'intégrité..."));
-                    const actualSha1 = window.api.tools.hashBuffer(fileBytes, "sha1");
+                    const actualSha1 = await window.api.tools.hashBuffer(fileBytes, "sha1");
                     if (actualSha1 !== expectedSha1) {
                         throw new Error(`Échec SHA1 de l'installeur ${inst.loader} !\nAttendu : ${expectedSha1}\nObtenu : ${actualSha1}`);
                     }
@@ -582,9 +596,9 @@ export async function launchInstance(inst, acc, ui) {
                 if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_complete", "Téléchargement terminé !"));
                 if (ui.setProgressBar) ui.setProgressBar(-1);
                 sysLog(`Installeur ${inst.loader} téléchargé.`);
-            } catch (err) {
+            } catch (/** @type {any} */ err) {
                 sysLog(`Erreur téléchargement ${inst.loader}: ` + err.message, true);
-                try { if (await window.existsSafe(installerPath)) await fs.promises.unlink(installerPath); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", _); }
+                try { if (await window.existsSafe(installerPath)) await fs.promises.unlink(installerPath); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", _); }
                 if (ui.showToast) ui.showToast(window.t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
                 if (ui.setStatusText) ui.setStatusText(window.t("status_ready", "Prêt"));
                 if (ui.setProgressBar) ui.setProgressBar(-1);
@@ -609,7 +623,7 @@ export async function launchInstance(inst, acc, ui) {
                         const instVersionsDir = path.join(instancePath, "versions");
                         if (await window.existsSafe(instVersionsDir)) {
                             const instSubDirs = await fs.promises.readdir(instVersionsDir);
-                            const forgeDir = instSubDirs.find(d => {
+                            const forgeDir = instSubDirs.find((/** @type {string} */ d) => {
                                 const lower = d.toLowerCase();
                                 return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
                             });

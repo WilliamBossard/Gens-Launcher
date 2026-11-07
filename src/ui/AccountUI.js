@@ -1,4 +1,6 @@
+// @ts-check
 import { store } from "../store.js";
+/** @type {any} */
 let _accountSaveTimer = null;
 function scheduleSaveAccounts() {
     if (_accountSaveTimer) clearTimeout(_accountSaveTimer);
@@ -9,6 +11,7 @@ function scheduleSaveAccounts() {
 }
 export function setupAccountUI() {
     const skinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'skin-cache.json');
+    /** @type {Record<string, string> | null} */
     let _skinCache = null;
     async function getSkinCache() {
         if (_skinCache !== null) return _skinCache;
@@ -16,18 +19,26 @@ export function setupAccountUI() {
             const raw = await window.api.fs.promises.readFile(skinCacheFile, 'utf8');
             _skinCache = JSON.parse(raw);
         } catch (e) { _skinCache = {}; }
-        return _skinCache;
+        return _skinCache || {};
     }
+    /**
+     * @param {string} name
+     * @param {string} b64
+     */
     async function saveSkin(name, b64) {
         const cache = await getSkinCache();
         cache[name] = b64;
         window.safeWriteJSONAsync(skinCacheFile, cache);
     }
+    /**
+     * @param {string} name
+     */
     async function getCachedSkin(name) {
         const cache = await getSkinCache();
         return cache[name] || null;
     }
     const customSkinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'custom-skins.json');
+    /** @type {Record<string, string> | null} */
     let _customSkinCache = null;
     async function getCustomSkinCache() {
         if (_customSkinCache !== null) return _customSkinCache;
@@ -35,14 +46,18 @@ export function setupAccountUI() {
             const raw = await window.api.fs.promises.readFile(customSkinCacheFile, 'utf8');
             _customSkinCache = JSON.parse(raw);
         } catch (e) { _customSkinCache = {}; }
-        return _customSkinCache;
+        return _customSkinCache || {};
     }
+    /**
+     * @param {string} name
+     * @param {string} b64
+     */
     async function saveCustomSkin(name, b64) {
         const cache = await getCustomSkinCache();
         cache[name] = b64;
         window.safeWriteJSONAsync(customSkinCacheFile, cache);
     }
-    window.getCustomSkin = async function (name) {
+    window.getCustomSkin = async function (/** @type {string} */ name) {
         const cache = await getCustomSkinCache();
         return cache[name] || null;
     };
@@ -59,9 +74,7 @@ export function setupAccountUI() {
             await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         }
         
-        // Cleanup corrupted custom-skins (if they are 32x32 faces instead of 64x64 skins due to a previous bug)
         const customCache = await getCustomSkinCache();
-        let customChanged = false;
         for (const [name, b64] of Object.entries(customCache)) {
             if (b64 && b64.startsWith("data:image")) {
                 const img = new Image();
@@ -75,6 +88,10 @@ export function setupAccountUI() {
             }
         }
     })();
+    /**
+     * @param {any} acc
+     * @returns {Promise<string | null>}
+     */
     async function fetchSkinBase64(acc) {
         try {
             const res = await window.api.invoke("fetch-mojang-raw-skin", {
@@ -93,6 +110,7 @@ export function setupAccountUI() {
                     canvas.width = 32;
                     canvas.height = 32;
                     const ctx = canvas.getContext("2d");
+                    if (!ctx) { resolve(null); return; }
                     ctx.imageSmoothingEnabled = false;
                     ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 32, 32);
                     ctx.drawImage(img, 40, 8, 8, 8, 0, 0, 32, 32);
@@ -108,18 +126,22 @@ export function setupAccountUI() {
         }
     }
     window.openAccountModal = () => {
-        document.getElementById("acc-name").value = "";
-        document.getElementById("offline-input-container").style.display = "none";
-        document.getElementById("modal-account").style.display = "flex";
+        const accNameInput = /** @type {HTMLInputElement | null} */ (document.getElementById("acc-name"));
+        if (accNameInput) accNameInput.value = "";
+        const offlineContainer = document.getElementById("offline-input-container");
+        if (offlineContainer) offlineContainer.style.display = "none";
+        const modalAcc = document.getElementById("modal-account");
+        if (modalAcc) modalAcc.style.display = "flex";
         store.uiSelectedAccRow = store.selectedAccountIdx;
         window.renderAccountManager();
     };
     window.renderAccountManager = async function () {
         const list = document.getElementById("account-list");
+        if (!list) return;
         list.innerHTML = "";
-        const btnUse = document.getElementById("btn-use-acc");
-        const btnDel = document.getElementById("btn-del-acc");
-        const btnSkin = document.getElementById("btn-skin-acc");
+        const btnUse = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-use-acc"));
+        const btnDel = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-del-acc"));
+        const btnSkin = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-skin-acc"));
         if (store.allAccounts.length === 0) {
             list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">${t("msg_no_acc", "Aucun profil")}</div>`;
             if (btnUse) btnUse.disabled = true;
@@ -139,10 +161,8 @@ export function setupAccountUI() {
             const typeText = acc.type === "microsoft" ? t("lbl_ms_account", "Compte Microsoft") : t("lbl_offline_account", "Hors-Ligne (Crack)");
             const activeText = isActive ? `\u2713 ${t("lbl_active_acc", "Actif")}` : "";
             const safeName = window.escapeHTML(acc.name);
-            const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : acc.name;
             const fallbackUrl = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAABHElEQVRYhWM0VhH8z4AH8LCx4JMmCL78+oPC/4HGZ6LIdCqAUQewfPzyHUWAn4cThY8eh4TSBKnqBzwERh3Aws7GiiKQYW+BwpcQE0XVwMWLwv/z7TMK//vP3yj8jx8/oPBnHjqJwh/wEBh1AOPsZE+UuoCfXwBFASc7ahpBB+hxTgigp4kBD4FRB7Cgx3lo7zIUfrBdFwo/wvQCCh89TrffckDhrz1UhsJfXRyFwh/wEBh1AMFyAB0cOHcdr7yDkSZe+dFyYNA5gOXrt28oAl9+f0Xh7zp+CYWvJ6uK18AZqzei8H0dTVD4n76i1h0DHgKjDmBhYUftGr79jBpHP3/8QuFfenwbrzw7BxsKHz3O+bhR2xcDHgKjDgAAmYhW7ARMCXsAAAAASUVORK5CYII=`;
             const cachedSkin = await getCachedSkin(acc.name);
-            const customSkin = await window.getCustomSkin(acc.name);
             const imgSrc = cachedSkin || fallbackUrl;
             if (!cachedSkin && !acc._fetchingSkin && window.isTrulyOnline) {
                 acc._fetchingSkin = true;
@@ -150,12 +170,12 @@ export function setupAccountUI() {
                     acc._fetchingSkin = false;
                     if (b64) {
                         saveSkin(acc.name, b64);
-                        const imgEl = document.getElementById(`acc-img-${i}`);
+                        const imgEl = /** @type {HTMLImageElement | null} */ (document.getElementById(`acc-img-${i}`));
                         if (imgEl) {
                             imgEl.src = b64;
                         }
                         if (store.selectedAccountIdx === i) {
-                            const activeImg = document.getElementById("active-skin");
+                            const activeImg = /** @type {HTMLImageElement | null} */ (document.getElementById("active-skin"));
                             if (activeImg) activeImg.src = b64;
                         }
                     }
@@ -172,14 +192,14 @@ export function setupAccountUI() {
             </div>`;
         }
         list.innerHTML = rowsHtml;
-        // Délégation d'événements — remplace onclick/ondblclick inline (CSP)
         list.querySelectorAll('.mmc-account-item').forEach(el => {
-            const idx = parseInt(el.dataset.accIndex);
+            const htmlEl = /** @type {HTMLElement} */ (el);
+            const idx = parseInt(htmlEl.dataset.accIndex || "0", 10);
             el.addEventListener('click', () => window.selectAccountRow(idx));
             el.addEventListener('dblclick', () => window.useSelectedRow());
         });
     };
-    window.selectAccountRow = async (index) => {
+    window.selectAccountRow = async (/** @type {number} */ index) => {
         store.uiSelectedAccRow = index;
         window.renderAccountManager();
     };
@@ -205,7 +225,7 @@ export function setupAccountUI() {
                 store.allAccounts.splice(store.uiSelectedAccRow, 1);
                 if (store.selectedAccountIdx === store.uiSelectedAccRow) {
                     store.selectedAccountIdx = store.allAccounts.length > 0 ? 0 : null;
-                } else if (store.selectedAccountIdx > store.uiSelectedAccRow) {
+                } else if (store.selectedAccountIdx !== null && store.selectedAccountIdx > store.uiSelectedAccRow) {
                     store.selectedAccountIdx--;
                 }
                 store.uiSelectedAccRow = null;
@@ -217,13 +237,16 @@ export function setupAccountUI() {
     };
     window.toggleOfflineInput = () => {
         const container = document.getElementById("offline-input-container");
+        if (!container) return;
         container.style.display = container.style.display === "none" ? "flex" : "none";
         if (container.style.display === "flex") {
-            document.getElementById("acc-name").focus();
+            const accName = document.getElementById("acc-name");
+            if (accName) accName.focus();
         }
     };
     window.saveOfflineAccount = async () => {
-        const nameInput = document.getElementById("acc-name");
+        const nameInput = /** @type {HTMLInputElement | null} */ (document.getElementById("acc-name"));
+        if (!nameInput) return;
         const name = nameInput.value.trim();
         if (!name) {
             if (window.showToast) window.showToast(t("msg_err_pseudo_req", "Le pseudo est obligatoire !"), "error");
@@ -231,7 +254,7 @@ export function setupAccountUI() {
         }
         const encoder = new TextEncoder();
         const dataToHash = encoder.encode("OfflinePlayer:" + name);
-        const md5Hex = window.api.tools.hashBuffer(dataToHash, "md5");
+        const md5Hex = await window.api.tools.hashBuffer(dataToHash, "md5");
         const offlineUuid = md5Hex.substring(0, 12) + "3" + md5Hex.substring(13, 16) +
             (parseInt(md5Hex.substring(16, 17), 16) & 0x3 | 0x8).toString(16) + md5Hex.substring(17, 32);
         store.allAccounts.push({
@@ -242,16 +265,18 @@ export function setupAccountUI() {
         store.selectedAccountIdx = store.allAccounts.length - 1;
         await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
         nameInput.value = "";
-        document.getElementById("offline-input-container").style.display = "none";
+        const offlineContainer = document.getElementById("offline-input-container");
+        if (offlineContainer) offlineContainer.style.display = "none";
         if (window.renderAccountManager) window.renderAccountManager();
         if (window.updateAccountDropdown) window.updateAccountDropdown();
     };
     window.closeAccountModal = () => {
-        document.getElementById("modal-account").style.display = "none";
+        const modalAcc = document.getElementById("modal-account");
+        if (modalAcc) modalAcc.style.display = "none";
     };
     window.updateAccountDropdown = async () => {
-        const dropdown = document.getElementById("account-dropdown");
-        const skinImg = document.getElementById("active-skin");
+        const dropdown = /** @type {HTMLSelectElement | null} */ (document.getElementById("account-dropdown"));
+        const skinImg = /** @type {HTMLImageElement | null} */ (document.getElementById("active-skin"));
         if (!dropdown) return;
         dropdown.innerHTML = "";
         if (store.allAccounts.length === 0) {
@@ -261,14 +286,13 @@ export function setupAccountUI() {
         }
         store.allAccounts.forEach((acc, i) => {
             const opt = document.createElement("option");
-            opt.value = i;
+            opt.value = String(i);
             opt.innerText = acc.name;
             if (i === store.selectedAccountIdx) opt.selected = true;
             dropdown.appendChild(opt);
         });
         if (skinImg && store.selectedAccountIdx !== null) {
             const activeAcc = store.allAccounts[store.selectedAccountIdx];
-            const id = (activeAcc.type === "microsoft" && activeAcc.uuid) ? activeAcc.uuid : activeAcc.name;
             const fallbackUrl = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAABHElEQVRYhWM0VhH8z4AH8LCx4JMmCL78+oPC/4HGZ6LIdCqAUQewfPzyHUWAn4cThY8eh4TSBKnqBzwERh3Aws7GiiKQYW+BwpcQE0XVwMWLwv/z7TMK//vP3yj8jx8/oPBnHjqJwh/wEBh1AOPsZE+UuoCfXwBFASc7ahpBB+hxTgigp4kBD4FRB7Cgx3lo7zIUfrBdFwo/wvQCCh89TrffckDhrz1UhsJfXRyFwh/wEBh1AMFyAB0cOHcdr7yDkSZe+dFyYNA5gOXrt28oAl9+f0Xh7zp+CYWvJ6uK18AZqzei8H0dTVD4n76i1h0DHgKjDmBhYUftGr79jBpHP3/8QuFfenwbrzw7BxsKHz3O+bhR2xcDHgKjDgAAmYhW7ARMCXsAAAAASUVORK5CYII=`;
             const activeSkin = await getCachedSkin(activeAcc.name);
             if (!activeSkin && !activeAcc._fetchingSkin && window.isTrulyOnline) {
@@ -277,7 +301,7 @@ export function setupAccountUI() {
                     activeAcc._fetchingSkin = false;
                     if (b64) {
                         saveSkin(activeAcc.name, b64);
-                        skinImg.src = b64;
+                        if (skinImg) skinImg.src = b64;
                     }
                 });
             }
@@ -289,8 +313,9 @@ export function setupAccountUI() {
         if (window.updateLaunchButton) window.updateLaunchButton();
     };
     window.changeAccount = async () => {
-        const dropdown = document.getElementById("account-dropdown");
-        const newIdx = parseInt(dropdown.value);
+        const dropdown = /** @type {HTMLSelectElement | null} */ (document.getElementById("account-dropdown"));
+        if (!dropdown) return;
+        const newIdx = parseInt(dropdown.value, 10);
         if (!isNaN(newIdx)) {
             store.selectedAccountIdx = newIdx;
             await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
@@ -299,32 +324,41 @@ export function setupAccountUI() {
             if (window.renderAccountManager) window.renderAccountManager();
         }
     };
+    /** @type {any} */
     let fullscreenSkinViewer = null;
     window.openSkinModal = async () => {
         if (store.uiSelectedAccRow === null) return;
         const acc = store.allAccounts[store.uiSelectedAccRow];
-        const btnUpload = document.getElementById("btn-upload-skin");
-        const btnLink = document.getElementById("btn-link-ms-skin");
+        const btnUpload = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-upload-skin"));
+        const btnLink = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-link-ms-skin"));
         const divider = document.getElementById("skin-divider");
         const titleName = document.getElementById("skin-modal-name");
-        titleName.innerText = acc.name;
-        document.getElementById("modal-skin").style.display = "flex";
-        const cachedSkin = await getCachedSkin(acc.name);
+        if (titleName) titleName.innerText = acc.name;
+        const modalSkin = document.getElementById("modal-skin");
+        if (modalSkin) modalSkin.style.display = "flex";
         if (acc.type === "offline") {
-            btnUpload.style.display = "block";
-            btnUpload.innerText = t("btn_test_skin", "Charger un Skin Local");
-            btnLink.style.display = "none";
-            divider.style.display = "none";
+            if (btnUpload) {
+                btnUpload.style.display = "block";
+                btnUpload.innerText = t("btn_test_skin", "Charger un Skin Local");
+            }
+            if (btnLink) btnLink.style.display = "none";
+            if (divider) divider.style.display = "none";
         } else {
-            btnUpload.style.display = "block";
-            btnUpload.innerText = t("btn_test_skin", "Charger un Skin Local");
-            btnLink.style.display = "block";
-            divider.style.display = "block";
+            if (btnUpload) {
+                btnUpload.style.display = "block";
+                btnUpload.innerText = t("btn_test_skin", "Charger un Skin Local");
+            }
+            if (btnLink) btnLink.style.display = "block";
+            if (divider) divider.style.display = "block";
         }
-        const canvas = document.getElementById("fullscreen-skin-canvas");
+        const canvas = /** @type {HTMLCanvasElement | null} */ (document.getElementById("fullscreen-skin-canvas"));
+        if (!canvas) return;
         canvas.style.transition = "opacity 0.2s ease";
         canvas.style.opacity = "0";
         const id = (acc.type === "microsoft" && acc.uuid) ? acc.uuid : null;
+        /**
+         * @param {any} accParam
+         */
         async function loadSkinFromMojang(accParam) {
             const uuid = accParam.uuid;
             let token = null;
@@ -335,7 +369,7 @@ export function setupAccountUI() {
                         accParam.mclcAuth.access_token = refreshRes.access_token;
                     }
                     token = accParam.mclcAuth.access_token;
-                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
+                } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
             }
             
             const res = await window.api.invoke("fetch-mojang-profile", { token, uuid });
@@ -356,9 +390,10 @@ export function setupAccountUI() {
                         currentSkinUrl = data.skinUrl;
                     }
                     capeUrl = data.capeUrl;
-                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
+                } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", e); }
             }
-            if (!fullscreenSkinViewer) {
+            const skinview3d = (/** @type {any} */ (window)).skinview3d;
+            if (!fullscreenSkinViewer && canvas) {
                 try {
                     fullscreenSkinViewer = new skinview3d.SkinViewer({
                         canvas: canvas,
@@ -370,7 +405,7 @@ export function setupAccountUI() {
                     fullscreenSkinViewer.animation = new skinview3d.WalkingAnimation();
                     
                     if (fullscreenSkinViewer.scene) {
-                        fullscreenSkinViewer.scene.traverse((child) => {
+                        fullscreenSkinViewer.scene.traverse((/** @type {any} */ child) => {
                             if (child.isLight && child.shadow && child.shadow.bias < -16) {
                                 child.shadow.bias = -0.001;
                             }
@@ -387,47 +422,55 @@ export function setupAccountUI() {
                         fallback.style.padding = "20px";
                         fallback.style.width = "200px";
                         fallback.innerText = window.t("msg_webgl_unsupported", "Aperçu 3D indisponible\n(WebGL non supporté)");
-                        canvas.parentElement.appendChild(fallback);
+                        if (canvas.parentElement) canvas.parentElement.appendChild(fallback);
                     }
                     return;
                 }
-            } else {
+            } else if (fullscreenSkinViewer) {
                 if (fullscreenSkinViewer.animation) fullscreenSkinViewer.animation.paused = false;
             }
-            const currentModel = document.getElementById("skin-variant-select") ? document.getElementById("skin-variant-select").value : "classic";
+            const variantSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById("skin-variant-select"));
+            const currentModel = variantSelect ? variantSelect.value : "classic";
             try {
                 window.lastLoadedSkinUrl = currentSkinUrl;
-                await fullscreenSkinViewer.loadSkin(currentSkinUrl, { model: currentModel });
+                if (fullscreenSkinViewer) await fullscreenSkinViewer.loadSkin(currentSkinUrl, { model: currentModel });
             } catch (e) {
                 window.lastLoadedSkinUrl = STEVE_URL;
-                try { await fullscreenSkinViewer.loadSkin(STEVE_URL, { model: currentModel }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
+                try { if (fullscreenSkinViewer) await fullscreenSkinViewer.loadSkin(STEVE_URL, { model: currentModel }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
             }
             try {
-                if (capeUrl) {
+                if (capeUrl && fullscreenSkinViewer) {
                     await fullscreenSkinViewer.loadCape(capeUrl);
-                } else {
+                } else if (fullscreenSkinViewer) {
                     await fullscreenSkinViewer.loadCape(null);
                 }
             } catch (_) {
-                try { fullscreenSkinViewer.loadCape(null); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
+                try { if (fullscreenSkinViewer) fullscreenSkinViewer.loadCape(null); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in AccountUI.js:", _); }
             }
-            canvas.style.opacity = "1";
+            if (canvas) canvas.style.opacity = "1";
         }
         applyTextures();
     };
+    /**
+     * @param {HTMLSelectElement} select
+     */
     window.updateSkinVariantPreview = (select) => {
         if (fullscreenSkinViewer && window.lastLoadedSkinUrl) {
             fullscreenSkinViewer.loadSkin(window.lastLoadedSkinUrl, { model: select.value });
         }
     };
     window.closeSkinModal = () => {
-        document.getElementById("modal-skin").style.display = "none";
+        const modalSkin = document.getElementById("modal-skin");
+        if (modalSkin) modalSkin.style.display = "none";
         if (fullscreenSkinViewer && fullscreenSkinViewer.animation) {
             fullscreenSkinViewer.animation.paused = true;
         }
     };
+    /**
+     * @param {HTMLInputElement} input
+     */
     window.previewLocalSkin = (input) => {
-        const file = input.files[0];
+        const file = input.files?.[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -438,13 +481,15 @@ export function setupAccountUI() {
                     return;
                 }
                 if (fullscreenSkinViewer) {
-                    const currentModel = document.getElementById("skin-variant-select") ? document.getElementById("skin-variant-select").value : "classic";
-                    window.lastLoadedSkinUrl = e.target.result;
-                    fullscreenSkinViewer.loadSkin(e.target.result, { model: currentModel });
+                    const variantSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById("skin-variant-select"));
+                    const currentModel = variantSelect ? variantSelect.value : "classic";
+                    const resultUrl = typeof e.target?.result === 'string' ? e.target.result : "";
+                    window.lastLoadedSkinUrl = resultUrl;
+                    fullscreenSkinViewer.loadSkin(resultUrl, { model: currentModel });
                     if (window.showToast) window.showToast(window.t("msg_skin_preview", "Skin chargé dans le visualiseur !"), "info");
                 }
             };
-            img.src = e.target.result;
+            if (typeof e.target?.result === 'string') img.src = e.target.result;
         };
         reader.readAsDataURL(file);
         input.value = "";
@@ -477,8 +522,11 @@ export function setupAccountUI() {
             if (window.showToast) window.showToast(window.t("msg_err_skin_export", "Erreur lors de l'exportation du skin."), "error");
         }
     };
+    /**
+     * @param {HTMLInputElement} input
+     */
     window.uploadSkinToMojang = async (input) => {
-        const file = input.files[0];
+        const file = input.files?.[0];
         if (!file) return;
         if (store.uiSelectedAccRow === null) return;
         const acc = store.allAccounts[store.uiSelectedAccRow];
@@ -486,7 +534,8 @@ export function setupAccountUI() {
             if (window.showToast) window.showToast(window.t("msg_err_invalid_acc", "Compte invalide."), "error");
             return;
         }
-        const variant = document.getElementById("skin-variant-select").value || "classic";
+        const variantSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById("skin-variant-select"));
+        const variant = variantSelect?.value || "classic";
         if (window.showToast) window.showToast(window.t("msg_skin_uploading", "Envoi vers Mojang en cours..."), "info");
         try {
             const refreshRes = await window.api.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
@@ -505,12 +554,14 @@ export function setupAccountUI() {
                 try {
                 const { faceB64, fullSkinB64 } = await new Promise((resolve) => {
                     const img = new Image();
+                    /** @type {any} */
                     let fullSkin = null;
                     img.onload = () => {
                         const canvas = document.createElement("canvas");
                         canvas.width = 32;
                         canvas.height = 32;
                         const ctx = canvas.getContext("2d");
+                        if (!ctx) { resolve({ faceB64: null, fullSkinB64: null }); return; }
                         ctx.imageSmoothingEnabled = false;
                         ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 32, 32);
                         ctx.drawImage(img, 40, 8, 8, 8, 0, 0, 32, 32);
@@ -519,7 +570,7 @@ export function setupAccountUI() {
                     img.onerror = () => resolve({ faceB64: null, fullSkinB64: null });
                     const reader = new FileReader();
                     reader.onload = (e) => { 
-                        fullSkin = e.target.result;
+                        fullSkin = e.target?.result;
                         img.src = fullSkin; 
                     };
                     reader.readAsDataURL(file);
@@ -534,7 +585,7 @@ export function setupAccountUI() {
             } else {
                 if (window.showToast) window.showToast(t("msg_err_skin_upload", "Erreur: ") + res.error, "error");
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             if (window.showToast) window.showToast("Erreur: " + e.message, "error");
         }
         input.value = "";

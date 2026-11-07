@@ -1,3 +1,4 @@
+// @ts-check
 import { setup as setupMods } from "./local/mods.js";
 import { setup as setupShaders } from "./local/shaders.js";
 import { setup as setupResourcePacks } from "./local/resourcepacks.js";

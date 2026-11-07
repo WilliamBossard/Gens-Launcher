@@ -1,18 +1,10 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
-import { updateRPC } from "../discord.js";
 
-const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
-const os = window.api.os;
 
-/**
- * Champs de configuration embarqués dans le cloud via gens/launcher_config.json.
- * Ces champs décrivent "comment jouer" à l'instance (version MC, loader, RAM, JVM…).
- * Les champs de stats locales (playTime, lastPlayed, sessionHistory…) sont exclus
- * intentionnellement : ils restent toujours propres à chaque PC.
- */
 const INSTANCE_CONFIG_KEYS = [
     'version', 'loader', 'loaderVersion',
     'ram', 'javaPath', 'jvmArgs', 'jvmProfile',
@@ -21,15 +13,11 @@ const INSTANCE_CONFIG_KEYS = [
     'autoConnect', 'modrinthId', 'servers', 'icon',
 ];
 
-/** Chemin relatif (depuis la racine de l'instance) du fichier de config cloud. */
 const CLOUD_META_SUBPATH = ['gens', 'launcher_config.json'];
 
 /**
- * Écrit la config launcher dans {instanceFolder}/gens/launcher_config.json
- * juste AVANT l'appel --upload, afin que Horizon embarque ces métadonnées
- * dans le cloud avec les fichiers du jeu.
- *
- * @param {object} inst - L'objet instance depuis store.allInstances.
+ * @param {any} inst
+ * @param {{ preserveTimestamp?: boolean }} [opts]
  */
 export async function writeInstanceMetaForCloud(inst, opts = {}) {
     if (!inst) return;
@@ -38,7 +26,6 @@ export async function writeInstanceMetaForCloud(inst, opts = {}) {
         const metaDir  = path.join(instFolder, CLOUD_META_SUBPATH[0]);
         const metaPath = path.join(metaDir, CLOUD_META_SUBPATH[1]);
 
-        // Créer le dossier gens/ s'il n'existe pas encore
         await fs.promises.mkdir(metaDir, { recursive: true });
 
         const now = Date.now();
@@ -47,32 +34,26 @@ export async function writeInstanceMetaForCloud(inst, opts = {}) {
             : Math.max(now, Number(inst._localConfigUpdatedAt) || 0);
         inst._localConfigUpdatedAt = ts;
 
+        /** @type {Record<string, any>} */
         const config = {};
         for (const key of INSTANCE_CONFIG_KEYS) {
             if (key in inst) config[key] = inst[key];
         }
-        // Horodatage pour que ce PC et les autres PC sachent quelle version de la config est la plus récente
         config._cloudExportedAt = ts;
         config._localConfigUpdatedAt = ts;
 
         await fs.promises.writeFile(metaPath, JSON.stringify(config, null, 2), 'utf8');
         try {
             await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
-        } catch (_) { /* ignore */ }
+        } catch (_) {}
         sysLog(`[HORIZON] Métadonnées d'instance écrites pour upload : "${inst.name}"`);
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         sysLog(`[HORIZON] Erreur écriture métadonnées cloud pour "${inst?.name}" : ${e.message}`, true);
     }
 }
 
 /**
- * Après un --sync Horizon, relit {instanceFolder}/gens/launcher_config.json
- * (écrit par l'autre PC avant son upload) et merge les champs de config
- * dans store.allInstances uniquement si la config cloud est plus récente que
- * la dernière modification locale (_localConfigUpdatedAt), puis persiste instances.json.
- *
- * @param {string|null} instanceSafeName - Si fourni, ne merge que cette instance.
- *                                         Si null, merge toutes les instances connues.
+ * @param {string|null} [instanceSafeName]
  */
 export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
     try {
@@ -88,14 +69,11 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                 const raw = await fs.promises.readFile(metaPath, 'utf8');
                 const cloudConfig = JSON.parse(raw);
 
-                // Vérification de cohérence minimale
                 if (!cloudConfig || typeof cloudConfig !== 'object') continue;
 
                 const cloudTs = Number(cloudConfig._cloudExportedAt || cloudConfig._localConfigUpdatedAt) || 0;
                 const localTs = Number(inst._localConfigUpdatedAt) || 0;
 
-                // Si la configuration locale a été modifiée plus récemment (ou au même moment) que le snapshot cloud,
-                // on ne doit SURTOUT PAS écraser les changements locaux (ex: changement de version du loader Fabric).
                 if (localTs > 0 && cloudTs <= localTs) {
                     if (cloudTs < localTs) {
                         sysLog(`[HORIZON] Config locale de "${inst.name}" plus récente que le cloud — conservation des paramètres locaux.`);
@@ -133,33 +111,30 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                            `(exportée le ${new Date(cloudTs).toLocaleString()}).`);
                     try {
                         await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
-                    } catch (_) { /* ignore */ }
+                    } catch (_) {}
                     if (loaderOrVerChanged && typeof window !== 'undefined' && window.showToast && window.t) {
                         const msg = window.t("msg_cloud_config_updated", `Configuration de "{name}" mise à jour depuis le Cloud.`).replace("{name}", inst.name);
                         window.showToast(msg, "info");
                     }
                 }
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 if (e && e.code !== 'ENOENT') {
                     sysLog(`[HORIZON] Erreur lecture config cloud de "${inst.name}" : ${e.message}`, true);
                 }
-                // Fichier absent = l'autre PC n'a jamais exporté de meta → on ne touche pas à la config locale
             }
         }
 
         if (changed) {
             await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             sysLog('[HORIZON] instances.json mis à jour avec la config venue du cloud.');
-            // Rafraîchir l'UI pour afficher les nouvelles valeurs
             if (window.renderUI) window.renderUI();
         }
         return changed;
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         sysLog(`[HORIZON] Erreur mergeInstanceConfigFromDisk : ${e.message}`, true);
         return false;
     }
 }
-
 
 export async function getCloudSettings() {
     try {
@@ -174,6 +149,11 @@ export async function getCloudSettings() {
     }
 }
 
+/**
+ * @param {any} inst
+ * @param {string} mode
+ * @param {any} [ui]
+ */
 export async function performAutoBackup(inst, mode, ui) {
     sysLog(`[DEBUG] performAutoBackup called for ${inst?.name}, mode=${mode}, inst.backupMode=${inst?.backupMode}`);
     if (!inst || inst.backupMode !== mode) return;
@@ -196,18 +176,24 @@ export async function performAutoBackup(inst, mode, ui) {
         for (const saveDir of saves) {
             const src = path.join(savesDir, saveDir);
             const statSave = await fs.promises.stat(src);
-            if (!(typeof statSave.isDirectory === 'function' ? statSave.isDirectory() : statSave.isDirectory)) continue;
+            const isDir = typeof statSave.isDirectory === 'function' ? statSave.isDirectory() : Boolean(statSave.isDirectory);
+            if (!isDir) continue;
 
             const zipPath = path.join(backupDir, `${saveDir}_backup_auto_${timestamp}.zip`);
             
-            const onProg = (eventOrData, maybeData) => { const data = maybeData !== undefined ? maybeData : eventOrData; if (!data || typeof data.percent !== "number") return;
+            /**
+             * @param {any} eventOrData
+             * @param {any} [maybeData]
+             */
+            const onProg = (eventOrData, maybeData) => {
+                const data = maybeData !== undefined ? maybeData : eventOrData;
+                if (!data || typeof data.percent !== "number") return;
                 if (ui && ui.showLoading) {
                     ui.showLoading(window.t("msg_autobackup_running", "Auto-Backup en cours...") + ` ${data.percent}%`);
                 }
             };
             const cleanupProgress = window.api.on("zip-progress", onProg);
             try { await window.api.invoke("compress-folder", { src, dest: zipPath }); } finally { if (cleanupProgress) cleanupProgress(); }
-
 
             const limit = inst.backupLimit || 5;
             const allBackups = await fs.promises.readdir(backupDir);
@@ -226,7 +212,7 @@ export async function performAutoBackup(inst, mode, ui) {
             }
             sysLog(`Auto-backup créé : ${zipPath}`);
         }
-    } catch (e) { 
+    } catch (/** @type {any} */ e) { 
         sysLog(`Auto-backup erreur: ${e.message}`, true); 
     } finally { 
         inst._backupRunning = false; 
@@ -234,6 +220,10 @@ export async function performAutoBackup(inst, mode, ui) {
     if (ui && ui.hideLoading) ui.hideLoading();
 }
 
+/**
+ * @param {string} mcVersion
+ * @returns {number}
+ */
 export function getRequiredJavaVersion(mcVersion) {
     if (!mcVersion) return 21;
     let minor = 0;
@@ -259,11 +249,8 @@ export function getRequiredJavaVersion(mcVersion) {
 }
 
 /**
- * Lit dynamiquement la version majeure de Java requise (`javaVersion.majorVersion`)
- * directement depuis le JSON officiel de Mojang (sur disque ou pré-téléchargé dans cache/json),
- * avec repli sur `getRequiredJavaVersion(mcVersion)`.
- * Permet de supporter automatiquement les futures versions de Minecraft et de Java (Java 25, 29, etc.)
- * pendant 5+ ans sans mise à jour du code du launcher.
+ * @param {any} inst
+ * @param {string} instancePath
  */
 export async function detectRequiredJavaVersion(inst, instancePath) {
     const mcVersion = typeof inst === "string" ? inst : inst?.version;
@@ -284,14 +271,12 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
                     return major;
                 }
             }
-        } catch (_) { /* ignore */ }
+        } catch (_) {}
     }
 
-    // Si le JSON n'est pas encore sur le disque et que nous avons l'URL dans store.rawVersions,
-    // le pré-télécharger dans cache/json/<mcVersion>.json (économise aussi 1 requête lors du lancement MCLC).
     const isOffline = store.globalSettings?.offlineMode || (typeof window !== "undefined" && window.isTrulyOnline === false);
     if (!isOffline && Array.isArray(store.rawVersions)) {
-        const vEntry = store.rawVersions.find(v => v && v.id === mcVersion && v.url);
+        const vEntry = store.rawVersions.find((/** @type {any} */ v) => v && v.id === mcVersion && v.url);
         if (vEntry && typeof window !== "undefined" && typeof window.fetchWithTimeout === "function") {
             try {
                 const res = await window.fetchWithTimeout(vEntry.url, {}, 5000);
@@ -306,19 +291,23 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
                         return major;
                     }
                 }
-            } catch (_) { /* ignore, fallback */ }
+            } catch (_) {}
         }
     }
 
     return fallback;
 }
 
+/**
+ * @param {string} instanceName
+ * @param {number | null} [exitCode]
+ */
 export async function analyzeCrash(instanceName, exitCode = null) {
-    // Wait for all IPC log events and DOM updates to finish (fixes race conditions)
     await new Promise(resolve => setTimeout(resolve, 500));
     
     const instDir = path.join(store.instancesRoot, window.safeDir(instanceName));
     const crashDir = path.join(instDir, "crash-reports");
+    /** @type {{ cause: string, action: string, logExcerpt: string, mod: string | null, javaNeeded?: string }} */
     let result = { cause: window.t("cause_unknown", "Raison inconnue"), action: window.t("action_unknown", "Aucune action spécifique recommandée. Vérifiez les logs complets."), logExcerpt: "", mod: null };
     let latestReport = "";
     let logData = "";
@@ -334,7 +323,7 @@ export async function analyzeCrash(instanceName, exitCode = null) {
                         latestReport = await fs.promises.readFile(path.join(crashDir, stats[0].file), 'utf8');
                     }
                 }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
+            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         const logPath = path.join(instDir, "logs", "latest.log");
         if (await window.existsSafe(logPath)) {
@@ -343,7 +332,7 @@ export async function analyzeCrash(instanceName, exitCode = null) {
                 if (logData.length > 200000) {
                     logData = logData.substring(logData.length - 200000);
                 }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
+            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
         let uiLogs = "";
         const logOutput = document.getElementById("log-output");
@@ -450,6 +439,7 @@ export async function analyzeCrash(instanceName, exitCode = null) {
             return result;
         }
         const susMatch = latestReport.match(/Suspected\s+Mods?:\s+([^\n(]+?)(?:\s*\(|$)/i);
+        /** @type {string | null} */
         let suspectedMod = null;
         if (susMatch) {
             const candidate = susMatch[1].trim();
@@ -460,7 +450,7 @@ export async function analyzeCrash(instanceName, exitCode = null) {
             if (mixinMatch) suspectedMod = mixinMatch[1];
         }
         if (!suspectedMod) {
-            const loadMatch = latestReport.match(/(?:Failed to load mod|Error loading mod|LoadException)\s+['""]?([a-zA-Z0-9_\-]+)['""]?/i);
+            const loadMatch = latestReport.match(/(?:Failed to load mod|Error loading mod|LoadException)\s+['"]?([a-zA-Z0-9_\-]+)['"]?/i);
             if (loadMatch) suspectedMod = loadMatch[1];
         }
         if (!suspectedMod) {
@@ -468,15 +458,16 @@ export async function analyzeCrash(instanceName, exitCode = null) {
             if (errMatch) suspectedMod = errMatch[1].trim();
         }
         if (suspectedMod) {
-            result.mod = suspectedMod;
-            result.cause = window.t("crash_mod_cause", "Mod défaillant : {mod}").replace("{mod}", suspectedMod);
-            result.action = window.t("crash_mod_action", "Essayez de désactiver ou de mettre à jour le mod \"{mod}\" dans le gestionnaire de mods.").replace("{mod}", suspectedMod);
+            const modName = suspectedMod;
+            result.mod = modName;
+            result.cause = window.t("crash_mod_cause", "Mod défaillant : {mod}").replace("{mod}", modName);
+            result.action = window.t("crash_mod_action", "Essayez de désactiver ou de mettre à jour le mod \"{mod}\" dans le gestionnaire de mods.").replace("{mod}", modName);
             const crashLines = (latestReport || logData).split('\n');
-            const targetLine = crashLines.findIndex(l => l.includes(suspectedMod) || l.includes("Exception"));
+            const targetLine = crashLines.findIndex((/** @type {string} */ l) => l.includes(modName) || l.includes("Exception"));
             if (targetLine !== -1) {
                 result.logExcerpt = crashLines.slice(Math.max(0, targetLine - 2), targetLine + 5).join('\n');
             } else {
-                result.logExcerpt = "Crash provoqué par le mod " + suspectedMod;
+                result.logExcerpt = "Crash provoqué par le mod " + modName;
             }
             return result;
         }
@@ -492,7 +483,6 @@ export async function analyzeCrash(instanceName, exitCode = null) {
         const lines = combinedLog.split('\n').filter(l => l.trim().length > 0);
         result.logExcerpt = lines.slice(-15).join('\n');
 
-        // Analyse avancée basée sur le code de sortie OS natif
         if (exitCode !== null && exitCode !== undefined && (result.cause === window.t("cause_unknown", "Raison inconnue") || !result.cause)) {
             const numCode = Number(exitCode);
             if (numCode === -1073740791 || numCode === 3221226505 || numCode === 0xC0000409) {
@@ -517,7 +507,7 @@ export async function analyzeCrash(instanceName, exitCode = null) {
                 result.logExcerpt = "Exit Code 139 (SIGSEGV) — Crash natif dans une bibliothèque partagée.";
             }
         }
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         console.error("Crash analyzer error:", e);
         sysLog("Crash analyzer erreur : " + e.message, true);
     }

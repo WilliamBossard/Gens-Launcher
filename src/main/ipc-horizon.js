@@ -1,20 +1,29 @@
+// @ts-check
 const { existsSafe } = require('./fs-utils');
+
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function setupHorizonHandlers(context) {
     const {
         ipcMain, safeDataDir, mainLog, path, fs, crypto, spawn, app,
         horizonBinDir, horizonExePath, horizonVersionPath, isWin, safeSend
     } = context;
 
+    /** @type {Promise<any>} */
     let _horizonQueue = Promise.resolve();
 
+    /** @type {any} */
     let githubReleaseCache = null;
     let githubReleaseCacheTime = 0;
+    /** @type {string | null} */
     let cachedExpectedHash = null;
     let cachedExpectedHashTime = 0; // timestamp du dernier fetch du hash
     const HASH_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 heures — aligné sur le cache GitHub
     const githubCacheFile = path.join(safeDataDir, 'github_release_cache.json');
 
     // Cache du hash local de Horizon.exe — invalidé si mtime ou size change
+    /** @type {string | null} */
     let _localHashCache = null;
     let _localHashCacheMtime = 0;
     let _localHashCacheSize = 0;
@@ -23,6 +32,8 @@ module.exports = function setupHorizonHandlers(context) {
      * Calcule le SHA-256 de l'exécutable Horizon via stream asynchrone.
      * Résultat mis en cache (invalidé si mtime ou taille changent).
      * Évite le readFileSync bloquant sur un binaire de ~50 Mo.
+     * @param {string} exePath
+     * @returns {Promise<string>}
      */
     async function getLocalHorizonHash(exePath) {
         const stat = await fs.promises.stat(exePath);
@@ -46,6 +57,8 @@ module.exports = function setupHorizonHandlers(context) {
 
     /**
      * Fetch avec timeout via AbortController.
+     * @param {string} url
+     * @param {number} [timeoutMs]
      */
     async function fetchWithTimeout(url, timeoutMs = 5000) {
         const controller = new AbortController();
@@ -53,7 +66,8 @@ module.exports = function setupHorizonHandlers(context) {
         try {
             return await fetch(url, { signal: controller.signal });
         } catch (e) {
-            if (e.name === 'AbortError') throw new Error('Timeout de la requête dépassé');
+            const err = /** @type {any} */ (e);
+            if (err?.name === 'AbortError') throw new Error('Timeout de la requête dépassé');
             throw e;
         } finally {
             clearTimeout(id);
@@ -73,12 +87,20 @@ module.exports = function setupHorizonHandlers(context) {
                     cachedExpectedHash = parsed.hash.toLowerCase();
                 }
             }
-        } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+        } catch (_) {
+            const err = /** @type {any} */ (_);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
     })();
 
     // AUDIT-12 : validation du hash avant utilisation pour éviter l'injection d'un hash malformé depuis le cache local
+    /** @param {any} h */
     function isValidSha256(h) { return typeof h === 'string' && /^[a-f0-9]{64}$/i.test(h); }
 
+    /**
+     * @param {any[]} assets
+     * @returns {any}
+     */
     function findCompatibleHorizonAsset(assets) {
         if (!Array.isArray(assets)) return null;
         const platform = process.platform;
@@ -97,6 +119,10 @@ module.exports = function setupHorizonHandlers(context) {
         }) || assets.find(a => !path.extname(a.name));
     }
 
+    /**
+     * @param {string | null} [targetVersion]
+     * @param {boolean} [forceBypassCache]
+     */
     async function fetchHorizonRelease(targetVersion = null, forceBypassCache = false) {
         if (!forceBypassCache && githubReleaseCache && Date.now() - githubReleaseCacheTime < 2 * 60 * 60 * 1000) {
             if (!targetVersion || githubReleaseCache.tag_name === targetVersion) {
@@ -143,11 +169,15 @@ module.exports = function setupHorizonHandlers(context) {
         if (!targetVersion || !githubReleaseCache) {
             githubReleaseCache = data;
             githubReleaseCacheTime = Date.now();
-            try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+            try { await fs.promises.writeFile(githubCacheFile, JSON.stringify({ time: githubReleaseCacheTime, data })); } catch (_) {
+                const err = /** @type {any} */ (_);
+                if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+            }
         }
         return data;
     }
 
+    /** @param {string[]} args */
     function isHorizonWriteOp(args) {
         if (args.includes('--upload') || args.includes('--rollback')) return true;
         if (args.includes('--sync') && args.includes('--delete')) return true;
@@ -155,6 +185,11 @@ module.exports = function setupHorizonHandlers(context) {
         return false;
     }
 
+    /**
+     * @param {string | string[]} action
+     * @param {any} [event]
+     * @returns {Promise<{ exitCode: number, lastJson: any }>}
+     */
     async function _runHorizonActionImpl(action, event = null) {
         const _lockArgs = Array.isArray(action) ? action : [action];
         const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
@@ -187,12 +222,15 @@ module.exports = function setupHorizonHandlers(context) {
                         if (await existsSafe(horizonVersionPath)) {
                             localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, 'utf8')).version;
                         }
-                    } catch (err) { if (err.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + err.message); }
+                    } catch (err) {
+                        const e = /** @type {any} */ (err);
+                        if (e.code !== 'ENOENT') mainLog("[ipc] Erreur interceptée: " + e.message);
+                    }
 
                     const data = await fetchHorizonRelease(localVersion);
                     const asset = findCompatibleHorizonAsset(data.assets);
                     if (asset) {
-                        const shaAsset = data.assets.find(a => a.name === asset.name + ".sha256");
+                        const shaAsset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
                         if (shaAsset) {
                             const hashRes = await fetchWithTimeout(shaAsset.browser_download_url, 5000);
                             if (hashRes.ok) {
@@ -201,15 +239,22 @@ module.exports = function setupHorizonHandlers(context) {
                                 cachedExpectedHashTime = Date.now(); // TTL: re-fetch après 2h
                                 try {
                                     let c = {};
-                                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
+                                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) {
+                                        const err = /** @type {any} */ (_);
+                                        if (err && err.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', err.message || err);
+                                    }
                                     c.hash = expectedHash;
                                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
-                                } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                                } catch (_) {
+                                    const err = /** @type {any} */ (_);
+                                    if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                                }
                             }
                         }
                     }
                 } catch(e) {
-                    mainLog("Erreur vérification SHA256 (réseau): " + e.message);
+                    const err = e instanceof Error ? e.message : String(e);
+                    mainLog("Erreur vérification SHA256 (réseau): " + err);
                     if (cachedExpectedHash) {
                         mainLog("Utilisation du hash en cache (obsolète) suite à l'erreur réseau.");
                         expectedHash = cachedExpectedHash;
@@ -233,7 +278,8 @@ module.exports = function setupHorizonHandlers(context) {
                         }
                     }
                 } catch (hashReadErr) {
-                    mainLog(`Erreur lecture Horizon.exe pour hash : ${hashReadErr.message}`);
+                    const err = hashReadErr instanceof Error ? hashReadErr.message : String(hashReadErr);
+                    mainLog(`Erreur lecture Horizon.exe pour hash : ${err}`);
                 }
             }
         }
@@ -245,7 +291,10 @@ module.exports = function setupHorizonHandlers(context) {
             try {
                 const content = (await fs.promises.readFile(lockFile, 'utf8')).trim();
                 if (content) rawPid = parseInt(content, 10);
-            } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+            } catch (e) {
+                const err = /** @type {any} */ (e);
+                if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+            }
             if (!isNaN(rawPid)) {
                 let alive = false;
                 try {
@@ -259,7 +308,8 @@ module.exports = function setupHorizonHandlers(context) {
                         alive = true;
                     }
                 } catch (killErr) {
-                    if (killErr.code === 'EPERM') {
+                    const kErr = /** @type {any} */ (killErr);
+                    if (kErr?.code === 'EPERM') {
                         try {
                             const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
                             if (age > 30000) {
@@ -290,11 +340,15 @@ module.exports = function setupHorizonHandlers(context) {
 
             const horizon = spawn(horizonExePath, args, { cwd: horizonBinDir, env: { ...process.env, HORIZON_DATA_DIR: horizonBinDir, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') } });
             let settled = false;
+            /** @type {NodeJS.Timeout | undefined} */
             let killTimer;
+            /** @type {NodeJS.Timeout | undefined} */
             let shutdownTimer;
             let stdoutBuf = '';
+            /** @type {any} */
             let lastJson = null;
 
+            /** @param {number} exitCode */
             const finish = (exitCode) => {
                 if (settled) return;
                 settled = true;
@@ -307,7 +361,10 @@ module.exports = function setupHorizonHandlers(context) {
                             const json = JSON.parse(line);
                             lastJson = json;
                             safeSend(event, 'horizon-status', json);
-                        } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                        } catch (_) {
+                            const err = /** @type {any} */ (_);
+                            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                        }
                     }
                     stdoutBuf = '';
                 }
@@ -324,12 +381,18 @@ module.exports = function setupHorizonHandlers(context) {
                             shutdownTimer = setTimeout(() => {
                                 if (!settled) {
                                     mainLog(`[Horizon] Arrêt forcé (SIGKILL) après inactivité.`);
-                                    try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                                    try { horizon.kill("SIGKILL"); } catch (_) {
+                                        const err = /** @type {any} */ (_);
+                                        if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                                    }
                                     finish(-1);
                                 }
                             }, 2000);
                         } catch (_) {
-                            try { horizon.kill("SIGKILL"); } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                            try { horizon.kill("SIGKILL"); } catch (_) {
+                                const err = /** @type {any} */ (_);
+                                if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                            }
                             finish(-1);
                         }
                     }
@@ -365,6 +428,11 @@ module.exports = function setupHorizonHandlers(context) {
         });
     }
 
+    /**
+     * @param {string | string[]} action
+     * @param {any} [event]
+     * @returns {Promise<{ exitCode: number, lastJson: any }>}
+     */
     function runHorizonAction(action, event = null) {
         const job = _horizonQueue.then(() => _runHorizonActionImpl(action, event));
         _horizonQueue = job.catch(() => { });
@@ -379,7 +447,10 @@ module.exports = function setupHorizonHandlers(context) {
         try {
             await fs.promises.access(settingsPath);
             fileContent = JSON.parse(await fs.promises.readFile(settingsPath, "utf8"));
-        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
 
         const merged = { ...defaults, ...fileContent };
         const hasMissingKey = Object.keys(defaults).some(k => !(k in fileContent));
@@ -402,7 +473,10 @@ module.exports = function setupHorizonHandlers(context) {
             try {
                 await fs.promises.access(settingsPath);
                 existing = JSON.parse(await fs.promises.readFile(settingsPath, "utf8"));
-            } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+            } catch (_) {
+                const err = /** @type {any} */ (_);
+                if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+            }
 
             const merged = { ...existing, ...safe };
             const tmp = settingsPath + ".tmp";
@@ -410,7 +484,10 @@ module.exports = function setupHorizonHandlers(context) {
             await fs.promises.rename(tmp, settingsPath);
             return { success: true };
         }
-        catch (e) { return { success: false, error: e.message }; }
+        catch (e) {
+            const err = e instanceof Error ? e.message : String(e);
+            return { success: false, error: err };
+        }
     });
 
     ipcMain.handle("check-horizon-status", async (event, forceBypassCache = false) => {
@@ -421,19 +498,28 @@ module.exports = function setupHorizonHandlers(context) {
             await fs.promises.access(hSettingsPath);
             const p = JSON.parse(await fs.promises.readFile(hSettingsPath, "utf8"));
             if (p.provider) currentProvider = p.provider;
-        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
 
         const specificTokenPath = path.join(horizonBinDir, `token_${currentProvider}.json`);
         const legacyTokenPath = path.join(horizonBinDir, "token.json");
 
         let isInstalled = false;
         let isLinked = false;
-        try { await fs.promises.access(horizonExePath); isInstalled = true; } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+        try { await fs.promises.access(horizonExePath); isInstalled = true; } catch (_) {
+            const err = /** @type {any} */ (_);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
         try {
             await fs.promises.access(specificTokenPath); isLinked = true;
         } catch (_) {
             if (currentProvider === "google") {
-                try { await fs.promises.access(legacyTokenPath); isLinked = true; } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                try { await fs.promises.access(legacyTokenPath); isLinked = true; } catch (_e) {
+                    const err = /** @type {any} */ (_e);
+                    if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                }
             }
         }
 
@@ -441,7 +527,10 @@ module.exports = function setupHorizonHandlers(context) {
         try {
             await fs.promises.access(horizonVersionPath);
             localVersion = JSON.parse(await fs.promises.readFile(horizonVersionPath, "utf8")).version;
-        } catch (e) { if (e && e.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (e.message || e)); }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
 
         try {
             const data = await fetchHorizonRelease(null, forceBypassCache);
@@ -462,7 +551,7 @@ module.exports = function setupHorizonHandlers(context) {
             const response = await fetch(asset.browser_download_url);
             if (!response.ok) throw new Error("Erreur de téléchargement du binaire");
 
-            const contentLength = parseInt(response.headers.get('content-length'), 10);
+            const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
             let loaded = 0;
             let lastPct = -1;
 
@@ -471,7 +560,8 @@ module.exports = function setupHorizonHandlers(context) {
             const fileStream = fs.createWriteStream(tmpPath);
 
             try {
-                for await (const chunk of response.body) {
+                if (!response.body) throw new Error("Corps de réponse HTTP vide");
+                for await (const chunk of /** @type {any} */ (response.body)) {
                     fileStream.write(chunk);
                     hash.update(chunk);
                     loaded += chunk.length;
@@ -494,7 +584,7 @@ module.exports = function setupHorizonHandlers(context) {
                 throw err;
             }
 
-            const sha256Asset = data.assets.find(a => a.name === asset.name + ".sha256");
+            const sha256Asset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
             if (!sha256Asset) {
                 await fs.promises.rm(tmpPath, { force: true });
                 throw new Error("SÉCURITÉ CRITIQUE : Fichier .sha256 introuvable sur la release GitHub. L'intégrité de l'exécutable ne peut être garantie.");
@@ -510,21 +600,31 @@ module.exports = function setupHorizonHandlers(context) {
                 }
                 cachedExpectedHash = expected;
                 try {
-                    let c = {};
-                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', _.message || _); }
+                    let c = /** @type {Record<string, any>} */ ({});
+                    try { c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8')); } catch (_) {
+                        const err = /** @type {any} */ (_);
+                        if (err && err.code !== 'ENOENT') console.error('[ipc-horizon.js] Erreur silencieuse interceptée:', err.message || err);
+                    }
                     c.hash = expected;
                     await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
-                } catch (_) { if (_ && _.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (_.message || _)); }
+                } catch (_) {
+                    const err = /** @type {any} */ (_);
+                    if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+                }
                 mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch (hashErr) {
+                const err = hashErr instanceof Error ? hashErr.message : String(hashErr);
                 await fs.promises.rm(tmpPath, { force: true });
-                throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${hashErr.message}`);
+                throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${err}`);
             }
 
             await fs.promises.rename(tmpPath, horizonExePath);
             if (!isWin) await fs.promises.chmod(horizonExePath, 0o755);
             await fs.promises.writeFile(horizonVersionPath, JSON.stringify({ version: data.tag_name }));
             return { success: true, version: data.tag_name };
-        } catch (e) { return { success: false, error: e.message }; }
+        } catch (e) {
+            const err = e instanceof Error ? e.message : String(e);
+            return { success: false, error: err };
+        }
     });
 };

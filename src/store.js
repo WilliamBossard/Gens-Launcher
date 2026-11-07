@@ -1,4 +1,4 @@
-
+// @ts-check
 const path = window.api.path;
 const dataDir = path.join(window.api.appData, "GensLauncher");
 export const store = {
@@ -9,38 +9,65 @@ export const store = {
     instanceFile: path.join(dataDir, "instances.json"),
     accountFile: path.join(dataDir, "accounts.json"),
     settingsFile: path.join(dataDir, "settings.json"),
+    /** @type {any[]} */
     allInstances: [],
+    /** @type {any[]} */
     allAccounts: [],
+    /** @type {any[]} */
     rawVersions: [],
     globalSettings: {
         defaultRam: 4096,
+        /** @type {string[]} */
         unlockedAchievements: [],
         defaultJavaPath: "",
         cfApiKey: "",
         serverIp: "",
+        /** @type {string | null} */
         language: null,
         theme: { accent: "#007acc", bg: "", dim: 0.5, blur: 5, panelOpacity: 0.6 },
         launcherVisibility: "keep",
         newsCollapsed: false,
         enableNewsBanner: true,
         disableRPC: false,
+        offlineMode: false,
         multiInstance: false,
         autoDownloadUpdates: false,
         totalInstancesCreated: 0,
-        collapsedGroups: {}
+        /** @type {Record<string, boolean>} */
+        collapsedGroups: {},
+        disableAnimations: false,
+        disableTransparency: false,
+        /** @type {string | null} */
+        defaultOptionsInstance: null,
+        /** @type {string | null} */
+        defaultServersInstance: null
     },
+    /** @type {Record<string, string>} */
     currentLangObj: {},
+    /** @type {number | null} */
     selectedInstanceIdx: null,
+    /** @type {number | null} */
     selectedAccountIdx: null,
+    /** @type {any} */
     uiSelectedAccRow: null,
     isGameRunning: false,
+    /** @type {Set<any>} */
     activeInstances: new Set(),
     sessionStartTime: 0,
     maxSafeRam: 4096,
+    /** @type {string | null} */
     pendingIconPath: null,
+    /** @type {any} */
     primaryRpcInstance: null,
+    /** @type {any} */
     pendingLauncherUpdate: null,
     horizonActive: false,
+    /** @type {string | null} */
+    cloudTarget: null,
+    /** @type {string | null} */
+    cloudTargetSlug: null,
+    /** @type {{ value: string, ts: number } | null} */
+    _diskSizeCache: null,
     defaultIcons: {
         vanilla:  "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' fill='%2317B139'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='5' y='2' width='2' height='2' fill='%23000'/%3E%3Crect x='3' y='4' width='2' height='3' fill='%23000'/%3E%3C/svg%3E",
         forge:    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232b2b2b'/%3E%3Cpath d='M3 4h10v3H3zM6 7h4v2H6zM4 9h8v2H4zM2 11h12v3H2z' fill='%238c8c8c'/%3E%3C/svg%3E",

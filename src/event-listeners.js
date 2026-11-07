@@ -1,13 +1,10 @@
-/**
- * ============================================================
- * EVENT LISTENERS — Remplace tous les onclick="" de index.html
- * Généré automatiquement lors du refactoring CSP (suppression unsafe-inline)
- * ============================================================
- */
+// @ts-check
 import { store } from "./store.js";
-document.addEventListener('DOMContentLoaded', () => {
+/** @type {(id: string) => any} */
+const $ = (id) => document.getElementById(id);
 
-    const checkOffline = (e) => {
+document.addEventListener('DOMContentLoaded', () => {
+    const checkOffline = (/** @type {any} */ e = undefined) => {
         if (store.globalSettings.offlineMode || !window.isTrulyOnline) {
             if (window.showToast) window.showToast(window.t("msg_err_offline", "Cette fonctionnalité nécessite une connexion internet."), "error");
             if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -16,255 +13,177 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
     };
     window.checkOffline = checkOffline;
-
-    // ── PREMIER LANCEMENT ──────────────────────────────────────
-    document.getElementById('btn-save-first-launch')?.addEventListener('click', () => saveFirstLaunch());
-
-    // ── MODAL MISES À JOUR ─────────────────────────────────────
-    document.getElementById('btn-close-updates-modal')?.addEventListener('click', () => { window.closeModal('modal-updates'); });
-
-    // ── COMPTE MICROSOFT ──────────────────────────────────────
-    document.getElementById('btn-ms-login')?.addEventListener('click', (e) => { if(!checkOffline(e)) loginMicrosoft(); });
-    document.getElementById('btn-toggle-offline')?.addEventListener('click', () => toggleOfflineInput());
-    document.getElementById('btn-save-offline')?.addEventListener('click', () => saveOfflineAccount());
-    document.getElementById('btn-use-acc')?.addEventListener('click', () => useSelectedRow());
-    document.getElementById('btn-skin-acc')?.addEventListener('click', (e) => { if (checkOffline(e)) return; openSkinModal(); });
-    document.getElementById('btn-del-acc')?.addEventListener('click', () => deleteSelectedRow());
-    document.getElementById('btn-close-account-modal')?.addEventListener('click', () => closeAccountModal());
-
-    // ── TOOLBAR ────────────────────────────────────────────────
-    document.getElementById('btn-open-instance-modal')?.addEventListener('click', () => window.openInstanceModal());
-    document.getElementById('btn-toolbar-builder')?.addEventListener('click', (e) => {
+    $('btn-save-first-launch')?.addEventListener('click', () => window.saveFirstLaunch());
+    $('btn-close-updates-modal')?.addEventListener('click', () => { window.closeModal('modal-updates'); });
+    $('btn-ms-login')?.addEventListener('click', (/** @type {any} */ e) => { if(!checkOffline(e)) window.loginMicrosoft(); });
+    $('btn-toggle-offline')?.addEventListener('click', () => window.toggleOfflineInput());
+    $('btn-save-offline')?.addEventListener('click', () => window.saveOfflineAccount());
+    $('btn-use-acc')?.addEventListener('click', () => window.useSelectedRow());
+    $('btn-skin-acc')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.openSkinModal(); });
+    $('btn-del-acc')?.addEventListener('click', () => window.deleteSelectedRow());
+    $('btn-close-account-modal')?.addEventListener('click', () => window.closeAccountModal());
+    $('btn-open-instance-modal')?.addEventListener('click', () => window.openInstanceModal());
+    $('btn-toolbar-builder')?.addEventListener('click', (/** @type {any} */ e) => {
         if (checkOffline(e)) return;
-        openBuilderModal();
+        window.openBuilderModal();
     });
-    document.getElementById('btn-import-upload')?.addEventListener('click', () => document.getElementById('import-upload').click());
-    document.getElementById('import-upload')?.addEventListener('change', (e) => {
+    $('btn-import-upload')?.addEventListener('click', () => $('import-upload').click());
+    $('import-upload')?.addEventListener('change', (/** @type {any} */ e) => {
         if (window.handleImport) window.handleImport(e.target);
     });
-    document.getElementById('btn-toolbar-catalog')?.addEventListener('click', (e) => { if(!checkOffline(e)) openCatalogModal(); });
-    document.getElementById('btn-open-global-settings')?.addEventListener('click', () => openGlobalSettings());
-    document.getElementById('btn-show-console')?.addEventListener('click', () => { document.getElementById('console-container').style.display = 'block'; });
-    document.getElementById('btn-open-stats')?.addEventListener('click', () => openStatsModal());
-    document.getElementById('btn-open-account-modal')?.addEventListener('click', () => openAccountModal());
-
-    // ── CONSOLE / LOGS ─────────────────────────────────────────
-    document.getElementById('btn-copy-logs')?.addEventListener('click', () => copyLogs());
-    document.getElementById('btn-hide-console')?.addEventListener('click', () => { document.getElementById('console-container').style.display = 'none'; });
-
-    // ── BARRE D'INSTANCE ──────────────────────────────────────
-    document.getElementById('btn-edit')?.addEventListener('click', () => openEditModal('tab-general'));
-    document.getElementById('btn-mods')?.addEventListener('click', () => openEditModal('tab-mods'));
-    document.getElementById('btn-saves')?.addEventListener('click', () => openWorldsModal());
-    document.getElementById('btn-screens')?.addEventListener('click', () => openGalleryModal());
-    document.getElementById('btn-folder')?.addEventListener('click', () => openDir(''));
-    document.getElementById('btn-delete')?.addEventListener('click', () => deleteInstance());
-    document.getElementById('btn-copy')?.addEventListener('click', () => copyInstance());
-    document.getElementById('btn-export')?.addEventListener('click', () => exportInstance());
-    document.getElementById('btn-clean-cache')?.addEventListener('click', () => cleanCache());
-
-    // ── MODAL STATISTIQUES ────────────────────────────────────
-    document.getElementById('btn-close-stats')?.addEventListener('click', () => closeStatsModal());
-
-    // ── MODAL MONDES ─────────────────────────────────────────
-    document.getElementById('btn-close-import-mc')?.addEventListener('click', () => { window.closeModal('modal-import-mc'); });
-    document.getElementById('btn-open-import-mc')?.addEventListener('click', () => openImportMCWorldsModal());
-    document.getElementById('btn-open-dir-root')?.addEventListener('click', () => openDir(''));
-    document.getElementById('btn-open-dir-saves')?.addEventListener('click', () => openDir('saves'));
-    document.getElementById('btn-open-dir-backups')?.addEventListener('click', () => openDir('backups'));
-    document.getElementById('btn-close-worlds')?.addEventListener('click', () => closeWorldsModal());
-    document.getElementById('btn-close-restore')?.addEventListener('click', () => { window.closeModal('modal-restore'); });
-
-    // ── GALERIE SCREENSHOTS ───────────────────────────────────
-    document.getElementById('btn-open-dir-root-gallery')?.addEventListener('click', () => openDir(''));
-    document.getElementById('btn-open-dir-screenshots')?.addEventListener('click', () => openDir('screenshots'));
-    document.getElementById('btn-close-gallery')?.addEventListener('click', () => closeGalleryModal());
-
-    // ── CATALOGUE ─────────────────────────────────────────────
-    document.getElementById('btn-search-catalog')?.addEventListener('click', () => searchGlobalCatalog());
-    document.getElementById('btn-close-catalog')?.addEventListener('click', () => closeCatalogModal());
-
-    // ── MODAL NOUVELLE INSTANCE ───────────────────────────────
-    document.getElementById('btn-close-instance-modal')?.addEventListener('click', () => closeInstanceModal());
-    document.getElementById('btn-save-instance')?.addEventListener('click', () => saveInstance());
-
-    // ── PARAMÈTRES GLOBAUX ────────────────────────────────────
-    document.getElementById('tab-btn-glob-gen')?.addEventListener('click', () => switchTabGlob('tab-glob-gen'));
-    document.getElementById('tab-btn-glob-app')?.addEventListener('click', () => switchTabGlob('tab-glob-app'));
-    document.getElementById('tab-btn-glob-updates')?.addEventListener('click', () => switchTabGlob('tab-glob-updates'));
-    document.getElementById('tab-btn-glob-java')?.addEventListener('click', () => switchTabGlob('tab-glob-java'));
-    document.getElementById('tab-btn-glob-horizon')?.addEventListener('click', () => switchTabGlob('tab-glob-horizon'));
-    document.getElementById('btn-reconnect-discord')?.addEventListener('click', () => window.reconnectDiscord());
-    document.getElementById('btn-scan-java')?.addEventListener('click', () => scanJavaVersions());
-    document.getElementById('btn-custom-java-browse')?.addEventListener('click', () => document.getElementById('custom-java-file').click());
-    document.getElementById('btn-save-default-options')?.addEventListener('click', () => saveDefaultOptions());
-    document.getElementById('btn-save-default-servers')?.addEventListener('click', () => saveDefaultServers());
-    document.getElementById('btn-bg-upload')?.addEventListener('click', () => document.getElementById('bg-upload').click());
-    document.getElementById('btn-clear-bg')?.addEventListener('click', () => { document.getElementById('global-bg-path').value = ''; });
-    document.getElementById('btn-start-update')?.addEventListener('click', () => startLauncherUpdate());
-    document.getElementById('btn-check-launcher')?.addEventListener('click', (e) => { if (checkOffline(e)) return; checkLauncherUpdates(); });
-    // Les boutons btn-dl-java-* sont gérés dynamiquement par SettingsUI.updateJavaButtonsDisplay() via btn.onclick.
-    // NE PAS ajouter addEventListener ici (conflits double-déclenchement).
-    document.getElementById('btn-close-global-settings')?.addEventListener('click', () => closeGlobalSettings());
-    document.getElementById('btn-save-global-settings')?.addEventListener('click', () => saveGlobalSettings());
-
-    // ── MODAL ÉDITION D'INSTANCE ──────────────────────────────
-    document.getElementById('tab-btn-general')?.addEventListener('click', () => switchTab('tab-general'));
-    document.getElementById('tab-btn-mods')?.addEventListener('click', () => switchTab('tab-mods'));
-    document.getElementById('tab-btn-shaders')?.addEventListener('click', () => switchTab('tab-shaders'));
-    document.getElementById('tab-btn-resourcepacks')?.addEventListener('click', () => switchTab('tab-resourcepacks'));
-    document.getElementById('tab-btn-servers')?.addEventListener('click', () => switchTab('tab-servers'));
-    document.getElementById('tab-btn-backups')?.addEventListener('click', () => switchTab('tab-backups'));
-    document.getElementById('tab-btn-java')?.addEventListener('click', () => switchTab('tab-java'));
-    document.getElementById('tab-btn-notes')?.addEventListener('click', () => switchTab('tab-notes'));
-    document.getElementById('btn-edit-icon-upload')?.addEventListener('click', () => document.getElementById('edit-icon-upload').click());
-    document.getElementById('btn-open-icon-gallery')?.addEventListener('click', () => openIconGallery());
-    document.getElementById('btn-force-inject-options')?.addEventListener('click', () => forceInjectOptions());
-    document.getElementById('btn-check-mod-updates')?.addEventListener('click', (e) => { if (checkOffline(e)) return; checkModUpdates(); });
-    document.getElementById('btn-open-dir-mods')?.addEventListener('click', () => openDir('mods'));
-    document.getElementById('btn-open-catalog-mods')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'mod'; openCatalogModal(); });
-    document.getElementById('btn-open-dir-shaderpacks')?.addEventListener('click', () => openDir('shaderpacks'));
-    document.getElementById('btn-open-catalog-shaders')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'shader'; openCatalogModal(); });
-    document.getElementById('btn-open-dir-resourcepacks')?.addEventListener('click', () => openDir('resourcepacks'));
-    document.getElementById('btn-open-catalog-resourcepacks')?.addEventListener('click', (e) => { if (checkOffline(e)) return; closeEditModal(); document.getElementById('catalog-type').value = 'resourcepack'; openCatalogModal(); });
-    document.getElementById('btn-add-server')?.addEventListener('click', () => addServer());
-    document.getElementById('btn-open-dir-backups-edit')?.addEventListener('click', () => openDir('backups'));
-    document.getElementById('btn-scan-java-edit')?.addEventListener('click', () => scanJavaVersions());
-    document.getElementById('btn-custom-edit-java-browse')?.addEventListener('click', () => document.getElementById('custom-edit-java-file').click());
-    document.getElementById('btn-close-edit-modal')?.addEventListener('click', () => closeEditModal());
-    document.getElementById('btn-save-edit')?.addEventListener('click', () => saveEdit());
-
-    // ── DEVICE LOGIN MICROSOFT ───────────────────────────────
-    document.getElementById('ms-device-btn-copy')?.addEventListener('click', () => copyMsDeviceCode());
-    document.getElementById('ms-device-btn-open')?.addEventListener('click', () => openMsDevicePage());
-    document.getElementById('ms-device-btn-cancel')?.addEventListener('click', () => cancelMsDeviceLogin());
-
-    // ── MODAL SKIN ─────────────────────────────────────────────
-    document.getElementById('btn-upload-skin')?.addEventListener('click', () => document.getElementById('skin-upload').click());
-    document.getElementById('btn-export-skin')?.addEventListener('click', () => exportSkin());
-    document.getElementById('btn-skin-mojang-upload')?.addEventListener('click', () => document.getElementById('skin-mojang-input').click());
-    document.getElementById('btn-close-skin-modal')?.addEventListener('click', () => closeSkinModal());
-
-    // ── MODAL EXPORT ──────────────────────────────────────────
-    document.getElementById('btn-export-zip-light')?.addEventListener('click', () => doExport('zip_light'));
-    document.getElementById('btn-export-zip-full')?.addEventListener('click', () => doExport('zip_full'));
-    document.getElementById('btn-close-export-modal')?.addEventListener('click', () => { window.closeModal('modal-export'); });
-
-    // ── MODAL CRASH ───────────────────────────────────────────
-    document.getElementById('btn-copy-crash-log')?.addEventListener('click', () => copyCrashLog());
-    document.getElementById('btn-close-crash-modal')?.addEventListener('click', () => { window.closeModal('modal-crash'); });
-
-    // ── GALERIE D'ICÔNES ──────────────────────────────────────
-    document.getElementById('btn-close-icon-gallery')?.addEventListener('click', () => { window.closeModal('modal-icon-gallery'); });
-
-    // ── BUILDER MODPACK ───────────────────────────────────────
-    document.getElementById('btn-build-modpack')?.addEventListener('click', () => buildModpack());
-    document.getElementById('btn-close-builder-modal')?.addEventListener('click', () => closeBuilderModal());
-
-    // ── MENU CONTEXTUEL ───────────────────────────────────────
-    document.getElementById('ctx-launch')?.addEventListener('click', () => { if (window.ctxLaunch) window.ctxLaunch(); });
-    document.getElementById('ctx-cloud-import')?.addEventListener('click', () => ctxSyncCloud());
-    document.getElementById('ctx-cloud-upload')?.addEventListener('click', () => ctxUploadCloud());
-    document.getElementById('ctx-folder')?.addEventListener('click', () => ctxFolder());
-    document.getElementById('ctx-edit')?.addEventListener('click', () => ctxEdit());
-    document.getElementById('ctx-create-shortcut')?.addEventListener('click', () => ctxShortcut());
-    document.getElementById('ctx-delete-shortcut')?.addEventListener('click', () => ctxDeleteShortcut());
-    document.getElementById('ctx-delete')?.addEventListener('click', () => ctxDelete());
-    document.getElementById('ctx-cloud-restore-item')?.addEventListener('click', () => ctxRestoreCloud());
-    document.getElementById('ctx-cloud-sync-item')?.addEventListener('click', () => ctxSyncCloudFromMenu());
-    document.getElementById('ctx-cloud-upload-item')?.addEventListener('click', () => ctxUploadCloudFromMenu());
-    document.getElementById('ctx-delete-cloud-only')?.addEventListener('click', () => ctxDeleteCloudOnly());
-
-    // ── AUTO-LANCEMENT ────────────────────────────────────────
-    document.getElementById('auto-crash-banner')?.addEventListener('click', () => window.openLastCrashReport());
-    document.getElementById('auto-cancel-btn')?.addEventListener('click', () => window.cancelAutoLaunch());
-
-    // ── FORMULAIRES — onchange / oninput ─────────────────────────────
-    // Recherche + tri instances
-    document.getElementById('account-dropdown')?.addEventListener('change', () => changeAccount());
-    document.getElementById('search-bar')?.addEventListener('input', () => scheduleSearch());
-    document.getElementById('sort-dropdown')?.addEventListener('change', () => renderUI());
-
-    // Nouvelle instance — sélection version
-    document.getElementById('check-beta')?.addEventListener('change', (e) => updateVersionList(e.target.checked));
-    document.getElementById('new-version')?.addEventListener('change', () => updateLoaderVersions());
-    document.getElementById('new-loader')?.addEventListener('change', () => updateLoaderVersions());
-
-    // Nouvelle instance — RAM sliders (synchronisation input ↔ range)
-    document.getElementById('new-ram-input')?.addEventListener('input', (e) => {
-        const s = document.getElementById('new-ram-slider'); if (s) s.value = e.target.value;
+    $('btn-toolbar-catalog')?.addEventListener('click', (/** @type {any} */ e) => { if(!checkOffline(e)) window.openCatalogModal(); });
+    $('btn-open-global-settings')?.addEventListener('click', () => window.openGlobalSettings());
+    $('btn-show-console')?.addEventListener('click', () => { $('console-container').style.display = 'block'; });
+    $('btn-open-stats')?.addEventListener('click', () => window.openStatsModal());
+    $('btn-open-account-modal')?.addEventListener('click', () => window.openAccountModal());
+    $('btn-copy-logs')?.addEventListener('click', () => window.copyLogs());
+    $('btn-hide-console')?.addEventListener('click', () => { $('console-container').style.display = 'none'; });
+    $('btn-edit')?.addEventListener('click', () => window.openEditModal('tab-general'));
+    $('btn-mods')?.addEventListener('click', () => window.openEditModal('tab-mods'));
+    $('btn-saves')?.addEventListener('click', () => window.openWorldsModal());
+    $('btn-screens')?.addEventListener('click', () => window.openGalleryModal());
+    $('btn-folder')?.addEventListener('click', () => window.openDir(''));
+    $('btn-delete')?.addEventListener('click', () => window.deleteInstance());
+    $('btn-copy')?.addEventListener('click', () => window.copyInstance());
+    $('btn-export')?.addEventListener('click', () => window.exportInstance());
+    $('btn-clean-cache')?.addEventListener('click', () => window.cleanCache());
+    $('btn-close-stats')?.addEventListener('click', () => window.closeStatsModal());
+    $('btn-close-import-mc')?.addEventListener('click', () => { window.closeModal('modal-import-mc'); });
+    $('btn-open-import-mc')?.addEventListener('click', () => window.openImportMCWorldsModal());
+    $('btn-open-dir-root')?.addEventListener('click', () => window.openDir(''));
+    $('btn-open-dir-saves')?.addEventListener('click', () => window.openDir('saves'));
+    $('btn-open-dir-backups')?.addEventListener('click', () => window.openDir('backups'));
+    $('btn-close-worlds')?.addEventListener('click', () => window.closeWorldsModal());
+    $('btn-close-restore')?.addEventListener('click', () => { window.closeModal('modal-restore'); });
+    $('btn-open-dir-root-gallery')?.addEventListener('click', () => window.openDir(''));
+    $('btn-open-dir-screenshots')?.addEventListener('click', () => window.openDir('screenshots'));
+    $('btn-close-gallery')?.addEventListener('click', () => window.closeGalleryModal());
+    $('btn-search-catalog')?.addEventListener('click', () => window.searchGlobalCatalog());
+    $('btn-close-catalog')?.addEventListener('click', () => window.closeCatalogModal());
+    $('btn-close-instance-modal')?.addEventListener('click', () => window.closeInstanceModal());
+    $('btn-save-instance')?.addEventListener('click', () => window.saveInstance());
+    $('tab-btn-glob-gen')?.addEventListener('click', () => window.switchTabGlob('tab-glob-gen'));
+    $('tab-btn-glob-app')?.addEventListener('click', () => window.switchTabGlob('tab-glob-app'));
+    $('tab-btn-glob-updates')?.addEventListener('click', () => window.switchTabGlob('tab-glob-updates'));
+    $('tab-btn-glob-java')?.addEventListener('click', () => window.switchTabGlob('tab-glob-java'));
+    $('tab-btn-glob-horizon')?.addEventListener('click', () => window.switchTabGlob('tab-glob-horizon'));
+    $('btn-reconnect-discord')?.addEventListener('click', () => window.reconnectDiscord());
+    $('btn-scan-java')?.addEventListener('click', () => window.scanJavaVersions());
+    $('btn-custom-java-browse')?.addEventListener('click', () => $('custom-java-file').click());
+    $('btn-save-default-options')?.addEventListener('click', () => window.saveDefaultOptions());
+    $('btn-save-default-servers')?.addEventListener('click', () => window.saveDefaultServers());
+    $('btn-bg-upload')?.addEventListener('click', () => $('bg-upload').click());
+    $('btn-clear-bg')?.addEventListener('click', () => { $('global-bg-path').value = ''; });
+    $('btn-start-update')?.addEventListener('click', () => window.startLauncherUpdate());
+    $('btn-check-launcher')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.checkLauncherUpdates(); });
+    $('btn-close-global-settings')?.addEventListener('click', () => window.closeGlobalSettings());
+    $('btn-save-global-settings')?.addEventListener('click', () => window.saveGlobalSettings());
+    $('tab-btn-general')?.addEventListener('click', () => window.switchTab('tab-general'));
+    $('tab-btn-mods')?.addEventListener('click', () => window.switchTab('tab-mods'));
+    $('tab-btn-shaders')?.addEventListener('click', () => window.switchTab('tab-shaders'));
+    $('tab-btn-resourcepacks')?.addEventListener('click', () => window.switchTab('tab-resourcepacks'));
+    $('tab-btn-servers')?.addEventListener('click', () => window.switchTab('tab-servers'));
+    $('tab-btn-backups')?.addEventListener('click', () => window.switchTab('tab-backups'));
+    $('tab-btn-java')?.addEventListener('click', () => window.switchTab('tab-java'));
+    $('tab-btn-notes')?.addEventListener('click', () => window.switchTab('tab-notes'));
+    $('btn-edit-icon-upload')?.addEventListener('click', () => $('edit-icon-upload').click());
+    $('btn-open-icon-gallery')?.addEventListener('click', () => window.openIconGallery());
+    $('btn-force-inject-options')?.addEventListener('click', () => window.forceInjectOptions());
+    $('btn-check-mod-updates')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.checkModUpdates(); });
+    $('btn-open-dir-mods')?.addEventListener('click', () => window.openDir('mods'));
+    $('btn-open-catalog-mods')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.closeEditModal(); $('catalog-type').value = 'mod'; window.openCatalogModal(); });
+    $('btn-open-dir-shaderpacks')?.addEventListener('click', () => window.openDir('shaderpacks'));
+    $('btn-open-catalog-shaders')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.closeEditModal(); $('catalog-type').value = 'shader'; window.openCatalogModal(); });
+    $('btn-open-dir-resourcepacks')?.addEventListener('click', () => window.openDir('resourcepacks'));
+    $('btn-open-catalog-resourcepacks')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.closeEditModal(); $('catalog-type').value = 'resourcepack'; window.openCatalogModal(); });
+    $('btn-add-server')?.addEventListener('click', () => window.addServer());
+    $('btn-open-dir-backups-edit')?.addEventListener('click', () => window.openDir('backups'));
+    $('btn-scan-java-edit')?.addEventListener('click', () => window.scanJavaVersions());
+    $('btn-custom-edit-java-browse')?.addEventListener('click', () => $('custom-edit-java-file').click());
+    $('btn-close-edit-modal')?.addEventListener('click', () => window.closeEditModal());
+    $('btn-save-edit')?.addEventListener('click', () => window.saveEdit());
+    $('ms-device-btn-copy')?.addEventListener('click', () => window.copyMsDeviceCode());
+    $('ms-device-btn-open')?.addEventListener('click', () => window.openMsDevicePage());
+    $('ms-device-btn-cancel')?.addEventListener('click', () => window.cancelMsDeviceLogin());
+    $('btn-upload-skin')?.addEventListener('click', () => $('skin-upload').click());
+    $('btn-export-skin')?.addEventListener('click', () => window.exportSkin());
+    $('btn-skin-mojang-upload')?.addEventListener('click', () => $('skin-mojang-input').click());
+    $('btn-close-skin-modal')?.addEventListener('click', () => window.closeSkinModal());
+    $('btn-export-zip-light')?.addEventListener('click', () => window.doExport('zip_light'));
+    $('btn-export-zip-full')?.addEventListener('click', () => window.doExport('zip_full'));
+    $('btn-close-export-modal')?.addEventListener('click', () => { window.closeModal('modal-export'); });
+    $('btn-copy-crash-log')?.addEventListener('click', () => window.copyCrashLog());
+    $('btn-close-crash-modal')?.addEventListener('click', () => { window.closeModal('modal-crash'); });
+    $('btn-close-icon-gallery')?.addEventListener('click', () => { window.closeModal('modal-icon-gallery'); });
+    $('btn-build-modpack')?.addEventListener('click', () => window.buildModpack());
+    $('btn-close-builder-modal')?.addEventListener('click', () => window.closeBuilderModal());
+    $('ctx-launch')?.addEventListener('click', () => { if (window.ctxLaunch) window.ctxLaunch(); });
+    $('ctx-cloud-import')?.addEventListener('click', () => window.ctxSyncCloud());
+    $('ctx-cloud-upload')?.addEventListener('click', () => window.ctxUploadCloud());
+    $('ctx-folder')?.addEventListener('click', () => window.ctxFolder());
+    $('ctx-edit')?.addEventListener('click', () => window.ctxEdit());
+    $('ctx-create-shortcut')?.addEventListener('click', () => window.ctxShortcut());
+    $('ctx-delete-shortcut')?.addEventListener('click', () => window.ctxDeleteShortcut());
+    $('ctx-delete')?.addEventListener('click', () => window.ctxDelete());
+    $('ctx-cloud-restore-item')?.addEventListener('click', () => window.ctxRestoreCloud());
+    $('ctx-cloud-sync-item')?.addEventListener('click', () => window.ctxSyncCloudFromMenu());
+    $('ctx-cloud-upload-item')?.addEventListener('click', () => window.ctxUploadCloudFromMenu());
+    $('ctx-delete-cloud-only')?.addEventListener('click', () => window.ctxDeleteCloudOnly());
+    $('auto-crash-banner')?.addEventListener('click', () => window.openLastCrashReport());
+    $('auto-cancel-btn')?.addEventListener('click', () => window.cancelAutoLaunch());
+    $('account-dropdown')?.addEventListener('change', () => window.changeAccount());
+    $('search-bar')?.addEventListener('input', () => window.scheduleSearch());
+    $('sort-dropdown')?.addEventListener('change', () => window.renderUI());
+    $('check-beta')?.addEventListener('change', (/** @type {any} */ e) => window.updateVersionList(e.target.checked));
+    $('new-version')?.addEventListener('change', () => window.updateLoaderVersions());
+    $('new-loader')?.addEventListener('change', () => window.updateLoaderVersions());
+    $('new-ram-input')?.addEventListener('input', (/** @type {any} */ e) => {
+        const s = $('new-ram-slider'); if (s) s.value = e.target.value;
     });
-    document.getElementById('new-ram-slider')?.addEventListener('input', (e) => {
-        const i = document.getElementById('new-ram-input'); if (i) i.value = e.target.value;
+    $('new-ram-slider')?.addEventListener('input', (/** @type {any} */ e) => {
+        const i = $('new-ram-input'); if (i) i.value = e.target.value;
     });
-
-    // Paramètres globaux — langue
-    document.getElementById('global-lang')?.addEventListener('change', (e) => changeLanguage(e.target.value));
-
-    // Paramètres globaux — RAM sliders
-    document.getElementById('global-ram-input')?.addEventListener('input', (e) => {
-        const s = document.getElementById('global-ram-slider'); if (s) s.value = e.target.value;
+    $('global-lang')?.addEventListener('change', (/** @type {any} */ e) => window.changeLanguage(e.target.value));
+    $('global-ram-input')?.addEventListener('input', (/** @type {any} */ e) => {
+        const s = $('global-ram-slider'); if (s) s.value = e.target.value;
     });
-    document.getElementById('global-ram-slider')?.addEventListener('input', (e) => {
-        const i = document.getElementById('global-ram-input'); if (i) i.value = e.target.value;
+    $('global-ram-slider')?.addEventListener('input', (/** @type {any} */ e) => {
+        const i = $('global-ram-input'); if (i) i.value = e.target.value;
     });
-
-    // Paramètres globaux — Java custom file
-    document.getElementById('custom-java-file')?.addEventListener('change', (e) => addCustomJava(e.target, 'global-java'));
-
-    // Paramètres globaux — fond d'écran
-    document.getElementById('bg-upload')?.addEventListener('change', (e) => {
-        const p = document.getElementById('global-bg-path');
+    $('custom-java-file')?.addEventListener('change', (/** @type {any} */ e) => window.addCustomJava(e.target, 'global-java'));
+    $('bg-upload')?.addEventListener('change', (/** @type {any} */ e) => {
+        const p = $('global-bg-path');
         if (p && e.target.files[0]) p.value = window.api.getFilePath(e.target.files[0]);
     });
-
-    // Édition instance — version & loader
-    document.getElementById('edit-mc-version')?.addEventListener('change', () => updateEditLoaderVersions());
-    document.getElementById('edit-show-snapshots')?.addEventListener('change', () => toggleEditSnapshots());
-    document.getElementById('edit-loader-type')?.addEventListener('change', () => updateEditLoaderVersions());
-
-    // Édition instance — RAM sliders
-    document.getElementById('edit-ram-input')?.addEventListener('input', (e) => {
-        const s = document.getElementById('edit-ram-slider'); if (s) s.value = e.target.value;
+    $('edit-mc-version')?.addEventListener('change', () => window.updateEditLoaderVersions());
+    $('edit-show-snapshots')?.addEventListener('change', () => window.toggleEditSnapshots());
+    $('edit-loader-type')?.addEventListener('change', () => window.updateEditLoaderVersions());
+    $('edit-ram-input')?.addEventListener('input', (/** @type {any} */ e) => {
+        const s = $('edit-ram-slider'); if (s) s.value = e.target.value;
     });
-    document.getElementById('edit-ram-slider')?.addEventListener('input', (e) => {
-        const i = document.getElementById('edit-ram-input'); if (i) i.value = e.target.value;
+    $('edit-ram-slider')?.addEventListener('input', (/** @type {any} */ e) => {
+        const i = $('edit-ram-input'); if (i) i.value = e.target.value;
     });
-
-    // Édition instance — recherche mods locaux
-    document.getElementById('local-mod-search')?.addEventListener('input', () => filterLocalMods());
-
-    // Édition instance — Java custom file
-    document.getElementById('custom-edit-java-file')?.addEventListener('change', (e) => addCustomJava(e.target, 'edit-javapath'));
-
-    // Édition instance — profil JVM
-    document.getElementById('edit-jvm-profile')?.addEventListener('change', () => updateJvmDesc());
-
-    // Modal skin
-    document.getElementById('skin-upload')?.addEventListener('change', (e) => previewLocalSkin(e.target));
-    document.getElementById('edit-icon-upload')?.addEventListener('change', (e) => previewInstanceIcon(e.target));
-    document.getElementById('skin-variant-select')?.addEventListener('change', (e) => updateSkinVariantPreview(e.target));
-    document.getElementById('skin-mojang-input')?.addEventListener('change', (e) => uploadSkinToMojang(e.target));
-
-    // Builder modpack
-    document.getElementById('builder-version')?.addEventListener('change', () => searchBuilderMods());
-    document.getElementById('builder-loader')?.addEventListener('change', () => searchBuilderMods());
-    document.getElementById('builder-type')?.addEventListener('change', () => searchBuilderMods());
-    document.getElementById('builder-source')?.addEventListener('change', () => searchBuilderMods());
-    document.getElementById('builder-search')?.addEventListener('input', () => scheduleBuilderSearch());
-
-    // ── TOUCHES ENTRÉE — champs texte ─────────────────────────────────
-    document.getElementById('acc-name')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveOfflineAccount(); });
-    document.getElementById('catalog-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchGlobalCatalog(); });
+    $('local-mod-search')?.addEventListener('input', () => window.filterLocalMods());
+    $('custom-edit-java-file')?.addEventListener('change', (/** @type {any} */ e) => window.addCustomJava(e.target, 'edit-javapath'));
+    $('edit-jvm-profile')?.addEventListener('change', () => window.updateJvmDesc());
+    $('skin-upload')?.addEventListener('change', (/** @type {any} */ e) => window.previewLocalSkin(e.target));
+    $('edit-icon-upload')?.addEventListener('change', (/** @type {any} */ e) => window.previewInstanceIcon(e.target));
+    $('skin-variant-select')?.addEventListener('change', (/** @type {any} */ e) => window.updateSkinVariantPreview(e.target));
+    $('skin-mojang-input')?.addEventListener('change', (/** @type {any} */ e) => window.uploadSkinToMojang(e.target));
+    $('builder-version')?.addEventListener('change', () => window.searchBuilderMods());
+    $('builder-loader')?.addEventListener('change', () => window.searchBuilderMods());
+    $('builder-type')?.addEventListener('change', () => window.searchBuilderMods());
+    $('builder-source')?.addEventListener('change', () => window.searchBuilderMods());
+    $('builder-search')?.addEventListener('input', () => window.scheduleBuilderSearch());
+    $('acc-name')?.addEventListener('keydown', (/** @type {any} */ e) => { if (e.key === 'Enter') window.saveOfflineAccount(); });
+    $('catalog-search')?.addEventListener('keydown', (/** @type {any} */ e) => { if (e.key === 'Enter') window.searchGlobalCatalog(); });
     ['catalog-source', 'catalog-type', 'catalog-loader', 'catalog-version'].forEach(id => {
-        document.getElementById(id)?.addEventListener('change', () => { if (typeof window.searchGlobalCatalog === 'function') window.searchGlobalCatalog(); });
+        $(id)?.addEventListener('change', () => { if (typeof window.searchGlobalCatalog === 'function') window.searchGlobalCatalog(); });
     });
-    document.getElementById('new-server-ip')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addServer(); });
-
-    // ── EFFETS HOVER export-card (remplace onmouseover/onmouseout) ──────
-    document.querySelectorAll('.export-card').forEach(card => {
+    $('new-server-ip')?.addEventListener('keydown', (/** @type {any} */ e) => { if (e.key === 'Enter') window.addServer(); });
+    document.querySelectorAll('.export-card').forEach((/** @type {any} */ card) => {
         card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--accent)'; });
         card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border)'; });
     });
-
-});
+});

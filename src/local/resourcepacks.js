@@ -1,15 +1,13 @@
+// @ts-check
 import { store } from "../store.js";
-import { yieldUI, sysLog } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
-
-function safeAttrJson(value) {
-    return JSON.stringify(value).replace(/'/g, "&#39;");
-}
 
 export function setup() {
     window.renderResourcePacksManager = async function() {
         const listDiv = document.getElementById("resourcepacks-list");
+        if (!listDiv) return;
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
@@ -22,7 +20,6 @@ export function setup() {
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
                 const color = isEnabled ? "var(--text-light)" : "#666";
                 const decoration = isEnabled ? "none" : "line-through";
-                const fileJson = safeAttrJson(file);
                 rpHtml += `
                 <div class="mod-item" data-rp-file="${window.escapeHTML(file)}">
                     <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
@@ -34,15 +31,22 @@ export function setup() {
             }
         });
         listDiv.innerHTML = rpHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_rps", "Aucun pack de textures installé.")}</div>`;
-        // Délégation d'événements — remplace les handlers inline
         listDiv.querySelectorAll('.mod-item[data-rp-file]').forEach(item => {
-            const filename = item.dataset.rpFile;
-            item.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => toggleResourcePack(filename, e.target.checked));
-            item.querySelector('.rp-delete-btn')?.addEventListener('click', () => deleteResourcePack(filename));
+            const htmlItem = /** @type {HTMLElement} */ (item);
+            const filename = htmlItem.dataset.rpFile;
+            if (!filename) return;
+            htmlItem.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => {
+                const target = /** @type {HTMLInputElement} */ (e.target);
+                window.toggleResourcePack(filename, target.checked);
+            });
+            htmlItem.querySelector('.rp-delete-btn')?.addEventListener('click', () => window.deleteResourcePack(filename));
         });
     };
-    window.toggleResourcePack = async (filename, isEnabled) => {
+
+    window.toggleResourcePack = async (/** @type {string} */ filename, /** @type {boolean} */ isEnabled) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
         await fs.promises.rename(
             path.join(targetPath, filename),
@@ -50,9 +54,12 @@ export function setup() {
         );
         window.renderResourcePacksManager();
     };
-    window.deleteResourcePack = async (filename) => {
+
+    window.deleteResourcePack = async (/** @type {string} */ filename) => {
         if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce pack ?"), true)) {
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks", filename);
             try {
                 if (await window.existsSafe(targetPath)) {
@@ -60,7 +67,7 @@ export function setup() {
                     window.showToast(t("msg_rp_deleted", "Pack supprimé !"), "success");
                     window.renderResourcePacksManager();
                 }
-            } catch(e) { window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error"); }
+            } catch(/** @type {any} */ e) { window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error"); }
         }
     };
 }

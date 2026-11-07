@@ -1,3 +1,4 @@
+// @ts-check
 const { existsSafe, createSandboxValidator } = require('./src/main/fs-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
@@ -15,6 +16,7 @@ if (process.platform === 'linux' && process.env.APPIMAGE) {
 }
 app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
+/** @param {string} name */
 function sanitizeShortcutName(name) {
     return String(name)
         .replace(/[<>:"/\\|?*\r\n\0]/g, "")
@@ -22,6 +24,8 @@ function sanitizeShortcutName(name) {
         .trim()
         .substring(0, 100);
 }
+
+/** @param {string[]} argv */
 function parseAutoLaunchArg(argv) {
     const prefix = '--auto-launch=';
     const arg = argv.find(a => a.startsWith(prefix));
@@ -33,11 +37,16 @@ function parseAutoLaunchArg(argv) {
         return val;
     }
 }
+
 const MOJANG_HOSTS = ["mojang.com", "minecraft.net", "minecraftservices.com", "launchermeta.mojang.com", "piston-meta.mojang.com", "piston-data.mojang.com", "launcher.mojang.com", "resources.download.minecraft.net", "libraries.minecraft.net", "sessionserver.mojang.com", "assets.mojang.com"];
 const SKIN_HOSTS = ["mc-heads.net", "crafatar.com", "mineatar.io", "s.optifine.net"];
 const DISCORD_CLIENT_ID = "1490353507218227301";
-let mainWindow;
+
+/** @type {BrowserWindow | null | undefined} */
+let mainWindow = null;
+/** @type {Tray | null} */
 let tray = null;
+/** @type {string | null} */
 let linuxUpdatePath = null;
 let globalOfflineMode = false;
 ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
@@ -49,6 +58,8 @@ const isWin = process.platform === "win32";
 const horizonBinName = isWin ? "Horizon.exe" : "Horizon";
 const horizonExePath = path.join(horizonBinDir, horizonBinName);
 const horizonVersionPath = path.join(horizonBinDir, "horizon_version.json");
+
+/** @type {fs.WriteStream | null} */
 let _logStream = null;
 let _logStreamBytes = 0;
 
@@ -69,7 +80,10 @@ const mainInitPromise = (async () => {
                 if ((await fs.promises.stat(filePath)).isFile()) await safeUnlink(filePath);
             }
         }
-    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage horizon temp: ${err.message}`); }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage horizon temp: ${e.message}`);
+    }
 
     try {
         const files = await fs.promises.readdir(logsDir);
@@ -84,13 +98,19 @@ const mainInitPromise = (async () => {
                 await safeUnlink(path.join(logsDir, mainLogs[i].file));
             }
         }
-    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage logs: ${err.message}`); }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage logs: ${e.message}`);
+    }
     try {
         const userDataPath = app.getPath('userData');
         const versionSentinelPath = path.join(userDataPath, '.launcher-version');
         const currentVersion = app.getVersion();
         let lastVersion = null;
-        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _); }
+        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) {
+            const err = /** @type {any} */ (_);
+            if (err && err.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', err.message || err);
+        }
         if (lastVersion !== currentVersion) {
             const cacheDirs = ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'blob_storage'];
             for (const dir of cacheDirs) {
@@ -99,22 +119,36 @@ const mainInitPromise = (async () => {
             }
             await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
         }
-    } catch (err) { if (err.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${err.message}`); }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${e.message}`);
+    }
 })();
 
 const assertPathUnderSandbox = createSandboxValidator(safeDataDir);
 
+/**
+ * @param {any} event
+ * @param {string} channel
+ * @param {any} [payload]
+ */
 function safeSend(event, channel, payload) {
     if (event && !event.sender.isDestroyed()) {
         event.sender.send(channel, payload);
     }
 }
+
+/** @param {string} name */
 function mainSafeDir(name) {
     return String(name || '').replace(/[^a-z0-9]/gi, '_');
 }
+
+/** @param {string} nameOrFolder */
 function mainResolveInstanceFolder(nameOrFolder) {
     return mainSafeDir(nameOrFolder);
 }
+
+/** @param {string} msg */
 function mainLog(msg) {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
     if (_logStream && _logStream.writable) {
@@ -132,22 +166,27 @@ function mainLog(msg) {
     console.log(msg);
 }
 
+/** @param {string} filePath */
 async function safeUnlink(filePath) {
     try {
         await fs.promises.unlink(filePath);
     } catch (err) {
-        if (err.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le fichier ${filePath}: ${err.message}`);
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le fichier ${filePath}: ${e.message}`);
     }
 }
 
+/** @param {string} dirPath */
 async function safeRm(dirPath) {
     try {
         await fs.promises.rm(dirPath, { recursive: true, force: true });
     } catch (err) {
-        if (err.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le dossier ${dirPath}: ${err.message}`);
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Avertissement] Impossible de supprimer le dossier ${dirPath}: ${e.message}`);
     }
 }
 
+/** @type {import('./src/types/main').MainContext} */
 const context = {
     app, ipcMain,
     getMainWindow: () => mainWindow,
@@ -159,15 +198,18 @@ const context = {
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
     assertPathUnderSandbox, sanitizeShortcutName, shell
 };
+
 process.on('uncaughtException', (err) => {
     mainLog("Erreur critique (uncaughtException) : " + (err?.stack || err));
     if (_logStream && _logStream.writable) _logStream.end(() => app.quit());
     else app.quit();
 });
 process.on('unhandledRejection', (reason) => {
-    mainLog("Rejet asynchrone évité (unhandledRejection) : " + (reason?.stack || reason));
+    const r = /** @type {any} */ (reason);
+    mainLog("Rejet asynchrone évité (unhandledRejection) : " + (r?.stack || r));
 });
 
+/** @param {string} text */
 async function decryptSettingsMainProc(text) { 
     try {
         const decrypted = await decryptText(text);
@@ -175,7 +217,10 @@ async function decryptSettingsMainProc(text) {
         
         const leg = await legacyDecryptText(text);
         if (leg !== null) return leg;
-    } catch (err) { mainLog(`[Decrypt] Erreur tentative de déchiffrement: ${err.message}`); }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        mainLog(`[Decrypt] Erreur tentative de déchiffrement: ${e.message}`);
+    }
     return text;
 }
 
@@ -233,12 +278,12 @@ function createWindow() {
         "object-src 'none'",
     ].join("; ") + ";";
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        callback({
-            responseHeaders: {
-                ...(details.responseHeaders || {}),
-                "Content-Security-Policy": [rendererCSP],
-            },
-        });
+        /** @type {Record<string, string | string[]>} */
+        const responseHeaders = {
+            ...(details.responseHeaders || {}),
+            "Content-Security-Policy": [rendererCSP],
+        };
+        callback({ responseHeaders });
     });
 
     mainWindow.loadFile("index.html");
@@ -284,12 +329,12 @@ app.whenReady().then(async () => {
         if (details.resourceType !== 'mainFrame' && !details.url.startsWith('file://')) {
             return callback({ responseHeaders: details.responseHeaders });
         }
-        callback({
-            responseHeaders: {
-                ...details.responseHeaders,
-                'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
-            }
-        });
+        /** @type {Record<string, string | string[]>} */
+        const responseHeaders = {
+            ...(details.responseHeaders || {}),
+            'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
+        };
+        callback({ responseHeaders });
     });
 
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -306,11 +351,14 @@ app.whenReady().then(async () => {
             } else if (isModrinth) {
                 details.requestHeaders['User-Agent'] = `WilliamBossard/Gens-Launcher/${app.getVersion()} (wbossard@free.fr)`;
             }
-        } catch (err) { mainLog(`[Network] Erreur headers avant envoi: ${err.message}`); }
+        } catch (err) {
+            const e = /** @type {any} */ (err);
+            mainLog(`[Network] Erreur headers avant envoi: ${e.message}`);
+        }
         callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
     createWindow();
-    mainWindow.once('ready-to-show', () => {
+    mainWindow?.once('ready-to-show', () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
@@ -320,7 +368,7 @@ app.whenReady().then(async () => {
             }
         }, 3000);
     });
-    mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.on('did-finish-load', () => {
         const instName = parseAutoLaunchArg(process.argv);
         if (instName) {
             let shown = false;
@@ -336,7 +384,7 @@ app.whenReady().then(async () => {
             const wrappedShowOnce = () => showOnce();
             ipcMain.once("overlay-ready", wrappedShowOnce);
             setTimeout(showOnce, 2500);
-            mainWindow.webContents.send("trigger-auto-launch", instName);
+            mainWindow?.webContents.send("trigger-auto-launch", instName);
         }
     });
     try {
@@ -369,13 +417,16 @@ app.whenReady().then(async () => {
         tray.setToolTip('Gens Launcher');
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } });
-    } catch (err) { mainLog(`[Tray] Erreur Tray: ${err.message}`); }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        mainLog(`[Tray] Erreur Tray: ${e.message}`);
+    }
     const isLinuxManaged = process.platform === 'linux' && !process.env.APPIMAGE;
     if (isLinuxManaged) {
         autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = false;
         autoUpdater.checkForUpdates = async () => null;
-        autoUpdater.downloadUpdate = async () => null;
+        autoUpdater.downloadUpdate = async () => [];
     } else {
         autoUpdater.logger = {
             info: (m) => { if (!m.includes("Skip checkForUpdates")) mainLog(m); },
@@ -406,12 +457,18 @@ app.whenReady().then(async () => {
                                 mainLog(`MAJ disponible: ${currentVer} -> ${latestVer}`);
                                 mainWindow?.webContents.send("update-available-prompt", { version: latestVer });
                             }
-                        } catch(e) { mainLog("Erreur parsing release GitHub: " + e.message); }
+                        } catch(e) {
+                            const err = /** @type {any} */ (e);
+                            mainLog("Erreur parsing release GitHub: " + err.message);
+                        }
                     });
                 });
                 req.on("error", (e) => { mainLog("Erreur check MAJ Linux: " + e.message); });
                 req.end();
-            } catch(e) { mainLog("Erreur check MAJ Linux: " + e.message); }
+            } catch(e) {
+                const err = /** @type {any} */ (e);
+                mainLog("Erreur check MAJ Linux: " + err.message);
+            }
         } else {
             autoUpdater.checkForUpdates().catch(() => {
                 mainLog("Info : Vérification des MAJ annulée (hors-ligne ou erreur réseau).");
@@ -431,15 +488,21 @@ const ALLOWED_DOMAINS = [
     'bangbang93.com', 'adoptium.net'
 ];
 
+/**
+ * @param {string} url
+ * @param {string} dest
+ * @param {number} [redirectCount]
+ */
 async function downloadFile(url, dest, redirectCount = 0) {
     if (redirectCount >= 5) {
         throw new Error("Trop de redirections (max 5)");
     }
     
+    /** @type {URL} */
     let parsedUrl;
     try {
         parsedUrl = new URL(url);
-    } catch (e) {
+    } catch (_) {
         throw new Error("URL invalide");
     }
     const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
@@ -468,11 +531,14 @@ async function downloadFile(url, dest, redirectCount = 0) {
         if (!res.ok) {
             throw new Error(`Failed to get '${url}' (${res.status})`);
         }
+        if (!res.body) {
+            throw new Error(`Corps de réponse vide pour '${url}'`);
+        }
         
         await fs.promises.mkdir(path.dirname(dest), { recursive: true });
         const fileStream = fs.createWriteStream(dest);
         const { pipeline } = require('stream/promises');
-        await pipeline(res.body, fileStream);
+        await pipeline(/** @type {any} */ (res.body), fileStream);
         
         clearTimeout(timeout);
         return { success: true };
@@ -491,7 +557,8 @@ ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
         await downloadFile(url, safeDest);
         return { success: true };
     } catch (err) {
-        return { success: false, error: err.message };
+        const e = err instanceof Error ? err.message : String(err);
+        return { success: false, error: e };
     }
 });
 
@@ -550,11 +617,10 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
 
         return { success: true, destPath };
     } catch (err) {
-        return { success: false, error: err.message };
+        const e = err instanceof Error ? err.message : String(err);
+        return { success: false, error: e };
     }
 });
-
-
 
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -602,18 +668,22 @@ require('./src/main/shortcuts')(context);
 require('./src/main/updater')(context);
 const DiscordRPC = require('./src/gens-core/components/discord.js');
 let rpc = new DiscordRPC(DISCORD_CLIENT_ID);
+/** @type {any} */
 let lastDiscordData = null;
 
+/** @param {any} data */
 function applyDiscordData(data) {
     if (!rpc.connected) return;
     if (data === "clear") {
         rpc.clearActivity();
     } else {
+        /** @type {Record<string, any>} */
         const activity = {};
         if (data.details) activity.details = data.details;
         if (data.state) activity.state = data.state;
         if (data.startTimestamp) activity.timestamps = { start: new Date(data.startTimestamp).getTime() };
         
+        /** @type {Record<string, any>} */
         const assets = {};
         if (data.largeImageKey) assets.large_image = data.largeImageKey;
         if (data.largeImageText) assets.large_text = data.largeImageText;
@@ -638,11 +708,12 @@ let shouldConnectDiscord = true;
             }
         }
     } catch (err) {
-        if (err.code !== 'ENOENT') mainLog(`[Discord] Erreur lecture settings: ${err.message}`);
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Discord] Erreur lecture settings: ${e.message}`);
     }
 
     if (shouldConnectDiscord) {
-        rpc.connect().then(success => {
+        rpc.connect().then((/** @type {boolean} */ success) => {
             if (success) {
                 mainLog('Discord RPC connecté.');
                 if (lastDiscordData) applyDiscordData(lastDiscordData);
@@ -653,6 +724,7 @@ let shouldConnectDiscord = true;
         mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
     }
 })();
+
 ipcMain.handle("reconnect-discord", async () => {
     rpc.disconnect();
     const success = await rpc.connect();
@@ -667,7 +739,6 @@ ipcMain.on("update-discord", (event, data) => {
     lastDiscordData = data;
     applyDiscordData(data);
 });
-
 
 ipcMain.handle('encrypt-string', async (event, text) => {
     return encryptText(text);
@@ -691,9 +762,17 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
         });
         return { success: true, hash: hash.digest('hex') };
     } catch (e) {
-        return { success: false, error: e.message };
+        const err = e instanceof Error ? e.message : String(e);
+        return { success: false, error: err };
     }
 });
 
-app.on('before-quit', () => { try { if (_logStream) _logStream.end(); } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _); } });
+app.on('before-quit', () => {
+    try {
+        if (_logStream) _logStream.end();
+    } catch (_e) {
+        const _ = /** @type {any} */ (_e);
+        if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _);
+    }
+});
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

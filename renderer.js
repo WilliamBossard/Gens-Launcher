@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "./src/store.js";
 import "./src/utils.js";
 import { initRPC } from "./src/discord.js";
@@ -24,6 +25,9 @@ window.ACHIEVEMENTS = ACHIEVEMENTS;
 const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
+/** @type {(id: string) => any} */
+const $ = (id) => document.getElementById(id);
+
 const path = window.api.path;
 
 if (window.api.isAutoLaunch) {
@@ -32,6 +36,7 @@ if (window.api.isAutoLaunch) {
 }
 
 window._isAppImage = window.api.isAppImage || false;
+/** @type {Array<[string, Function]>} */
 const _setupFunctions = [
     ["initRPC", initRPC],
     ["setupAuth", setupAuth],
@@ -55,8 +60,8 @@ const _setupFunctions = [
 ];
 for (const [name, fn] of _setupFunctions) {
     try {
-        fn();
-    } catch (e) {
+        (/** @type {Function} */ (fn))();
+    } catch (/** @type {any} */ e) {
         console.error(`[Init] Erreur dans ${name} :`, e);
         if (window.showToast) window.showToast(`Erreur d'initialisation : ${name}`, "error");
     }
@@ -64,15 +69,15 @@ for (const [name, fn] of _setupFunctions) {
 ipcRenderer.on("update-msg", (data) => {
     const text = (data.key && store.currentLangObj[data.key]) ? store.currentLangObj[data.key] : data.text;
     window.showToast(text, data.type);
-    const statusDiv = document.getElementById("update-status");
+    const statusDiv = $("update-status");
     if (statusDiv) statusDiv.innerText = text;
 });
 ipcRenderer.on("update-available-prompt", async (info) => {
     store.pendingLauncherUpdate = info;
     if (window.api.isAutoLaunch) return;
-    const badge = document.getElementById("settings-update-badge");
+    const badge = $("settings-update-badge");
     if (badge) badge.style.display = "block";
-    const tabBadge = document.getElementById("updates-tab-badge");
+    const tabBadge = $("updates-tab-badge");
     if (tabBadge) tabBadge.style.display = "block";
     if (window.renderUpdateTab) window.renderUpdateTab();
     if (store.globalSettings.autoDownloadUpdates) {
@@ -84,12 +89,12 @@ ipcRenderer.on("update-available-prompt", async (info) => {
     }
 });
 ipcRenderer.on("update-progress", (pct) => {
-    const statusDiv = document.getElementById("update-status");
+    const statusDiv = $("update-status");
     if (statusDiv) statusDiv.innerText = `${t("msg_update_downloading", "Téléchargement en cours... (Patientez)")} ${pct}%`;
-    const overlay = document.getElementById("loading-overlay");
-    const percentDiv = document.getElementById("loading-percent");
-    const textDiv = document.getElementById("loading-text");
-    const isSettingsOpen = document.getElementById("modal-settings")?.style.display === "flex";
+    const overlay = $("loading-overlay");
+    const percentDiv = $("loading-percent");
+    const textDiv = $("loading-text");
+    const isSettingsOpen = $("modal-settings")?.style.display === "flex";
     if (!store.globalSettings.autoDownloadUpdates || isSettingsOpen) {
         if (overlay && percentDiv && textDiv) {
             overlay.style.display = "flex";
@@ -99,17 +104,17 @@ ipcRenderer.on("update-progress", (pct) => {
     }
 });
 ipcRenderer.on("update-downloaded", async () => {
-    const overlay = document.getElementById("loading-overlay");
+    const overlay = $("loading-overlay");
     if (overlay) overlay.style.display = "none";
     const msg = t("msg_update_restart", "Mise à jour prête ! Voulez-vous redémarrer maintenant ?");
     if (await window.showCustomConfirm(msg)) {
         ipcRenderer.send("confirm-update"); 
         ipcRenderer.send("restart_app");
     } else {
-        const statusDiv = document.getElementById("update-status");
+        const statusDiv = $("update-status");
         if (statusDiv) statusDiv.innerText = t("msg_update_later", "Mise à jour prête. Redémarrez plus tard.");
         
-        const btn = document.getElementById("btn-start-update");
+        const btn = $("btn-start-update");
         if (btn) {
             btn.disabled = false;
             btn.innerText = t("btn_restart_update", "Redémarrer pour mettre à jour");
@@ -120,10 +125,10 @@ ipcRenderer.on("update-downloaded", async () => {
         }
     }
 });
-document.getElementById("console-filter")?.addEventListener("input", (e) => {
+$("console-filter")?.addEventListener("input", (/** @type {any} */ e) => {
     const filter = e.target.value.toLowerCase();
     const lines = document.querySelectorAll(".log-line");
-    lines.forEach(line => {
+    lines.forEach((/** @type {any} */ line) => {
         const text = line.innerText.toLowerCase();
         line.style.display = text.includes(filter) ? "block" : "none";
     });
@@ -151,10 +156,10 @@ async function init() {
         store.maxSafeRam = Math.max(1024, totalRamMB - 2048);
         const ramInputs = ["new-ram-input", "new-ram-slider", "global-ram-input", "global-ram-slider", "edit-ram-input", "edit-ram-slider"];
         ramInputs.forEach((id) => {
-            const el = document.getElementById(id);
+            const el = /** @type {any} */ ($(id));
             if (el) el.max = store.maxSafeRam;
         });
-        document.getElementById("app-version").innerText = "v" + window.api.version;
+        $("app-version").innerText = "v" + window.api.version;
         await window.loadStorage();
         window._isStorageLoaded = true;
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
@@ -165,7 +170,7 @@ async function init() {
         }
         window.applyTheme();
         if (window.populateLangDropdown) window.populateLangDropdown();
-        if (!store.globalSettings.language) document.getElementById("modal-first-launch").style.display = "flex";
+        if (!store.globalSettings.language) $("modal-first-launch").style.display = "flex";
         else if (window.loadLanguage) await window.loadLanguage(store.globalSettings.language);
         window.renderUI();
         if (window.renderAccountManager) window.renderAccountManager();
@@ -191,7 +196,7 @@ async function init() {
                     if (window.updateVersionList) window.updateVersionList(false);
                 }
             }
-        } catch (_) { /* ignore cache error */ }
+        } catch (/** @type {any} */ _) {  }
 
         (async () => {
             const manifestUrls = [
@@ -201,7 +206,7 @@ async function init() {
             for (const manifestUrl of manifestUrls) {
                 try {
                     const fetchFn = typeof window.fetchWithTimeout === 'function'
-                        ? (u) => window.fetchWithTimeout(u, { timeout: 7000 })
+                        ? (/** @type {string} */ u) => window.fetchWithTimeout(u, { timeout: 7000 })
                         : fetch;
                     const res = await fetchFn(manifestUrl);
                     if (!res.ok) continue;
@@ -211,18 +216,19 @@ async function init() {
                     window.safeWriteJSONAsync(cachePath, data.versions);
                     if (window.updateVersionList) window.updateVersionList(false);
                     break;
-                } catch (_) { /* try next mirror */ }
+                } catch (/** @type {any} */ _) {  }
             }
         })();
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         console.error("Critical error in init():", e);
         window.api.send('show-window');
     }
 }
 window.ctxSyncCloud = async () => {
+    if (store.selectedInstanceIdx === null) return;
     const inst = store.allInstances[store.selectedInstanceIdx];
     if (inst) {
-        document.getElementById("custom-context-menu").style.display = "none";
+        $("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
             const slug = window.safeDir(inst.name);
@@ -237,9 +243,10 @@ window.ctxSyncCloud = async () => {
     }
 };
 window.ctxUploadCloud = async () => {
+    if (store.selectedInstanceIdx === null) return;
     const inst = store.allInstances[store.selectedInstanceIdx];
     if (inst) {
-        document.getElementById("custom-context-menu").style.display = "none";
+        $("custom-context-menu").style.display = "none";
         window._isManualHorizon = true;
         try {
             if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst);
@@ -251,7 +258,7 @@ window.ctxUploadCloud = async () => {
     }
 };
 window.api.on("horizon-status", async (data) => {
-    const getRealName = async (safeName) => {
+    const getRealName = async (/** @type {string} */ safeName) => {
         if (!safeName) return "";
         const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
         if (localInst) return localInst.name;
@@ -260,7 +267,7 @@ window.api.on("horizon-status", async (data) => {
             await window.api.fs.promises.access(metaPath);
             const meta = JSON.parse(await window.api.fs.promises.readFile(metaPath, "utf8"));
             if (meta.realName) return meta.realName;
-        } catch (e) { }
+        } catch (/** @type {any} */ e) { }
         return safeName;
     };
     if (data.type === "CHECK_RESULT") {
@@ -272,14 +279,14 @@ window.api.on("horizon-status", async (data) => {
     if (data.type === "CLOUD_LIST") {
         window._cloudInstances = data.data || [];
         window._cloudRichData = data.richData || [];
-        const grid = document.getElementById("horizon-cloud-grid");
+        const grid = $("horizon-cloud-grid");
         if (!grid) return;
         if (!data.data || data.data.length === 0) {
             grid.innerHTML = `<div style='color: #aaa; font-size: 0.85rem; padding: 10px;'>${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`;
             return;
         }
-        const richIndex = {};
-        (data.richData || []).forEach(r => { richIndex[r.name] = r; });
+        const richIndex = /** @type {Record<string, any>} */ ({});
+        (data.richData || []).forEach((/** @type {any} */ r) => { richIndex[r.name] = r; });
         const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
         let html = "";
         for (const instName of data.data) {
@@ -303,7 +310,7 @@ window.api.on("horizon-status", async (data) => {
                 const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                 const customIcon = localInst.icon || "";
 
-                const fileExists = async (p) => { try { await window.api.fs.promises.access(p); return true; } catch (e) { return false; } };
+                const fileExists = async (/** @type {string} */ p) => { try { await window.api.fs.promises.access(p); return true; } catch (/** @type {any} */ e) { return false; } };
 
                 if (localInst._iconCacheBuster) {
                     const pngPath = window.api.path.join(instFolder, "icon.png");
@@ -319,11 +326,11 @@ window.api.on("horizon-status", async (data) => {
                         try {
                             const mime = targetPath.toLowerCase().endsWith('.jpg') ? 'image/jpeg' : 'image/png';
                             iconSrc = `data:${mime};base64,${await window.api.fs.promises.readFile(targetPath, 'base64')}`;
-                        } catch (e) { iconSrc = customIcon || window.pathToFileUrl(pngPath.replace(/\\/g, "/")); }
+                        } catch (/** @type {any} */ e) { iconSrc = customIcon || window.pathToFileUrl(pngPath.replace(/\\/g, "/")); }
                     } else if (customIcon) {
                         iconSrc = customIcon;
                     } else {
-                        iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
+                        iconSrc = (/** @type {any} */ (store.defaultIcons))[localInst.loader] || store.defaultIcons.vanilla;
                     }
                 } else {
                     if (customIcon) {
@@ -333,14 +340,14 @@ window.api.on("horizon-status", async (data) => {
                     } else if (await fileExists(window.api.path.join(instFolder, "icon.jpg"))) {
                         iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
                     } else {
-                        iconSrc = store.defaultIcons[localInst.loader] || store.defaultIcons.vanilla;
+                        iconSrc = (/** @type {any} */ (store.defaultIcons))[localInst.loader] || store.defaultIcons.vanilla;
                     }
                 }
             } else {
                 if (rich) {
                     iconSrc = (rich.iconData && rich.iconData !== "")
                         ? rich.iconData
-                        : (store.defaultIcons[rich.loader] || store.defaultIcons.vanilla);
+                        : ((/** @type {any} */ (store.defaultIcons))[rich.loader] || store.defaultIcons.vanilla);
                 } else {
                     iconSrc = store.defaultIcons.vanilla;
                 }
@@ -356,13 +363,13 @@ window.api.on("horizon-status", async (data) => {
         }
         window._lastCloudGridHtml = html;
         grid.innerHTML = html;
-        grid.querySelectorAll('.instance-card[data-name]').forEach(card => {
+        grid.querySelectorAll('.instance-card[data-name]').forEach((/** @type {any} */ card) => {
             const name = card.dataset.name;
             const isLoc = card.dataset.isLocal === 'true';
             const slug = card.dataset.slug || window.safeDir(name);
-            card.addEventListener('contextmenu', (e) => openCloudContextMenu(e, name, isLoc, slug));
+            card.addEventListener('contextmenu', (/** @type {any} */ e) => window.openCloudContextMenu(e, name, isLoc, slug));
         });
-        grid.querySelectorAll('.instance-card .instance-icon').forEach((img) => {
+        grid.querySelectorAll('.instance-card .instance-icon').forEach((/** @type {any} */ img) => {
             img.addEventListener('error', () => {
                 if (img.dataset.fallbackApplied === '1') return;
                 img.dataset.fallbackApplied = '1';
@@ -371,34 +378,25 @@ window.api.on("horizon-status", async (data) => {
         });
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
-            try { await window.api.fs.promises.access(binDir); } catch (e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
+            try { await window.api.fs.promises.access(binDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
             const cachePath = window.api.path.join(binDir, "horizon_cloud_cache.json");
             await window.api.fs.promises.writeFile(cachePath, JSON.stringify(data), "utf8");
             const htmlCachePath = window.api.path.join(binDir, "horizon_cloud_html_cache.txt");
             await window.api.fs.promises.writeFile(htmlCachePath, html, "utf8");
-        } catch (e) { }
+        } catch (/** @type {any} */ e) { }
         return;
     }
     if (data.type === "LOG") {
-        if (document.getElementById("log-output")) {
+        if ($("log-output")) {
             const color = data.level === "ERROR" ? "#f87171" : "#aaa";
             window.appendLog(`<div class="log-line" style="color:${color}">[HORIZON] ${window.escapeHTML(data.message)}</div>`);
         }
         return;
     }
-    /**
-     * ==============================================================================
-     * REFONTES DE SÉCURITÉ / ROBUSTESSE - CACHE DU QUOTA CLOUD
-     * ==============================================================================
-     * DECISION ARCHITECTURALE : Implémentation d'un système de persistance locale
-     * pour le quota Cloud d'Horizon. Évite les appels réseau bloquants au démarrage.
-     * MOTIF DE PRODUCTION : Supprime le freeze visuel "Chargement..." dans l'onglet settings.
-     * ==============================================================================
-     */
-    if (data.type === "QUOTA") {
-        const el = document.getElementById("horizon-quota-zone");
+        if (data.type === "QUOTA") {
+        const el = $("horizon-quota-zone");
         if (!el) return;
-        function fmtBytes(b) {
+        function fmtBytes(/** @type {any} */ b) {
             if (!b || b === 0) return "0 Mo";
             if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " Go";
             return (b / 1048576).toFixed(1) + " Mo";
@@ -408,7 +406,7 @@ window.api.on("horizon-status", async (data) => {
         const barColor = usedPct >= 90 ? "#f87171" : usedPct >= 70 ? "#f48a21" : "var(--accent)";
         const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
         const providerLabel = (data.provider || "google").charAt(0).toUpperCase() + (data.provider || "google").slice(1);
-        const instances = (data.instances || []).sort((a, b) => b.bytes - a.bytes);
+        const instances = (data.instances || []).sort((/** @type {any} */ a, /** @type {any} */ b) => b.bytes - a.bytes);
         let instRows = "";
         for (const inst of instances.slice(0, 8)) {
             const rowDisplayName = await getRealName(inst.name);
@@ -456,22 +454,22 @@ window.api.on("horizon-status", async (data) => {
         el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
         try {
             const binDir = window.api.path.join(store.dataDir, "bin");
-            try { await window.api.fs.promises.access(binDir); } catch (e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
+            try { await window.api.fs.promises.access(binDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(binDir, { recursive: true }); }
             const quotaCachePath = window.api.path.join(binDir, "horizon_quota_cache.json");
             await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
             const quotaHtmlCachePath = window.api.path.join(binDir, "horizon_quota_html_cache.txt");
             await window.api.fs.promises.writeFile(quotaHtmlCachePath, el.innerHTML, "utf8");
-        } catch (e) { }
+        } catch (/** @type {any} */ e) { }
         return;
     }
     if (data.type === "ROLLBACK_LIST") {
-        const el = document.getElementById("horizon-rollback-list");
+        const el = $("horizon-rollback-list");
         if (!el) return;
         if (!data.data || data.data.length === 0) {
             el.innerHTML = `<span style="color:#aaa; font-size:0.82rem;">${t("horizon_no_rollback", "Aucun rollback disponible.")}</span>`;
             return;
         }
-        el.innerHTML = data.data.map(r =>
+        el.innerHTML = data.data.map((/** @type {any} */ r) =>
             `<div style="font-size:0.8rem; color:var(--text-light); margin-bottom:4px;">
                 <strong>${window.escapeHTML(r.instance)}</strong>
                 <span style="color:#888; margin-left:6px;">${r.timestamp ? new Date(r.timestamp).toLocaleString() : "?"}</span>
@@ -480,8 +478,9 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
     const cards = document.querySelectorAll('.instance-card');
+    /** @type {any[]} */
     let targetCards = [];
-    cards.forEach(c => {
+    cards.forEach((/** @type {any} */ c) => {
         const nameEl = c.querySelector('.instance-name');
         if (nameEl && data.instance && (nameEl.innerText.trim() === data.instance.trim() || window.safeDir(nameEl.innerText.trim()) === data.instance.trim())) {
             targetCards.push(c);
@@ -501,7 +500,7 @@ window.api.on("horizon-status", async (data) => {
     }
     if (data.type === "PROGRESS") {
         const val = Math.round(data.value);
-        targetCards.forEach(targetCard => {
+        targetCards.forEach((/** @type {any} */ targetCard) => {
             const circleContainer = targetCard.querySelector('.progress-circle-container');
             const textInfo = targetCard.querySelector('.progress-text');
             if (circleContainer && textInfo) {
@@ -516,9 +515,9 @@ window.api.on("horizon-status", async (data) => {
             }
         });
         if (window._isAutoLaunch) {
-            const autoBar = document.getElementById("auto-progress-bar");
+            const autoBar = $("auto-progress-bar");
             if (autoBar) autoBar.style.width = val + "%";
-            const autoStatus = document.getElementById("auto-status-text");
+            const autoStatus = $("auto-status-text");
             if (autoStatus) {
                 let stepText = t("msg_loading", "Traitement...");
                 if (data.step === "COMPRESSING") stepText = t("msg_compress", "Compression...");
@@ -528,9 +527,9 @@ window.api.on("horizon-status", async (data) => {
                 autoStatus.innerText = `${stepText} (${val}%)`;
             }
         }
-        const globalBar = document.getElementById("horizon-bar");
-        const globalStep = document.getElementById("horizon-step");
-        const globalPerc = document.getElementById("horizon-perc");
+        const globalBar = $("horizon-bar");
+        const globalStep = $("horizon-step");
+        const globalPerc = $("horizon-perc");
         if (globalBar) globalBar.style.width = val + "%";
         if (globalPerc) globalPerc.innerText = val + "%";
         if (globalStep) {
@@ -621,7 +620,7 @@ window.api.on("horizon-status", async (data) => {
                     const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                     const jsonPath = window.api.path.join(instFolder, "instance.json");
                     let exists = false;
-                    try { await window.api.fs.promises.access(jsonPath); exists = true; } catch (e) { /* ignore */ }
+                    try { await window.api.fs.promises.access(jsonPath); exists = true; } catch (/** @type {any} */ e) {  }
                     if (exists) {
                         const parsed = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
                         const diskTs = Number(parsed._localConfigUpdatedAt || parsed._cloudExportedAt) || 0;
@@ -651,12 +650,12 @@ window.api.on("horizon-status", async (data) => {
                             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                         }
                     }
-                } catch (e) { console.error("Erreur màj instance.json après sync:", e); }
+                } catch (/** @type {any} */ e) { console.error("Erreur màj instance.json après sync:", e); }
 
                 localInst._iconCacheBuster = Date.now();
                 if (window.updateIconCache) await window.updateIconCache(localInst);
                 if (window.renderUI) window.renderUI();
-                if (window.selectInstance && store.allInstances[store.selectedInstanceIdx] === localInst) {
+                if (window.selectInstance && store.selectedInstanceIdx !== null && store.allInstances[store.selectedInstanceIdx] === localInst) {
                     window.selectInstance(store.selectedInstanceIdx);
                 }
             }
@@ -664,16 +663,16 @@ window.api.on("horizon-status", async (data) => {
         }
     }
 });
-window.openCloudContextMenu = (e, instName, isLocal, cloudSlug = null) => {
+window.openCloudContextMenu = (/** @type {any} */ e, /** @type {string} */ instName, /** @type {boolean} */ isLocal, cloudSlug = null) => {
     e.preventDefault();
     e.stopPropagation();
     store.cloudTarget = instName;
-    store.cloudTargetSlug = cloudSlug || (window._cloudRichData?.find(r => r.name === instName || r.realName === instName)?.name) || window.safeDir(instName);
-    const menu = document.getElementById("cloud-only-context-menu");
+    store.cloudTargetSlug = cloudSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === instName || r.realName === instName)?.name) || window.safeDir(instName);
+    const menu = $("cloud-only-context-menu");
     if (!menu) return;
-    const restoreItem = document.getElementById("ctx-cloud-restore-item");
-    const syncItem = document.getElementById("ctx-cloud-sync-item");
-    const uploadItem = document.getElementById("ctx-cloud-upload-item");
+    const restoreItem = $("ctx-cloud-restore-item");
+    const syncItem = $("ctx-cloud-sync-item");
+    const uploadItem = $("ctx-cloud-upload-item");
     if (isLocal) {
         if (restoreItem) restoreItem.style.display = "none";
         if (syncItem) syncItem.style.display = "flex";
@@ -691,29 +690,21 @@ window.openCloudContextMenu = (e, instName, isLocal, cloudSlug = null) => {
     menu.style.left = x + "px";
     menu.style.top = y + "px";
 };
-/**
-     * ==============================================================================
-     * REFONTES DE SÉCURITÉ / ROBUSTESSE - RESTAURATION AVEC CARTE PHANTOME
-     * ==============================================================================
-     * DECISION ARCHITECTURALE : Génération immédiate d'une carte d'instance asynchrone 
-     * flaggée 'is-phantom' pour matérialiser visuellement la reconstruction sur le disque.
-     * MOTIF DE PRODUCTION : Évite la confusion de l'utilisateur et gère la progression par canal.
-     * ==============================================================================
-     */
 window.ctxRestoreCloud = async () => {
-    document.getElementById("cloud-only-context-menu").style.display = "none";
+    $("cloud-only-context-menu").style.display = "none";
     if (window.closeGlobalSettings) window.closeGlobalSettings();
     const targetName = store.cloudTarget;
+    if (!targetName) return;
     let iconData = "";
     let loader = "vanilla";
     if (window._cloudRichData) {
-        const rich = window._cloudRichData.find(r => r.name === targetName || window.safeDir(r.name) === window.safeDir(targetName));
+        const rich = window._cloudRichData.find((/** @type {any} */ r) => r.name === targetName || window.safeDir(r.name) === window.safeDir(targetName));
         if (rich) {
             iconData = rich.iconData || "";
             loader = rich.loader || "vanilla";
         }
     }
-    const targetSlug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
+    const targetSlug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     const existingIdx = store.allInstances.findIndex(i =>
         i.name === targetName || window.sameFolderSlug(window.safeDir(i.name), targetSlug)
     );
@@ -752,7 +743,7 @@ window.ctxRestoreCloud = async () => {
     try {
         await window.api.fs.promises.access(jsonPath);
         realInst = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
-    } catch (e) { }
+    } catch (/** @type {any} */ e) { }
     if (realInst) {
         realInst._iconCacheBuster = Date.now();
         const phantomInst = store.allInstances[idx];
@@ -764,7 +755,7 @@ window.ctxRestoreCloud = async () => {
         let dVer = "1.20.4", dLoader = "vanilla", dLoaderVer = "";
         const vDir = window.api.path.join(instFolder, "versions");
         let vDirExists = false;
-        try { await window.api.fs.promises.access(vDir); vDirExists = true; } catch (e) { }
+        try { await window.api.fs.promises.access(vDir); vDirExists = true; } catch (/** @type {any} */ e) { }
         if (vDirExists) {
             try {
                 const subDirs = await window.api.fs.promises.readdir(vDir);
@@ -777,7 +768,7 @@ window.ctxRestoreCloud = async () => {
                     else if (vName.includes("forge")) dLoader = "forge";
                     else if (vName.includes("quilt")) dLoader = "quilt";
                 }
-            } catch (e) { }
+            } catch (/** @type {any} */ e) { }
         }
         store.allInstances[idx] = {
             name: targetName,
@@ -790,7 +781,7 @@ window.ctxRestoreCloud = async () => {
             icon: iconData, resW: "", resH: "", playTime: 0, lastPlayed: 0,
             sessionHistory: [], group: t("lbl_group_general", "Général"), servers: [], backupMode: "none", backupLimit: 5
         };
-        try { window.safeWriteJSONAsync(jsonPath, store.allInstances[idx]); } catch (e) { }
+        try { window.safeWriteJSONAsync(jsonPath, store.allInstances[idx]); } catch (/** @type {any} */ e) { }
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
     if (window.updateIconCache) await window.updateIconCache(store.allInstances[idx]);
@@ -798,21 +789,21 @@ window.ctxRestoreCloud = async () => {
     window.renderUI();
 };
 window.ctxDeleteCloudOnly = async () => {
-    document.getElementById("cloud-only-context-menu").style.display = "none";
+    $("cloud-only-context-menu").style.display = "none";
     const baseMsg = t("msg_also_delete_cloud", "Voulez-vous supprimer définitivement \"{name}\" du Cloud ?");
-    const finalMsg = baseMsg.replace("{name}", store.cloudTarget);
+    const finalMsg = baseMsg.replace("{name}", store.cloudTarget || "");
     if (await window.showCustomConfirm(finalMsg, true)) {
         window.showToast(t("horizon_cloud_deleting", "Suppression du Cloud en cours..."), "info");
-        const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === store.cloudTarget || r.realName === store.cloudTarget)?.name) || window.safeDir(store.cloudTarget);
+        const slug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === store.cloudTarget || r.realName === store.cloudTarget)?.name) || window.safeDir(store.cloudTarget || "");
         await window.api.invoke("call-horizon", ['--sync', '--delete', slug]);
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     }
 };
 window.ctxSyncCloudFromMenu = async () => {
-    document.getElementById("cloud-only-context-menu").style.display = "none";
+    $("cloud-only-context-menu").style.display = "none";
     const targetName = store.cloudTarget;
     if (!targetName) return;
-    const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
+    const slug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
@@ -829,10 +820,10 @@ window.ctxSyncCloudFromMenu = async () => {
     }
 };
 window.ctxUploadCloudFromMenu = async () => {
-    document.getElementById("cloud-only-context-menu").style.display = "none";
+    $("cloud-only-context-menu").style.display = "none";
     const targetName = store.cloudTarget;
     if (!targetName) return;
-    const slug = store.cloudTargetSlug || (window._cloudRichData?.find(r => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
+    const slug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
     window.showToast(t("horizon_uploading", "Envoi de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
@@ -845,17 +836,17 @@ window.ctxUploadCloudFromMenu = async () => {
     }
 };
 document.addEventListener("click", () => {
-    const menuCloud = document.getElementById("cloud-only-context-menu");
+    const menuCloud = $("cloud-only-context-menu");
     if (menuCloud) menuCloud.style.display = "none";
 });
 
 window.clearHorizonUpdateBadges = () => {
-    const horizonBadge = document.getElementById("horizon-update-badge");
+    const horizonBadge = $("horizon-update-badge");
     if (horizonBadge) horizonBadge.style.display = "none";
-    const tabBadge = document.getElementById("horizon-tab-badge");
+    const tabBadge = $("horizon-tab-badge");
     if (tabBadge) tabBadge.style.display = "none";
 };
-window.horizonOpFailed = (result) => {
+window.horizonOpFailed = (/** @type {any} */ result) => {
     if (result == null) return true;
     if (typeof result === "number") return result !== 0;
     if (result.exitCode !== 0) return true;
@@ -863,17 +854,17 @@ window.horizonOpFailed = (result) => {
     return false;
 };
 
-window.horizonScheduleCloudRefresh = async (opts = {}) => {
+window.horizonScheduleCloudRefresh = async (/** @type {any} */ opts = {}) => {
     const { refreshQuota = false } = opts;
     try {
         await window.api.invoke("call-horizon", ["--sync", "--list"]);
         if (refreshQuota) await window.refreshHorizonQuotaSilent();
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         console.error("[Horizon] Rafraîchissement cloud:", e);
     }
 };
 window.refreshHorizonQuota = async () => {
-    const el = document.getElementById("horizon-quota-zone");
+    const el = $("horizon-quota-zone");
     if (!el) return;
     if (!window._lastQuotaHtml) {
         try {
@@ -883,10 +874,10 @@ window.refreshHorizonQuota = async () => {
                 await window.api.fs.promises.access(quotaCachePath);
                 const cached = JSON.parse(await window.api.fs.promises.readFile(quotaCachePath, "utf8"));
                 if (cached && cached.type === "QUOTA") {
-                    window.api.on && setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
+                    setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
                 }
-            } catch (e) { }
-        } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[renderer.js] Erreur silencieuse interceptée:', _.message || _); }
+            } catch (/** @type {any} */ e) { }
+        } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.error('[renderer.js] Erreur silencieuse interceptée:', _.message || _); }
     }
     if (!window._lastQuotaHtml) {
         el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0;">

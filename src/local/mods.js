@@ -1,13 +1,11 @@
+// @ts-check
 import { store } from "../store.js";
-import { yieldUI, sysLog } from "../utils.js";
+import { yieldUI } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function safeAttrJson(value) {
-    return JSON.stringify(value).replace(/'/g, "&#39;");
-}
-
 export function setup() {
+    /** @type {Record<string, any> | null} */
     let modCacheObj = null;
     let cacheChanged = false;
 
@@ -27,7 +25,7 @@ export function setup() {
     }
 
     async function saveModCache() {
-        if (!cacheChanged) return;
+        if (!cacheChanged || !modCacheObj) return;
         try {
             const cacheFile = path.join(store.dataDir, "mods_cache.json");
             await window.safeWriteJSONAsync(cacheFile, modCacheObj);
@@ -35,10 +33,12 @@ export function setup() {
         } catch(e) {}
     }
 
+    /** @param {any} inst */
     async function getModWarnings(inst) {
         await loadModCache();
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let provided = new Set(["minecraft", "java", "fabricloader", "forge", "quilt", "quilt_loader", "fabric"]);
+        /** @type {Record<string, string[]>} */
         let reqs = {};
         if (!(await window.existsSafe(modsPath))) return {};
         const allFiles = await fs.promises.readdir(modsPath);
@@ -48,15 +48,15 @@ export function setup() {
             try {
                 const fullPath = path.join(modsPath, f);
                 const stat = await window.api.fs.promises.stat(fullPath);
-                const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; 
+                const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory); 
                 if (isDir) continue;
                 
                 const time = stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : 0);
                 const fileKey = "v2_" + f + "_" + stat.size + "_" + time;
                 
-                if (modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
+                if (modCacheObj && modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
                     const cached = modCacheObj[fullPath];
-                    if (cached.provided) cached.provided.forEach(p => provided.add(String(p).toLowerCase()));
+                    if (cached.provided) cached.provided.forEach((/** @type {string} */ p) => provided.add(String(p).toLowerCase()));
                     if (cached.reqs) reqs[f] = cached.reqs;
                     continue;
                 }
@@ -66,13 +66,15 @@ export function setup() {
                     entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"] 
                 });
                 
+                /** @type {string[]} */
                 let fileProvided = [];
+                /** @type {string[]} */
                 let fileReqs = [];
                 if (res.success && res.text) {
                     if (res.file.endsWith(".json")) {
                         const json = JSON.parse(res.text);
                         if (json.id) fileProvided.push(json.id);
-                        if (Array.isArray(json.provides)) json.provides.forEach(p => fileProvided.push(p));
+                        if (Array.isArray(json.provides)) json.provides.forEach((/** @type {string} */ p) => fileProvided.push(p));
                         if (json.depends) fileReqs = Object.keys(json.depends);
                     } else if (res.file.endsWith(".toml")) {
                         const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
@@ -85,7 +87,9 @@ export function setup() {
                     }
                 }
                 
-                modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
+                if (modCacheObj) {
+                    modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
+                }
                 cacheChanged = true;
                 
                 fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
@@ -96,8 +100,8 @@ export function setup() {
         
         await saveModCache();
 
-        // Dépendances fournies par le jeu ou le loader lui-même : jamais présentes dans le dossier mods
         const BUILTIN_DEPS = new Set(["minecraft", "java", "fabricloader", "fabric", "quilt_loader", "quiltloader", "forge", "neoforge", "javafml"]);
+        /** @type {Record<string, string[]>} */
         let warnings = {};
         for (let f in reqs) {
             reqs[f].forEach(reqId => {
@@ -118,8 +122,10 @@ export function setup() {
 
     window.renderModsManager = async function() {
         const modsListDiv = document.getElementById("mods-list");
+        if (!modsListDiv) return;
         const savedScroll = modsListDiv.scrollTop;
         const instIdx = store.selectedInstanceIdx;
+        if (instIdx === null) return;
         const inst = store.allInstances[instIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
@@ -129,6 +135,7 @@ export function setup() {
         
         let hasMods = files.length > 0;
 
+        /** @param {Record<string, string[]>} [warnings] */
         function renderUI(warnings = {}) {
             let htmlBuilder = "";
             files.forEach(f => {
@@ -153,39 +160,53 @@ export function setup() {
                 </div>`;
             });
             if (hasMods) {
-                modsListDiv.innerHTML = htmlBuilder;
-                modsListDiv.querySelectorAll('.mod-item[data-mod-file]').forEach(item => {
-                    const filename = item.dataset.modFile;
-                    item.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => toggleMod(filename, e.target.checked));
-                    item.querySelector('.mod-delete-btn')?.addEventListener('click', () => deleteMod(filename));
-                });
+                if (modsListDiv) {
+                    modsListDiv.innerHTML = htmlBuilder;
+                    modsListDiv.querySelectorAll('.mod-item[data-mod-file]').forEach(item => {
+                        const htmlItem = /** @type {HTMLElement} */ (item);
+                        const filename = htmlItem.dataset.modFile;
+                        if (!filename) return;
+                        htmlItem.querySelector('input[type="checkbox"]')?.addEventListener('change', (e) => {
+                            const target = /** @type {HTMLInputElement} */ (e.target);
+                            window.toggleMod(filename, target.checked);
+                        });
+                        htmlItem.querySelector('.mod-delete-btn')?.addEventListener('click', () => window.deleteMod(filename));
+                    });
+                }
                 if (window.filterLocalMods) window.filterLocalMods();
             } else {
-                modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
+                if (modsListDiv) modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
             }
-            modsListDiv.scrollTop = savedScroll;
+            if (modsListDiv) modsListDiv.scrollTop = savedScroll;
         }
 
         renderUI();
 
         if (hasMods) {
             getModWarnings(inst).then(warnings => {
-                if (store.selectedInstanceIdx === instIdx && document.getElementById("tab-mods").classList.contains("active")) {
+                const tabMods = document.getElementById("tab-mods");
+                if (store.selectedInstanceIdx === instIdx && tabMods && tabMods.classList.contains("active")) {
                     renderUI(warnings);
                 }
             });
         }
     };
+
     window.filterLocalMods = () => {
-        const filter = document.getElementById("local-mod-search").value.toLowerCase();
+        const input = /** @type {HTMLInputElement | null} */ (document.getElementById("local-mod-search"));
+        const filter = input ? input.value.toLowerCase() : "";
         const items = document.querySelectorAll("#mods-list .mod-item");
         items.forEach(item => {
-            const text = item.innerText.toLowerCase();
-            item.style.display = text.includes(filter) ? "flex" : "none";
+            const htmlItem = /** @type {HTMLElement} */ (item);
+            const text = htmlItem.innerText.toLowerCase();
+            htmlItem.style.display = text.includes(filter) ? "flex" : "none";
         });
     };
-    window.toggleMod = async (filename, isEnabled) => {
+
+    window.toggleMod = async (/** @type {string} */ filename, /** @type {boolean} */ isEnabled) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         await fs.promises.rename(
             path.join(modsPath, filename),
@@ -193,9 +214,12 @@ export function setup() {
         );
         window.renderModsManager();
     };
-    window.deleteMod = async (filename) => {
+
+    window.deleteMod = async (/** @type {string} */ filename) => {
       if (await window.showCustomConfirm(t("msg_delete_confirm", "Voulez-vous vraiment supprimer ce fichier ?") + "\n(" + filename + ")", true)) {
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
             try {
                 const filePath = path.join(modsPath, filename);
@@ -204,7 +228,7 @@ export function setup() {
                     window.showToast(t("msg_mod_deleted", "Mod supprimé !"), "success");
                     window.renderModsManager(); 
                 }
-            } catch(e) {
+            } catch(/** @type {any} */ e) {
                 window.showToast(t("msg_err_delete", "Erreur lors de la suppression."), "error");
             }
         }

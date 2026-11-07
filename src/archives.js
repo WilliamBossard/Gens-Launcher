@@ -1,12 +1,13 @@
+// @ts-check
 import { store } from "./store.js";
-import { sysLog, yieldUI } from "./utils.js";
 
 import { setup as setupModrinth } from "./archives/modrinth.js";
 import { setup as setupCurseforge } from "./archives/curseforge.js";
 import { setup as setupExport } from "./archives/export.js";
 
 export function setupArchives() {
-    window.handleImport = async (input) => {
+    window.handleImport = async (/** @type {HTMLInputElement} */ input) => {
+        if (!input.files || input.files.length === 0) return;
         const file = input.files[0];
         if (!file) return;
         const p = (typeof file === "string") ? file : window.api.getFilePath(file);
@@ -17,13 +18,15 @@ export function setupArchives() {
         else window.showToast(t("msg_err_format", "Format non supporté !"), "error");
     };
 
-    window.handleUpdateModpack = async (input) => {
+    window.handleUpdateModpack = async (/** @type {HTMLInputElement} */ input) => {
+        if (!input.files || input.files.length === 0) return;
         const file = input.files[0];
         if (!file) return;
         const p = (typeof file === "string") ? file : window.api.getFilePath(file);
         input.value = "";
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         
         if (store.activeInstances && store.activeInstances.has(inst.name)) {
             window.showToast(window.t("msg_err_update_running", "Impossible de mettre à jour une instance en cours d'exécution."), "error");

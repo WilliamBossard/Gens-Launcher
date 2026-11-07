@@ -1,3 +1,8 @@
+// @ts-check
+
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function setupGameHandlers(context) {
     const {
         app, ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, execFile,
@@ -5,9 +10,14 @@ module.exports = function setupGameHandlers(context) {
     } = context;
     const os = require('os');
 
+    /** @type {Map<string, { launcher?: any; process?: any }> } */
     const activeMinecraftClients = new Map();
 
-    /** Envoie au renderer en relisant la fenêtre courante (évite une référence capturée/détruite). */
+    /**
+     * Envoie au renderer en relisant la fenêtre courante (évite une référence capturée/détruite).
+     * @param {string} channel
+     * @param {any} payload
+     */
     function sendToWindow(channel, payload) {
         const win = getMainWindow();
         if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -15,12 +25,14 @@ module.exports = function setupGameHandlers(context) {
         }
     }
 
+    /** @param {number} pid */
     function isProcessAlive(pid) {
         try { process.kill(pid, 0); return true; } catch (e) { return false; }
     }
 
     async function sendStillRunningInstances() {
         const instancesDir = path.join(safeDataDir, "instances");
+        /** @type {string[]} */
         const stillAlive = [];
         try {
             await fs.promises.access(instancesDir);
@@ -43,18 +55,28 @@ module.exports = function setupGameHandlers(context) {
                         await fs.promises.access(jsonPath);
                         const data = JSON.parse(await fs.promises.readFile(jsonPath, 'utf8'));
                         if (data.name) instanceId = data.name;
-                    } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _); }
+                    } catch (_e) {
+                        const _ = /** @type {any} */ (_e);
+                        if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _);
+                    }
                     stillAlive.push(instanceId);
                 } catch (e) {
-                    try { await fs.promises.unlink(lockFile); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _); }
+                    try { await fs.promises.unlink(lockFile); } catch (_e) {
+                        const _ = /** @type {any} */ (_e);
+                        if (_ && _.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", _);
+                    }
                 }
             }
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", err);
+        }
         return stillAlive;
     }
 
     const VALID_JAVA_NAMES = new Set(["java", "java.exe", "javaw", "javaw.exe"]);
 
+    /** @param {string} javaPath */
     async function validateJavaExecutable(javaPath) {
         if (typeof javaPath !== "string" || !javaPath.trim()) {
             return { ok: false, message: "Chemin Java invalide bloqué." };
@@ -68,6 +90,7 @@ module.exports = function setupGameHandlers(context) {
             return { ok: false, message: "Chemin Java invalide bloqué." };
         }
         if (!VALID_JAVA_NAMES.has(javaPath.toLowerCase().trim())) {
+            /** @type {string} */
             let realJavaPath;
             try {
                 const stat = await fs.promises.stat(javaPath);
@@ -81,6 +104,7 @@ module.exports = function setupGameHandlers(context) {
                 return { ok: false, message: "Cible du lien Java invalide bloquée." };
             }
             const isWin = process.platform === 'win32';
+            /** @param {string} s */
             const norm = (s) => isWin ? s.toLowerCase() : s;
             const tmpDir = norm(os.tmpdir());
             const dlDir = norm(path.join(os.homedir(), 'Downloads'));
@@ -98,36 +122,38 @@ module.exports = function setupGameHandlers(context) {
     ipcMain.handle("get-still-running", async () => sendStillRunningInstances());
 
     ipcMain.handle("run-forge-installer", async (_, { javaPath, installerPath, rootPath }) => {
-    try {
-        installerPath = assertPathUnderSandbox(installerPath);
-        rootPath = assertPathUnderSandbox(rootPath);
-    } catch (e) {
-        return { err: e.message, stderr: "", stdout: "" };
-    }
-    const javaCheck = await validateJavaExecutable(javaPath);
-    if (!javaCheck.ok) {
-        return { err: javaCheck.message, stderr: "", stdout: "" };
-    }
-    const profilesPath = path.join(rootPath, "launcher_profiles.json");
-    try {
-        // 'wx' : création uniquement si absent (pas d'écrasement d'un fichier existant)
-        await fs.promises.writeFile(profilesPath, JSON.stringify({ profiles: {} }), { flag: 'wx' });
-    } catch (e) {
-        if (e.code !== 'EEXIST') mainLog(`Erreur création launcher_profiles.json: ${e.message}`);
-    }
-    return new Promise((resolve) => {
-        execFile(javaPath, ["-jar", installerPath, "--installClient", rootPath], { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
-            if (error) {
-                mainLog(`Erreur installeur Forge: ${stderr}`);
-                resolve({ err: error.message, stderr: stderr, stdout: stdout });
-            } else {
-                resolve({ success: true, stdout: stdout });
-            }
+        try {
+            installerPath = assertPathUnderSandbox(installerPath);
+            rootPath = assertPathUnderSandbox(rootPath);
+        } catch (e) {
+            const err = e instanceof Error ? e.message : String(e);
+            return { err, stderr: "", stdout: "" };
+        }
+        const javaCheck = await validateJavaExecutable(javaPath);
+        if (!javaCheck.ok) {
+            return { err: javaCheck.message, stderr: "", stdout: "" };
+        }
+        const profilesPath = path.join(rootPath, "launcher_profiles.json");
+        try {
+            // 'wx' : création uniquement si absent (pas d'écrasement d'un fichier existant)
+            await fs.promises.writeFile(profilesPath, JSON.stringify({ profiles: {} }), { flag: 'wx' });
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err?.code !== 'EEXIST') mainLog(`Erreur création launcher_profiles.json: ${err?.message}`);
+        }
+        return new Promise((resolve) => {
+            execFile(javaPath, ["-jar", installerPath, "--installClient", rootPath], { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
+                if (error) {
+                    mainLog(`Erreur installeur Forge: ${stderr}`);
+                    resolve({ err: error.message, stderr: stderr, stdout: stdout });
+                } else {
+                    resolve({ success: true, stdout: stdout });
+                }
+            });
         });
     });
-});
 
-ipcMain.handle("check-java", async (_, javaPath) => {
+    ipcMain.handle("check-java", async (_, javaPath) => {
         const javaCheck = await validateJavaExecutable(javaPath);
         if (!javaCheck.ok) {
             return { err: { message: javaCheck.message, code: "SEC_ERR" }, stdout: "", stderr: "" };
@@ -142,6 +168,7 @@ ipcMain.handle("check-java", async (_, javaPath) => {
 
     ipcMain.handle("fetch-curseforge", async (_, { url, apiKey, method = "GET", body = null }) => {
         try {
+            /** @type {URL} */
             let finalUrl;
             try { finalUrl = new URL(url); } catch (e) { throw new Error("URL invalide."); }
             if (finalUrl.hostname !== "api.curseforge.com") {
@@ -156,7 +183,9 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                     throw new Error("Méthode HTTP non autorisée.");
                 }
                 const cleanKey = (apiKey || "").trim();
+                /** @type {Record<string, string>} */
                 const headers = { "x-api-key": cleanKey, "Accept": "application/json" };
+                /** @type {RequestInit} */
                 const fetchOptions = {
                     method: safeMethod,
                     headers,
@@ -172,10 +201,14 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 return { success: true, data: await response.json() };
             } catch (fetchErr) {
                 clearTimeout(timeoutId);
-                if (fetchErr.name === 'AbortError') throw new Error("timeout");
+                const ferr = /** @type {any} */ (fetchErr);
+                if (ferr?.name === 'AbortError') throw new Error("timeout");
                 throw fetchErr;
             }
-        } catch (e) { return { success: false, error: e.message }; }
+        } catch (e) {
+            const err = e instanceof Error ? e.message : String(e);
+            return { success: false, error: err };
+        }
     });
 
     ipcMain.handle("search-modrinth", async (_, url) => {
@@ -197,10 +230,14 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 return { success: true, data: await response.json() };
             } catch (fetchErr) {
                 clearTimeout(timeoutId);
-                if (fetchErr.name === 'AbortError') throw new Error("timeout");
+                const ferr = /** @type {any} */ (fetchErr);
+                if (ferr?.name === 'AbortError') throw new Error("timeout");
                 throw fetchErr;
             }
-        } catch (e) { return { success: false, error: e.message }; }
+        } catch (e) {
+            const err = e instanceof Error ? e.message : String(e);
+            return { success: false, error: err };
+        }
     });
 
     ipcMain.handle("force-stop-game", async (_, instanceId) => {
@@ -208,7 +245,10 @@ ipcMain.handle("check-java", async (_, javaPath) => {
         if (clientData) {
             if (clientData.process) {
                 if (process.platform === 'win32') {
-                    try { require('child_process').execFile('taskkill', ['/pid', clientData.process.pid.toString(), '/T', '/F'], () => {}); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
+                    try { require('child_process').execFile('taskkill', ['/pid', clientData.process.pid.toString(), '/T', '/F'], () => {}); } catch (e) {
+                        const err = /** @type {any} */ (e);
+                        if (err && err.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", err);
+                    }
                 } else {
                     clientData.process.kill("SIGKILL");
                 }
@@ -239,7 +279,10 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 mainLog(`force-stop: PID ${pid} déjà mort pour [${instanceId}]`);
             }
             await fs.promises.unlink(lockFile);
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", e); }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') console.warn("Ignored error in ipc-game.js:", err);
+        }
         sendToWindow("mc-close", { instanceId, code: -1 });
         return { success: true };
     });
@@ -250,7 +293,8 @@ ipcMain.handle("check-java", async (_, javaPath) => {
             opts.root = assertPathUnderSandbox(opts.root);
             if (opts.forge) opts.forge = assertPathUnderSandbox(opts.forge);
         } catch (sandboxErr) {
-            mainLog(`[Sécurité] launch-game bloqué : ${sandboxErr.message}`);
+            const err = sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr);
+            mainLog(`[Sécurité] launch-game bloqué : ${err}`);
             sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
             return;
         }
@@ -276,7 +320,7 @@ ipcMain.handle("check-java", async (_, javaPath) => {
 
         let lastReportedPct = -1;
         let lastProgressTime = 0;
-        launcher.on("progress", (e) => {
+        launcher.on("progress", (/** @type {any} */ e) => {
             const now = Date.now();
             const pct = e.total > 0 ? Math.round((e.task / e.total) * 100) : 0;
             if (pct !== lastReportedPct || (now - lastProgressTime) > 80 || e.task === e.total) {
@@ -285,10 +329,10 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 sendToWindow("mc-progress", { instanceId, ...e });
             }
         });
-        launcher.on("data", (e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
-        launcher.on("debug", (e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
+        launcher.on("data", (/** @type {any} */ e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
+        launcher.on("debug", (/** @type {any} */ e) => sendToWindow("mc-data", { instanceId, data: e.toString() }));
 
-        launcher.launch(opts).then(async (mcProcess) => {
+        launcher.launch(opts).then(async (/** @type {any} */ mcProcess) => {
             if (!mcProcess) {
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
@@ -302,7 +346,8 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                 try {
                     await fs.promises.writeFile(lockFile, mcProcess.pid.toString(), 'utf8');
                 } catch (lockErr) {
-                    mainLog(`[AVERTISSEMENT] Impossible d'écrire ${lockFile} : ${lockErr.message}`);
+                    const err = lockErr instanceof Error ? lockErr.message : String(lockErr);
+                    mainLog(`[AVERTISSEMENT] Impossible d'écrire ${lockFile} : ${err}`);
                 }
             } else {
                 mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
@@ -322,8 +367,11 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                     }, 500); // petit délai pour laisser le jeu s'afficher d'abord
                 }
             }
-            mcProcess.on("close", async (code) => {
-                try { await fs.promises.unlink(lockFile); } catch (e) { if (e.code !== 'ENOENT') mainLog(`[launch-game] Suppression lock impossible : ${e.message}`); }
+            mcProcess.on("close", async (/** @type {any} */ code) => {
+                try { await fs.promises.unlink(lockFile); } catch (e) {
+                    const err = /** @type {any} */ (e);
+                    if (err?.code !== 'ENOENT') mainLog(`[launch-game] Suppression lock impossible : ${err?.message}`);
+                }
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
                     sendToWindow("mc-close", { instanceId, code: code });
@@ -332,7 +380,7 @@ ipcMain.handle("check-java", async (_, javaPath) => {
                     mainLog(`[auto-launch] Jeu fermé. isAutoLaunch=${isAutoLaunchMode}, activeClients=${activeMinecraftClients.size}`);
                 }
             });
-        }).catch(e => {
+        }).catch((/** @type {any} */ e) => {
             mainLog("Erreur Lancement: " + e);
             activeMinecraftClients.delete(instanceId);
             sendToWindow("mc-data", { instanceId, data: "Erreur critique de la JVM : " + e.toString() });

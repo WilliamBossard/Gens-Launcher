@@ -262,6 +262,7 @@ export interface InvokeArgByChannel {
   "call-horizon": string | string[];
   "save-horizon-settings": HorizonSettings;
   "check-horizon-status": boolean;
+  "hash-file": { filePath: string; algo: "sha1" | "sha256" | "sha512" | "md5" };
 }
 
 export interface InvokeResultByChannel {
@@ -271,6 +272,7 @@ export interface InvokeResultByChannel {
   "install-horizon": OperationResult & { version?: string };
   "call-horizon": HorizonCallResult;
   "check-internet": boolean;
+  "hash-file": OperationResult & { hash?: string };
 }
 
 export interface ReceivePayloadByChannel {

@@ -1,4 +1,10 @@
+// @ts-check
+
 const { existsSafe } = require('./fs-utils');
+
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function (context) {
     const { app, ipcMain, shell, fs, path, assertPathUnderSandbox, mainSafeDir, mainLog, sanitizeShortcutName } = context;
 
@@ -22,7 +28,8 @@ module.exports = function (context) {
             }
             return { success: false, reason: 'not_found' };
         } catch (e) {
-            return { success: false, reason: e.message };
+            const reason = e instanceof Error ? e.message : String(e);
+            return { success: false, reason };
         }
     });
 
@@ -37,7 +44,8 @@ module.exports = function (context) {
                 try {
                     localIconPath = require('url').fileURLToPath(iconPath);
                 } catch (e) {
-                    mainLog("Erreur décodage URL icône : " + e.message);
+                    const msg = e instanceof Error ? e.message : String(e);
+                    mainLog("Erreur décodage URL icône : " + msg);
                 }
             }
             if (!localIconPath || !(await existsSafe(localIconPath))) {
@@ -58,14 +66,17 @@ module.exports = function (context) {
                                 await fd.close();
                             }
                             isPng = magic.toString('hex') === '89504e470d0a1a0a';
-                        } catch (magicErr) { mainLog("Erreur lecture magic PNG : " + magicErr.message); }
+                        } catch (magicErr) {
+                            const msg = magicErr instanceof Error ? magicErr.message : String(magicErr);
+                            mainLog("Erreur lecture magic PNG : " + msg);
+                        }
                         if (isPng) {
                             const { nativeImage } = require("electron");
                             const nImg = nativeImage.createFromPath(localIconPath);
                             let pngData = await fs.promises.readFile(localIconPath);
                             if (!nImg.isEmpty()) {
                                 const resized = nImg.resize({ width: 256, height: 256, quality: 'best' });
-                                pngData = resized.toPNG();
+                                pngData = Buffer.from(resized.toPNG());
                             }
                             if (pngData && pngData.length > 0) {
                                 const safeInstFolder = assertPathUnderSandbox(instFolder);
@@ -87,7 +98,8 @@ module.exports = function (context) {
                             }
                         }
                     } catch (e) {
-                        mainLog("Erreur de conversion PNG vers ICO : " + e.message);
+                        const msg = e instanceof Error ? e.message : String(e);
+                        mainLog("Erreur de conversion PNG vers ICO : " + msg);
                     }
                 } else if (localIconPath && localIconPath.toLowerCase().endsWith('.ico') && await existsSafe(localIconPath)) {
                     finalIconPath = localIconPath;
@@ -104,6 +116,7 @@ module.exports = function (context) {
             if (process.platform === 'win32') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
                 const mode = alreadyExists ? 'update' : 'create';
+                /** @type {Electron.ShortcutDetails} */
                 const options = {
                     target: appExecutable,
                     args: `--auto-launch="${safeName}"`,
@@ -137,7 +150,8 @@ module.exports = function (context) {
                     await fs.promises.writeFile(appsPath, desktopFile, { encoding: 'utf8' });
                     await fs.promises.chmod(appsPath, 0o755);
                 } catch (err) {
-                    mainLog("Erreur création raccourci applications Linux : " + err.message);
+                    const msg = err instanceof Error ? err.message : String(err);
+                    mainLog("Erreur création raccourci applications Linux : " + msg);
                 }
                 return { success: true, updated: alreadyExists };
             } else if (process.platform === 'darwin') {
@@ -149,7 +163,7 @@ module.exports = function (context) {
                     const { exec } = require('child_process');
                     exec(`osacompile -e '${script.replace(/'/g, "'\\''")}' -o "${shortcutPath}"`, (err) => {
                         if (err) reject(err);
-                        else resolve();
+                        else resolve(undefined);
                     });
                 });
 
@@ -157,18 +171,19 @@ module.exports = function (context) {
                     const appletIcns = path.join(shortcutPath, "Contents", "Resources", "applet.icns");
                     await new Promise((resolve) => {
                         const { exec } = require('child_process');
-                        exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve());
+                        exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve(undefined));
                     });
                     await new Promise((resolve) => {
                         const { exec } = require('child_process');
-                        exec(`touch "${shortcutPath}"`, () => resolve());
+                        exec(`touch "${shortcutPath}"`, () => resolve(undefined));
                     });
                 }
                 return { success: true, updated: alreadyExists };
             }
             return { success: false, reason: 'unsupported_platform' };
         } catch (e) {
-            return { success: false, error: e.message };
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error };
         }
     });
 
@@ -181,8 +196,8 @@ module.exports = function (context) {
     });
 
     ipcMain.on("update-jump-list", (event, instances) => {
-        if (process.platform === 'win32') {
-            const tasks = instances.map(inst => {
+        if (process.platform === 'win32' && Array.isArray(instances)) {
+            const tasks = instances.map((/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
                 const safeName = sanitizeShortcutName(inst.name);
                 const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
                 return {

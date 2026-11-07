@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "./store.js";
 const fs = window.api.fs;
 
@@ -49,9 +50,9 @@ export function setupStorage() {
                             }
                             if (loadedInstances) {
                                 const initialCount = loadedInstances.length;
-                                store.allInstances = loadedInstances.filter(inst => inst.version !== "...");
+                                store.allInstances = loadedInstances.filter((/** @type {any} */ inst) => inst.version !== "...");
                                 
-                                await Promise.all(store.allInstances.map(async inst => {
+                                await Promise.all(store.allInstances.map(async (/** @type {any} */ inst) => {
                                     if (window.updateIconCache) await window.updateIconCache(inst);
                                 }));
 

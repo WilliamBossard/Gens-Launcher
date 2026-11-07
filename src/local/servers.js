@@ -1,19 +1,17 @@
+// @ts-check
 import { store } from "../store.js";
-import { yieldUI, sysLog } from "../utils.js";
+import { sysLog } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function safeAttrJson(value) {
-    return JSON.stringify(value).replace(/'/g, "&#39;");
-}
-
 export function setup() {
+    /** @param {any} inst */
     async function syncServersDat(inst) {
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             if (!(await window.existsSafe(instDir))) return;
             const datPath = path.join(instDir, "servers.dat");
-            const serverEntries = (inst.servers || []).map(ip => ({
+            const serverEntries = (inst.servers || []).map((/** @type {string} */ ip) => ({
                 name: { type: "string", value: ip },
                 ip:   { type: "string", value: ip }
             }));
@@ -33,12 +31,14 @@ export function setup() {
             const tmpPath = datPath + ".tmp";
             await fs.promises.writeFile(tmpPath, window.api.nbt.write(nbtRoot));
             await fs.promises.rename(tmpPath, datPath);
-        } catch(e) {
+        } catch(/** @type {any} */ e) {
             sysLog("Erreur sync servers.dat : " + (e.message || e), true);
         }
     }
+
     window.addServer = async () => {
-        const ip = document.getElementById("new-server-ip").value.trim();
+        const input = /** @type {HTMLInputElement | null} */ (document.getElementById("new-server-ip"));
+        const ip = input ? input.value.trim() : "";
         if (!ip) return;
         const serverValid = /^[a-zA-Z0-9.\-]+(:\d{1,5})?$/.test(ip);
         if (!serverValid) {
@@ -53,25 +53,33 @@ export function setup() {
                 return;
             }
         }
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         if (!inst.servers) inst.servers = [];
         if (!inst.servers.includes(ip)) {
             inst.servers.push(ip);
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             await syncServersDat(inst);
         }
-        document.getElementById("new-server-ip").value = "";
+        if (input) input.value = "";
         await window.renderServersManager();
     };
-    window.removeServer = async (index) => {
+
+    window.removeServer = async (/** @type {number} */ index) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst || !inst.servers) return;
         inst.servers.splice(index, 1);
         window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         await syncServersDat(inst);
         await window.renderServersManager();
     };
-    window.setAutoConnect = async (ip) => {
+
+    window.setAutoConnect = async (/** @type {string} */ ip) => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         if (inst.autoConnect === ip) {
             inst.autoConnect = null; 
         } else {
@@ -80,11 +88,8 @@ export function setup() {
         window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         await window.renderServersManager();
     };
-    /**
-     * Lit servers.dat de l'instance et merge les IPs dedans dans inst.servers.
-     * Ne supprime jamais une IP déjà présente dans inst.servers (priorité au store).
-     * Retourne true si des nouveaux serveurs ont été trouvés.
-     */
+
+    /** @param {any} inst */
     async function syncServersDatToStore(inst) {
         try {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
@@ -108,13 +113,16 @@ export function setup() {
                 sysLog(`syncServersDatToStore : ${inst.name} — ${entries.length} serveur(s) importé(s) depuis servers.dat`);
             }
             return changed;
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog("syncServersDatToStore erreur : " + (e.message || e), true);
             return false;
         }
     }
+
     window.renderServersManager = async () => {
         const list = document.getElementById("server-list");
+        if (!list) return;
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         list.innerHTML = `<div style='text-align:center; color:#888; padding:15px;'>${t("msg_loading", "Chargement...")}</div>`;
@@ -126,7 +134,7 @@ export function setup() {
         const vParts = (inst.version || "").split('.');
         const canAutoConnect = vParts[0] === '1' ? ((parseInt(vParts[1], 10) || 0) >= 20) : ((parseInt(vParts[0], 10) || 0) >= 20);
         let srvHtml = "";
-        inst.servers.forEach((ip, i) => {
+        inst.servers.forEach((/** @type {string} */ ip, /** @type {number} */ i) => {
             const isAuto = inst.autoConnect === ip;
             const safeIp = window.escapeHTML(ip);
             let autoBtnHtml = "";
@@ -149,15 +157,24 @@ export function setup() {
         });
         list.innerHTML = srvHtml;
         list.querySelectorAll(".btn-auto-connect").forEach(btn => {
-            btn.addEventListener("click", () => window.setAutoConnect(btn.dataset.ip));
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.ip) window.setAutoConnect(htmlBtn.dataset.ip);
+            });
         });
         list.querySelectorAll(".btn-remove-server").forEach(btn => {
-            btn.addEventListener("click", () => window.removeServer(parseInt(btn.dataset.index)));
+            const htmlBtn = /** @type {HTMLElement} */ (btn);
+            htmlBtn.addEventListener("click", () => {
+                if (htmlBtn.dataset.index) window.removeServer(parseInt(htmlBtn.dataset.index));
+            });
         });
         window.pingServers();
     };
+
+    /** @type {AbortController | null} */
     let _pingAbortController = null;
     window.pingServers = async () => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst || !inst.servers || inst.servers.length === 0) return;
         if (_pingAbortController) _pingAbortController.abort();
@@ -174,29 +191,36 @@ export function setup() {
             }
             return;
         }
+
+        /**
+         * @param {string} ip
+         * @param {number} i
+         */
         const pingOne = async (ip, i) => {
             const statusDiv = document.getElementById(`srv-ping-${i}`);
             if (!statusDiv || signal.aborted) return;
             try {
                 const res = await window.api.invoke("ping-server", ip);
                 if (signal.aborted) return;
+                if (store.selectedInstanceIdx === null) return;
                 const currentInst = store.allInstances[store.selectedInstanceIdx];
                 if (!currentInst || currentInst.name !== instName) return;
                 const freshDiv = document.getElementById(`srv-ping-${i}`);
                 if (!freshDiv) return;
                 if (!res.success) throw new Error(res.error);
                 const data = res.data;
-                const formatNum = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : n;
+                const formatNum = (/** @type {number} */ n) => n >= 1000 ? (n / 1000).toFixed(1).replace(".0", "") + "k" : String(n);
                 if (data.online)
                     freshDiv.innerHTML = `<span style="color:#17B139; font-weight:bold;">[+] ${t("msg_online", "En ligne")}</span> <span style="color:#aaa;">- ${formatNum(data.players?.online ?? 0)}/${formatNum(data.players?.max ?? 0)}</span>`;
                 else
                     freshDiv.innerHTML = `<span style="color:#f87171; font-weight:bold;">[x] ${t("msg_offline", "Hors-ligne")}</span>`;
-            } catch (e) {
+            } catch (/** @type {any} */ e) {
                 if (signal.aborted || e.name === "AbortError") return;
                 const freshDiv = document.getElementById(`srv-ping-${i}`);
                 if (freshDiv) freshDiv.innerHTML = `<span style="color:#f87171;">[x] ${t("msg_err_ping", "Erreur")}</span>`;
             }
         };
+
         const timeoutId = setTimeout(() => _pingAbortController?.abort(), 8000);
         const pingPromises = [];
         try {

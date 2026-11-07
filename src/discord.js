@@ -1,7 +1,9 @@
+// @ts-check
 import { store } from "./store.js";
-const ipcRenderer = window.api;
 const fs = window.api.fs;
 const path = window.api.path;
+
+/** @param {any} inst */
 async function _getModCount(inst) {
     if (inst.loader === "vanilla") return 0;
     if (inst._modCountCache !== undefined) return inst._modCountCache;
@@ -9,20 +11,26 @@ async function _getModCount(inst) {
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         if (!(await window.existsSafe(modsPath))) { inst._modCountCache = 0; return 0; }
         const files = await fs.promises.readdir(modsPath);
-        inst._modCountCache = files.filter(f => f.endsWith(".jar")).length;
+        inst._modCountCache = files.filter((/** @type {string} */ f) => f.endsWith(".jar")).length;
     } catch (e) {
         inst._modCountCache = 0;
     }
     return inst._modCountCache;
 }
-window.invalidateModCountCache = (inst) => { if (inst) delete inst._modCountCache; };
+
+window.invalidateModCountCache = (/** @type {any} */ inst) => { if (inst) delete inst._modCountCache; };
+
+/**
+ * @param {any} [inst]
+ * @param {string} [customState]
+ */
 async function updateRPC(inst, customState) {
     if (store.globalSettings.disableRPC || store.globalSettings.offlineMode || !window.isTrulyOnline) {
         window.api.send("update-discord", "clear");
         return; 
     }
     if (!store.currentLangObj || Object.keys(store.currentLangObj).length === 0) {
-        return; // Wait for language to load
+        return;
     }
     try {
         let activity = {};

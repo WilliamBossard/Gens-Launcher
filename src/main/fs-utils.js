@@ -1,8 +1,15 @@
+// @ts-check
+
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * @param {string} p
+ * @returns {Promise<boolean>}
+ */
 async function existsSafe(p) {
     try {
+        // @ts-ignore - vérification défensive si enforceReadSandbox est défini globalement
         if (typeof enforceReadSandbox !== 'undefined') p = enforceReadSandbox(p, true);
         await fs.promises.access(p);
         return true;
@@ -15,10 +22,13 @@ async function existsSafe(p) {
  * Crée un validateur de chemin confiné à `sandboxDir`.
  * Vérifie à la fois le chemin lexical (contre `..`) et le chemin réel via `fs.realpathSync`
  * sur le plus proche ancêtre existant (contre les symlinks/junctions sortant du sandbox).
+ * @param {string} sandboxDir
+ * @returns {(p: string) => string}
  */
 function createSandboxValidator(sandboxDir) {
     const absSandbox = path.resolve(sandboxDir);
     const isWin = process.platform === 'win32';
+    /** @param {string} s */
     const norm = (s) => isWin ? s.toLowerCase() : s;
 
     return function assertPathUnderSandbox(p) {
@@ -54,7 +64,7 @@ function createSandboxValidator(sandboxDir) {
                 }
                 break;
             } catch (err) {
-                if (err.message === 'Chemin hors du sandbox GensLauncher') throw err;
+                if (err instanceof Error && err.message === 'Chemin hors du sandbox GensLauncher') throw err;
                 const parent = path.dirname(cur);
                 if (parent === cur) break;
                 cur = parent;
@@ -65,6 +75,10 @@ function createSandboxValidator(sandboxDir) {
     };
 }
 
+/**
+ * @param {unknown} str
+ * @returns {string}
+ */
 function escapeHtmlText(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -74,6 +88,7 @@ function escapeHtmlText(str) {
         .replace(/'/g, '&#39;');
 }
 
+/** @type {Record<string, string>} */
 const MC_COLOR_MAP = {
     black: '#000000', dark_blue: '#0000AA', dark_green: '#00AA00', dark_aqua: '#00AAAA',
     dark_red: '#AA0000', dark_purple: '#AA00AA', gold: '#FFAA00', gray: '#AAAAAA',
@@ -81,6 +96,7 @@ const MC_COLOR_MAP = {
     red: '#FF5555', light_purple: '#FF55FF', yellow: '#FFFF55', white: '#FFFFFF'
 };
 
+/** @type {Record<string, string>} */
 const LEGACY_COLOR_MAP = {
     '0': '#000', '1': '#00a', '2': '#0a0', '3': '#0aa',
     '4': '#a00', '5': '#a0a', '6': '#fa0', '7': '#aaa',
@@ -88,6 +104,10 @@ const LEGACY_COLOR_MAP = {
     'c': '#f55', 'd': '#f5f', 'e': '#ff5', 'f': '#fff'
 };
 
+/**
+ * @param {unknown} raw
+ * @returns {string}
+ */
 function parseMotdLegacy(raw) {
     if (!raw) return '';
     let html = '';
@@ -126,6 +146,21 @@ function parseMotdLegacy(raw) {
     return html.replace(/\n/g, '  ');
 }
 
+/**
+ * @typedef {Object} MotdComponent
+ * @property {string} [text]
+ * @property {string} [color]
+ * @property {boolean} [bold]
+ * @property {boolean} [italic]
+ * @property {boolean} [underlined]
+ * @property {boolean} [strikethrough]
+ * @property {Array<any>} [extra]
+ */
+
+/**
+ * @param {any} comp
+ * @returns {string}
+ */
 function parseMotdComponent(comp) {
     if (typeof comp === 'string') return parseMotdLegacy(comp);
     if (!comp) return '';

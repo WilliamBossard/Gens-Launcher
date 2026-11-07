@@ -306,3 +306,8 @@ declare module "minecraft-launcher-core" {
 
   export const Authenticator: IAuthenticator;
 }
+
+export const Client: any;
+export const Ping: {
+  pingServer: (ip: string, timeout?: number) => Promise<any>;
+};

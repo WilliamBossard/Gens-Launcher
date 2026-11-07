@@ -1,42 +1,47 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog } from "../utils.js";
 import { getCurseForgeCdnUrls } from "../archives/curseforge.js";
 const fs = window.api.fs;
 const path = window.api.path;
-function sanitizeFilename(filename) {
+/** @type {(id: string) => any} */
+const $ = (id) => document.getElementById(id);
+const t = (/** @type {string} */ k, fallback = "") => window.t ? window.t(k, fallback) : (fallback || k);
+
+function sanitizeFilename(/** @type {string} */ filename) {
     const base = filename.split(/[\\/]/).pop() || "file";
     return base.replace(/[^a-zA-Z0-9._\-]/g, "_").substring(0, 200);
 }
 function setupMods() {
-    let globalSearchTimer = null;
-    let catalogAbortController = null;
+    let globalSearchTimer = /** @type {any} */ (null);
+    let catalogAbortController = /** @type {AbortController | null} */ (null);
     window.openCatalogModal = () => {
-      document.getElementById("catalog-status").innerText = "";
+      $("catalog-status").innerText = "";
       if (store.selectedInstanceIdx !== null) {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (inst.loader !== "vanilla") {
-          document.getElementById("catalog-loader").value = inst.loader;
+          $("catalog-loader").value = inst.loader;
         }
-        document.getElementById("catalog-version").value = inst.version;
+        $("catalog-version").value = inst.version;
       }
-      document.getElementById("catalog-search").value = "";
-      document.getElementById("modal-catalog").style.display = "flex";
+      $("catalog-search").value = "";
+      $("modal-catalog").style.display = "flex";
       window.searchGlobalCatalog();
     };
     window.closeCatalogModal = () => {
-        document.getElementById("modal-catalog").style.display = "none";
+        $("modal-catalog").style.display = "none";
     };
     window.scheduleGlobalSearch = () => {
         clearTimeout(globalSearchTimer);
         globalSearchTimer = setTimeout(() => { window.searchGlobalCatalog(); }, 400);
     };
     window.searchGlobalCatalog = async () => {
-      const source = document.getElementById("catalog-source").value;
-      const query = document.getElementById("catalog-search").value;
-      const loader = document.getElementById("catalog-loader").value;
-      let version = document.getElementById("catalog-version").value;
-      const type = document.getElementById("catalog-type").value;
-      const resDiv = document.getElementById("catalog-results");
+      const source = $("catalog-source").value;
+      const query = $("catalog-search").value;
+      const loader = $("catalog-loader").value;
+      let version = $("catalog-version").value;
+      const type = $("catalog-type").value;
+      const resDiv = $("catalog-results");
       if (!version) version = "1.20.4";
       if (catalogAbortController) catalogAbortController.abort();
       catalogAbortController = new AbortController();
@@ -51,14 +56,14 @@ function setupMods() {
         return;
     }
       
-      const checkInstalled = (title, slug, items) => {
-          const escapeRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const checkInstalled = (/** @type {string} */ title, /** @type {string} */ slug, /** @type {string[]} */ items) => {
+          const escapeRegExp = (/** @type {string} */ string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const searchSlug = slug ? slug.toLowerCase() : "";
           const searchTitle = title ? title.toLowerCase().replace(/\s+/g, "") : "";
           const modBaseTitle = title ? title.toLowerCase().replace(/'s/g, "").replace(/[^a-z0-9]/g, "") : "";
           const modBaseSlug = slug ? slug.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
 
-          return items.some(f => {
+          return items.some((/** @type {string} */ f) => {
               if (searchSlug) {
                   const regex = new RegExp("^" + escapeRegExp(searchSlug) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                   if (regex.test(f)) return true;
@@ -81,13 +86,14 @@ function setupMods() {
       
       const signal = catalogAbortController.signal;
       resDiv.innerHTML = `<div style='text-align:center; padding: 20px;'>${t("msg_builder_searching", "Recherche en cours...")}</div>`;
+      /** @type {string[]} */
       let installedItems = [];
       if (store.selectedInstanceIdx !== null && type !== "modpack") {
           const inst = store.allInstances[store.selectedInstanceIdx];
           let targetFolder = type === "shader" ? "shaderpacks" : (type === "resourcepack" ? "resourcepacks" : "mods");
           const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
           if (await window.existsSafe(destPath)) {
-              installedItems = (await fs.promises.readdir(destPath)).map(f => f.toLowerCase());
+              installedItems = (await fs.promises.readdir(destPath)).map((/** @type {string} */ f) => f.toLowerCase());
           }
       }
       try {
@@ -110,7 +116,7 @@ function setupMods() {
               return;
             }
             const frag = document.createDocumentFragment();
-            data.hits.forEach((mod) => {
+            data.hits.forEach((/** @type {any} */ mod) => {
               const downloads = (mod.downloads / 1000000).toFixed(1) + "M DLs";
               const safeTitle  = window.escapeHTML(mod.title);
               const safeDesc   = window.escapeHTML(mod.description);
@@ -130,13 +136,15 @@ function setupMods() {
                   ? `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
                   : `<button class="btn-primary btn-install-mod">${t("btn_install", "Installer")}</button>`}`;
               if (!isInstalled) {
-                const btn = card.querySelector(".btn-install-mod");
-                btn.dataset.projectId = String(mod.project_id || "");
-                btn.dataset.projType  = type;
-                btn.dataset.source    = "modrinth";
-                btn.addEventListener("click", () => {
-                  window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source);
-                });
+                const btn = /** @type {any} */ (card.querySelector(".btn-install-mod"));
+                if (btn) {
+                  btn.dataset.projectId = String(mod.project_id || "");
+                  btn.dataset.projType  = type;
+                  btn.dataset.source    = "modrinth";
+                  btn.addEventListener("click", () => {
+                    window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source);
+                  });
+                }
               }
               frag.appendChild(card);
             });
@@ -165,10 +173,10 @@ function setupMods() {
             if (!res.success) throw new Error(t("msg_cf_api_invalid", "Clé invalide") + " " + (res.error || ""));
             const data = res.data;
             if (!data || !data.data) throw new Error("Réponse API CurseForge invalide");
-                        const compatibleResults = data.data.filter(mod => {
+                        const compatibleResults = data.data.filter((/** @type {any} */ mod) => {
                                 if (type !== "modpack" || !modLoaderType) return true;
                                 const indexes = Array.isArray(mod.latestFilesIndexes) ? mod.latestFilesIndexes : [];
-                                return indexes.some(index => index.gameVersion === version && Number(index.modLoader) === modLoaderType);
+                                return indexes.some((/** @type {any} */ index) => index.gameVersion === version && Number(index.modLoader) === modLoaderType);
                         });
             resDiv.innerHTML = "";
                         if (compatibleResults.length === 0) {
@@ -176,7 +184,7 @@ function setupMods() {
               return;
             }
             const cfFrag = document.createDocumentFragment();
-                        compatibleResults.forEach((mod) => {
+                        compatibleResults.forEach((/** @type {any} */ mod) => {
               const downloads  = (mod.downloadCount / 1000000).toFixed(1) + "M DLs";
               const icon = mod.logo ? mod.logo.thumbnailUrl : "";
               const safeTitle  = window.escapeHTML(mod.name);
@@ -197,35 +205,37 @@ function setupMods() {
                   ? `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`
                   : `<button class="btn-primary btn-install-cf" style="background:#f48a21;border-color:#f48a21;">${t("btn_install", "Installer")}</button>`}`;
               if (!isInstalled) {
-                const btn = card.querySelector(".btn-install-cf");
-                btn.dataset.projectId = String(mod.id || "");
-                                btn.dataset.cfSlug = String(mod.slug || "");
-                                btn.dataset.cfWebsiteUrl = String(mod.links?.websiteUrl || "");
-                btn.dataset.projType  = type;
-                btn.dataset.source    = "curseforge";
-                btn.addEventListener("click", () => {
-                                    window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source, new Set(), btn.dataset.cfWebsiteUrl, btn.dataset.cfSlug);
-                });
+                const btn = /** @type {any} */ (card.querySelector(".btn-install-cf"));
+                if (btn) {
+                  btn.dataset.projectId = String(mod.id || "");
+                  btn.dataset.cfSlug = String(mod.slug || "");
+                  btn.dataset.cfWebsiteUrl = String(mod.links?.websiteUrl || "");
+                  btn.dataset.projType  = type;
+                  btn.dataset.source    = "curseforge";
+                  btn.addEventListener("click", () => {
+                    window.installGlobalMod(btn.dataset.projectId, false, btn.dataset.projType, btn.dataset.source, new Set(), btn.dataset.cfWebsiteUrl, btn.dataset.cfSlug);
+                  });
+                }
               }
               cfFrag.appendChild(card);
             });
             resDiv.appendChild(cfFrag);
         }
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         if (e.name === "AbortError") return;
         resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche")} : ${e.message || "Impossible de joindre l'API"}</div>`;
       }
     };
-    window.installGlobalMod = async (projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "") => {
+    window.installGlobalMod = async (/** @type {string} */ projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "") => {
       if (visitedDeps.has(projectId)) return; 
       visitedDeps.add(projectId);
       if (projType !== "modpack" && store.selectedInstanceIdx === null) {
         window.showToast(t("msg_select_inst", "Sélectionnez une instance d'abord !"), "error");
         return;
       }
-      const statusText = document.getElementById("catalog-status");
-      const catalogLoaderEl = document.getElementById("catalog-loader");
-      const catalogVersionEl = document.getElementById("catalog-version");
+      const statusText = $("catalog-status");
+      const catalogLoaderEl = $("catalog-loader");
+      const catalogVersionEl = $("catalog-version");
       let loader = catalogLoaderEl ? catalogLoaderEl.value : "";
       let version = catalogVersionEl ? catalogVersionEl.value : "";
       if (projType !== "modpack") {
@@ -258,9 +268,9 @@ function setupMods() {
               return;
             }
             const fileData = versions[0];
-            let file = fileData.files.find((f) => f.primary) || fileData.files[0];
+            let file = fileData.files.find((/** @type {any} */ f) => f.primary) || fileData.files[0];
             if (projType === "modpack") {
-              const mrpackFile = fileData.files.find((f) => f.filename.endsWith(".mrpack"));
+              const mrpackFile = fileData.files.find((/** @type {any} */ f) => f.filename.endsWith(".mrpack"));
               if (mrpackFile) file = mrpackFile;
               statusText.innerText = t("msg_dl_mp", "Téléchargement du modpack...");
               const safeTempName = sanitizeFilename(file.filename || "modpack.mrpack");
@@ -278,7 +288,9 @@ function setupMods() {
             let targetFolder = "mods";
             if (projType === "shader") targetFolder = "shaderpacks";
             if (projType === "resourcepack") targetFolder = "resourcepacks";
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
             if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
@@ -293,7 +305,7 @@ function setupMods() {
               if (!dlModRes.ok) throw new Error(`Téléchargement fichier HTTP ${dlModRes.status}`);
               const buffer = await dlModRes.arrayBuffer();
               if (file.hashes?.sha1) {
-                const downloadedHash = window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
+                const downloadedHash = await window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
                 if (downloadedHash !== file.hashes.sha1) {
                   sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${file.filename} (attendu: ${file.hashes.sha1}, reçu: ${downloadedHash})`, true);
                   if (!isDependency) statusText.innerText = t("msg_err_hash", "Fichier corrompu ou modifié !");
@@ -311,7 +323,7 @@ function setupMods() {
                     try {
                       const vRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/version/${encodeURIComponent(dep.version_id)}`);
                       if (vRes.ok) { const vData = await vRes.json(); depId = vData?.project_id; }
-                    } catch (_) {}
+                    } catch (/** @type {any} */ _) {}
                   }
                   if (depId) {
                     statusText.innerText = t("msg_deps", "Dépendances...");
@@ -342,13 +354,13 @@ function setupMods() {
                 if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
                 return;
             }
-            const fileData = data.data.find(file => {
-                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map(v => v.toLowerCase()) : [];
+            const fileData = data.data.find((/** @type {any} */ file) => {
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => v.toLowerCase()) : [];
                 const matchVer = version ? gv.includes(version.toLowerCase()) : true;
                 const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
                 return matchVer && matchLoader && file.releaseType === 1;
-            }) || data.data.find(file => {
-                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map(v => v.toLowerCase()) : [];
+            }) || data.data.find((/** @type {any} */ file) => {
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => v.toLowerCase()) : [];
                 const matchVer = version ? gv.includes(version.toLowerCase()) : true;
                 const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
                 return matchVer && matchLoader;
@@ -386,7 +398,7 @@ function setupMods() {
                                 downloaded = true;
                                 break;
                             }
-                        } catch (e) {
+                        } catch (/** @type {any} */ e) {
                             sysLog(`Téléchargement modpack CurseForge via ${testUrl} échoué : ${e.message}`, true);
                         }
                     }
@@ -395,7 +407,7 @@ function setupMods() {
                         statusText.innerText = t("msg_install_mp", "Installation du modpack...");
                         window.closeCatalogModal();
                         await window.handleCurseForgeImport(tempPath, null);
-                        try { if (await window.existsSafe(tempPath)) await fs.promises.unlink(tempPath); } catch (_) { /* noop */ }
+                        try { if (await window.existsSafe(tempPath)) await fs.promises.unlink(tempPath); } catch (/** @type {any} */ _) {  }
                         return;
                     }
                 }
@@ -436,14 +448,16 @@ function setupMods() {
             let targetFolder = "mods";
             if (projType === "shader") targetFolder = "shaderpacks";
             if (projType === "resourcepack") targetFolder = "resourcepacks";
+            if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
+            if (!inst) return;
             const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
             if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
             if (!(await window.existsSafe(filePath))) {
                 let downloaded = false;
-                const sha1Obj = fileData.hashes?.find(h => h.algo === 1);
+                const sha1Obj = fileData.hashes?.find((/** @type {any} */ h) => h.algo === 1);
                 for (const candidateUrl of candidateUrls) {
                     try {
                         const dlRes = await window.api.invoke("download-file-stream", { url: candidateUrl, destPath: filePath });
@@ -452,14 +466,14 @@ function setupMods() {
                                 const hashRes = await window.api.invoke("hash-file", { filePath, algo: "sha1" });
                                 if (hashRes?.success && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
                                     sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${fileData.fileName}`, true);
-                                    try { await fs.promises.unlink(filePath); } catch (_) {}
+                                    try { await fs.promises.unlink(filePath); } catch (/** @type {any} */ _) {}
                                     continue;
                                 }
                             }
                             downloaded = true;
                             break;
                         }
-                    } catch (e) {
+                    } catch (/** @type {any} */ e) {
                         sysLog(`Échec téléchargement mod via ${candidateUrl}: ${e.message}`, true);
                     }
                 }
@@ -489,24 +503,25 @@ if (!isDependency) {
               b.outerHTML = `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`;
           });
         }
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         sysLog("Erreur catalog install: " + e, true);
         if (!isDependency) statusText.innerText = t("msg_err_dl", "Erreur.");
       }
     };
     const builderModRegistry = new Map(); 
+    /** @type {any[]} */
     let builderSelectedMods = [];
-    let builderSearchTimer = null;
-    let builderCurrentAbortController = null;
+    let builderSearchTimer = /** @type {any} */ (null);
+    let builderCurrentAbortController = /** @type {AbortController | null} */ (null);
     const ALLOWED_TYPES = ["mod", "shader", "resourcepack"];
     const ALLOWED_LOADERS = ["fabric", "forge", "neoforge", "quilt"];
     window.openBuilderModal = () => {
-        document.getElementById("builder-name").value = "";
-        document.getElementById("builder-name").style.borderColor = "";
-        document.getElementById("builder-search").value = "";
+        $("builder-name").value = "";
+        $("builder-name").style.borderColor = "";
+        $("builder-search").value = "";
         builderSelectedMods = [];
         builderModRegistry.clear();
-        const verSelect = document.getElementById("builder-version");
+        const verSelect = $("builder-version");
         verSelect.innerHTML = "";
         if (store.rawVersions && store.rawVersions.length > 0) {
             store.rawVersions.forEach((v) => {
@@ -518,12 +533,12 @@ if (!isDependency) {
                 }
             });
         } else {
-            const srcSelect = document.getElementById("new-version");
+            const srcSelect = $("new-version");
             if (srcSelect) verSelect.innerHTML = srcSelect.innerHTML;
         }
         if (verSelect.options.length > 0) verSelect.selectedIndex = 0;
         window.renderBuilderSelectedList();
-        document.getElementById("modal-builder").style.display = "flex";
+        $("modal-builder").style.display = "flex";
         window.searchBuilderMods(); 
     };
     window.closeBuilderModal = () => {
@@ -531,17 +546,17 @@ if (!isDependency) {
             builderCurrentAbortController.abort();
             builderCurrentAbortController = null;
         }
-        document.getElementById("modal-builder").style.display = "none";
+        $("modal-builder").style.display = "none";
     };
     window.scheduleBuilderSearch = () => {
         clearTimeout(builderSearchTimer);
         builderSearchTimer = setTimeout(() => { window.searchBuilderMods(); }, 400);
     };
     window.refreshBuilderButtons = () => {
-        const resDiv = document.getElementById("builder-results");
+        const resDiv = $("builder-results");
         if (!resDiv) return;
         const containers = resDiv.querySelectorAll(".btn-container");
-        containers.forEach(container => {
+        containers.forEach((/** @type {any} */ container) => {
             const modId = container.getAttribute("data-mod-id");
             const isAdded = builderSelectedMods.some(m => m.id === modId);
             if (isAdded) {
@@ -556,16 +571,16 @@ if (!isDependency) {
         });
     };
     window.searchBuilderMods = async () => {
-        const query = document.getElementById("builder-search").value.trim();
-        let version = document.getElementById("builder-version").value;
-        const loaderRaw = document.getElementById("builder-loader").value;
-        const typeRaw = document.getElementById("builder-type").value;
-        const resDiv = document.getElementById("builder-results");
+        const query = $("builder-search").value.trim();
+        let version = $("builder-version").value;
+        const loaderRaw = $("builder-loader").value;
+        const typeRaw = $("builder-type").value;
+        const resDiv = $("builder-results");
         const loader = ALLOWED_LOADERS.includes(loaderRaw) ? loaderRaw : "fabric";
         const type = ALLOWED_TYPES.includes(typeRaw) ? typeRaw : "mod";
         if (!version || !/^[0-9a-zA-Z.\-_]+$/.test(version)) version = "1.20.4";
         
-        const sourceEl = document.getElementById("builder-source");
+        const sourceEl = $("builder-source");
         const source = sourceEl ? sourceEl.value : "modrinth";
 
         if (builderCurrentAbortController) builderCurrentAbortController.abort();
@@ -589,7 +604,7 @@ if (!isDependency) {
                 const data = res.data;
                 if (!Array.isArray(data.hits)) throw new Error("Invalid API response");
                 
-                data.hits.forEach(mod => {
+                data.hits.forEach((/** @type {any} */ mod) => {
                     if (mod.project_id && typeof mod.project_id === "string") {
                         builderModRegistry.set(mod.project_id, { id: mod.project_id, name: mod.title || mod.project_id, type, source: "modrinth" });
                     }
@@ -599,7 +614,7 @@ if (!isDependency) {
                     resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#aaa;'>${t("msg_builder_no_results", "Aucun résultat pour cette version / ce loader.")}</div>`;
                     return;
                 }
-                data.hits.forEach((mod) => {
+                data.hits.forEach((/** @type {any} */ mod) => {
                     if (!mod.project_id) return;
                     const safeId = window.escapeHTML(mod.project_id);
                     const safeTitle = window.escapeHTML(mod.title || mod.project_id);
@@ -657,7 +672,7 @@ if (!isDependency) {
                 const data = res.data;
                 if (!data || !data.data) throw new Error("Invalid API response");
                 
-                data.data.forEach(mod => {
+                data.data.forEach((/** @type {any} */ mod) => {
                     if (mod.id) {
                         builderModRegistry.set(mod.id.toString(), { id: mod.id.toString(), name: mod.name, type, source: "curseforge" });
                     }
@@ -669,7 +684,7 @@ if (!isDependency) {
                     return;
                 }
                 
-                data.data.forEach((mod) => {
+                data.data.forEach((/** @type {any} */ mod) => {
                     if (!mod.id) return;
                     const safeId = window.escapeHTML(mod.id.toString());
                     const safeTitle = window.escapeHTML(mod.name);
@@ -702,21 +717,21 @@ if (!isDependency) {
                 });
             }
             
-            resDiv.querySelectorAll(".builder-add-btn").forEach(btn => {
-                btn.addEventListener("click", (e) => {
-                    const container = e.target.closest(".btn-container");
+            resDiv.querySelectorAll(".builder-add-btn").forEach((/** @type {any} */ btn) => {
+                btn.addEventListener("click", (/** @type {any} */ e) => {
+                    const container = (/** @type {any} */ (e.target)).closest(".btn-container");
                     if (container) {
                         window.addModToBuilder(container.getAttribute("data-mod-id"));
                     }
                 });
             });
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             if (e.name === "AbortError") return; 
             sysLog("Erreur recherche builder: " + e, true);
             resDiv.innerHTML = `<div style='grid-column: 1 / -1; text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche.")}</div>`;
         }
     };
-    window.addModToBuilder = (id) => {
+    window.addModToBuilder = (/** @type {string} */ id) => {
         if (typeof id !== "string" || !id) return;
         const modInfo = builderModRegistry.get(id);
         if (!modInfo) return; 
@@ -727,15 +742,15 @@ if (!isDependency) {
             window.refreshBuilderButtons(); 
         }
     };
-    window.removeModFromBuilder = (id) => {
+    window.removeModFromBuilder = (/** @type {string} */ id) => {
         if (typeof id !== "string" || !id) return;
         builderSelectedMods = builderSelectedMods.filter(m => m.id !== id);
         window.renderBuilderSelectedList();
         window.refreshBuilderButtons(); 
     };
     window.renderBuilderSelectedList = () => {
-        document.getElementById("builder-count").innerText = builderSelectedMods.length;
-        const list = document.getElementById("builder-selected-list");
+        $("builder-count").innerText = builderSelectedMods.length;
+        const list = $("builder-selected-list");
         list.innerHTML = "";
         if (builderSelectedMods.length === 0) {
             list.innerHTML = `<div style="text-align:center; color:#666; font-size:0.8rem; margin-top:10px;">${t("msg_builder_empty_pack", "Le pack est vide.")}</div>`;
@@ -755,17 +770,17 @@ if (!isDependency) {
                     <button class="btn-secondary builder-remove-btn" data-mod-id="${safeId}" style="padding: 0 6px; font-size:0.7rem; color:#f87171; border-color:transparent; flex-shrink:0;">✕</button>
                 </div>
                 <span style="font-size:0.7rem; color:#aaa;">${typeLabel}</span>`;
-            item.querySelector(".builder-remove-btn").addEventListener("click", () => {
+            item.querySelector(".builder-remove-btn")?.addEventListener("click", () => {
                 window.removeModFromBuilder(mod.id);
             });
             list.appendChild(item);
         });
     };
     window.buildModpack = async () => {
-        const nameInput = document.getElementById("builder-name");
+        const nameInput = $("builder-name");
         const packName = nameInput.value.trim();
-        let version = document.getElementById("builder-version").value;
-        const loaderRaw = document.getElementById("builder-loader").value;
+        let version = $("builder-version").value;
+        const loaderRaw = $("builder-loader").value;
         nameInput.style.borderColor = "";
         const loader = ALLOWED_LOADERS.includes(loaderRaw) ? loaderRaw : "fabric";
         if (!version || !/^[0-9a-zA-Z.\-_]+$/.test(version)) version = "1.20.4";
@@ -807,7 +822,7 @@ if (!isDependency) {
             for (const d of Object.values(dirs)) {
                 if (!(await window.existsSafe(d))) await fs.promises.mkdir(d, { recursive: true });
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog("Erreur création dossiers modpack: " + e, true);
             window.hideLoading();
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
@@ -819,8 +834,8 @@ if (!isDependency) {
                 const lVers = await window.fetchLoaderVersions(loader, version);
                 if (Array.isArray(lVers) && lVers.length > 0) resolvedLoaderVer = lVers[0];
             }
-        } catch (_) {}
-        const newInst = {
+        } catch (/** @type {any} */ _) {}
+        const newInst = /** @type {any} */ ({
             name: packName,
             version: version,
             loader: loader,
@@ -840,7 +855,7 @@ if (!isDependency) {
             servers: [],
             backupMode: "none",
             backupLimit: 5,
-        };
+        });
         const total = modsToDownload.length;
         let done = 0;
         const failed = [];
@@ -892,7 +907,7 @@ const queue = [...modsToDownload];
                                     apiKey
                                 });
                                 if (dlUrlRes?.success && dlUrlRes?.data?.data) cfFile.downloadUrl = dlUrlRes.data.data;
-                            } catch (_) {}
+                            } catch (/** @type {any} */ _) {}
                             if (!cfFile.downloadUrl) {
                                 const cdnUrls = getCurseForgeCdnUrls(cfFile.id, cfFile.fileName);
                                 if (cdnUrls.length > 0) cfFile.downloadUrl = cdnUrls[0];
@@ -906,7 +921,7 @@ const queue = [...modsToDownload];
                         }
                         let expectedHash = null;
                         if (cfFile.hashes && cfFile.hashes.length > 0) {
-                            const h = cfFile.hashes.find(hh => hh.algo === 1);
+                            const h = cfFile.hashes.find((/** @type {any} */ hh) => hh.algo === 1);
                             if (h) expectedHash = h.value;
                         }
                         fileObj = { url: cfFile.downloadUrl, filename: cfFile.fileName, hashes: expectedHash ? { sha1: expectedHash } : null };
@@ -921,7 +936,7 @@ const queue = [...modsToDownload];
                             failed.push(mod.name);
                             done++; continue;
                         }
-                        fileObj = versionsData[0].files.find(f => f.primary) || versionsData[0].files[0];
+                        fileObj = versionsData[0].files.find((/** @type {any} */ f) => f.primary) || versionsData[0].files[0];
                         if (!fileObj || !fileObj.url || !fileObj.filename) {
                             sysLog(`Pas de fichier pour ${mod.name}`, false);
                             failed.push(mod.name);
@@ -945,16 +960,16 @@ const queue = [...modsToDownload];
                     if (!dlRes.ok) throw new Error(`DL HTTP ${dlRes.status}`);
                     const buffer = await dlRes.arrayBuffer();
                     if (fileObj.hashes?.sha1) {
-                        const dlHash = window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
+                        const dlHash = await window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
                         if (dlHash !== fileObj.hashes.sha1) {
                             sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${mod.name} (${fileObj.filename})`, true);
                             failed.push(mod.name);
                             done++; continue;
                         }
                     }
-                    const destPath = path.join(dirs[mod.type], safeFilename);
+                    const destPath = path.join(dirs[/** @type {"mod" | "shader" | "resourcepack"} */ (mod.type)], safeFilename);
                     await fs.promises.writeFile(destPath, new Uint8Array(buffer));
-                } catch (e) {
+                } catch (/** @type {any} */ e) {
                     sysLog(`Erreur DL ${mod.name}: ` + e, true);
                     failed.push(mod.name);
                 }
@@ -970,7 +985,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
         newInst._localConfigUpdatedAt = Date.now();
         if (window.updateIconCache) await window.updateIconCache(newInst);
         const instJsonPath = path.join(instDir, "instance.json");
-        try { await fs.promises.writeFile(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
+        try { await fs.promises.writeFile(instJsonPath, JSON.stringify(newInst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in ModsUI.js:", e); }
         if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
         store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
         window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
@@ -985,7 +1000,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             window.checkAchievement("modder");
         }
     };
-    window.checkModpackUpdate = async (inst) => {
+    window.checkModpackUpdate = async (/** @type {any} */ inst) => {
         if (!inst || !inst.modrinthId) return;
         try {
             const url = `https://api.modrinth.com/v2/project/${encodeURIComponent(inst.modrinthId)}/version`;
@@ -995,13 +1010,13 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             if (Array.isArray(versions) && versions.length > 0) {
                 const latest = versions.find((v) => {
                     if (!inst.loader || inst.loader === "vanilla") return true;
-                    const lds = Array.isArray(v.loaders) ? v.loaders.map((l) => l.toLowerCase()) : [];
-                    return lds.includes(inst.loader.toLowerCase());
+                    const lds = Array.isArray(v.loaders) ? v.loaders.map((/** @type {any} */ l) => l.toLowerCase()) : [];
+                    return lds.includes(inst.loader ? inst.loader.toLowerCase() : "");
                 }) || versions[0];
                 if (!latest || inst.modpackVersion === latest.version_number) return;
-                const updateBtn = document.getElementById("btn-update-modpack");
+                const updateBtn = $("btn-update-modpack");
                 if (updateBtn && latest.files && latest.files.length > 0) {
-                    const mrpackFile = latest.files.find((f) => f.filename.endsWith(".mrpack")) || latest.files[0];
+                    const mrpackFile = latest.files.find((/** @type {any} */ f) => f.filename.endsWith(".mrpack")) || latest.files[0];
                     updateBtn.style.display = "inline-block";
                     updateBtn.style.background = "#f48a21"; 
                     updateBtn.style.color = "#fff";
@@ -1009,11 +1024,11 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
                     updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId, latest.version_number, store.selectedInstanceIdx);
                 }
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog("Erreur vérification MAJ modpack: " + e.message, true);
         }
     };
-    window.performModpackUpdate = async (url, filename, projectId, versionNumber, targetInstIdx) => {
+    window.performModpackUpdate = async (/** @type {string} */ url, /** @type {string} */ filename, /** @type {string} */ projectId, /** @type {string} */ versionNumber, /** @type {any} */ targetInstIdx) => {
         try {
             window.showLoading(t("msg_dl_mp", "Téléchargement de la mise à jour..."), 0);
             const safeTempName = sanitizeFilename(filename || "modpack.mrpack");
@@ -1034,7 +1049,7 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
             
             await fs.promises.unlink(tempPath);
             window.showToast(window.t("msg_modpack_updated", "Mise à jour du Modpack terminée !"), "success");
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             console.error(e);
             window.showToast(window.t("msg_err_update", "Erreur de mise à jour: ") + e.message, "error");
         }

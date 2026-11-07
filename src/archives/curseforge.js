@@ -1,28 +1,32 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
 /**
- * Copie un fichier ZIP vers le sandbox GensLauncher si son chemin est externe.
- * Retourne { sandboxPath, wasCopied } — cleanup de sandboxPath si wasCopied === true.
+ * @param {string} zipPath
+ * @returns {Promise<{ sandboxPath: string; wasCopied: boolean }>}
  */
 async function ensureZipInSandbox(zipPath) {
     const resolved = path.resolve(zipPath);
     const sandboxRoot = path.resolve(store.dataDir);
-    const sep = path.sep || (resolved.includes('/') ? '/' : '\\');
+    const sep = (/** @type {any} */ (path)).sep || (resolved.includes('/') ? '/' : '\\');
     const isWin = window.api?.platform === "win32";
     const r = isWin ? resolved.toLowerCase() : resolved;
     const s = isWin ? sandboxRoot.toLowerCase() : sandboxRoot;
     const isInSandbox = r.startsWith(s + (s.endsWith(sep) ? '' : sep)) || r === s;
     if (isInSandbox) return { sandboxPath: zipPath, wasCopied: false };
-    // Le fichier est hors sandbox — on le copie dans un temp
     const destName = "temp_cf_import_" + Date.now() + ".zip";
     const res = await window.api.invoke("copy-file-to-sandbox", { srcPath: zipPath, destName });
     if (!res || !res.success) throw new Error(res?.error || "Impossible de copier le fichier dans le sandbox.");
     return { sandboxPath: res.destPath, wasCopied: true };
 }
 
+/**
+ * @param {string} instDir
+ * @returns {Promise<{ loader: string; loaderVersion: string }>}
+ */
 async function detectLoaderFromFolder(instDir) {
     try {
         const modsDir = path.join(instDir, "mods");
@@ -60,12 +64,20 @@ async function detectLoaderFromFolder(instDir) {
             if (content.includes("neoforge")) return { loader: "neoforge", loaderVersion: "" };
             return { loader: "forge", loaderVersion: "" };
         }
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         sysLog(`[IMPORT] Détection loader échouée : ${e.message}`, true);
     }
     return { loader: "vanilla", loaderVersion: "" };
 }
 
+/**
+ * @param {any} fileInfo
+ * @param {string} mcVersion
+ * @param {string} loaderType
+ * @param {string} modsDir
+ * @param {string} apiKey
+ * @returns {Promise<boolean>}
+ */
 async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir, apiKey) {
     try {
         const projectRes = await window.api.invoke("fetch-curseforge", {
@@ -88,7 +100,7 @@ async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir
             if (!versionsRes.ok) continue;
             const versions = await versionsRes.json();
             const version = Array.isArray(versions) ? versions[0] : null;
-            const modFile = version?.files?.find(file => file.primary) || version?.files?.[0];
+            const modFile = version?.files?.find((/** @type {any} */ file) => file.primary) || version?.files?.[0];
             if (!modFile?.url || !/^https:\/\//i.test(modFile.url)) continue;
 
             const fileName = String(modFile.filename || `${hit.slug || hit.project_id}.jar`)
@@ -98,19 +110,24 @@ async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir
             if (!response.ok) continue;
             const fileBytes = new Uint8Array(await response.arrayBuffer());
             if (modFile.hashes?.sha1) {
-                const hash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                const hash = await window.api.tools.hashBuffer(fileBytes, "sha1");
                 if (hash !== modFile.hashes.sha1) continue;
             }
             await fs.promises.writeFile(filePath, fileBytes);
             sysLog(`[IMPORT CF] Mod récupéré via Modrinth : ${projectName} -> ${fileName}`);
             return true;
         }
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
         sysLog(`[IMPORT CF] Fallback Modrinth impossible pour ${fileInfo.projectID}: ${e.message}`, true);
     }
     return false;
 }
 
+/**
+ * @param {any} fileId
+ * @param {string} fileName
+ * @returns {string[]}
+ */
 export function getCurseForgeCdnUrls(fileId, fileName) {
     if (!fileId || !fileName) return [];
     const id = Number(fileId);
@@ -130,6 +147,11 @@ export function getCurseForgeCdnUrls(fileId, fileName) {
     return urls;
 }
 
+/**
+ * @param {string} fileName
+ * @param {number} [projectClassId]
+ * @returns {string}
+ */
 export function determineTargetFolder(fileName, projectClassId) {
     if (projectClassId === 6552) return "shaderpacks";
     if (projectClassId === 12) return "resourcepacks";
@@ -146,6 +168,9 @@ export function determineTargetFolder(fileName, projectClassId) {
     return "mods";
 }
 
+/**
+ * @param {{ filesToDownload: any[]; apiKey: string; instDir: string; mcVersion: string; loaderType: string; onProgress?: (count: number, tot: number, safeName?: string) => void }} param0
+ */
 async function downloadCurseForgeFiles({
     filesToDownload,
     apiKey,
@@ -167,7 +192,6 @@ async function downloadCurseForgeFiles({
     const fileMetadataMap = new Map();
     const projectClassMap = new Map();
 
-    // 1. Récupération par lot des métadonnées des fichiers
     const fileIds = filesToDownload.map(f => f.fileID).filter(Boolean);
     for (let i = 0; i < fileIds.length; i += 100) {
         const chunk = fileIds.slice(i, i + 100);
@@ -183,12 +207,11 @@ async function downloadCurseForgeFiles({
                     if (item?.id) fileMetadataMap.set(item.id, item);
                 }
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             sysLog(`[IMPORT CF] Échec batch files: ${e.message}`, true);
         }
     }
 
-    // 2. Récupération par lot des classes de projet (mods / shaders / resourcepacks)
     const modIds = [...new Set(filesToDownload.map(f => f.projectID).filter(Boolean))];
     for (let i = 0; i < modIds.length; i += 100) {
         const chunk = modIds.slice(i, i + 100);
@@ -204,10 +227,9 @@ async function downloadCurseForgeFiles({
                     if (item?.id && item?.classId) projectClassMap.set(item.id, item.classId);
                 }
             }
-        } catch (_) { /* non-bloquant */ }
+        } catch (_) {}
     }
 
-    // 3. Téléchargement concurrent
     const queue = [...filesToDownload];
     const workerCount = Math.min(4, Math.max(1, queue.length));
     const workers = Array(workerCount).fill(null).map(async () => {
@@ -245,7 +267,7 @@ async function downloadCurseForgeFiles({
 
             let downloaded = false;
 
-            // Construit la liste des URLs candidates
+            /** @type {string[]} */
             const candidateUrls = [];
             if (fileData?.downloadUrl && /^https:\/\//i.test(fileData.downloadUrl)) {
                 candidateUrls.push(fileData.downloadUrl);
@@ -257,7 +279,6 @@ async function downloadCurseForgeFiles({
                 }
             }
 
-            // Si aucune URL directe ou CDN connue, interroger l'endpoint download-url
             if (candidateUrls.length === 0) {
                 try {
                     const dlUrlRes = await window.api.invoke("fetch-curseforge", {
@@ -270,7 +291,7 @@ async function downloadCurseForgeFiles({
                 } catch (_) {}
             }
 
-            const sha1Obj = fileData?.hashes?.find(h => h.algo === 1);
+            const sha1Obj = fileData?.hashes?.find((/** @type {any} */ h) => h.algo === 1);
             for (const url of candidateUrls) {
                 try {
                     const dlRes = await window.api.invoke("download-file-stream", { url, destPath: finalPath });
@@ -286,12 +307,11 @@ async function downloadCurseForgeFiles({
                         downloaded = true;
                         break;
                     }
-                } catch (e) {
+                } catch (/** @type {any} */ e) {
                     sysLog(`[IMPORT CF] Échec candidat ${url}: ${e.message}`, true);
                 }
             }
 
-            // Fallback Modrinth si CurseForge a échoué
             if (!downloaded) {
                 downloaded = await downloadModrinthFallback(fileInfo, mcVersion, loaderType, targetDir, apiKey);
             }
@@ -309,7 +329,7 @@ async function downloadCurseForgeFiles({
 }
 
 export function setup() {
-    window.doCurseForgeUpdate = async (zipPath, inst) => {
+    window.doCurseForgeUpdate = async (/** @type {string} */ zipPath, /** @type {any} */ inst) => {
         const apiKey = store.globalSettings.cfApiKey;
         if (!apiKey || apiKey.trim() === "") {
             window.showToast(t("msg_cf_api_req", "Clé API CurseForge manquante."), "error");
@@ -337,7 +357,7 @@ export function setup() {
             }
             const modsDir = path.join(instDir, "mods");
             if (await window.existsSafe(modsDir)) {
-                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             }
             await fs.promises.mkdir(modsDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
@@ -348,7 +368,7 @@ export function setup() {
                     if (item === "saves" || item === "resourcepacks") continue;
                     const destPath = path.join(instDir, item);
                     if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcOverrides, item), destPath);
                 }
@@ -370,27 +390,25 @@ export function setup() {
                 }
             });
             inst._localConfigUpdatedAt = Date.now();
-            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
             window.showToast(window.t("msg_modpack_updated", "Modpack mis à jour avec succès !"), "success");
-        } catch (err) {
+        } catch (/** @type {any} */ err) {
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {
-            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
-            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
     };
 
     /**
-     * Importe un modpack CurseForge depuis un fichier ZIP local (avec manifest.json CurseForge).
-     * Télécharge les mods via l'API CurseForge et crée l'instance.
-     * @param {string} zipPath - Chemin vers le ZIP CurseForge (peut être hors sandbox si wasCopied=false)
-     * @param {string|null} manifestText - Contenu pré-lu du manifest.json (optionnel, évite une double extraction)
+     * @param {string} zipPath
+     * @param {string|null} [manifestText]
      */
-    window.handleCurseForgeImport = async (zipPath, manifestText = null) => {
+    window.handleCurseForgeImport = async (/** @type {string} */ zipPath, manifestText = null) => {
         sysLog(`[IMPORT CF] Démarrage import Modpack CurseForge : ${zipPath}`);
         const apiKey = store.globalSettings.cfApiKey;
         if (!apiKey || apiKey.trim() === "") {
@@ -404,7 +422,6 @@ export function setup() {
         const tempExtractDir = path.join(store.dataDir, "temp_cf_import_" + Date.now());
         try {
             ({ sandboxPath: sandboxZip, wasCopied } = await ensureZipInSandbox(zipPath));
-            // 1. Extraire le ZIP
             let manifest;
             if (manifestText) {
                 try { manifest = JSON.parse(manifestText); } catch (_) {}
@@ -417,7 +434,6 @@ export function setup() {
                 const text = await fs.promises.readFile(path.join(tempExtractDir, "manifest.json"), "utf8");
                 manifest = JSON.parse(text);
             }
-            // 2. Extraire les infos du manifest
             if (!manifest || !manifest.minecraft) throw new Error(t("msg_err_import_invalid", "manifest.json invalide ou corrompu."));
             const mcVersion = manifest.minecraft.version;
             let loaderType = "vanilla";
@@ -433,7 +449,6 @@ export function setup() {
             let finalName = window.nextAvailableInstanceName(packName);
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
-            // 3. Copier les overrides dans le dossier d'instance
             const overridesDir = manifest.overrides || "overrides";
             const srcOverrides = path.join(tempExtractDir, overridesDir);
             if (await window.existsSafe(srcOverrides)) {
@@ -441,12 +456,11 @@ export function setup() {
                 for (const item of items) {
                     const destPath = path.join(instDir, item);
                     if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
                     await fs.promises.rename(path.join(srcOverrides, item), destPath);
                 }
             }
-            // 4. Télécharger les fichiers via l'API CurseForge et CDN
             const filesToDownload = Array.isArray(manifest.files) ? manifest.files : [];
             const total = filesToDownload.length;
             window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
@@ -464,7 +478,6 @@ export function setup() {
                     );
                 }
             });
-            // 6. Créer l'instance dans le store
             const newInst = {
                 name: finalName,
                 version: mcVersion,
@@ -478,34 +491,34 @@ export function setup() {
                 playTime: 0, lastPlayed: 0,
                 group: t("opt_modpack", "Modpacks"),
                 servers: [], backupMode: "none", backupLimit: 5,
+                _localConfigUpdatedAt: Date.now()
             };
             store.allInstances.push(newInst);
             store.selectedInstanceIdx = store.allInstances.length - 1;
             const defaultOpt = path.join(store.dataDir, "default_options.txt");
             const instOpt = path.join(instDir, "options.txt");
             if (await window.existsSafe(defaultOpt) && !(await window.existsSafe(instOpt))) {
-                try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+                try { await fs.promises.copyFile(defaultOpt, instOpt); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             }
-            newInst._localConfigUpdatedAt = Date.now();
             if (window.updateIconCache) await window.updateIconCache(newInst);
-            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
-        } catch (err) {
+        } catch (/** @type {any} */ err) {
             sysLog("Erreur Import CurseForge : " + err.message, true);
             window.showToast(t("msg_err_cf_install", "Erreur Modpack CurseForge : ") + err.message, "error");
         } finally {
-            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
-            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }
     };
-    window.handleZipImport = async (zipPath) => {
+    window.handleZipImport = async (/** @type {string} */ zipPath) => {
         sysLog(`[IMPORT] Démarrage import ZIP : ${zipPath}`);
         window.showLoading(t("msg_extract", "Extraction..."), 0);
         await yieldUI();
@@ -513,7 +526,6 @@ export function setup() {
         let wasCopied = false;
         const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
-            // Copier dans le sandbox si nécessaire (fix erreur "chemin hors sandbox")
             ({ sandboxPath: sandboxZip, wasCopied } = await ensureZipInSandbox(zipPath));
             const exRes = await window.api.invoke("extract-zip", { zipPath: sandboxZip, destDir: tempExtractDir });
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
@@ -525,7 +537,8 @@ export function setup() {
                 if (items.length === 1) {
                     const subDir = path.join(tempExtractDir, items[0]);
                     const stat = await fs.promises.stat(subDir);
-                    const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory; if (isDir) {
+                    const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
+                    if (isDir) {
                         extractRoot = subDir;
                         instanceJsonPath = path.join(extractRoot, "instance.json");
                     }
@@ -537,7 +550,6 @@ export function setup() {
                     const manifestText = await fs.promises.readFile(manifestPath, "utf8");
                     sysLog(`[IMPORT] Redirection vers l'importateur CurseForge.`);
                     window.hideLoading();
-                    // Passer sandboxZip (déjà dans le sandbox) pour éviter une nouvelle copie
                     return await window.handleCurseForgeImport(sandboxZip, manifestText);
                 }
                 throw new Error(t("msg_err_import_invalid", "Fichier instance.json introuvable. Ce n'est pas une sauvegarde valide du launcher."));
@@ -605,19 +617,19 @@ export function setup() {
             instData._localConfigUpdatedAt = Date.now();
             store.allInstances.push(instData);
             if (window.updateIconCache) await window.updateIconCache(instData);
-            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
+            try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(instData, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             if (window.writeInstanceMetaForCloud) await window.writeInstanceMetaForCloud(instData, { preserveTimestamp: true });
             if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
             window.showToast(t("msg_install_success", "Installation réussie !"), "success");
-        } catch (err) {
+        } catch (/** @type {any} */ err) {
             sysLog("Erreur Import ZIP : " + err.message, true);
             window.showToast(t("msg_err_import", "Erreur Import : ") + err.message, "error");
         } finally {
-            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
-            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (wasCopied && sandboxZip && await window.existsSafe(sandboxZip)) await fs.promises.unlink(sandboxZip); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+            try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
             window.hideLoading();
             window.renderUI();
         }

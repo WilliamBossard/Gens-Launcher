@@ -1,23 +1,22 @@
-
+// @ts-check
 import { store } from "./store.js";
-const fs = window.api.fs;
-const path = window.api.path;
-const shell = window.api.shell;
-const clipboard = window.api.clipboard;
+
 export function setupUICore() {
+    /** @type {any} */
     let _restorePollInterval = null;
+
     window.restoreRunningInstances = async () => {
         if (_restorePollInterval) return;
         try {
             const stillRunning = await window.api.invoke("get-still-running");
             if (!stillRunning || stillRunning.length === 0) return;
-            stillRunning.forEach(rawId => {
+            stillRunning.forEach((/** @type {string} */ rawId) => {
                 const displayName = window.resolveInstanceName(rawId);
                 store.activeInstances.add(displayName);
             });
             if (window.setUIState) window.setUIState();
             if (window.renderUI)   window.renderUI();
-            stillRunning.forEach(rawId => {
+            stillRunning.forEach((/** @type {string} */ rawId) => {
                 const displayName = window.resolveInstanceName(rawId);
                 const inst = store.allInstances.find(i => i.name === displayName);
                 if (inst && !inst._tempSessionStart) inst._tempSessionStart = Date.now();
@@ -25,11 +24,10 @@ export function setupUICore() {
             _restorePollInterval = setInterval(async () => {
                 try {
                     const alive = await window.api.invoke("get-still-running");
-                    const aliveSet = new Set(alive || []);
                     let changed = false;
                     for (const instanceId of [...store.activeInstances]) {
                         const folderSlug = window.resolveInstanceFolder(instanceId);
-                        const stillUp = alive.some(id =>
+                        const stillUp = (alive || []).some((/** @type {string} */ id) =>
                             id === instanceId ||
                             window.resolveInstanceName(id) === instanceId ||
                             window.safeDir(id) === folderSlug
@@ -52,7 +50,7 @@ export function setupUICore() {
                                 const today = d.getFullYear() + "-" +
                                     String(d.getMonth() + 1).padStart(2, "0") + "-" +
                                     String(d.getDate()).padStart(2, "0");
-                                const existing = inst.sessionHistory.find(s => s.date === today);
+                                const existing = inst.sessionHistory.find((/** @type {any} */ s) => s.date === today);
                                 if (existing) existing.ms += sessionDuration;
                                 else inst.sessionHistory.push({ date: today, ms: sessionDuration });
                                 inst.sessionHistory = inst.sessionHistory.slice(-30);
@@ -69,23 +67,27 @@ export function setupUICore() {
                         clearInterval(_restorePollInterval);
                         _restorePollInterval = null;
                     }
-                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in uiCore.js:", e); }
+                } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in uiCore.js:", e); }
             }, 5000);
         } catch(e) {
             console.error("Erreur restauration instances actives:", e);
         }
     };
-    window.handleInstanceDoubleClick = (idx) => {
+
+    window.handleInstanceDoubleClick = (/** @type {number} */ idx) => {
         window.selectInstance(idx);
         const inst = store.allInstances[idx];
+        if (!inst) return;
         if (!store.activeInstances.has(inst.name)) {
             const btn = document.getElementById('launch-btn');
             if (btn) btn.click();
         }
     };
-    window.toggleCategory = (element, groupName) => {
-        const grid = element.nextElementSibling; 
-        const arrow = element.querySelector('.cat-arrow'); 
+
+    window.toggleCategory = (/** @type {HTMLElement} */ element, /** @type {string} */ groupName) => {
+        const grid = /** @type {HTMLElement | null} */ (element.nextElementSibling);
+        const arrow = /** @type {HTMLElement | null} */ (element.querySelector('.cat-arrow')); 
+        if (!grid || !arrow) return;
         if (!store.globalSettings.collapsedGroups) store.globalSettings.collapsedGroups = {};
         if (grid.style.display === 'none') { 
             grid.style.display = 'grid'; 
@@ -102,7 +104,7 @@ export function setupUICore() {
     };
 
     window.activeModal = null;
-    window.openModal = (modalId) => {
+    window.openModal = (/** @type {string} */ modalId) => {
         if (window.activeModal && window.activeModal !== modalId) {
             window.closeModal(window.activeModal);
         }
@@ -113,7 +115,7 @@ export function setupUICore() {
         }
     };
     
-    window.closeModal = (modalId) => {
+    window.closeModal = (modalId = "") => {
         const id = modalId || window.activeModal;
         if (!id) return;
         const modal = document.getElementById(id);

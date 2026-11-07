@@ -1,18 +1,15 @@
-/**
- * ==============================================================================
- * GENS LAUNCHER - PRELOAD & SÉCURITÉ (BRIDGE IPC SANDBOXÉ)
- * ==============================================================================
- * Ce fichier fait le pont entre le système (Main Process) et l'interface (HTML/JS).
- * En mode Sandbox (sandbox: true), AUCUN module Node.js n'est chargé ici :
- * toutes les opérations I/O et système passent par IPC validé et shims JS purs.
- * ==============================================================================
- */
+// @ts-check
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+/** @param {boolean} isWin */
 function createPathShim(isWin) {
     const sep = isWin ? '\\' : '/';
     const delimiter = isWin ? ';' : ':';
 
+    /**
+     * @param {string[]} parts
+     * @param {boolean} allowAboveRoot
+     */
     function normalizeArray(parts, allowAboveRoot) {
         const res = [];
         for (let i = 0; i < parts.length; i++) {
@@ -31,6 +28,7 @@ function createPathShim(isWin) {
         return res;
     }
 
+    /** @param {string[]} args */
     function join(...args) {
         const paths = args.filter(p => typeof p === 'string' && p.length > 0);
         if (paths.length === 0) return '.';
@@ -60,6 +58,7 @@ function createPathShim(isWin) {
         return result || (isAbsolute ? sep : '.');
     }
 
+    /** @param {string} p */
     function dirname(p) {
         if (typeof p !== 'string' || !p.length) return '.';
         const s = isWin ? p.replace(/\//g, '\\') : p;
@@ -72,6 +71,10 @@ function createPathShim(isWin) {
         return s.slice(0, lastSlash);
     }
 
+    /**
+     * @param {string} p
+     * @param {string} [ext]
+     */
     function basename(p, ext) {
         if (typeof p !== 'string' || !p.length) return '';
         const s = isWin ? p.replace(/\//g, '\\') : p;
@@ -83,6 +86,7 @@ function createPathShim(isWin) {
         return base;
     }
 
+    /** @param {string} p */
     function extname(p) {
         if (typeof p !== 'string' || !p.length) return '';
         const base = basename(p);
@@ -91,6 +95,7 @@ function createPathShim(isWin) {
         return base.slice(lastDot);
     }
 
+    /** @param {string[]} args */
     function resolve(...args) {
         let resolvedPath = '';
         let resolvedAbsolute = false;
@@ -124,6 +129,7 @@ const TAG_COMPOUND = 10;
 const TAG_INT_ARRAY = 11;
 const TAG_LONG_ARRAY = 12;
 
+/** @type {Record<string, number>} */
 const typeIds = {
     'end': TAG_END,
     'byte': TAG_BYTE,
@@ -148,6 +154,7 @@ class PureNBTWriter {
         this.encoder = new TextEncoder();
     }
 
+    /** @param {number} size */
     ensureCapacity(size) {
         if (this.offset + size > this.buffer.length) {
             const newBuf = new Uint8Array(this.buffer.length * 2 + size);
@@ -157,9 +164,13 @@ class PureNBTWriter {
         }
     }
 
+    /** @param {number} v */
     writeByte(v) { this.ensureCapacity(1); this.view.setInt8(this.offset, v); this.offset += 1; }
+    /** @param {number} v */
     writeShort(v) { this.ensureCapacity(2); this.view.setInt16(this.offset, v, false); this.offset += 2; }
+    /** @param {number} v */
     writeInt(v) { this.ensureCapacity(4); this.view.setInt32(this.offset, v, false); this.offset += 4; }
+    /** @param {any} v */
     writeLong(v) { 
         this.ensureCapacity(8);
         if (Array.isArray(v)) {
@@ -173,9 +184,12 @@ class PureNBTWriter {
         }
         this.offset += 8; 
     }
+    /** @param {number} v */
     writeFloat(v) { this.ensureCapacity(4); this.view.setFloat32(this.offset, v, false); this.offset += 4; }
+    /** @param {number} v */
     writeDouble(v) { this.ensureCapacity(8); this.view.setFloat64(this.offset, v, false); this.offset += 8; }
     
+    /** @param {string} v */
     writeString(v) {
         const encoded = this.encoder.encode(v || '');
         const len = encoded.length;
@@ -186,6 +200,10 @@ class PureNBTWriter {
         this.offset += len;
     }
 
+    /**
+     * @param {number} type
+     * @param {any} value
+     */
     writeTag(type, value) {
         switch (type) {
             case TAG_BYTE: this.writeByte(value); break;
@@ -233,6 +251,7 @@ class PureNBTWriter {
         }
     }
 
+    /** @param {any} root */
     writeRoot(root) {
         const type = typeIds[root.type];
         this.writeByte(type);
@@ -242,11 +261,13 @@ class PureNBTWriter {
     }
 }
 
+/** @param {any} data */
 function writePureNBT(data) {
     const writer = new PureNBTWriter();
     return writer.writeRoot(data);
 }
 
+/** @param {string} key */
 function _getArgValue(key) {
     const prefix = `--${key}=`;
     const arg = (process.argv || []).find(a => a && a.startsWith(prefix));
@@ -274,8 +295,13 @@ const pathShim = createPathShim(_isWin);
 const safeDataDir = pathShim.join(_appPaths.appData, "GensLauncher");
 
 const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json)$/i;
+/** @param {string} s */
 const _normPath = (s) => _isWin ? s.toLowerCase() : s;
 
+/**
+ * @param {string} target
+ * @param {string} base
+ */
 function _isUnderDir(target, base) {
     if (!target || !base) return false;
     const nt = _normPath(target);
@@ -283,6 +309,10 @@ function _isUnderDir(target, base) {
     return nt.startsWith(nb + pathShim.sep) || nt === nb;
 }
 
+/**
+ * @param {string} p
+ * @param {boolean} [silent]
+ */
 function enforceReadSandbox(p, silent = false) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
     const resolved = pathShim.resolve(p);
@@ -302,6 +332,7 @@ function enforceReadSandbox(p, silent = false) {
     return resolved;
 }
 
+/** @param {string} p */
 function enforceSandbox(p) {
     if (typeof p !== 'string') throw new Error("Chemin invalide (type non supporté).");
     const resolved = pathShim.resolve(p);
@@ -312,10 +343,12 @@ function enforceSandbox(p) {
     return resolved;
 }
 
+/** @param {string} url */
 function safeExternalUrl(url) {
     if (typeof url !== "string") {
         throw new Error("URL invalide (type non supporté).");
     }
+    /** @type {URL} */
     let parsed;
     try {
         parsed = new URL(url);
@@ -334,7 +367,6 @@ function safeExternalUrl(url) {
     return parsed.href;
 }
 
-// Keep these channel lists in sync with src/types/ipc.ts during TS migration.
 const validSendChannels = [
     "set-auto-download", "set-offline-mode", "download-update", "hide-window",
     "minimize-window", "show-window", "restore-main-window", "restart_app",
@@ -366,11 +398,15 @@ const validReceiveChannels = [
     "horizon-install-progress"
 ];
 
+/**
+ * @param {string} channel
+ * @param {...any} args
+ */
 async function _fsIpcCall(channel, ...args) {
     const res = await ipcRenderer.invoke(channel, ...args);
     if (!res || !res.ok) {
         const msg = res?.error?.message || "Erreur système de fichiers";
-        const err = new Error(msg);
+        const err = /** @type {any} */ (new Error(msg));
         if (res?.error?.code) err.code = res.error.code;
         throw err;
     }
@@ -378,33 +414,34 @@ async function _fsIpcCall(channel, ...args) {
 }
 
 contextBridge.exposeInMainWorld("api", {
-    send: (channel, data) => {
+    send: (/** @type {any} */ channel, /** @type {any} */ data) => {
         if (validSendChannels.includes(channel)) ipcRenderer.send(channel, data);
     },
-    invoke: (channel, data) => {
+    invoke: (/** @type {any} */ channel, /** @type {any} */ data) => {
         if (validInvokeChannels.includes(channel)) return ipcRenderer.invoke(channel, data);
         return Promise.reject(new Error("Canal non autorisé: " + channel));
     },
-    on: (channel, func) => {
+    on: (/** @type {any} */ channel, /** @type {any} */ func) => {
         if (validReceiveChannels.includes(channel)) {
-            const subscription = (event, ...args) => func(...args);
+            const subscription = (/** @type {any} */ event, /** @type {any[]} */ ...args) => func(...args);
             ipcRenderer.on(channel, subscription);
             return () => ipcRenderer.removeListener(channel, subscription);
         }
     },
     nbt: {
-        parse: async (arr) => {
+        parse: async (/** @type {any} */ arr) => {
             if (arr && arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
             const res = await ipcRenderer.invoke("nbt:parse", arr);
             if (!res || !res.success) throw new Error(res?.error || "Erreur de parsing NBT");
             return res.data;
         },
-        write: (data) => writePureNBT(data)
+        write: (/** @type {any} */ data) => writePureNBT(data)
     },
     security: (() => {
+        /** @type {Map<string, Promise<any>>} */
         const _pendingWrites = new Map();
 
-        const _writeJSONAsync = async (filePath, data) => {
+        const _writeJSONAsync = async (/** @type {string} */ filePath, /** @type {any} */ data) => {
             const safePath = enforceSandbox(filePath);
             const jsonString = JSON.stringify(data, null, 2);
             const encrypted = await ipcRenderer.invoke('encrypt-string', jsonString);
@@ -426,7 +463,8 @@ contextBridge.exposeInMainWorld("api", {
                             break;
                         } catch (err) {
                             lastErr = err;
-                            if (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') {
+                            const e = /** @type {any} */ (err);
+                            if (e.code === 'EBUSY' || e.code === 'EPERM' || e.code === 'EACCES') {
                                 await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
                             } else {
                                 throw err;
@@ -445,7 +483,7 @@ contextBridge.exposeInMainWorld("api", {
             _pendingWrites.set(safePath, currentWrite);
             return currentWrite;
         };
-        const _readJSONAsync = async (filePath) => {
+        const _readJSONAsync = async (/** @type {string} */ filePath) => {
             const safePath = enforceSandbox(filePath);
             const exists = await ipcRenderer.invoke('fs:exists', safePath);
             if (!exists?.data) return null;
@@ -466,7 +504,6 @@ contextBridge.exposeInMainWorld("api", {
                 try {
                     const encrypted = await ipcRenderer.invoke('encrypt-string', JSON.stringify(parsedData, null, 2));
                     await _fsIpcCall('fs:writeFile', safePath, encrypted, 'utf8');
-                    console.log(`[Sécurité] Fichier migré vers le nouveau format de chiffrement : ${safePath}`);
                 } catch (e) {
                     console.error("Échec de la migration du chiffrement :", e);
                 }
@@ -481,34 +518,34 @@ contextBridge.exposeInMainWorld("api", {
         };
     })(),
     tools: {
-        hashFile: async (filePath, algo) => {
+        hashFile: async (/** @type {string} */ filePath, /** @type {string} */ algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
             const result = await ipcRenderer.invoke('hash-file', { filePath: enforceSandbox(filePath), algo });
             if (!result.success) throw new Error(result.error);
             return result.hash;
         },
-        hashBuffer: async (arr, algo) => {
+        hashBuffer: async (/** @type {any} */ arr, /** @type {string} */ algo) => {
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme de hash non autorisé : ${algo}`);
             const res = await ipcRenderer.invoke('hash-buffer', { buffer: arr, algo });
             if (!res || !res.success) throw new Error(res?.error || "Hash failed");
             return res.hash;
         },
-        extractTar: (archivePath, destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
+        extractTar: (/** @type {string} */ archivePath, /** @type {string} */ destDir) => ipcRenderer.invoke("extract-tar", enforceSandbox(archivePath), enforceSandbox(destDir)),
     },
     path: {
-        join: (...args) => pathShim.join(...args),
-        resolve: (...args) => pathShim.resolve(...args),
-        extname: (p) => pathShim.extname(p),
-        dirname: (p) => pathShim.dirname(p),
-        basename: (p, ext) => pathShim.basename(p, ext),
+        join: /** @param {...string} args */ (...args) => pathShim.join(...args),
+        resolve: /** @param {...string} args */ (...args) => pathShim.resolve(...args),
+        extname: (/** @type {string} */ p) => pathShim.extname(p),
+        dirname: (/** @type {string} */ p) => pathShim.dirname(p),
+        basename: (/** @type {string} */ p, /** @type {string} */ ext) => pathShim.basename(p, ext),
     },
     fs: {
         promises: {
-            readFile: (p, enc) => _fsIpcCall('fs:readFile', p, enc),
-            readdir: (p) => _fsIpcCall('fs:readdir', p),
-            stat: async (p) => {
+            readFile: (/** @type {string} */ p, /** @type {any} */ enc) => _fsIpcCall('fs:readFile', p, enc),
+            readdir: (/** @type {string} */ p) => _fsIpcCall('fs:readdir', p),
+            stat: async (/** @type {string} */ p) => {
                 const s = await _fsIpcCall('fs:stat', p);
                 return {
                     isDirectory: s.isDirectory,
@@ -519,17 +556,17 @@ contextBridge.exposeInMainWorld("api", {
                     birthtime: s.birthtime
                 };
             },
-            writeFile: (p, d, enc) => _fsIpcCall('fs:writeFile', p, d, enc),
-            rm: (p, opts) => _fsIpcCall('fs:rm', p, opts),
-            cp: (s, d, o) => _fsIpcCall('fs:cp', s, d, o),
-            unlink: (p) => _fsIpcCall('fs:unlink', p),
-            chmod: (p, mode) => _fsIpcCall('fs:chmod', p, mode),
-            mkdir: (p, opts) => _fsIpcCall('fs:mkdir', p, opts),
-            rename: (oldP, newP) => _fsIpcCall('fs:rename', oldP, newP),
-            appendFile: (p, d, enc) => _fsIpcCall('fs:appendFile', p, d, enc),
-            access: (p, mode) => _fsIpcCall('fs:access', p, mode),
-            copyFile: (src, dest) => _fsIpcCall('fs:copyFile', src, dest),
-            exists: async (p) => {
+            writeFile: (/** @type {string} */ p, /** @type {any} */ d, /** @type {any} */ enc) => _fsIpcCall('fs:writeFile', p, d, enc),
+            rm: (/** @type {string} */ p, /** @type {any} */ opts) => _fsIpcCall('fs:rm', p, opts),
+            cp: (/** @type {string} */ s, /** @type {string} */ d, /** @type {any} */ o) => _fsIpcCall('fs:cp', s, d, o),
+            unlink: (/** @type {string} */ p) => _fsIpcCall('fs:unlink', p),
+            chmod: (/** @type {string} */ p, /** @type {any} */ mode) => _fsIpcCall('fs:chmod', p, mode),
+            mkdir: (/** @type {string} */ p, /** @type {any} */ opts) => _fsIpcCall('fs:mkdir', p, opts),
+            rename: (/** @type {string} */ oldP, /** @type {string} */ newP) => _fsIpcCall('fs:rename', oldP, newP),
+            appendFile: (/** @type {string} */ p, /** @type {any} */ d, /** @type {any} */ enc) => _fsIpcCall('fs:appendFile', p, d, enc),
+            access: (/** @type {string} */ p, /** @type {any} */ mode) => _fsIpcCall('fs:access', p, mode),
+            copyFile: (/** @type {string} */ src, /** @type {string} */ dest) => _fsIpcCall('fs:copyFile', src, dest),
+            exists: async (/** @type {string} */ p) => {
                 try {
                     const res = await ipcRenderer.invoke('fs:exists', p);
                     return Boolean(res?.data);
@@ -547,12 +584,12 @@ contextBridge.exposeInMainWorld("api", {
         userInfo: () => ({ username: _osInfo.username, homedir: _osInfo.homedir })
     },
     shell: {
-        openExternal: (url) => ipcRenderer.invoke('system:open-external', safeExternalUrl(url)),
-        openPath: (p) => ipcRenderer.invoke('system:open-path', enforceSandbox(p)),
-        showItemInFolder: (p) => ipcRenderer.invoke('system:show-item-in-folder', enforceSandbox(p))
+        openExternal: (/** @type {string} */ url) => ipcRenderer.invoke('system:open-external', safeExternalUrl(url)),
+        openPath: (/** @type {string} */ p) => ipcRenderer.invoke('system:open-path', enforceSandbox(p)),
+        showItemInFolder: (/** @type {string} */ p) => ipcRenderer.invoke('system:show-item-in-folder', enforceSandbox(p))
     },
     clipboard: {
-        writeText: (text) => ipcRenderer.invoke('system:clipboard-write-text', text)
+        writeText: (/** @type {string} */ text) => ipcRenderer.invoke('system:clipboard-write-text', text)
     },
     appData: _appPaths.appData,
     platform: _appPaths.platform,
@@ -560,7 +597,7 @@ contextBridge.exposeInMainWorld("api", {
     version: _appPaths.version,
     isAutoLaunch: _appPaths.isAutoLaunch,
     isAppImage: (process.argv || []).includes('--is-appimage'),
-    getFilePath: (file) => webUtils.getPathForFile(file),
-    copyImageToSandbox: (srcPath, destName, subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
-    copyFileToSandbox: (srcPath, destName) => ipcRenderer.invoke('copy-file-to-sandbox', { srcPath, destName }),
+    getFilePath: (/** @type {any} */ file) => webUtils.getPathForFile(file),
+    copyImageToSandbox: (/** @type {string} */ srcPath, /** @type {string} */ destName, /** @type {string} */ subDir) => ipcRenderer.invoke('copy-image-to-sandbox', { srcPath, destName, subDir }),
+    copyFileToSandbox: (/** @type {string} */ srcPath, /** @type {string} */ destName) => ipcRenderer.invoke('copy-file-to-sandbox', { srcPath, destName }),
 });

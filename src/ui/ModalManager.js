@@ -1,8 +1,10 @@
-/**
- * ModalManager.js
- * Centralise la création de modales dynamiques pour alléger le code métier.
- */
+// @ts-check
 
+/**
+ * @param {string | number} version
+ * @param {(key: string, fallback?: string) => string} t
+ * @returns {Promise<"jre" | "jdk" | null>}
+ */
 export function showJavaTypeModal(version, t) {
     return new Promise((resolve) => {
         const modal = document.createElement("div");
@@ -25,7 +27,7 @@ export function showJavaTypeModal(version, t) {
                 transform: scale(0.95); transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             ">
                 <h3 style="margin-top:0; color:var(--text-light, #fff); font-size:1.2rem; margin-bottom:12px;">
-                    ${t("java_choice_title", "Installation de Java {version}").replace("{version}", version)}
+                    ${t("java_choice_title", "Installation de Java {version}").replace("{version}", String(version))}
                 </h3>
                 <p style="font-size:0.85rem; opacity:0.8; margin-bottom:20px; line-height:1.4;">
                     ${t("java_choice_desc", "Sélectionnez le type d'environnement à installer pour votre jeu :")}
@@ -59,40 +61,50 @@ export function showJavaTypeModal(version, t) {
 
         requestAnimationFrame(() => {
             modal.style.opacity = "1";
-            modal.querySelector("div").style.transform = "scale(1)";
+            const inner = /** @type {HTMLElement | null} */ (modal.querySelector("div"));
+            if (inner) inner.style.transform = "scale(1)";
         });
 
-        const jreBox = modal.querySelector("#choice-jre");
-        const jdkBox = modal.querySelector("#choice-jdk");
-        const cancelBtn = modal.querySelector("#choice-cancel");
+        const jreBox = /** @type {HTMLElement | null} */ (modal.querySelector("#choice-jre"));
+        const jdkBox = /** @type {HTMLElement | null} */ (modal.querySelector("#choice-jdk"));
+        const cancelBtn = /** @type {HTMLElement | null} */ (modal.querySelector("#choice-cancel"));
 
+        /** @param {HTMLElement} el */
         const hoverIn = (el) => {
             el.style.backgroundColor = "rgba(255,255,255,0.06)";
             el.style.borderColor = "var(--accent, #3b82f6)";
             el.style.transform = "translateY(-2px)";
         };
+        /** @param {HTMLElement} el */
         const hoverOut = (el) => {
             el.style.backgroundColor = "rgba(255,255,255,0.02)";
             el.style.borderColor = "var(--border, rgba(255, 255, 255, 0.1))";
             el.style.transform = "translateY(0)";
         };
 
-        jreBox.onmouseover = () => hoverIn(jreBox);
-        jreBox.onmouseout = () => hoverOut(jreBox);
-        jdkBox.onmouseover = () => hoverIn(jdkBox);
-        jdkBox.onmouseout = () => hoverOut(jdkBox);
+        if (jreBox) {
+            jreBox.onmouseover = () => hoverIn(jreBox);
+            jreBox.onmouseout = () => hoverOut(jreBox);
+            jreBox.onclick = () => closeAndResolve("jre");
+        }
+        if (jdkBox) {
+            jdkBox.onmouseover = () => hoverIn(jdkBox);
+            jdkBox.onmouseout = () => hoverOut(jdkBox);
+            jdkBox.onclick = () => closeAndResolve("jdk");
+        }
+        if (cancelBtn) {
+            cancelBtn.onclick = () => closeAndResolve(null);
+        }
 
+        /** @param {"jre" | "jdk" | null} val */
         const closeAndResolve = (val) => {
             modal.style.opacity = "0";
-            modal.querySelector("div").style.transform = "scale(0.95)";
+            const inner = /** @type {HTMLElement | null} */ (modal.querySelector("div"));
+            if (inner) inner.style.transform = "scale(0.95)";
             setTimeout(() => {
                 if (document.body.contains(modal)) document.body.removeChild(modal);
                 resolve(val);
             }, 200);
         };
-
-        jreBox.onclick = () => closeAndResolve("jre");
-        jdkBox.onclick = () => closeAndResolve("jdk");
-        cancelBtn.onclick = () => closeAndResolve(null);
     });
 }

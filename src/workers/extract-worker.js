@@ -1,12 +1,21 @@
+// @ts-check
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 
+/**
+ * @param {{ archivePath: string; destDir: string; isWin: boolean }} param0
+ */
 async function extractArchive({ archivePath, destDir, isWin }) {
+    if (!parentPort) return;
+    const port = parentPort;
+
     if (isWin && archivePath.endsWith(".zip")) {
+        // @ts-ignore
         const yauzl = require("yauzl-promise");
         const { pipeline } = require("stream/promises");
+        /** @type {any} */
         let zipfile;
         try {
             zipfile = await yauzl.open(archivePath);
@@ -19,7 +28,7 @@ async function extractArchive({ archivePath, destDir, isWin }) {
                 const dest = path.join(destDir, entryName);
                 const resDest = path.resolve(dest);
                 if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
-                    parentPort.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entryName });
+                    port.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entryName });
                     continue;
                 }
                 if (/\/$/.test(entryName)) {
@@ -31,7 +40,7 @@ async function extractArchive({ archivePath, destDir, isWin }) {
                     await pipeline(readStream, writeStream);
                     processed++;
                     const progress = Math.min(100, Math.round((processed / total) * 100));
-                    parentPort.postMessage({ type: 'progress', progress });
+                    port.postMessage({ type: 'progress', progress });
                 }
             }
             return true;
@@ -47,7 +56,7 @@ async function extractArchive({ archivePath, destDir, isWin }) {
             for (const line of lines) {
                 const p = line.trim();
                 if (p.includes("..") || p.startsWith("/") || p.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(p)) {
-                    parentPort.postMessage({ type: 'log', message: "TAR SLIP bloqué : " + p });
+                    port.postMessage({ type: 'log', message: "TAR SLIP bloqué : " + p });
                     return reject(new Error("Archive malveillante détectée (Path Traversal)."));
                 }
             }
@@ -59,6 +68,9 @@ async function extractArchive({ archivePath, destDir, isWin }) {
     });
 }
 
-extractArchive(workerData)
-    .then(() => parentPort.postMessage({ type: 'done', success: true }))
-    .catch((err) => parentPort.postMessage({ type: 'done', success: false, error: err.message }));
+if (parentPort) {
+    const port = parentPort;
+    extractArchive(workerData)
+        .then(() => port.postMessage({ type: 'done', success: true }))
+        .catch((err) => port.postMessage({ type: 'done', success: false, error: err.message }));
+}

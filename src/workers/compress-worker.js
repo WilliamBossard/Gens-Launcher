@@ -1,14 +1,26 @@
+// @ts-check
 const { existsSafe } = require('../main/fs-utils');
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
+// @ts-ignore
 const { ZipArchive } = require('archiver');
 
+/**
+ * @param {{ src: string; dest: string; exclude?: string[] }} param0
+ */
 async function compressFolder({ src, dest, exclude }) {
+    if (!parentPort) return;
+    const port = parentPort;
     const excludeSet = new Set(exclude || []);
 
+    /**
+     * @param {string} currentDir
+     * @returns {Promise<Array<{ fullPath: string; relativePath: string }>>}
+     */
     async function collectFiles(currentDir) {
         const items = await fs.promises.readdir(currentDir);
+        /** @type {Array<{ fullPath: string; relativePath: string }>} */
         const collected = [];
         for (const item of items) {
             const fullPath = path.join(currentDir, item);
@@ -27,11 +39,12 @@ async function compressFolder({ src, dest, exclude }) {
         return collected;
     }
 
+    /** @type {Array<{ fullPath: string; relativePath: string }>} */
     let filesToArchive = [];
     try {
         await fs.promises.access(src);
         filesToArchive = await collectFiles(src);
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
         throw new Error(err.message);
     }
 
@@ -41,28 +54,28 @@ async function compressFolder({ src, dest, exclude }) {
 
         output.on('close', () => resolve(true));
 
-        archive.on('warning', (err) => {
-            parentPort.postMessage({ type: 'log', message: `Warning: ${err.message}` });
+        archive.on('warning', (/** @type {any} */ err) => {
+            port.postMessage({ type: 'log', message: `Warning: ${err.message}` });
         });
 
-        archive.on('error', async (err) => {
-            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+        archive.on('error', async (/** @type {any} */ err) => {
+            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
-        output.on('error', async (err) => {
+        output.on('error', async (/** @type {any} */ err) => {
             archive.destroy();
-            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
+            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
             reject(err);
         });
 
         let lastPct = -1;
-        archive.on('progress', (data) => {
+        archive.on('progress', (/** @type {any} */ data) => {
             if (data.entries.total > 0) {
                 const pct = Math.round((data.entries.processed / data.entries.total) * 100);
                 if (pct !== lastPct) {
                     lastPct = pct;
-                    parentPort.postMessage({ type: 'progress', percent: pct });
+                    port.postMessage({ type: 'progress', percent: pct });
                 }
             }
         });
@@ -77,6 +90,9 @@ async function compressFolder({ src, dest, exclude }) {
     });
 }
 
-compressFolder(workerData)
-    .then(() => parentPort.postMessage({ type: 'done', success: true }))
-    .catch((err) => parentPort.postMessage({ type: 'done', success: false, error: err.message }));
+if (parentPort) {
+    const port = parentPort;
+    compressFolder(workerData)
+        .then(() => port.postMessage({ type: 'done', success: true }))
+        .catch((err) => port.postMessage({ type: 'done', success: false, error: err.message }));
+}

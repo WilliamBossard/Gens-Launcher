@@ -1,3 +1,8 @@
+// @ts-check
+
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function (context) {
     const { app, ipcMain, shell, getMainWindow, mainLog, autoUpdater } = context;
 
@@ -15,10 +20,11 @@ module.exports = function (context) {
         
         const fs = require('fs');
         let hasKey = false, hasSources = false;
-        try { await fs.promises.access(keyPath); hasKey = true; } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _.message || _); }
-        try { await fs.promises.access(sourcesPath); hasSources = true; } catch (_) { if (_ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _.message || _); }
+        try { await fs.promises.access(keyPath); hasKey = true; } catch (_) { if (_ && typeof _ === 'object' && 'code' in _ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _); }
+        try { await fs.promises.access(sourcesPath); hasSources = true; } catch (_) { if (_ && typeof _ === 'object' && 'code' in _ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _); }
         mainLog(`[deb-update] hasKey=${hasKey}, hasSources=${hasSources}`);
         
+        /** @type {string} */
         let shellCmd;
         if (!hasKey || !hasSources) {
             mainLog('[deb-update] Dépôt APT non configuré, ajout automatique...');
@@ -106,13 +112,24 @@ module.exports = function (context) {
                                     getMainWindow()?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
                                     resolve({ success: true, version: null });
                                 }
-                            } catch(e) { resolve({ success: false, error: e.message }); }
+                            } catch(e) {
+                                const error = e instanceof Error ? e.message : String(e);
+                                resolve({ success: false, error });
+                            }
                         });
                     });
-                    req.on('error', (e) => { isManualUpdateCheck = false; resolve({ success: false, error: e.message }); });
+                    req.on('error', (e) => {
+                        isManualUpdateCheck = false;
+                        const error = e instanceof Error ? e.message : String(e);
+                        resolve({ success: false, error });
+                    });
                     req.end();
                 });
-            } catch(e) { isManualUpdateCheck = false; return { success: false, error: e.message }; }
+            } catch(e) {
+                isManualUpdateCheck = false;
+                const error = e instanceof Error ? e.message : String(e);
+                return { success: false, error };
+            }
         }
         try { 
             const result = await autoUpdater.checkForUpdates(); 
@@ -120,7 +137,8 @@ module.exports = function (context) {
             return { success: true, version: result?.updateInfo?.version || null }; 
         } catch (e) { 
             isManualUpdateCheck = false;
-            return { success: false, error: e.message }; 
+            const error = e instanceof Error ? e.message : String(e);
+            return { success: false, error }; 
         }
     });
 

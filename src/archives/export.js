@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 const fs = window.api.fs;
@@ -6,10 +7,13 @@ const path = window.api.path;
 export function setup() {
   window.exportInstance = () => {
     if (store.selectedInstanceIdx === null) return;
-    document.getElementById('modal-export').style.display = 'flex';
+    const modal = document.getElementById('modal-export');
+    if (modal) modal.style.display = 'flex';
   };
-  window.doExport = async (type) => {
-    document.getElementById('modal-export').style.display = 'none';
+  window.doExport = async (/** @type {string} */ type) => {
+    const modal = document.getElementById('modal-export');
+    if (modal) modal.style.display = 'none';
+    if (store.selectedInstanceIdx === null) return;
     const inst = store.allInstances[store.selectedInstanceIdx];
     if (!inst) return;
     if (store.activeInstances.has(inst.name)) {
@@ -34,7 +38,7 @@ export function setup() {
         if (res && !res.success) throw new Error(res.error || "Erreur de compression inconnue");
         window.api.shell.showItemInFolder(zipPath);
         window.showToast(t("msg_zip_success", "Export ZIP réussi !"), "success");
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         sysLog("Erreur Export ZIP: " + e.message, true);
         window.showToast(t("msg_err_export", "Erreur lors de l'export."), "error");
       } finally {

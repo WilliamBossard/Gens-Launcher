@@ -1,23 +1,27 @@
+// @ts-check
 import { store } from "./store.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
 export async function setupLang() {
     window.applyTranslations = () => {
-        document.querySelectorAll("[data-i18n]").forEach((el) => {
+        document.querySelectorAll("[data-i18n]").forEach((element) => {
+            const el = /** @type {HTMLElement} */ (element);
             const key = el.getAttribute("data-i18n");
-            if (store.currentLangObj[key]) {
-                if (el.tagName === "INPUT" && el.type === "text") el.placeholder = store.currentLangObj[key];
+            if (key && store.currentLangObj[key]) {
+                if (el instanceof HTMLInputElement && el.type === "text") el.placeholder = store.currentLangObj[key];
                 else el.innerText = store.currentLangObj[key];
             }
         });
-        document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+        document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+            const el = /** @type {HTMLElement} */ (element);
             const key = el.getAttribute("data-i18n-title");
-            if (store.currentLangObj[key]) el.title = store.currentLangObj[key];
+            if (key && store.currentLangObj[key]) el.title = store.currentLangObj[key];
         });
-        document.querySelectorAll("[data-i18n-tooltip]").forEach((el) => {
+        document.querySelectorAll("[data-i18n-tooltip]").forEach((element) => {
+            const el = /** @type {HTMLElement} */ (element);
             const key = el.getAttribute("data-i18n-tooltip");
-            if (store.currentLangObj[key]) el.setAttribute("data-tooltip", store.currentLangObj[key]);
+            if (key && store.currentLangObj[key]) el.setAttribute("data-tooltip", store.currentLangObj[key]);
         });
         
         const cv = document.getElementById("current-app-version");
@@ -48,10 +52,14 @@ export async function setupLang() {
             console.error("Erreur de lecture des traductions internes:", e);
         }
 
+        /**
+         * @param {string} filePath
+         * @param {Record<string, any>} defaultObj
+         */
         async function syncLangFile(filePath, defaultObj) {
             let current = {};
             if (await window.existsSafe(filePath)) {
-                try { current = JSON.parse(await fs.promises.readFile(filePath, "utf8")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
+                try { current = JSON.parse(await fs.promises.readFile(filePath, "utf8")); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in lang.js:", e); }
             }
             const merged = Object.assign({}, defaultObj, current);
             const dir = path.dirname(filePath);
@@ -68,7 +76,7 @@ export async function setupLang() {
         await syncLangFile(path.join(store.langDir, "en.json"), defaultEn);
     })();
 
-    window.loadLanguage = async (code) => {
+    window.loadLanguage = async (/** @type {string} */ code) => {
         await syncReadyPromise;
         const p = path.join(store.langDir, `${code}.json`);
         if (await window.existsSafe(p)) {
@@ -82,7 +90,7 @@ export async function setupLang() {
         }
     };
 
-    window.changeLanguage = async (code) => {
+    window.changeLanguage = async (/** @type {string} */ code) => {
         store.globalSettings.language = code;
         if (window.safeWriteJSONAsync) {
             await window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
@@ -98,7 +106,8 @@ export async function setupLang() {
     };
 
     window.saveFirstLaunch = async () => {
-        const code = document.getElementById("first-launch-lang").value;
+        const input = /** @type {HTMLSelectElement | HTMLInputElement | null} */ (document.getElementById("first-launch-lang"));
+        const code = input ? input.value : "fr";
         store.globalSettings.language = code;
         if (window.safeWriteJSONAsync) {
             await window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
@@ -107,12 +116,13 @@ export async function setupLang() {
         }
         await window.loadLanguage(code);
         if (window.populateLangDropdown) await window.populateLangDropdown();
-        document.getElementById("modal-first-launch").style.display = "none";
+        const modal = document.getElementById("modal-first-launch");
+        if (modal) modal.style.display = "none";
     };
 
     window.populateLangDropdown = async () => {
         await syncReadyPromise;
-        const select = document.getElementById("global-lang");
+        const select = /** @type {HTMLSelectElement | null} */ (document.getElementById("global-lang"));
         if (!select) return;
         select.innerHTML = "";
         const allFiles = await fs.promises.readdir(store.langDir);

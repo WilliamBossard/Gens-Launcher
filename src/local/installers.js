@@ -1,15 +1,14 @@
+// @ts-check
 import { store } from "../store.js";
 import { yieldUI, sysLog } from "../utils.js";
 const fs = window.api.fs;
 const path = window.api.path;
 
-function safeAttrJson(value) {
-    return JSON.stringify(value).replace(/'/g, "&#39;");
-}
-
 export function setup() {
+    /** @type {Array<{ oldFile: string; newFileObj: any }>} */
     let pendingUpdates = [];
     window.checkModUpdates = async () => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         if (inst.loader === "vanilla") {
@@ -29,12 +28,13 @@ export function setup() {
         }
         window.showLoading(t("msg_check_updates", "Vérification des mises à jour..."));
         await yieldUI();
+        /** @type {Record<string, string>} */
         let hashes = {};
         await Promise.all(files.map(async (f) => {
             try {
                 const hash = await window.api.tools.hashFile(path.join(modsPath, f), "sha1");
                 if (hash) hashes[hash] = f;
-            } catch (err) {
+            } catch (/** @type {any} */ err) {
                 sysLog(`[MODS] Erreur calcul hash pour ${f} : ${err.message}`, true);
             }
         }));
@@ -81,7 +81,7 @@ export function setup() {
             if (typeof data === "object" && !Array.isArray(data)) {
                 for (let oldHash in data) {
                     if (data[oldHash] && Array.isArray(data[oldHash].files)) {
-                        const newFileObj = data[oldHash].files.find((f) => f.primary) || data[oldHash].files[0];
+                        const newFileObj = data[oldHash].files.find((/** @type {any} */ f) => f.primary) || data[oldHash].files[0];
                         if (newFileObj && newFileObj.filename !== hashes[oldHash]) {
                             pendingUpdates.push({
                                 oldFile: hashes[oldHash],
@@ -94,16 +94,21 @@ export function setup() {
             }
             window.hideLoading();
             if (pendingUpdates.length > 0) {
-                document.getElementById("updates-list").innerHTML = listHTML;
-                document.getElementById("modal-updates").style.display = "flex";
-                document.getElementById("btn-confirm-updates").onclick = async () => {
-                    document.getElementById("modal-updates").style.display = "none";
-                    await executeModUpdates();
-                };
+                const listEl = document.getElementById("updates-list");
+                if (listEl) listEl.innerHTML = listHTML;
+                const modalUpdates = document.getElementById("modal-updates");
+                if (modalUpdates) modalUpdates.style.display = "flex";
+                const btnConfirm = document.getElementById("btn-confirm-updates");
+                if (btnConfirm) {
+                    btnConfirm.onclick = async () => {
+                        if (modalUpdates) modalUpdates.style.display = "none";
+                        await executeModUpdates();
+                    };
+                }
             } else {
                 window.showToast(t("msg_no_updates", "Tous vos mods sont à jour !"), "success");
             }
-        } catch (e) {
+        } catch (/** @type {any} */ e) {
             clearTimeout(checkTimeout);
             window.hideLoading();
             if (e.name === "AbortError") {
@@ -114,7 +119,9 @@ export function setup() {
         }
     };
     async function executeModUpdates() {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let updatedCount = 0;
         const total = pendingUpdates.length;
@@ -140,7 +147,7 @@ export function setup() {
                 }
                 const fileBytes = new Uint8Array(buffer);
                 if (update.newFileObj.hashes?.sha1) {
-                    const dlHash = window.api.tools.hashBuffer(fileBytes, "sha1");
+                    const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
                     if (dlHash !== update.newFileObj.hashes.sha1) {
                         sysLog(`SÉCURITÉ : hash SHA1 invalide pour la mise à jour ${update.newFileObj.filename} (attendu: ${update.newFileObj.hashes.sha1}, reçu: ${dlHash})`, true);
                         window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${update.newFileObj.filename}`, "error");
@@ -158,7 +165,7 @@ export function setup() {
                     Math.round((updatedCount / total) * 100),
                     `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`
                 );
-            } catch(e) {
+            } catch(/** @type {any} */ e) {
                 sysLog("Erreur mise à jour mod " + update.oldFile + " : " + e.message, true);
             }
         }

@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "./store.js";
 export const ACHIEVEMENTS = [
     {

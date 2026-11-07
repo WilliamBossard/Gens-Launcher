@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
@@ -8,6 +9,7 @@ const path = window.api.path;
 const shell = window.api.shell;
 const _screenshotCache = new Map();
 const SCREENSHOT_CACHE_TTL = 86400000; 
+/** @param {any} inst */
 async function getCachedScreenshot(inst) {
     const safeDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
     const cached = _screenshotCache.get(inst.name);
@@ -20,16 +22,21 @@ async function getCachedScreenshot(inst) {
             const files = (await fs.promises.readdir(safeDir)).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
             if (files.length > 0) file = path.join(safeDir, files[Math.floor(Math.random() * files.length)]);
         }
-    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
     _screenshotCache.set(inst.name, { dir: safeDir, file, ts: Date.now() });
     return file;
 }
+/** @param {string} instName */
 export function invalidateScreenshotCache(instName) {
     _screenshotCache.delete(instName);
 }
 export function setupInstances() {
-    async function fetchLoaderVersions(loader, mcVer) {
-        const sortSemverDesc = (a, b) => {
+    /** @type {(id: string) => any} */
+    const $ = (id) => document.getElementById(id);
+    /** @param {string} loader
+ * @param {string} mcVer */
+async function fetchLoaderVersions(loader, mcVer) {
+        const sortSemverDesc = (/** @type {string} */ a, /** @type {string} */ b) => {
             const [mainA, ...restA] = a.split('-');
             const [mainB, ...restB] = b.split('-');
             const preA = restA.join('-');
@@ -63,20 +70,21 @@ export function setupInstances() {
             return 0;
         };
 
-        const fetchFn = typeof window !== 'undefined' && typeof window.fetchWithTimeout === 'function'
-            ? (u, opts) => window.fetchWithTimeout(u, { timeout: 10000, ...opts })
-            : (u, opts) => fetch(u, opts);
+        /** @type {(u: string, opts?: any) => Promise<any>} */
+        const fetchFn = (u, opts = undefined) => typeof window !== 'undefined' && typeof window.fetchWithTimeout === 'function'
+            ? window.fetchWithTimeout(u, { timeout: 10000, ...(opts || {}) })
+            : fetch(u, opts);
 
         if (loader === "fabric") {
             const res = await fetchFn(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Fabric API HTTP ${res.status}`);
-            return (await res.json()).map(d => d.loader.version);
+            return (await res.json()).map((/** @type {any} */ d) => d.loader.version);
         }
         if (loader === "quilt") {
             const res = await fetchFn(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Quilt API HTTP ${res.status}`);
             const data = await res.json();
-            const versions = data.map(d => d.loader.version);
+            const versions = data.map((/** @type {any} */ d) => d.loader.version);
             return versions.sort(sortSemverDesc);
         }
         if (loader === "forge") {
@@ -85,7 +93,7 @@ export function setupInstances() {
                 if (res.ok) {
                     const all = await res.json();
                     const vers = all[mcVer] || [];
-                    if (vers.length > 0) return vers.map(v => v.split('-').pop()).sort(sortSemverDesc);
+                    if (vers.length > 0) return vers.map((/** @type {any} */ v) => v.split('-').pop()).sort(sortSemverDesc);
                 }
             } catch (_) { /* fallback to mirror below */ }
             try {
@@ -93,7 +101,7 @@ export function setupInstances() {
                 if (mirrorRes.ok) {
                     const data = await mirrorRes.json();
                     if (Array.isArray(data)) {
-                        return data.map(item => item.version).filter(Boolean).sort(sortSemverDesc);
+                        return data.map((/** @type {any} */ item) => item.version).filter(Boolean).sort(sortSemverDesc);
                     }
                 }
             } catch (_) {}
@@ -107,15 +115,15 @@ export function setupInstances() {
             const neoRes = await fetchFn("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
             if (!neoRes.ok) throw new Error(`NeoForge API HTTP ${neoRes.status}`);
             const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
-            const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent);
-            return allVers.filter(v => v.startsWith(prefix)).sort(sortSemverDesc);
+            const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent || "");
+            return allVers.filter((/** @type {string} */ v) => v.startsWith(prefix)).sort(sortSemverDesc);
         }
         return [];
     }
     window.fetchLoaderVersions = fetchLoaderVersions;
-    window.updateVersionList = (showSnapshots) => {
-        const select1 = document.getElementById("new-version");
-        const select2 = document.getElementById("catalog-version");
+    window.updateVersionList = (/** @type {boolean} */ showSnapshots) => {
+        const select1 = /** @type {HTMLSelectElement | null} */ ($("new-version"));
+        const select2 = /** @type {HTMLSelectElement | null} */ ($("catalog-version"));
         const frag1 = document.createDocumentFragment();
         const frag2 = document.createDocumentFragment();
         store.rawVersions.forEach((v) => {
@@ -130,30 +138,33 @@ export function setupInstances() {
                 frag2.appendChild(opt2);
             }
         });
-        select1.innerHTML = "";
-        select1.appendChild(frag1);
-        select2.innerHTML = "";
-        select2.appendChild(frag2);
+        if (select1) {
+            select1.innerHTML = "";
+            select1.appendChild(frag1);
+        }
+        if (select2) {
+            select2.innerHTML = "";
+            select2.appendChild(frag2);
+        }
         window.updateLoaderVersions();
     };
     window.updateLoaderVersions = async () => {
-        const mcVer = document.getElementById("new-version").value;
-        const loader = document.getElementById("new-loader").value;
-        const container = document.getElementById("loader-version-container");
-        const select = document.getElementById("new-loader-version");
+        const mcVer = $('new-version')?.value || "";
+        const loader = $('new-loader')?.value || "vanilla";
+        const container = $('loader-version-container');
+        const select = $('new-loader-version');
+        if (!select) return;
         select.innerHTML = "<option>" + t("msg_loading", "Chargement...") + "</option>";
-        if (loader === "vanilla") { container.style.display = "none"; return; }
-        container.style.display = "block";
+        if (loader === "vanilla") { if (container) container.style.display = "none"; return; }
+        if (container) container.style.display = "block";
         try {
             const versions = await fetchLoaderVersions(loader, mcVer);
             select.innerHTML = "";
             if (versions.length === 0) {
                 select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
-                // Pas de toast ici — l'utilisateur parcourt juste les versions.
-                // Le toast + le blocage se font dans saveInstance au moment de créer.
             } else {
                 const frag = document.createDocumentFragment();
-                versions.forEach(v => {
+                versions.forEach((/** @type {string} */ v) => {
                     const opt = document.createElement("option");
                     opt.value = v; opt.textContent = v;
                     frag.appendChild(opt);
@@ -164,17 +175,17 @@ export function setupInstances() {
             select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
         }
     };
-    window.selectInstance = async (i) => {
+    window.selectInstance = async (/** @type {number} */ i) => {
         const isNewInstance = store.selectedInstanceIdx !== i;
         store.selectedInstanceIdx = i;
         const inst = store.allInstances[i];
         if (isNewInstance) invalidateScreenshotCache(inst.name);
-        document.getElementById("action-panel").style.opacity = "1";
-        document.getElementById("action-panel").style.pointerEvents = "auto";
-        document.getElementById("panel-title").innerText = inst.name;
-        document.getElementById("btn-mods").style.display = inst.loader === "vanilla" ? "none" : "block";
-        document.getElementById("panel-stats").style.display = "block";
-        const updateBtn = document.getElementById("btn-update-modpack");
+        $("action-panel").style.opacity = "1";
+        $("action-panel").style.pointerEvents = "auto";
+        $("panel-title").innerText = inst.name;
+        $("btn-mods").style.display = inst.loader === "vanilla" ? "none" : "block";
+        $("panel-stats").style.display = "block";
+        const updateBtn = $("btn-update-modpack");
         if (updateBtn) {
             updateBtn.style.display = "none";
             if (inst.modrinthId && isNewInstance && window.checkModpackUpdate) {
@@ -183,11 +194,11 @@ export function setupInstances() {
         }
         const h = Math.floor((inst.playTime || 0) / 3600000);
         const m = Math.floor(((inst.playTime || 0) % 3600000) / 60000);
-        document.getElementById("stat-time").innerText = `${h}h ${m}m`;
-        document.getElementById("stat-last").innerText = inst.lastPlayed
+        $("stat-time").innerText = `${h}h ${m}m`;
+        $("stat-last").innerText = inst.lastPlayed
             ? new Date(inst.lastPlayed).toLocaleDateString()
             : t("lbl_never", "Jamais");
-        const appBg = document.getElementById("app-background");
+        const appBg = $("app-background");
         const root = document.documentElement;
         const imgPath = await getCachedScreenshot(inst);
         if (imgPath) {
@@ -203,52 +214,54 @@ export function setupInstances() {
             window.applyTheme();
         }
         if (isNewInstance) {
-            const logOutput = document.getElementById("log-output");
+            const logOutput = $("log-output");
             if (logOutput) logOutput.innerHTML = "";
             if (typeof resetLogLineCount === 'function') resetLogLineCount();
         }
         document.querySelectorAll('.instance-card').forEach(card => {
-            if (parseInt(card.getAttribute('data-index')) === i) card.classList.add('active');
+            if (parseInt(card.getAttribute('data-index') || '0', 10) === i) card.classList.add('active');
             else card.classList.remove('active');
         });
         if (!store.isGameRunning) updateRPC();
         if (window.updateLaunchButton) window.updateLaunchButton();
     };
     window.openInstanceModal = () => {
-        document.getElementById("new-name").value = "";
-        document.getElementById("new-name").style.borderColor = "var(--border)";
-        document.getElementById("new-loader").value = "vanilla";
-        document.getElementById("new-version").selectedIndex = 0;
-        document.getElementById("new-ram-input").value = store.globalSettings.defaultRam;
-        document.getElementById("new-ram-slider").value = store.globalSettings.defaultRam;
-        document.getElementById("modal-instance").style.display = "flex";
+        $("new-name").value = "";
+        $("new-name").style.borderColor = "var(--border)";
+        $("new-loader").value = "vanilla";
+        $("new-version").selectedIndex = 0;
+        $("new-ram-input").value = store.globalSettings.defaultRam;
+        $("new-ram-slider").value = store.globalSettings.defaultRam;
+        $("modal-instance").style.display = "flex";
         window.updateLoaderVersions();
     };
-    window.closeInstanceModal = () => (document.getElementById("modal-instance").style.display = "none");
+    window.closeInstanceModal = () => ($("modal-instance").style.display = "none");
     window.updateJvmDesc = () => {
-        document.querySelectorAll(".jvm-desc").forEach(el => el.style.display = "none");
-        const val = document.getElementById("edit-jvm-profile").value;
-        const descEl = document.getElementById("jvm-desc-" + val);
+        document.querySelectorAll(".jvm-desc").forEach(el => (/** @type {HTMLElement} */ (el)).style.display = "none");
+        const val = $("edit-jvm-profile").value;
+        const descEl = $("jvm-desc-" + val);
         if (descEl) descEl.style.display = "block";
     };
     window.openEditModal = async (targetTab = "tab-general") => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
+        if (!inst) return;
         let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
         if (ramMB < 128) ramMB = ramMB * 1024;
-        const searchBar = document.getElementById("local-mod-search");
+        const searchBar = $("local-mod-search");
         if (searchBar) searchBar.value = "";
-        document.getElementById("edit-modal-title").innerText = `${t("btn_settings")} : ${inst.name}`;
-        document.getElementById("edit-name").value = inst.name;
-        document.getElementById("edit-group").value = inst.group || "";
-        document.getElementById("edit-ram-input").value = ramMB;
-        document.getElementById("edit-ram-slider").value = ramMB;
+        $("edit-modal-title").innerText = `${t("btn_settings")} : ${inst.name}`;
+        $("edit-name").value = inst.name;
+        $("edit-group").value = inst.group || "";
+        $("edit-ram-input").value = ramMB;
+        $("edit-ram-slider").value = ramMB;
         window.scanJavaVersions("edit-javapath", true, false, inst.javaPath || "");
-        document.getElementById("edit-res-w").value = inst.resW || "";
-        document.getElementById("edit-res-h").value = inst.resH || "";
-        document.getElementById("edit-jvmargs").value = inst.jvmArgs || "";
-        document.getElementById("edit-jvm-profile").value = inst.jvmProfile || "none";
+        $("edit-res-w").value = inst.resW || "";
+        $("edit-res-h").value = inst.resH || "";
+        $("edit-jvmargs").value = inst.jvmArgs || "";
+        $("edit-jvm-profile").value = inst.jvmProfile || "none";
         window.updateJvmDesc();
-        document.getElementById("edit-notes").value = inst.notes || "";
+        $("edit-notes").value = inst.notes || "";
         const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
         let resolvedIcon = inst.icon;
         if (!resolvedIcon || resolvedIcon === "") {
@@ -257,18 +270,18 @@ export function setupInstances() {
             } else if (await fs.promises.exists(path.join(instFolder, "icon.jpg"))) {
                 resolvedIcon = window.pathToFileUrl(path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
             } else {
-                resolvedIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                resolvedIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
             }
         }
-        document.getElementById("edit-icon-preview").src = resolvedIcon;
-        document.getElementById("edit-backup-mode").value = inst.backupMode || "none";
-        document.getElementById("edit-backup-limit").value = inst.backupLimit || 5;
-        if (document.getElementById("edit-disable-horizon")) {
-            document.getElementById("edit-disable-horizon").checked = !!inst.disableHorizon;
+        $("edit-icon-preview").src = resolvedIcon;
+        $("edit-backup-mode").value = inst.backupMode || "none";
+        $("edit-backup-limit").value = inst.backupLimit || 5;
+        if ($("edit-disable-horizon")) {
+            $("edit-disable-horizon").checked = !!inst.disableHorizon;
         }
-        const versionSelect = document.getElementById("edit-mc-version");
+        const versionSelect = $("edit-mc-version");
         if (versionSelect) {
-            const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
+            const showBeta = $("edit-show-snapshots")?.checked || false;
             const frag = document.createDocumentFragment();
             let foundVer = false;
             (store.rawVersions || []).forEach(v => {
@@ -289,12 +302,12 @@ export function setupInstances() {
             versionSelect.innerHTML = "";
             versionSelect.appendChild(frag);
         }
-        const loaderSelect = document.getElementById("edit-loader-type");
+        const loaderSelect = $("edit-loader-type");
         if (loaderSelect) {
             loaderSelect.value = inst.loader || "vanilla";
             window.updateEditLoaderVersions();
         }
-        const btnModsTab = document.getElementById("tab-btn-mods");
+        const btnModsTab = $("tab-btn-mods");
         if (inst.loader === "vanilla") {
             btnModsTab.style.display = "none";
             if (targetTab === "tab-mods") targetTab = "tab-general";
@@ -302,15 +315,17 @@ export function setupInstances() {
             btnModsTab.style.display = "block";
         }
         if (window.switchTab) window.switchTab(targetTab);
-        document.getElementById("modal-edit").style.display = "flex";
+        $("modal-edit").style.display = "flex";
         document.querySelectorAll("#modal-edit .settings-content").forEach(el => el.scrollTop = 0);
     };
     window.updateEditLoaderVersions = async () => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const loaderSelect = document.getElementById("edit-loader-type");
-        const versionSelect = document.getElementById("edit-mc-version");
-        const loaderVerContainer = document.getElementById("edit-loader-version-container");
-        const loaderVerSelect = document.getElementById("edit-loader-version");
+        if (!inst) return;
+        const loaderSelect = $("edit-loader-type");
+        const versionSelect = $("edit-mc-version");
+        const loaderVerContainer = $("edit-loader-version-container");
+        const loaderVerSelect = $("edit-loader-version");
         if (!loaderSelect || !loaderVerSelect) return;
         const loader = loaderSelect.value;
         const mcVer = versionSelect ? versionSelect.value : (inst?.version || "");
@@ -326,7 +341,7 @@ export function setupInstances() {
                 const frag = document.createDocumentFragment();
                 let foundLoader = false;
                 const currentLoaderVer = inst ? (inst.loaderVersion || "") : "";
-                versions.forEach(v => {
+                versions.forEach((/** @type {string} */ v) => {
                     const opt = document.createElement("option");
                     opt.value = v; opt.textContent = v;
                     if (v === currentLoaderVer) { opt.selected = true; foundLoader = true; }
@@ -349,8 +364,8 @@ export function setupInstances() {
         }
     };
     window.toggleEditSnapshots = () => {
-        const versionSelect = document.getElementById("edit-mc-version");
-        const showBeta = document.getElementById("edit-show-snapshots")?.checked || false;
+        const versionSelect = $("edit-mc-version");
+        const showBeta = $("edit-show-snapshots")?.checked || false;
         if (!versionSelect) return;
         const currentVal = versionSelect.value;
         const frag = document.createDocumentFragment();
@@ -372,7 +387,7 @@ export function setupInstances() {
         store.pendingIconPath = null;
     };
     window.saveInstance = async () => {
-        const nameInput = document.getElementById("new-name");
+        const nameInput = $("new-name");
         const name = nameInput.value.trim();
         if (!name) {
             nameInput.style.borderColor = "#f87171";
@@ -390,15 +405,15 @@ export function setupInstances() {
             window.showToast(t("msg_err_similar_name", "Une instance avec un nom similaire (même dossier) existe déjà !"), "error");
             return;
         }
-        const version = document.getElementById("new-version").value;
+        const version = $("new-version").value;
         if (!version) {
             window.showToast(t("msg_err_no_version", "Aucune version disponible. Vérifiez votre connexion internet et réessayez."), "error");
             return;
         }
-        // Bloquer si le loader est incompatible avec la version choisie
-        const selectedLoader = document.getElementById("new-loader").value;
+        
+        const selectedLoader = $("new-loader").value;
         if (selectedLoader !== "vanilla") {
-            const loaderVerEl = document.getElementById("new-loader-version");
+            const loaderVerEl = $("new-loader-version");
             const loaderVerVal = loaderVerEl ? loaderVerEl.value : "";
             const isIncompat = !loaderVerVal || loaderVerEl?.options[0]?.text?.includes("Incompatible");
             if (isIncompat) {
@@ -415,19 +430,19 @@ export function setupInstances() {
         const destFolder = path.join(store.instancesRoot, safeFolderName);
         try {
             await fs.promises.mkdir(destFolder, { recursive: true });
-        } catch(e) {
+        } catch(/** @type {any} */ e) {
             sysLog("Erreur création dossier instance: " + e.message, true);
             window.showToast(t("msg_err_create_folder", "Erreur système : Impossible de créer le dossier."), "error");
             return;
         }
-        let rawRam = parseInt(document.getElementById("new-ram-input").value) || 4096;
+        let rawRam = parseInt($("new-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024;
         rawRam = Math.max(1024, rawRam);
         const newInst = {
             name,
-            version: document.getElementById("new-version").value,
-            loader: document.getElementById("new-loader").value,
-            loaderVersion: document.getElementById("new-loader").value === "vanilla" ? "" : document.getElementById("new-loader-version").value,
+            version: $("new-version").value,
+            loader: $("new-loader").value,
+            loaderVersion: $("new-loader").value === "vanilla" ? "" : $("new-loader-version").value,
             ram: String(rawRam),
             javaPath: "", jvmArgs: "",
             jvmProfile: "none",
@@ -443,10 +458,10 @@ export function setupInstances() {
         sysLog(`[INSTANCE] Nouvelle instance créée : "${newInst.name}" (${newInst.loader} ${newInst.version})`);
         if (store.allInstances.length >= 5 && window.checkAchievement) window.checkAchievement("architect");
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
-        if (await fs.promises.exists(defaultOpt)) { try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
+        if (await fs.promises.exists(defaultOpt)) { try { await fs.promises.copyFile(defaultOpt, path.join(destFolder, "options.txt")); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
         const defaultSrv = path.join(store.dataDir, "default_servers.dat");
-        if (await fs.promises.exists(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
-        try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+        if (await fs.promises.exists(defaultSrv)) { try { await fs.promises.copyFile(defaultSrv, path.join(destFolder, "servers.dat")); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); } }
+        try { await fs.promises.writeFile(path.join(destFolder, "instance.json"), JSON.stringify(newInst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         await writeInstanceMetaForCloud(newInst, { preserveTimestamp: true });
         window.renderUI();
         window.closeInstanceModal();
@@ -472,8 +487,10 @@ export function setupInstances() {
         }
     };
     window.saveEdit = async () => {
+        if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
-        const newName = document.getElementById("edit-name").value.trim();
+        if (!inst) return;
+        const newName = $("edit-name").value.trim();
         const oldInstName = inst.name; 
         if (!newName) {
             window.showToast(t("msg_err_name_req", "Le nom de l'instance est obligatoire !"), "error");
@@ -521,7 +538,7 @@ export function setupInstances() {
                         }
                         if (store.horizonActive && safeNewName !== safeOldName) {
                             await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
-                            // Écrire la config avant l'upload pour que l'autre PC récupère le bon nom + config
+                            
                             await writeInstanceMetaForCloud(inst);
                             await window.api.invoke("call-horizon", ['--upload', safeNewName]);
 
@@ -535,7 +552,7 @@ export function setupInstances() {
                                         delete syncState[safeOldName];
                                         window.safeWriteJSONAsync(syncPath, syncState);
                                     }
-                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                             }
                             for (const prefix of ["meta_", "manifest_"]) {
                                 const oldCache = path.join(binDir, `${prefix}${safeOldName}.json`);
@@ -547,7 +564,7 @@ export function setupInstances() {
                                         }
                                         await fs.promises.rename(oldCache, newCache);
                                     }
-                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
                             }
                         }
                     }
@@ -559,27 +576,27 @@ export function setupInstances() {
             }
             invalidateScreenshotCache(inst.name);
         }
-        let rawRam = parseInt(document.getElementById("edit-ram-input").value) || 4096;
+        let rawRam = parseInt($("edit-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024;
         inst.ram = String(Math.max(1024, rawRam));
         inst.name       = newName;
-        inst.group      = document.getElementById("edit-group").value.trim();
-        inst.javaPath   = document.getElementById("edit-javapath").value;
-        inst.resW = document.getElementById("edit-res-w").value;
-        inst.resH = document.getElementById("edit-res-h").value;
+        inst.group      = $("edit-group").value.trim();
+        inst.javaPath   = $("edit-javapath").value;
+        inst.resW = $("edit-res-w").value;
+        inst.resH = $("edit-res-h").value;
         if (inst.resW) { const w = parseInt(inst.resW); inst.resW = isNaN(w) ? "" : String(Math.max(320, Math.min(7680, w))); }
         if (inst.resH) { const h = parseInt(inst.resH); inst.resH = isNaN(h) ? "" : String(Math.max(240, Math.min(4320, h))); }
-        inst.jvmArgs    = document.getElementById("edit-jvmargs").value;
-        inst.jvmProfile = document.getElementById("edit-jvm-profile").value;
-        inst.notes      = document.getElementById("edit-notes").value;
-        inst.backupMode = document.getElementById("edit-backup-mode").value;
-        inst.backupLimit = parseInt(document.getElementById("edit-backup-limit").value) || 5;
-        if (document.getElementById("edit-disable-horizon")) {
-            inst.disableHorizon = document.getElementById("edit-disable-horizon").checked;
+        inst.jvmArgs    = $("edit-jvmargs").value;
+        inst.jvmProfile = $("edit-jvm-profile").value;
+        inst.notes      = $("edit-notes").value;
+        inst.backupMode = $("edit-backup-mode").value;
+        inst.backupLimit = parseInt($("edit-backup-limit").value) || 5;
+        if ($("edit-disable-horizon")) {
+            inst.disableHorizon = $("edit-disable-horizon").checked;
         }
-        const editVersionEl   = document.getElementById("edit-mc-version");
-        const editLoaderEl    = document.getElementById("edit-loader-type");
-        const editLoaderVerEl = document.getElementById("edit-loader-version");
+        const editVersionEl   = $("edit-mc-version");
+        const editLoaderEl    = $("edit-loader-type");
+        const editLoaderVerEl = $("edit-loader-version");
         if (editVersionEl && editLoaderEl) {
             const newVersion   = editVersionEl.value;
             const newLoader    = editLoaderEl.value;
@@ -603,7 +620,7 @@ export function setupInstances() {
                     for (const dir of ["versions", "libraries"]) {
                         const dirPath = path.join(instFolder, dir);
                         if (await window.existsSafe(dirPath)) {
-                            try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+                            try { await fs.promises.rm(dirPath, { recursive: true, force: true }); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
                         }
                     }
                     window.showToast(t("msg_version_changed", "Version changée ! Les fichiers seront retéléchargés au prochain lancement."), "info");
@@ -612,34 +629,34 @@ export function setupInstances() {
                 inst.loader  = newLoader;
                 inst.loaderVersion = newLoader === "vanilla" ? "" : (!isLoadingVer ? newLoaderVer : inst.loaderVersion);
             }
-            const btnModsTab = document.getElementById("tab-btn-mods");
+            const btnModsTab = $("tab-btn-mods");
             if (btnModsTab) btnModsTab.style.display = inst.loader === "vanilla" ? "none" : "block";
         }
         const oldIcon = inst.icon || "";
         let newIcon = oldIcon;
 
-        // Supprime les anciens fichiers icône (toutes extensions) dans le dossier de l'instance.
-        // Appeler AVANT la copie du nouveau fichier pour ne pas supprimer ce qu'on vient de créer.
-        const _cleanOldIconFiles = async (exceptExt) => {
+        
+        
+        const _cleanOldIconFiles = async (/** @type {string} */ exceptExt = "") => {
             const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
             for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']) {
-                if (exceptExt && ext === exceptExt) continue; // Ne pas supprimer le nouveau fichier
+                if (exceptExt && ext === exceptExt) continue; 
                 const f = window.api.path.join(instFolder, 'icon' + ext);
                 if (await window.existsSafe(f)) { 
-                    try { await fs.promises.unlink(f); } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); } 
+                    try { await fs.promises.unlink(f); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); } 
                 }
             }
         };
 
         if (store.pendingIconPath) {
-            // Déterminer l'extension de la nouvelle icône avant la copie
+            
             const newExt = window.api.path.extname(store.pendingIconPath).toLowerCase();
-            // Nettoyer les anciens fichiers AVANT la copie (pour éviter de supprimer le nouveau)
+            
             await _cleanOldIconFiles(newExt);
 
-            // Icône depuis le file picker — copier via le main process (validation extension + magic bytes)
+            
             const safeInstName = window.safeDir(inst.name);
-            const subDir = path.join('instances', safeInstName); // relatif au sandbox GensLauncher/
+            const subDir = path.join('instances', safeInstName); 
             const result = await window.api.copyImageToSandbox(store.pendingIconPath, 'icon', subDir);
             if (result.success) {
                 newIcon = window.pathToFileUrl(result.destPath.replace(/\\/g, "/"));
@@ -648,10 +665,10 @@ export function setupInstances() {
             }
             store.pendingIconPath = null;
         } else {
-            newIcon = document.getElementById("edit-icon-preview").src;
-            // Si on revient à un SVG par défaut (galerie), supprimer les fichiers icône copiés
+            newIcon = $("edit-icon-preview").src;
+            
             if (newIcon && newIcon.startsWith("data:image/svg+xml")) {
-                await _cleanOldIconFiles(); // Tout nettoyer
+                await _cleanOldIconFiles(); 
             }
         }
         const iconWasChanged = (oldIcon !== newIcon);
@@ -666,7 +683,7 @@ export function setupInstances() {
         await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
         await writeInstanceMetaForCloud(inst, { preserveTimestamp: true });
         window.selectInstance(store.selectedInstanceIdx);
-        try { await fs.promises.writeFile(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+        try { await fs.promises.writeFile(path.join(store.instancesRoot, window.safeDir(inst.name), "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         if (iconWasChanged && inst._hasDesktopShortcut) {
             window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: inst.icon })
                 .then(res => { if (res?.success) window.showToast(t("msg_shortcut_updated", "Raccourci bureau mis à jour !"), "success"); })
@@ -710,7 +727,8 @@ export function setupInstances() {
         if (iconWasChanged && window.checkAchievement) window.checkAchievement("artist");
         window.closeEditModal();
     };
-    window.openDir = async (f) => {
+    window.openDir = async (/** @type {string} */ f) => {
+        if (store.selectedInstanceIdx === null) return;
         const dir = path.join(store.instancesRoot, window.safeDir(store.allInstances[store.selectedInstanceIdx].name), f);
         if (!(await fs.promises.exists(dir))) await fs.promises.mkdir(dir, { recursive: true });
         shell.openPath(dir);
@@ -741,7 +759,7 @@ export function setupInstances() {
                 if (!copyOk) {
                     await fs.promises.cp(oldPath, newPath, {
                         recursive: true,
-                        filter: (src) => {
+                        filter: (/** @type {string} */ src) => {
                             const base = path.basename(src).toLowerCase();
                             return base !== 'instance.lock' && !base.endsWith('.log') && !base.endsWith('.tmp');
                         }
@@ -757,7 +775,7 @@ export function setupInstances() {
             store.globalSettings.totalInstancesCreated = (store.globalSettings.totalInstancesCreated || 0) + 1;
             window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-            try { await fs.promises.writeFile(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
+            try { await fs.promises.writeFile(path.join(newPath, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
         } catch(e) { sysLog("Erreur Copie: " + e, true); }
         window.hideLoading();
         window.renderUI();
@@ -788,10 +806,10 @@ export function setupInstances() {
             } catch(e) { console.error("Erreur vérification métadonnées cloud:", e); }
             store.allInstances.splice(instIdx, 1);
             store.selectedInstanceIdx = null;
-            document.getElementById("panel-stats").style.display = "none";
-            document.getElementById("action-panel").style.opacity = "0.4";
-            document.getElementById("action-panel").style.pointerEvents = "none";
-            document.getElementById("panel-title").innerText = t("panel_title", "Sélectionnez une instance");
+            $("panel-stats").style.display = "none";
+            $("action-panel").style.opacity = "0.4";
+            $("action-panel").style.pointerEvents = "none";
+            $("panel-title").innerText = t("panel_title", "Sélectionnez une instance");
             if (window.applyTheme) window.applyTheme();
             window.renderUI();
             window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -802,9 +820,9 @@ export function setupInstances() {
                     if (window.horizonScheduleCloudRefresh) {
                         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
                     }
-                } catch(cloudErr) {
+                } catch(/** @type {any} */ cloudErr) {
                     sysLog(`[CLOUD] Échec de la suppression Cloud pour ${instName}: ${cloudErr.message}`, true);
-                    window.showToast(window.t("msg_warn_cloud_del", "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."), "warning");
+                    window.showToast(window.t("msg_warn_cloud_del", "Impossible de supprimer la copie Cloud, mais l'instance locale va être retirée."), "warn");
                 }
             }
             const instFolder = path.join(store.instancesRoot, safeName);
@@ -817,7 +835,7 @@ export function setupInstances() {
                     window.api.invoke("delete-desktop-shortcut", { instanceName: instName }).catch(e => console.warn('Erreur raccourci:', e));
                 }
                 sysLog(`[INSTANCE] Instance "${instName}" et ses fichiers ont été supprimés avec succès.`);
-            } catch(localErr) {
+            } catch(/** @type {any} */ localErr) {
                 sysLog(`[FALLBACK] Impossible de supprimer le dossier de ${instName}: ${localErr.message}`, true);
                 window.showToast(t("msg_err_del_running", "Impossible de supprimer le dossier complet. Le dossier est peut-être verrouillé."), "error");
                 store.allInstances.splice(instIdx, 0, inst);
@@ -826,21 +844,21 @@ export function setupInstances() {
             }
         }
     };
-    window.previewInstanceIcon = (input) => {
+    window.previewInstanceIcon = (/** @type {any} */ input) => {
         const file = input.files[0];
         if (file) {
             const filePath = window.api.getFilePath(file);
             store.pendingIconPath = filePath;
-            document.getElementById("edit-icon-preview").src = window.pathToFileUrl(filePath.replace(/\\/g, "/"));
+            $("edit-icon-preview").src = window.pathToFileUrl(filePath.replace(/\\/g, "/"));
         }
         input.value = "";
     };
-    window.dragInstanceStart = (e, idx) => {
+    window.dragInstanceStart = (/** @type {any} */ e, /** @type {number} */ idx) => {
         e.dataTransfer.setData("instIdx", idx);
         window._isInternalDrag = true;
     };
     document.addEventListener("dragend", () => { window._isInternalDrag = false; });
-    window.dropInstanceOnGroup = (e, targetGroup) => {
+    window.dropInstanceOnGroup = (/** @type {any} */ e, /** @type {string} */ targetGroup) => {
         e.preventDefault();
         e.stopPropagation();
         const idx = parseInt(e.dataTransfer.getData("instIdx"), 10);
@@ -859,7 +877,7 @@ export function setupInstances() {
         "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300aaaa'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23aaffff'/%3E%3C/svg%3E",
     ];
     window.openIconGallery = () => {
-        const grid = document.getElementById("icon-gallery-grid");
+        const grid = $("icon-gallery-grid");
         grid.innerHTML = "";
         defaultGalleryIcons.forEach(icon => {
             const img = document.createElement("img");
@@ -870,29 +888,30 @@ export function setupInstances() {
             img.addEventListener("click",     () => window.selectGalleryIcon(icon));
             grid.appendChild(img);
         });
-        document.getElementById("modal-icon-gallery").style.display = "flex";
+        $("modal-icon-gallery").style.display = "flex";
     };
-    window.selectGalleryIcon = (icon) => {
+    window.selectGalleryIcon = (/** @type {string} */ icon) => {
         store.pendingIconPath = null;
-        document.getElementById("edit-icon-preview").src = icon;
+        $("edit-icon-preview").src = icon;
         window.closeModal('modal-icon-gallery');
     };
+    /** @type {any} */
     let searchTimer = null;
     window.scheduleSearch = () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => window.renderUI(), 200);
     };
-    window.updateIconCache = async (inst) => {
+    window.updateIconCache = async (/** @type {any} */ inst) => {
         if (!store.defaultIcons) return;
-        const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+        const fallbackIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
         let iconSrc = fallbackIcon;
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
 
         if (inst.icon && inst.icon.startsWith("data:")) {
-            // Icône data URI (SVG galerie ou base64 encodé) — utiliser directement
+            
             iconSrc = inst.icon;
         } else {
-            // Chercher un fichier icône dans le dossier de l'instance (toutes extensions supportées)
+            
             const ICON_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
             let foundIconPath = null;
             for (const ext of ICON_EXTS) {
@@ -904,8 +923,9 @@ export function setupInstances() {
             }
 
             if (foundIconPath) {
-                // Fichier trouvé — l'utiliser (avec cache-buster si l'icône vient d'être changée)
+                
                 const ext = window.api.path.extname(foundIconPath).toLowerCase();
+                /** @type {Record<string, string>} */
                 const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
                 const mime = mimeMap[ext] || 'image/png';
                 const stat = await window.api.fs.promises.stat(foundIconPath).catch(() => null);
@@ -916,15 +936,15 @@ export function setupInstances() {
                     ? `data:${mime};base64,${await window.api.fs.promises.readFile(foundIconPath, 'base64')}`
                     : `${expectedUrl}?t=${mtime}`;
 
-                // Mettre à jour inst.icon si stale (pointe vers un fichier différent ou supprimé, ou est vide)
+                
                 if ((!inst.icon) || (inst.icon !== iconSrc && inst.icon !== expectedUrl && !inst.icon.startsWith(expectedUrl))) {
                     inst.icon = expectedUrl;
                 }
             } else if (inst.icon && inst.icon.startsWith("file://")) {
-                // inst.icon est un file:// URL mais le fichier n'existe plus → réinitialiser
+                
                 console.warn(`[Icon] Icône stale réinitialisée pour "${inst.name}" : ${inst.icon}`);
                 inst.icon = "";
-                // Pas de persistance ici : sera sauvegardé au prochain saveEdit
+                
                 iconSrc = fallbackIcon;
             }
         }
@@ -932,7 +952,7 @@ export function setupInstances() {
     };
 
     window.renderUI = () => {
-        const container = document.getElementById("instances-container");
+        const container = $("instances-container");
         if (!container) return;
         container.innerHTML = "";
         if (store.allInstances.length === 0) {
@@ -949,15 +969,15 @@ export function setupInstances() {
                     ${t("toolbar_add", "Ajouter une instance")}
                 </button>
             </div>`;
-            const btnWelcome = document.getElementById('btn-welcome-add-instance');
+            const btnWelcome = $('btn-welcome-add-instance');
             if (btnWelcome) {
-                // S'assurer que le bouton fonctionne bien
-                btnWelcome.onclick = (e) => { e.preventDefault(); window.openInstanceModal(); };
+                
+                btnWelcome.onclick = (/** @type {any} */ e) => { e.preventDefault(); window.openInstanceModal(); };
             }
             return;
         }
-        const search = document.getElementById("search-bar").value.toLowerCase();
-        const sort   = document.getElementById("sort-dropdown").value;
+        const search = $("search-bar").value.toLowerCase();
+        const sort   = $("sort-dropdown").value;
         let filtered = store.allInstances
             .map((inst, index) => ({ ...inst, originalIndex: index }))
             .filter(inst => inst.name.toLowerCase().includes(search));
@@ -965,7 +985,8 @@ export function setupInstances() {
         else if (sort === "lastPlayed") filtered.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
         else if (sort === "playTime")   filtered.sort((a, b) => (b.playTime    || 0) - (a.playTime    || 0));
         const defaultGroup = t("lbl_group_general", "Général");
-const groups = {};
+/** @type {Record<string, any[]>} */
+        const groups = {};
         filtered.forEach(inst => {
             let g = inst.group;
             if (!g || g.trim() === "" || g.toLowerCase() === "général" || g.toLowerCase() === "general") {
@@ -974,7 +995,7 @@ const groups = {};
             if (!groups[g]) groups[g] = [];
             groups[g].push(inst);
         });
-        const groupList = document.getElementById("group-paths-list");
+        const groupList = $("group-paths-list");
         if (groupList) {
             groupList.innerHTML = "";
             Object.keys(groups).forEach(g => {
@@ -1009,7 +1030,7 @@ const groups = {};
                 const isRunning = store.activeInstances.has(inst.name);
                 const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
                 const lockedClass = isLockedByMulti ? "is-locked" : "";
-                const fallbackIcon = store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+                const fallbackIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
                 const fallbackSafe = fallbackIcon.replace(/'/g, "\\'");
                 
                 let iconSrc = inst._cachedIconSrc || fallbackIcon;
@@ -1046,25 +1067,25 @@ const groups = {};
             fullHtml += html;
         }
         container.innerHTML = fullHtml;
-        // Fallback icônes manquantes
-        container.querySelectorAll('.instance-icon[data-fallback]').forEach(img => {
-            img.addEventListener('error', function() {
-                const fb = this.dataset.fallback;
-                if (fb && this.src !== fb) this.src = fb;
+        
+        container.querySelectorAll('.instance-icon[data-fallback]').forEach((/** @type {any} */ img) => {
+            img.addEventListener('error', () => {
+                const fb = img.dataset.fallback;
+                if (fb && img.src !== fb) img.src = fb;
             });
         });
-        // Délégation d'événements sur les cards d'instances
-        container.querySelectorAll('.instance-card').forEach(card => {
-            const idx = parseInt(card.dataset.index);
-            card.addEventListener('click', () => selectInstance(idx));
-            card.addEventListener('dblclick', () => handleInstanceDoubleClick(idx));
-            card.addEventListener('contextmenu', (e) => openContextMenu(e, idx));
-            card.addEventListener('dragstart', (e) => dragInstanceStart(e, idx));
+        
+        container.querySelectorAll('.instance-card').forEach((/** @type {any} */ card) => {
+            const idx = parseInt((/** @type {HTMLElement} */ (card)).dataset.index || "0", 10);
+            card.addEventListener('click', () => window.selectInstance(idx));
+            card.addEventListener('dblclick', () => window.handleInstanceDoubleClick(idx));
+            card.addEventListener('contextmenu', (/** @type {any} */ e) => window.openContextMenu(e, idx));
+            card.addEventListener('dragstart', (/** @type {any} */ e) => window.dragInstanceStart(e, idx));
         });
-        container.querySelectorAll(".category-header").forEach(header => {
-            header.addEventListener("click", () => window.toggleCategory(header, header.dataset.group || ""));
-            header.addEventListener("dragover", (e) => e.preventDefault());
-            header.addEventListener("drop", (e) => dropInstanceOnGroup(e, header.dataset.group || ""));
+        container.querySelectorAll(".category-header").forEach((/** @type {any} */ header) => {
+            header.addEventListener("click", () => window.toggleCategory(header, (/** @type {HTMLElement} */ (header)).dataset.group || ""));
+            header.addEventListener("dragover", (/** @type {any} */ e) => e.preventDefault());
+            header.addEventListener("drop", (/** @type {any} */ e) => window.dropInstanceOnGroup(e, (/** @type {HTMLElement} */ (header)).dataset.group || ""));
         });
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
@@ -1073,26 +1094,27 @@ const groups = {};
             window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
         }
     };
-    window.switchTab = (tabId) => {
+    window.switchTab = (/** @type {string} */ tabId) => {
         document.querySelectorAll("#modal-edit .settings-tab").forEach(t => t.classList.remove("active"));
         document.querySelectorAll("#modal-edit .settings-content").forEach(c => c.classList.remove("active"));
-        const btn = document.getElementById("tab-btn-" + tabId.replace("tab-", ""));
+        const btn = $("tab-btn-" + tabId.replace("tab-", ""));
         if (btn) btn.classList.add("active");
-        const tab = document.getElementById(tabId);
+        const tab = $(tabId);
         if (tab) tab.classList.add("active");
         if (tabId === "tab-mods"         && window.renderModsManager)         window.renderModsManager();
         if (tabId === "tab-shaders"      && window.renderShadersManager)      window.renderShadersManager();
         if (tabId === "tab-resourcepacks"&& window.renderResourcePacksManager)window.renderResourcePacksManager();
         if (tabId === "tab-servers"      && window.renderServersManager)      window.renderServersManager();
     };
-    let tooltipEl = document.getElementById("global-tooltip");
+    let tooltipEl = $("global-tooltip");
     if (!tooltipEl) {
         tooltipEl = document.createElement("div");
         tooltipEl.id = "global-tooltip";
         document.body.appendChild(tooltipEl);
     }
-    document.addEventListener("mouseover", (e) => {
-        const trigger = e.target.closest(".custom-tooltip-trigger");
+    document.addEventListener("mouseover", (/** @type {any} */ e) => {
+        const target = /** @type {HTMLElement | null} */ (e.target);
+        const trigger = target?.closest(".custom-tooltip-trigger");
         if (trigger) {
             const key = trigger.getAttribute("data-i18n-tooltip");
             let text = trigger.getAttribute("data-tooltip");
@@ -1108,11 +1130,11 @@ const groups = {};
             }
         }
     });
-    document.addEventListener("mouseout", (e) => {
+    document.addEventListener("mouseout", (/** @type {any} */ e) => {
         const trigger = e.target.closest(".custom-tooltip-trigger");
         if (trigger && tooltipEl) tooltipEl.style.opacity = "0";
     });
-    const dropOverlay = document.getElementById("drop-overlay");
+    const dropOverlay = $("drop-overlay");
     let dragCounter = 0;
     document.addEventListener("dragend", () => {
         window._isInternalDrag = false;
@@ -1142,7 +1164,7 @@ const groups = {};
             if (dropOverlay) dropOverlay.style.display = "none";
         }
     });
-    document.addEventListener("drop", async (e) => {
+    document.addEventListener("drop", async (/** @type {any} */ e) => {
         e.preventDefault();
         if (window._isInternalDrag) {
             window._isInternalDrag = false;
@@ -1200,39 +1222,39 @@ const groups = {};
         }
         if (added > 0) {
             if (window.showToast) window.showToast(`${added} ${t("msg_files_added", "fichier(s) ajouté(s) !")}`, "success");
-            if (document.getElementById("modal-edit").style.display === "flex") {
-                if (document.getElementById("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
-                if (document.getElementById("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();
-                if (document.getElementById("tab-resourcepacks").classList.contains("active") && window.renderResourcePacksManager) window.renderResourcePacksManager();
+            if ($("modal-edit").style.display === "flex") {
+                if ($("tab-mods").classList.contains("active") && window.renderModsManager) window.renderModsManager();
+                if ($("tab-shaders").classList.contains("active") && window.renderShadersManager) window.renderShadersManager();
+                if ($("tab-resourcepacks").classList.contains("active") && window.renderResourcePacksManager) window.renderResourcePacksManager();
             }
         } else {
             if (window.showToast) window.showToast(t("msg_err_format_drag", "Format non supporté (.jar ou .zip uniquement)."), "error");
         }
     });
     if (window.api) {
-        window.processAutoLaunch = (instName) => {
+        window.processAutoLaunch = (/** @type {string} */ instName) => {
             const idx = store.allInstances.findIndex(i => i.name === instName);
             if (idx !== -1) {
                 window._isAutoLaunch = true;
                 document.body.classList.add("is-auto-launch");
-                const overlay = document.getElementById("auto-launch-overlay");
+                const overlay = $("auto-launch-overlay");
                 if (overlay) overlay.style.display = "flex";
                 const inst = store.allInstances[idx];
-                const iconEl = document.getElementById("auto-icon");
+                const iconEl = $("auto-icon");
                 if (iconEl) {
-                    const iconSrc = inst._cachedIconSrc || inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons["vanilla"];
+                    const iconSrc = inst._cachedIconSrc || inst.icon || (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons["vanilla"];
                     iconEl.src = iconSrc;
                 }
-                const bgEl = document.getElementById("auto-bg-screenshot");
+                const bgEl = $("auto-bg-screenshot");
                 if (bgEl && (inst._cachedIconSrc || inst.icon)) {
                     bgEl.style.backgroundImage = `url('${inst._cachedIconSrc || inst.icon}')`;
                     bgEl.style.opacity = "1";
                 }
-                const nameEl = document.getElementById("auto-inst-name");
+                const nameEl = $("auto-inst-name");
                 if (nameEl) nameEl.textContent = inst.name;
-                const badgeVersion = document.getElementById("auto-badge-version");
-                const badgeLoader  = document.getElementById("auto-badge-loader");
-                const badgeRam     = document.getElementById("auto-badge-ram");
+                const badgeVersion = $("auto-badge-version");
+                const badgeLoader  = $("auto-badge-loader");
+                const badgeRam     = $("auto-badge-ram");
                 if (badgeVersion) badgeVersion.textContent = inst.version || "";
                 if (badgeLoader)  badgeLoader.textContent  = inst.loader  || "vanilla";
                 if (badgeRam) {
@@ -1240,16 +1262,16 @@ const groups = {};
                     if (ram > 0 && ram < 8) ram = ram * 1024;
                     badgeRam.textContent = ram >= 1024 ? (ram / 1024).toFixed(1) + " Go" : ram + " Mo";
                 }
-                const accNameEl = document.getElementById("auto-acc-name");
+                const accNameEl = $("auto-acc-name");
                 if (accNameEl) {
-                    const acc = store.allAccounts[store.selectedAccountIdx];
+                    const acc = store.selectedAccountIdx !== null ? store.allAccounts[store.selectedAccountIdx] : null;
                     accNameEl.textContent = acc ? acc.name : "";
                 }
                 requestAnimationFrame(() => {
                     window.api.send("overlay-ready");
                 });
                 window.selectInstance(idx);
-                setTimeout(() => { document.getElementById('launch-btn').click(); }, 500);
+                setTimeout(() => { $('launch-btn').click(); }, 500);
             }
         };
 
@@ -1263,9 +1285,9 @@ const groups = {};
         window.abortAutoLaunch = () => {
             if (window._isAutoLaunch) {
                 window._isAutoLaunch = false;
-                const status = document.getElementById("status-text");
+                const status = $("status-text");
                 if (status) status.innerText = t("status_error", "Erreur, redémarrage du launcher...");
-                const autoStatus = document.getElementById("auto-status-text");
+                const autoStatus = $("auto-status-text");
                 if (autoStatus) autoStatus.innerText = "Erreur ! Redémarrage...";
                 setTimeout(() => {
                     if (window.api && window.api.send) window.api.send("restart_app");
@@ -1273,15 +1295,15 @@ const groups = {};
             }
         };
     }
-    window.openContextMenu = (e, idx) => {
+    window.openContextMenu = (/** @type {any} */ e, /** @type {number} */ idx) => {
         e.preventDefault();
         window.selectInstance(idx);
         window.ctxTargetIdx = idx;
-        const menu = document.getElementById("custom-context-menu");
+        const menu = $("custom-context-menu");
         if (!menu) return;
-        const cloudDivider = document.getElementById("ctx-cloud-divider");
-        const cloudSync    = document.getElementById("ctx-cloud-import") || document.getElementById("ctx-cloud-sync");
-        const cloudUpload  = document.getElementById("ctx-cloud-upload");
+        const cloudDivider = $("ctx-cloud-divider");
+        const cloudSync    = $("ctx-cloud-import") || $("ctx-cloud-sync");
+        const cloudUpload  = $("ctx-cloud-upload");
         const inst         = store.allInstances[idx];
         const isPhantom    = inst && inst.version === "...";
         const showCloud    = store.horizonActive === true && !isPhantom;
@@ -1289,10 +1311,10 @@ const groups = {};
         if (cloudDivider) cloudDivider.style.display = cloudDisplay;
         if (cloudSync)    cloudSync.style.display    = cloudDisplay;
         if (cloudUpload)  cloudUpload.style.display  = cloudDisplay;
-        const createShortcutItem = document.getElementById("ctx-create-shortcut");
-        const deleteShortcutItem = document.getElementById("ctx-delete-shortcut");
-        const ctxLaunch = document.getElementById("ctx-launch");
-        const ctxEdit = document.getElementById("ctx-edit");
+        const createShortcutItem = $("ctx-create-shortcut");
+        const deleteShortcutItem = $("ctx-delete-shortcut");
+        const ctxLaunch = $("ctx-launch");
+        const ctxEdit = $("ctx-edit");
         
         if (inst) {
             const isRunning = store.activeInstances.has(inst.name);
@@ -1345,12 +1367,12 @@ const groups = {};
         menu.style.top  = y + "px";
     };
 document.addEventListener("click", () => {
-        const menu = document.getElementById("custom-context-menu");
-        const menuCloud = document.getElementById("cloud-only-context-menu");
+        const menu = $("custom-context-menu");
+        const menuCloud = $("cloud-only-context-menu");
         if (menu) menu.style.display = "none";
         if (menuCloud) menuCloud.style.display = "none";
     });
-    window.ctxLaunch = () => { document.getElementById("launch-btn").click(); };
+    window.ctxLaunch = () => { $("launch-btn").click(); };
     window.ctxFolder = () => { if(window.openDir) window.openDir(''); };
     window.ctxEdit   = () => { 
         const inst = store.allInstances[window.ctxTargetIdx];
@@ -1361,6 +1383,7 @@ document.addEventListener("click", () => {
         if(window.openEditModal) window.openEditModal(); 
     };
     window.ctxDelete = () => { if(window.deleteInstance) window.deleteInstance(); };
+    /** @param {any} inst */
     async function getOrGenerateIconPath(inst) {
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
         const pngPath = window.api.path.join(instFolder, "icon.png");
@@ -1370,7 +1393,7 @@ document.addEventListener("click", () => {
         if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
             return inst.icon; 
         }
-        const svgData = inst.icon || store.defaultIcons[inst.loader] || store.defaultIcons.vanilla;
+        const svgData = inst.icon || (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
         return new Promise((resolve) => {
             const img = new Image();
             img.onload = async () => {
@@ -1378,6 +1401,7 @@ document.addEventListener("click", () => {
                 canvas.width = 256; 
                 canvas.height = 256;
                 const ctx = canvas.getContext("2d");
+                if (!ctx) { resolve(null); return; }
                 ctx.drawImage(img, 0, 0, 256, 256);
                 const base64Png = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
                 try {
@@ -1393,7 +1417,7 @@ document.addEventListener("click", () => {
     window.ctxUpdateShortcut = async () => {
         const inst = store.allInstances[window.ctxTargetIdx];
         if (!inst) return;
-        document.getElementById("custom-context-menu").style.display = "none";
+        $("custom-context-menu").style.display = "none";
         const iconPath = await getOrGenerateIconPath(inst);
         const res = await window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: iconPath });
         if (res?.success) {
@@ -1406,7 +1430,7 @@ document.addEventListener("click", () => {
     window.ctxShortcut = async () => {
         const inst = store.allInstances[window.ctxTargetIdx];
         if (!inst) return;
-        document.getElementById("custom-context-menu").style.display = "none";
+        $("custom-context-menu").style.display = "none";
         const iconPath = await getOrGenerateIconPath(inst); 
         const res = await window.api.invoke("create-desktop-shortcut", {
             instanceName: inst.name,
@@ -1424,7 +1448,7 @@ document.addEventListener("click", () => {
     window.ctxDeleteShortcut = async () => {
         const inst = store.allInstances[window.ctxTargetIdx];
         if (!inst) return;
-        document.getElementById("custom-context-menu").style.display = "none";
+        $("custom-context-menu").style.display = "none";
         const res = await window.api.invoke("delete-desktop-shortcut", { instanceName: inst.name });
         if (res?.success) {
             inst._hasDesktopShortcut = false;

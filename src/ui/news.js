@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "../store.js";
 
 export let _newsLoaded = false;
@@ -8,9 +9,10 @@ export function setupNews() {
         if (store.globalSettings.offlineMode || !window.isTrulyOnline) return;
 
         const container = document.getElementById("news-container");
+        if (!container) return;
         
         if (store.globalSettings.enableNewsBanner === false) {
-            if (container) container.style.display = "none";
+            container.style.display = "none";
             return;
         }
         const isCollapsed = store.globalSettings.newsCollapsed;
@@ -29,7 +31,7 @@ export function setupNews() {
         }
 
         try {
-            const btn = document.getElementById("btn-toggle-news");
+            const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-toggle-news"));
             if (btn) btn.innerText = "...";
 
             const newsController = new AbortController();
@@ -50,7 +52,7 @@ export function setupNews() {
             </div>
             <div id="news-content-wrapper" style="display: ${store.globalSettings.newsCollapsed ? 'none' : 'block'};">`;
             
-            data.entries.slice(0, 6).forEach(news => {
+            data.entries.slice(0, 6).forEach((/** @type {any} */ news) => {
                 const rawImgUrl = news.playPageImage?.url || "";
                 const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
                 const rawLink = news.readMoreLink || news.link || "";
@@ -73,16 +75,19 @@ export function setupNews() {
             
             container.querySelector('#btn-toggle-news')?.addEventListener('click', () => window.toggleNews());
             container.querySelectorAll('.news-card[data-link]').forEach(card => {
-                card.addEventListener('click', () => window.api.shell.openExternal(card.dataset.link));
+                const htmlCard = /** @type {HTMLElement} */ (card);
+                htmlCard.addEventListener('click', () => {
+                    if (htmlCard.dataset.link) window.api.shell.openExternal(htmlCard.dataset.link);
+                });
             });
             _newsLoaded = true;
-        } catch(e) {
-            if (e.name === 'AbortError' || e.message === 'Timeout' || e.message.includes('aborted')) {
+        } catch(/** @type {any} */ e) {
+            if (e.name === 'AbortError' || e.message === 'Timeout' || (e.message && e.message.includes('aborted'))) {
                 console.warn("[News] Mojang API unreachable or timed out.");
             } else {
                 console.warn("[News] loadNews failed:", e.message);
             }
-            const btn = document.getElementById("btn-toggle-news");
+            const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-toggle-news"));
             if (btn) btn.innerText = store.currentLangObj?.btn_show || "Afficher";
         }
     };
@@ -97,7 +102,7 @@ export function setupNews() {
         }
 
         const wrapper = document.getElementById("news-content-wrapper");
-        const btn = document.getElementById("btn-toggle-news");
+        const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-toggle-news"));
         if (store.globalSettings.newsCollapsed) {
             if (wrapper) wrapper.style.display = "none";
             if (btn) btn.innerText = store.currentLangObj?.btn_show || "Afficher";

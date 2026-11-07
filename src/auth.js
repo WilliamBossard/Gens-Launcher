@@ -1,3 +1,4 @@
+// @ts-check
 import { store } from "./store.js";
 const ipcRenderer = window.api;
 const shell = window.api.shell;
@@ -5,7 +6,12 @@ const clipboard = window.api.clipboard;
 let isLoginSessionActive = false;
 let _msDeviceVerificationUri = "";
 let _msDeviceUserCode = "";
+/** @type {any} */
 let _msDeviceFinalizeHintTimer = null;
+
+/**
+ * @param {any} data
+ */
 function openMicrosoftDeviceModal(data) {
   _msDeviceVerificationUri = data.verification_uri || data.verificationUri || "https://microsoft.com/link";
   _msDeviceUserCode = data.user_code || data.userCode || "";
@@ -28,6 +34,7 @@ function openMicrosoftDeviceModal(data) {
     }
   }, 7000);
 }
+
 function closeMicrosoftDeviceModal() {
   const modal = document.getElementById("modal-ms-device");
   if (modal) modal.style.display = "none";
@@ -38,90 +45,105 @@ function closeMicrosoftDeviceModal() {
   _msDeviceVerificationUri = "";
   _msDeviceUserCode = "";
 }
+
 export function setupAuth() {
-ipcRenderer.on("microsoft-device-code", (data) => {
-      if (!isLoginSessionActive && !window._msLoginSessionActive) return;
-      openMicrosoftDeviceModal(data);
-    });
-    window.copyMsDeviceCode = async () => {
-      const code = _msDeviceUserCode;
-      if (!code) return;
-      const success = window.copyToClipboard
-        ? await window.copyToClipboard(code)
-        : (() => { try { clipboard.writeText(code); return true; } catch { return false; } })();
-      if (success) {
-        if (window.showToast) window.showToast(t("ms_device_copied", "Code copié dans le presse-papiers."), "success");
-      } else {
-        if (window.showToast) window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
-      }
-    };
-    window.openMsDevicePage = () => {
-      const uri = _msDeviceVerificationUri;
-      const code = _msDeviceUserCode;
-      if (uri && /^https?:\/\//i.test(uri)) shell.openExternal(uri);
-      else if (code) shell.openExternal(`https://www.microsoft.com/link?otc=${encodeURIComponent(code)}`);
-    };
-    window.cancelMsDeviceLogin = () => {
-      window.api.send("cancel-login-microsoft");
-      closeMicrosoftDeviceModal();
-    };
-window.loginMicrosoft = async () => {
-      const btn = document.getElementById("btn-ms-login");
-      if (!btn) return;
-      const originalText = btn.innerText;
-      btn.innerText = t("msg_conn_ms", "Connexion...");
-      btn.disabled = true;
-      isLoginSessionActive = true;
-const msModal = document.getElementById("modal-ms-device");
-      if (msModal) {
-          document.getElementById("ms-device-code-display").innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "⏳ Génération du code...")}</span>`;
-          document.getElementById("ms-device-status").innerText = t("msg_conn_ms", "Connexion...");
-          msModal.style.display = "flex";
-      }
+  ipcRenderer.on("microsoft-device-code", (/** @type {any} */ data) => {
+    if (!isLoginSessionActive && !window._msLoginSessionActive) return;
+    openMicrosoftDeviceModal(data);
+  });
+
+  window.copyMsDeviceCode = async () => {
+    const code = _msDeviceUserCode;
+    if (!code) return;
+    let success = false;
+    if (window.copyToClipboard) {
+      success = await window.copyToClipboard(code);
+    } else if (clipboard && clipboard.writeText) {
       try {
-        const result = await ipcRenderer.invoke("login-microsoft");
-if (result.success) {
-          const existingIdx = store.allAccounts.findIndex(a => a.uuid === result.auth.uuid);
-          if (existingIdx !== -1) {
-              store.allAccounts[existingIdx].mclcAuth = result.auth;
-              store.allAccounts[existingIdx].name = result.auth.name;
-              store.selectedAccountIdx = existingIdx;
-          } else {
-              store.allAccounts.push({
-                type: "microsoft",
-                name: result.auth.name,
-                uuid: result.auth.uuid,
-                mclcAuth: result.auth,
-              });
-              store.selectedAccountIdx = store.allAccounts.length - 1;
-          }
-          store.uiSelectedAccRow = store.selectedAccountIdx;
-          await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
-          if(window.renderAccountManager) window.renderAccountManager();
-          if(window.updateAccountDropdown) window.updateAccountDropdown(); 
-          if(window.closeAccountModal) window.closeAccountModal();
-          if(window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
-          if(window.checkAchievement) window.checkAchievement("vip");
-        } else if (result.cancelled) {
-          if(window.showToast) window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
-        } else {
-          let errMsg = result.error || "";
-          if (result.errorCode === "ERR_AUTH_RUNNING") {
-            errMsg = t("msg_err_auth_running", "Une connexion Microsoft est déjà en cours.");
-          } else if (result.errorCode === "ERR_NO_MC_TOKEN") {
-            errMsg = t("msg_err_no_mc_token", "Jeton Minecraft introuvable. Vérifiez que le compte possède Minecraft Java.");
-          } else if (result.errorCode === "ERR_NO_MC_PROFILE") {
-            errMsg = t("msg_err_no_mc_profile", "Aucun profil Minecraft trouvé sur ce compte. Lancez le launcher officiel au moins une fois.");
-          }
-          if(window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
-        }
-} catch (e) {
-        if (window.showToast) window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
-      } finally {
-        isLoginSessionActive = false;
-        closeMicrosoftDeviceModal();
-        btn.innerText = originalText;
-        btn.disabled = false;
+        await clipboard.writeText(code);
+        success = true;
+      } catch {
+        success = false;
       }
-    };
+    }
+    if (success) {
+      if (window.showToast) window.showToast(t("ms_device_copied", "Code copié dans le presse-papiers."), "success");
+    } else {
+      if (window.showToast) window.showToast(t("msg_err_sys", "Erreur : ") + "clipboard", "error");
+    }
+  };
+
+  window.openMsDevicePage = () => {
+    const uri = _msDeviceVerificationUri;
+    const code = _msDeviceUserCode;
+    if (uri && /^https?:\/\//i.test(uri)) shell.openExternal(uri);
+    else if (code) shell.openExternal(`https://www.microsoft.com/link?otc=${encodeURIComponent(code)}`);
+  };
+
+  window.cancelMsDeviceLogin = () => {
+    window.api.send("cancel-login-microsoft");
+    closeMicrosoftDeviceModal();
+  };
+
+  window.loginMicrosoft = async () => {
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-ms-login"));
+    if (!btn) return;
+    const originalText = btn.innerText;
+    btn.innerText = t("msg_conn_ms", "Connexion...");
+    btn.disabled = true;
+    isLoginSessionActive = true;
+    const msModal = document.getElementById("modal-ms-device");
+    if (msModal) {
+      const codeDisplay = document.getElementById("ms-device-code-display");
+      if (codeDisplay) codeDisplay.innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "⏳ Génération du code...")}</span>`;
+      const statusText = document.getElementById("ms-device-status");
+      if (statusText) statusText.innerText = t("msg_conn_ms", "Connexion...");
+      msModal.style.display = "flex";
+    }
+    try {
+      const result = await ipcRenderer.invoke("login-microsoft");
+      if (result.success) {
+        const existingIdx = store.allAccounts.findIndex(a => a.uuid === result.auth.uuid);
+        if (existingIdx !== -1) {
+          store.allAccounts[existingIdx].mclcAuth = result.auth;
+          store.allAccounts[existingIdx].name = result.auth.name;
+          store.selectedAccountIdx = existingIdx;
+        } else {
+          store.allAccounts.push({
+            type: "microsoft",
+            name: result.auth.name,
+            uuid: result.auth.uuid,
+            mclcAuth: result.auth,
+          });
+          store.selectedAccountIdx = store.allAccounts.length - 1;
+        }
+        store.uiSelectedAccRow = store.selectedAccountIdx;
+        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+        if (window.renderAccountManager) window.renderAccountManager();
+        if (window.updateAccountDropdown) window.updateAccountDropdown(); 
+        if (window.closeAccountModal) window.closeAccountModal();
+        if (window.showToast) window.showToast(t("msg_login_success", "Connexion réussie !"), "success");
+        if (window.checkAchievement) window.checkAchievement("vip");
+      } else if (result.cancelled) {
+        if (window.showToast) window.showToast(t("ms_device_cancelled", "Connexion Microsoft annulée."), "info");
+      } else {
+        let errMsg = result.error || "";
+        if (result.errorCode === "ERR_AUTH_RUNNING") {
+          errMsg = t("msg_err_auth_running", "Une connexion Microsoft est déjà en cours.");
+        } else if (result.errorCode === "ERR_NO_MC_TOKEN") {
+          errMsg = t("msg_err_no_mc_token", "Jeton Minecraft introuvable. Vérifiez que le compte possède Minecraft Java.");
+        } else if (result.errorCode === "ERR_NO_MC_PROFILE") {
+          errMsg = t("msg_err_no_mc_profile", "Aucun profil Minecraft trouvé sur ce compte. Lancez le launcher officiel au moins une fois.");
+        }
+        if (window.showToast) window.showToast(t("msg_err_ms", "Erreur Microsoft : ") + errMsg, "error");
+      }
+    } catch (e) {
+      if (window.showToast) window.showToast(t("msg_err_sys", "Erreur système : ") + e, "error");
+    } finally {
+      isLoginSessionActive = false;
+      closeMicrosoftDeviceModal();
+      btn.innerText = originalText;
+      btn.disabled = false;
+    }
+  };
 }

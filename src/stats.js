@@ -1,13 +1,22 @@
+// @ts-check
 import { store } from "./store.js";
 import { yieldUI } from "./utils.js";
 import { ACHIEVEMENTS } from "./achievements.js"; 
 const fs = window.api.fs;
 const path = window.api.path;
+
 export function setupStats() { 
     const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
-   async function getCacheInfoAsync() {
+
+    async function getCacheInfoAsync() {
+        /** @type {string[]} */
         let filesToDelete = [];
         let totalSize = 0;
+
+        /**
+         * @param {string} dir
+         * @param {(f: string) => boolean} condition
+         */
         const checkDir = async (dir, condition) => {
             try {
                 if (!(await window.existsSafe(dir))) return;
@@ -16,20 +25,22 @@ export function setupStats() {
                     const filePath = path.join(dir, file);
                     try {
                         const stats = await fs.promises.stat(filePath);
-                        if (!stats.isDirectory && condition(file)) {
+                        const isDirectory = typeof stats.isDirectory === 'function' ? stats.isDirectory() : Boolean(stats.isDirectory);
+                        if (!isDirectory && condition(file)) {
                             filesToDelete.push(filePath);
                             totalSize += stats.size;
                         }
-                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+                    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         };
+
         await checkDir(path.join(store.dataDir, "installers"), f => f.endsWith(".jar"));
         await checkDir(path.join(store.dataDir, "java"), f => f.endsWith(".zip") || f.endsWith(".tar.gz"));
-        await checkDir(path.join(store.dataDir, "exports"), f => true);
+        await checkDir(path.join(store.dataDir, "exports"), () => true);
         for (const inst of store.allInstances) {
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
-            await checkDir(path.join(instDir, "crash-reports"), f => true);
+            await checkDir(path.join(instDir, "crash-reports"), () => true);
             await checkDir(path.join(instDir, "logs"), f => f.endsWith(".log.gz") || (f.endsWith(".log") && f !== "latest.log"));
         }
         try {
@@ -39,22 +50,25 @@ export function setupStats() {
                     const dPath = path.join(store.dataDir, d);
                     try {
                         const dStats = await fs.promises.stat(dPath);
-                        if (dStats.isDirectory) {
+                        const isDir = typeof dStats.isDirectory === 'function' ? dStats.isDirectory() : Boolean(dStats.isDirectory);
+                        if (isDir) {
                             filesToDelete.push(dPath);
                             const subFiles = await fs.promises.readdir(dPath).catch(() => []);
                             for (const sf of subFiles) {
                                 try {
                                     const sfStat = await fs.promises.stat(path.join(dPath, sf));
-                                    if (!sfStat.isDirectory) totalSize += sfStat.size;
-                                } catch (_) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in stats.js:", _); }
+                                    const isSubDir = typeof sfStat.isDirectory === 'function' ? sfStat.isDirectory() : Boolean(sfStat.isDirectory);
+                                    if (!isSubDir) totalSize += sfStat.size;
+                                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in stats.js:", _); }
                             }
                         }
-                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+                    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
             }
-        } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+        } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         return { files: filesToDelete, size: totalSize };
     }
+
     async function getInGameStatsAsync() {
         let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
         for (const inst of store.allInstances) {
@@ -91,46 +105,55 @@ export function setupStats() {
                                 const horse  = custom["minecraft:horse_one_cm"]    || data["stat.horseOneCm"]    || 0;
                                 const minec  = custom["minecraft:minecart_one_cm"] || data["stat.minecartOneCm"] || 0;
                                 totalWalkCm += (walk + sprint + crouch + swim + fly + elytra + boat + horse + minec);
-                            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); } 
+                            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); } 
                         }
-                    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+                    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
                 }
-            } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         }
         return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
     }
-async function getFolderSizeAsync(dir, visited = new Set()) {
-    let size = 0;
-    try {
-        const files = await fs.promises.readdir(dir);
-        const BATCH_SIZE = 32;
-        for (let i = 0; i < files.length; i += BATCH_SIZE) {
-            const batch = files.slice(i, i + BATCH_SIZE);
-            const subDirs = [];
-            await Promise.all(batch.map(async (file) => {
-                const filePath = path.join(dir, file);
-                try {
-                    const stats = await fs.promises.stat(filePath);
-                    const isDir = typeof stats.isDirectory === 'function' ? stats.isDirectory() : stats.isDirectory;
-                    if (isDir) {
-                        if (!visited.has(filePath)) {
-                            visited.add(filePath);
-                            subDirs.push(filePath);
+
+    /**
+     * @param {string} dir
+     * @param {Set<string>} [visited]
+     */
+    async function getFolderSizeAsync(dir, visited = new Set()) {
+        let size = 0;
+        try {
+            const files = await fs.promises.readdir(dir);
+            const BATCH_SIZE = 32;
+            for (let i = 0; i < files.length; i += BATCH_SIZE) {
+                const batch = files.slice(i, i + BATCH_SIZE);
+                /** @type {string[]} */
+                const subDirs = [];
+                await Promise.all(batch.map(async (file) => {
+                    const filePath = path.join(dir, file);
+                    try {
+                        const stats = await fs.promises.stat(filePath);
+                        const isDir = typeof stats.isDirectory === 'function' ? stats.isDirectory() : Boolean(stats.isDirectory);
+                        if (isDir) {
+                            if (!visited.has(filePath)) {
+                                visited.add(filePath);
+                                subDirs.push(filePath);
+                            }
+                        } else {
+                            size += stats.size || 0;
                         }
-                    } else {
-                        size += stats.size || 0;
-                    }
-                } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
-            }));
-            for (const subDir of subDirs) {
-                size += await getFolderSizeAsync(subDir, visited);
+                    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+                }));
+                for (const subDir of subDirs) {
+                    size += await getFolderSizeAsync(subDir, visited);
+                }
             }
-        }
-    } catch (e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
-    return size;
-}
-window.openStatsModal = async () => {
-        document.getElementById("modal-stats").style.display = "flex";
+        } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
+        return size;
+    }
+
+    window.openStatsModal = async () => {
+        const modalEl = document.getElementById("modal-stats");
+        if (modalEl) modalEl.style.display = "flex";
+
         const renderAchievements = () => {
             const advDiv = document.getElementById("dashboard-achievements");
             if (advDiv && ACHIEVEMENTS && Array.isArray(ACHIEVEMENTS)) {
@@ -151,6 +174,7 @@ window.openStatsModal = async () => {
                 });
             }
         };
+
         const diskEl = document.getElementById("dashboard-disk");
         const cacheEl = document.getElementById("dashboard-cache-size");
         const DISK_CACHE_TTL = 5 * 60 * 1000;
@@ -182,12 +206,16 @@ window.openStatsModal = async () => {
             }
             let h = Math.floor(totalTimeMs / 3600000);
             let m = Math.floor((totalTimeMs % 3600000) / 60000);
-            document.getElementById("dashboard-time").innerText = `${h}h ${m}m`;
-            document.getElementById("dashboard-instances").innerText = store.globalSettings.totalInstancesCreated || store.allInstances.length;
-            document.getElementById("dashboard-mods").innerText = totalMods;
-            document.getElementById("dashboard-fav").innerText = maxTime > 0 ? favInstance : "-";
+            const timeEl = document.getElementById("dashboard-time");
+            if (timeEl) timeEl.innerText = `${h}h ${m}m`;
+            const instEl = document.getElementById("dashboard-instances");
+            if (instEl) instEl.innerText = String(store.globalSettings.totalInstancesCreated || store.allInstances.length);
+            const modsEl = document.getElementById("dashboard-mods");
+            if (modsEl) modsEl.innerText = String(totalMods);
+            const favEl = document.getElementById("dashboard-fav");
+            if (favEl) favEl.innerText = maxTime > 0 ? favInstance : "-";
             const sessEl = document.getElementById("dashboard-sessions");
-            if (sessEl) sessEl.innerText = totalSessions;
+            if (sessEl) sessEl.innerText = String(totalSessions);
             const longEl = document.getElementById("dashboard-longest");
             if (longEl) {
                 if (longestSessionMs > 0) {
@@ -202,7 +230,10 @@ window.openStatsModal = async () => {
         try {
             const graphDiv = document.getElementById("dashboard-graph");
             if (graphDiv) {
-                const days = []; const displayDays = [];
+                /** @type {string[]} */
+                const days = [];
+                /** @type {string[]} */
+                const displayDays = [];
                 for (let i = 6; i >= 0; i--) {
                     const d = new Date(); d.setDate(d.getDate() - i);
                     const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
@@ -210,9 +241,11 @@ window.openStatsModal = async () => {
                     const [, month, day] = dateStr.split('-');
                     displayDays.push(`${day}/${month}`);
                 }
-                const totals = {}; days.forEach(d => totals[d] = 0);
+                /** @type {Record<string, number>} */
+                const totals = {};
+                days.forEach(d => totals[d] = 0);
                 store.allInstances.forEach(inst => {
-                    (inst.sessionHistory || []).forEach(s => { if (totals[s.date] !== undefined) totals[s.date] += s.ms; });
+                    (inst.sessionHistory || []).forEach((/** @type {any} */ s) => { if (totals[s.date] !== undefined) totals[s.date] += s.ms; });
                 });
                 const maxMs = Math.max(...Object.values(totals), 1);
                 graphDiv.innerHTML = days.map((d, index) => {
@@ -229,11 +262,12 @@ window.openStatsModal = async () => {
         let igStats = { kills: 0, walkCm: 0, jumps: 0 };
         try {
             igStats = await getInGameStatsAsync();
-            if (document.getElementById("stat-mobs")) {
-                document.getElementById("stat-mobs").innerText = igStats.kills.toLocaleString();
-                document.getElementById("stat-walk").innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km"); 
-                document.getElementById("stat-jumps").innerText = igStats.jumps.toLocaleString();
-            }
+            const statMobs = document.getElementById("stat-mobs");
+            if (statMobs) statMobs.innerText = igStats.kills.toLocaleString();
+            const statWalk = document.getElementById("stat-walk");
+            if (statWalk) statWalk.innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km"); 
+            const statJumps = document.getElementById("stat-jumps");
+            if (statJumps) statJumps.innerText = igStats.jumps.toLocaleString();
         } catch (e) { console.error(e); }
         try {
             const cacheInfo = await getCacheInfoAsync();
@@ -249,7 +283,8 @@ window.openStatsModal = async () => {
                 const totalBytes = await getFolderSizeAsync(store.dataDir);
                 const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
                 store._diskSizeCache = { value: totalGB, ts: Date.now() };
-                if (diskEl && document.getElementById("modal-stats").style.display === "flex") {
+                const modal = document.getElementById("modal-stats");
+                if (diskEl && modal && modal.style.display === "flex") {
                     diskEl.innerText = `${totalGB} ${t("lbl_gb", "Go")}`;
                 }
             }
@@ -267,6 +302,7 @@ window.openStatsModal = async () => {
             renderAchievements(); 
         }
     };
+
     window.cleanCache = async () => {
         const cacheInfo = await getCacheInfoAsync();
         if (cacheInfo.files.length === 0) {
@@ -295,7 +331,9 @@ window.openStatsModal = async () => {
             window.openStatsModal(); 
         }
     };
+
     window.closeStatsModal = () => {
-        document.getElementById("modal-stats").style.display = "none";
+        const modal = document.getElementById("modal-stats");
+        if (modal) modal.style.display = "none";
     };
 }

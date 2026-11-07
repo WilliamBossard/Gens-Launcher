@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * ==============================================================================
  * GENS LAUNCHER - IPC FILESYSTEM SERVICE (Main Process)
@@ -9,13 +11,33 @@
  * ==============================================================================
  */
 
+/**
+ * @param {any} err
+ * @returns {{ message: string; code?: string }}
+ */
+function formatError(err) {
+    return {
+        message: err instanceof Error ? err.message : String(err),
+        code: (err && typeof err === 'object' && 'code' in err) ? String(err.code) : undefined
+    };
+}
+
+/**
+ * @param {import('../types/main').MainContext} context
+ */
 module.exports = function setupFsHandlers(context) {
     const { ipcMain, safeDataDir, mainLog, path, fs, os, app, assertPathUnderSandbox } = context;
 
     const safeReadRegex = /\.(png|jpe?g|gif|webp|bmp|ico|zip|mrpack|jar|json|txt|log|cfg|toml|properties|nbt|dat|lock|disabled)$/i;
     const isWin = process.platform === 'win32';
+    /** @param {string} s */
     const normPath = (s) => isWin ? s.toLowerCase() : s;
 
+    /**
+     * @param {string} target
+     * @param {string} base
+     * @returns {boolean}
+     */
     function isUnderDir(target, base) {
         if (!target || !base) return false;
         const nt = normPath(path.resolve(target));
@@ -23,6 +45,11 @@ module.exports = function setupFsHandlers(context) {
         return nt.startsWith(nb + path.sep) || nt === nb;
     }
 
+    /**
+     * @param {unknown} p
+     * @param {boolean} [silent=false]
+     * @returns {string}
+     */
     function assertReadPath(p, silent = false) {
         if (typeof p !== 'string' || !p.trim()) {
             throw new Error("Chemin invalide (type non supporté).");
@@ -46,6 +73,7 @@ module.exports = function setupFsHandlers(context) {
 
         if (!isInDataDir && !isMinecraftDir && !isTempDir && !isAppDir && !isSafeExtension) {
             if (!silent && typeof mainLog === 'function') mainLog(`[ipc-fs] SÉCURITÉ : Lecture hors-périmètre bloquée vers ${resolved}`);
+            /** @type {Error & { code?: string }} */
             const err = new Error("Accès en lecture refusé par le système de sécurité du Launcher.");
             err.code = 'EACCES';
             throw err;
@@ -56,6 +84,7 @@ module.exports = function setupFsHandlers(context) {
     ipcMain.handle('fs:readFile', async (_, p, enc) => {
         try {
             const safePath = assertReadPath(p);
+            /** @type {any} */
             let data;
             if (enc === 'utf8' || enc === 'utf-8' || enc === 'base64') {
                 data = await fs.promises.readFile(safePath, enc);
@@ -66,7 +95,7 @@ module.exports = function setupFsHandlers(context) {
             }
             return { ok: true, data };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -86,7 +115,9 @@ module.exports = function setupFsHandlers(context) {
                     break;
                 } catch (err) {
                     lastErr = err;
-                    if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code) && attempt < 4) {
+                    /** @type {any} */
+                    const nodeErr = err;
+                    if (['EBUSY', 'EPERM', 'EACCES'].includes(nodeErr?.code) && attempt < 4) {
                         await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
                         continue;
                     }
@@ -99,7 +130,7 @@ module.exports = function setupFsHandlers(context) {
             }
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -109,7 +140,7 @@ module.exports = function setupFsHandlers(context) {
             const list = await fs.promises.readdir(safePath);
             return { ok: true, data: list };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -129,7 +160,7 @@ module.exports = function setupFsHandlers(context) {
                 }
             };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -139,7 +170,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.mkdir(safePath, opts);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -149,7 +180,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.rm(safePath, opts);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -159,7 +190,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.unlink(safePath);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -170,7 +201,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.rename(safeOld, safeNew);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -181,7 +212,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.cp(safeSrc, safeDest, o);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -192,7 +223,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.copyFile(safeSrc, safeDest);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -202,7 +233,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.chmod(safePath, mode);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -212,7 +243,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.appendFile(safePath, d, enc);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
@@ -222,7 +253,7 @@ module.exports = function setupFsHandlers(context) {
             await fs.promises.access(safePath, mode);
             return { ok: true };
         } catch (err) {
-            return { ok: false, error: { message: err.message, code: err.code } };
+            return { ok: false, error: formatError(err) };
         }
     });
 
