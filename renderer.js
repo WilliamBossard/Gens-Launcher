@@ -25,8 +25,8 @@ window.ACHIEVEMENTS = ACHIEVEMENTS;
 const ipcRenderer = window.api;
 const fs = window.api.fs;
 const os = window.api.os;
-/** @type {(id: string) => any} */
-const $ = (id) => document.getElementById(id);
+/** @type {<T extends HTMLElement = any>(id: string) => T | null} */
+const $ = (id) => /** @type {any} */ (document.getElementById(id));
 
 const path = window.api.path;
 
@@ -411,7 +411,7 @@ window.api.on("horizon-status", async (data) => {
         for (const inst of instances.slice(0, 8)) {
             const rowDisplayName = await getRealName(inst.name);
             const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
-            const safeInstDeltaCount = parseInt(inst.deltaCount, 10) || 0;
+            const safeInstDeltaCount = Number(inst.deltaCount) || 0;
             const deltaInfo = safeInstDeltaCount > 0 ? ` · ${safeInstDeltaCount} delta(s)` : "";
             instRows += `
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
@@ -482,12 +482,13 @@ window.api.on("horizon-status", async (data) => {
     let targetCards = [];
     cards.forEach((/** @type {any} */ c) => {
         const nameEl = c.querySelector('.instance-name');
-        if (nameEl && data.instance && (nameEl.innerText.trim() === data.instance.trim() || window.safeDir(nameEl.innerText.trim()) === data.instance.trim())) {
+        const instName = 'instance' in data ? data.instance : null;
+        if (nameEl && instName && (nameEl.innerText.trim() === instName.trim() || window.safeDir(nameEl.innerText.trim()) === instName.trim())) {
             targetCards.push(c);
         }
     });
     if (data.type === "PROGRESS") {
-        const realName = await getRealName(data.instance);
+        const realName = await getRealName(data.instance || "");
         if (data.step === "EXTRACTING" && data.value === 0) {
             window.showToast(`${t("msg_extract", "Extraction...")} ${realName}`, "info");
         } else if (data.step === "APPLYING_DELTA" && data.value === 0) {
@@ -533,7 +534,7 @@ window.api.on("horizon-status", async (data) => {
         if (globalBar) globalBar.style.width = val + "%";
         if (globalPerc) globalPerc.innerText = val + "%";
         if (globalStep) {
-            const realName = await getRealName(data.instance);
+            const realName = await getRealName(data.instance || "");
             if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${realName}...`;
             else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${realName}...`;
             else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${realName}...`;
@@ -548,7 +549,7 @@ window.api.on("horizon-status", async (data) => {
                 const wantsRollback = await window.showCustomConfirm(msg, true);
                 if (wantsRollback) {
                     window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."), 0);
-                    await window.api.invoke("call-horizon", ['--rollback', data.instance]);
+                    if (data.instance) await window.api.invoke("call-horizon", ['--rollback', data.instance]);
                     window.hideLoading();
                     if (window.renderUI) window.renderUI();
                 }
@@ -559,17 +560,18 @@ window.api.on("horizon-status", async (data) => {
             if (circleContainer) circleContainer.style.display = "none";
         });
         let finalMsg = data.message || "";
-        if (data.errorCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
+        const errCode = 'errorCode' in data ? data.errorCode : undefined;
+        if (errCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
             if (!window._isManualHorizon) return;
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
-        else if (data.errorCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée")) {
+        else if (errCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée")) {
             finalMsg = t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte dans l'onglet Gérer.");
             if (window.refreshHorizonUI) {
                 window.refreshHorizonUI();
             }
         }
-        else if (data.errorCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
+        else if (errCode === "NOT_ON_CLOUD" || finalMsg.includes("n'existe pas sur le Cloud")) {
             if (!window._isManualHorizon) return;
             finalMsg = t("msg_not_on_cloud", "Cette instance n'existe pas sur le Cloud.");
         }
@@ -606,7 +608,7 @@ window.api.on("horizon-status", async (data) => {
             }
         }
         if (data.type !== "INFO" || finalMsg.includes(t("horizon_login_ready", "Prêt").split('(')[0])) {
-            const realName = await getRealName(data.instance);
+            const realName = await getRealName(data.instance || "");
             const prefixName = realName ? `${realName} : ` : "";
             window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
         }
@@ -728,7 +730,7 @@ window.ctxRestoreCloud = async () => {
         const idx = store.allInstances.findIndex(i => i.name === targetName && i.version === "...");
         if (idx !== -1) store.allInstances.splice(idx, 1);
         window.renderUI();
-        const errMsg = syncResult?.lastJson?.message || "Erreur lors de la restauration du Cloud.";
+        const errMsg = (syncResult?.lastJson && 'message' in syncResult.lastJson && syncResult.lastJson.message) || "Erreur lors de la restauration du Cloud.";
         window.showToast(errMsg, "error");
         return;
     }

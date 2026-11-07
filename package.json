@@ -94,7 +94,13 @@
       "!**/tests/**",
       "!**/docs/**",
       "!**/*.test.js",
-      "!**/*.map"
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.d.ts",
+      "!**/tsconfig*.json",
+      "!**/.git*",
+      "!**/.vscode*",
+      "!**/*.md"
     ]
   },
   "allowScripts": {

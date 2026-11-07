@@ -38,7 +38,7 @@ export function setupServer() {
                      * @param {Node} dest
                      */
                     function processNode(src, dest) {
-                        for (const child of src.childNodes) {
+                        for (const child of Array.from(src.childNodes)) {
                             if (child.nodeType === Node.TEXT_NODE) {
                                 dest.appendChild(document.createTextNode(child.textContent || ""));
                             } else if (child.nodeType === Node.ELEMENT_NODE) {

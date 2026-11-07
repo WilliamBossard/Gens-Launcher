@@ -1,7 +1,7 @@
 // @ts-check
 import { store } from "./store.js";
-/** @type {(id: string) => any} */
-const $ = (id) => document.getElementById(id);
+/** @type {<T extends HTMLElement = any>(id: string) => T | null} */
+const $ = (id) => /** @type {any} */ (document.getElementById(id));
 
 document.addEventListener('DOMContentLoaded', () => {
     const checkOffline = (/** @type {any} */ e = undefined) => {

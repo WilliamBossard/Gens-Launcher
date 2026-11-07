@@ -298,7 +298,7 @@ async function downloadCurseForgeFiles({
                     if (dlRes?.success) {
                         if (sha1Obj?.value) {
                             const hashRes = await window.api.invoke("hash-file", { filePath: finalPath, algo: "sha1" });
-                            if (hashRes?.success && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
+                            if (hashRes?.success && hashRes.hash && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
                                 sysLog(`[SECURITY] Hash mismatch pour ${safeName}: attendu ${sha1Obj.value}, reçu ${hashRes.hash}`, true);
                                 try { await fs.promises.unlink(finalPath); } catch (_) {}
                                 continue;

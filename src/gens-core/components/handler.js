@@ -1,3 +1,4 @@
+// @ts-check
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
@@ -7,10 +8,17 @@ const yauzl = require('yauzl-promise');
 const { pipeline } = require('stream/promises');
 
 class Zip {
+  /**
+   * @param {string} zipPath
+   */
   constructor(zipPath) {
     this.zipPath = zipPath;
   }
   
+  /**
+   * @param {string} dest
+   * @param {boolean} [overwrite]
+   */
   async extractAllTo(dest, overwrite) {
     const zipfile = await yauzl.open(this.zipPath);
     const resolvedTarget = path.resolve(dest);
@@ -34,6 +42,10 @@ class Zip {
     }
   }
   
+  /**
+   * @param {string} fileName
+   * @returns {Promise<string | null>}
+   */
   async readAsText(fileName) {
     try {
       const zipfile = await yauzl.open(this.zipPath);
@@ -57,12 +69,27 @@ class Zip {
     }
   }
   
+  /**
+   * @param {string} fileName
+   * @returns {boolean}
+   */
   getEntry(fileName) {
     return true;
   }
 }
+
+/**
+ * Executes an async callback on an array of items with bounded concurrency.
+ * @template T, R
+ * @param {T[]} array
+ * @param {number} limit
+ * @param {(item: T, index: number, array: T[]) => Promise<R> | R} asyncCallback
+ * @returns {Promise<R[]>}
+ */
 async function pMap(array, limit, asyncCallback) {
+  /** @type {Promise<R>[]} */
   const results = [];
+  /** @type {Promise<any>[]} */
   const executing = [];
   for (let i = 0; i < array.length; i++) {
     const p = Promise.resolve().then(() => asyncCallback(array[i], i, array));
@@ -83,21 +110,40 @@ async function pMap(array, limit, asyncCallback) {
 }
 
 class Handler {
+  /**
+   * @param {any} client
+   */
   constructor(client) {
     this.client = client
     this.options = client.options
-
+    /** @type {any} */
+    this.version = null
   }
 
+  /**
+   * @template T, R
+   * @param {T[]} array
+   * @param {number} limit
+   * @param {(item: T, index: number, array: T[]) => Promise<R> | R} asyncCallback
+   */
   static pMap(array, limit, asyncCallback) {
     return pMap(array, limit, asyncCallback);
   }
 
+  /**
+   * @template T, R
+   * @param {T[]} array
+   * @param {number} limit
+   * @param {(item: T, index: number, array: T[]) => Promise<R> | R} asyncCallback
+   */
   pMap(array, limit, asyncCallback) {
     return pMap(array, limit, asyncCallback);
   }
 
-
+  /**
+   * @param {string} url
+   * @param {((err: any, res: any, body: any) => void) | null} [cb]
+   */
   async baseRequest(url, cb) {
     try {
       const res = await fetch(url, { method: 'HEAD' });
@@ -107,6 +153,10 @@ class Handler {
     }
   }
 
+  /**
+   * @param {string} url
+   * @returns {Promise<string>}
+   */
   async fetchText(url) {
     try {
       const res = await fetch(url);
@@ -117,6 +167,10 @@ class Handler {
     }
   }
 
+  /**
+   * @param {string} java
+   * @returns {Promise<{ run: boolean, message?: any }>}
+   */
   checkJava(java) {
     return new Promise(resolve => {
       let javaConsole = java;
@@ -145,12 +199,21 @@ class Handler {
     })
   }
 
+  /**
+   * @param {string} url
+   * @param {string} directory
+   * @param {string} name
+   * @param {boolean} retry
+   * @param {string} type
+   * @returns {Promise<any>}
+   */
   async downloadAsync(url, directory, name, retry, type) {
     if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
     if (this.options.offline) return path.join(directory, name);
     if (!(fs.existsSync(directory))) {
       await fs.promises.mkdir(directory, { recursive: true });
     }
+    /** @type {Response} */
     let response;
     try {
       response = await fetch(url);
@@ -170,7 +233,11 @@ class Handler {
 
     const dest = fs.createWriteStream(path.join(directory, name));
     const { Readable } = require('stream');
-    const bodyStream = Readable.fromWeb(response.body);
+    if (!response.body) {
+      dest.destroy();
+      return { failed: true, asset: null };
+    }
+    const bodyStream = Readable.fromWeb(/** @type {any} */(response.body));
 
     bodyStream.on('data', chunk => {
       if (this.client && this.client.aborted) {
@@ -200,11 +267,17 @@ class Handler {
     });
   }
 
+  /**
+   * @param {string} hash
+   * @param {string} file
+   * @returns {Promise<boolean>}
+   */
   checkSum(hash, file) {
     return new Promise((resolve) => {
       const hashStream = crypto.createHash('sha1');
       const fileStream = fs.createReadStream(file);
 
+      /** @param {any} err */
       const onError = (err) => {
         this.client.emit('debug', `[Gens-Core]: Failed to check file hash due to ${err}`);
         resolve(false);
@@ -222,6 +295,12 @@ class Handler {
     });
   }
 
+  /**
+   * @param {string} filePath
+   * @param {number} [expectedSize]
+   * @param {string} [expectedSha1]
+   * @returns {Promise<boolean>}
+   */
   async verifyFileFast(filePath, expectedSize, expectedSha1) {
     try {
       const stat = await fs.promises.stat(filePath);
@@ -237,6 +316,9 @@ class Handler {
     }
   }
 
+  /**
+   * @returns {Promise<any>}
+   */
   getVersion() {
     return new Promise(async (resolve, reject) => {
       const versionJsonPath = this.options.overrides.versionJson || path.join(this.options.directory, `${this.options.version.number}.json`);
@@ -279,8 +361,8 @@ class Handler {
         if (!parsed || !parsed.versions) {
           throw new Error('Failed to fetch version_manifest.json from Mojang mirrors');
         }
-        await fs.promises.writeFile(path.join(cache, 'version_manifest.json'), manifestBody);
-        const desiredVersion = Object.values(parsed.versions).find(version => version.id === this.options.version.number);
+        await fs.promises.writeFile(path.join(cache, 'version_manifest.json'), manifestBody || '');
+        const desiredVersion = Object.values(parsed.versions).find((/** @type {any} */ version) => version.id === this.options.version.number);
         if (desiredVersion) {
           const versionBody = await this.fetchText(desiredVersion.url);
           await fs.promises.writeFile(path.join(cache, `${this.options.version.number}.json`), versionBody);
@@ -301,6 +383,9 @@ class Handler {
     })
   }
 
+  /**
+   * @returns {Promise<any>}
+   */
   async getJar() {
     const jarPath = path.join(this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`);
     const clientSha1 = this.version?.downloads?.client?.sha1;
@@ -321,6 +406,9 @@ class Handler {
     return this.client.emit('debug', '[Gens-Core]: Downloaded version jar and wrote version json');
   }
 
+  /**
+   * @returns {string}
+   */
   getAssetIndexName() {
     if (this.options.overrides && this.options.overrides.assetIndex) return this.options.overrides.assetIndex;
     const assetDirectory = path.resolve((this.options.overrides && this.options.overrides.assetRoot) || path.join(this.options.root, 'assets'));
@@ -347,7 +435,7 @@ class Handler {
       total: Object.keys(index.objects).length
     })
 
-    await pMap(Object.keys(index.objects), 50, async asset => {
+    await pMap(Object.keys(index.objects), 50, async (/** @type {string} */ asset) => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       const assetObj = index.objects[asset]
       const hash = assetObj.hash
@@ -387,7 +475,7 @@ class Handler {
         total: Object.keys(index.objects).length
       })
 
-      await pMap(Object.keys(index.objects), 50, async asset => {
+      await pMap(Object.keys(index.objects), 50, async (/** @type {string} */ asset) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const hash = index.objects[asset].hash
         const subhash = hash.substring(0, 2)
@@ -416,6 +504,10 @@ class Handler {
     this.client.emit('debug', '[Gens-Core]: Downloaded assets')
   }
 
+  /**
+   * @param {any} versionStr
+   * @returns {{ major: number, minor: number, patch: number }}
+   */
   parseVersion(versionStr) {
     if (!versionStr) return { major: 0, minor: 0, patch: 0 };
     const str = String(versionStr);
@@ -450,6 +542,11 @@ class Handler {
     };
   }
 
+  /**
+   * @param {any} v1
+   * @param {any} v2
+   * @returns {number}
+   */
   compareVersion(v1, v2) {
     const a = typeof v1 === 'string' ? this.parseVersion(v1) : v1;
     const b = typeof v2 === 'string' ? this.parseVersion(v2) : v2;
@@ -458,6 +555,12 @@ class Handler {
     return a.patch - b.patch;
   }
 
+  /**
+   * @param {number} targetMajor
+   * @param {number} targetMinor
+   * @param {number} [targetPatch=0]
+   * @returns {boolean}
+   */
   isVersionAtLeast(targetMajor, targetMinor, targetPatch = 0) {
     const rawId = (this.options && this.options.version && this.options.version.number)
       || (this.version && (this.version.inheritsFrom || this.version.id));
@@ -466,40 +569,47 @@ class Handler {
     return this.compareVersion(parsed, { major: targetMajor, minor: targetMinor, patch: targetPatch }) >= 0;
   }
 
-    parseRule(lib) {
-        if (lib.name) {
-            const isArm64 = process.arch === 'arm64';
-            const isX86 = process.arch === 'ia32';
+  /**
+   * @param {any} lib
+   * @returns {boolean}
+   */
+  parseRule(lib) {
+    if (lib.name) {
+      const isArm64 = process.arch === 'arm64';
+      const isX86 = process.arch === 'ia32';
 
-            if (lib.name.includes('-arm64') && !isArm64) return true;
-            if (lib.name.includes('-arm32') && process.arch !== 'arm') return true;
-            if ((lib.name.endsWith('-x86') || lib.name.includes('-x86:')) && !isX86) return true;
-        }
-
-        if (lib.rules && lib.rules.length > 0) {
-            const currentOS = this.getOS();
-            const currentArch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
-            let allowed = !lib.rules.some(r => r && r.action === 'allow');
-            for (const rule of lib.rules) {
-                if (!rule) continue;
-                let matches = true;
-                if (rule.os) {
-                    if (rule.os.name && rule.os.name !== currentOS) matches = false;
-                    if (matches && rule.os.arch) {
-                        try {
-                            matches = new RegExp(rule.os.arch).test(currentArch);
-                        } catch (_) {
-                            matches = (rule.os.arch === currentArch);
-                        }
-                    }
-                }
-                if (matches) allowed = (rule.action === 'allow');
-            }
-            return !allowed;
-        }
-        return false;
+      if (lib.name.includes('-arm64') && !isArm64) return true;
+      if (lib.name.includes('-arm32') && process.arch !== 'arm') return true;
+      if ((lib.name.endsWith('-x86') || lib.name.includes('-x86:')) && !isX86) return true;
     }
 
+    if (lib.rules && lib.rules.length > 0) {
+      const currentOS = this.getOS();
+      const currentArch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
+      let allowed = !lib.rules.some((/** @type {any} */ r) => r && r.action === 'allow');
+      for (const rule of lib.rules) {
+        if (!rule) continue;
+        let matches = true;
+        if (rule.os) {
+          if (rule.os.name && rule.os.name !== currentOS) matches = false;
+          if (matches && rule.os.arch) {
+            try {
+              matches = new RegExp(rule.os.arch).test(currentArch);
+            } catch (_) {
+              matches = (rule.os.arch === currentArch);
+            }
+          }
+        }
+        if (matches) allowed = (rule.action === 'allow');
+      }
+      return !allowed;
+    }
+    return false;
+  }
+
+  /**
+   * @returns {Promise<string>}
+   */
   async getNatives() {
     const nativeDirectory = path.resolve(this.options.overrides.natives || path.join(this.options.root, 'natives', this.version.id))
 
@@ -521,8 +631,9 @@ class Handler {
       await fs.promises.mkdir(nativeDirectory, { recursive: true })
 
       const natives = async () => {
+        /** @type {any[]} */
         const natives = []
-        await pMap(this.version.libraries, 50, async (lib) => {
+        await pMap(this.version.libraries, 50, async (/** @type {any} */ lib) => {
           if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
           if (!lib.downloads || !lib.downloads.classifiers) return
           if (this.parseRule(lib)) return
@@ -544,7 +655,7 @@ class Handler {
         total: stat.length
       })
 
-      await pMap(stat, 50, async (native) => {
+      await pMap(stat, 50, async (/** @type {any} */ native) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
         const name = native.path.split('/').pop()
@@ -585,18 +696,25 @@ class Handler {
       : this.options.customArgs = forgeWrapperAgrs
   }
 
-    isModernForge(json) {
-        if (!json) return false;
-        const verStr = json.inheritsFrom || (typeof json.id === 'string' ? json.id.split('-')[0] : '');
-        if (!verStr) return false;
-        const parts = verStr.split('.');
-        if (parts[0] === '1') {
-            const idParts = String(json.id || '').split('.');
-            return parseInt(parts[1]) >= 13 || (parts[1] === '12' && parts[2] === '2' && !(idParts[idParts.length - 1] === '2847'));
-        }
-        return parseInt(parts[0]) >= 2;
+  /**
+   * @param {any} json
+   * @returns {boolean}
+   */
+  isModernForge(json) {
+    if (!json) return false;
+    const verStr = json.inheritsFrom || (typeof json.id === 'string' ? json.id.split('-')[0] : '');
+    if (!verStr) return false;
+    const parts = verStr.split('.');
+    if (parts[0] === '1') {
+      const idParts = String(json.id || '').split('.');
+      return parseInt(parts[1]) >= 13 || (parts[1] === '12' && parts[2] === '2' && !(idParts[idParts.length - 1] === '2847'));
     }
+    return parseInt(parts[0]) >= 2;
+  }
 
+  /**
+   * @returns {Promise<any>}
+   */
   async getForgedWrapped() {
     let json = null
     let installerJson = null
@@ -625,7 +743,7 @@ class Handler {
     if (zipFile.getEntry('install_profile.json')) installerJson = await zipFile.readAsText('install_profile.json')
 
     try {
-      json = JSON.parse(json)
+      json = JSON.parse(json || '{}')
       if (installerJson) installerJson = JSON.parse(installerJson)
     } catch (e) {
       this.client.emit('debug', '[Gens-Core]: Failed to load json files for ForgeWrapper, using Vanilla instead')
@@ -676,7 +794,7 @@ class Handler {
         }
       }
     } else {
-      await pMap(json.libraries || [], 50, async library => {
+      await pMap(json.libraries || [], 50, async (/** @type {any} */ library) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const lib = library.name.split(':')
         if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) return
@@ -728,11 +846,18 @@ class Handler {
     return json
   }
 
+  /**
+   * @param {string} directory
+   * @param {any[]} libraries
+   * @param {string} eventName
+   * @returns {Promise<string[]>}
+   */
   async downloadToDirectory(directory, libraries, eventName) {
+    /** @type {string[]} */
     const libs = []
     let counter = 0
 
-    await pMap(libraries, 50, async library => {
+    await pMap(libraries, 50, async (/** @type {any} */ library) => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       if (!library) return
       if (this.parseRule(library)) return
@@ -741,8 +866,10 @@ class Handler {
       const libVersionClean = (lib[2] || '').replace(/@jar$/i, '')
       const libClassifier = lib[3] ? `-${lib[3].replace(/@jar$/i, '')}` : ''
 
-      let jarPath
-      let name
+      /** @type {string} */
+      let jarPath = ''
+      /** @type {string} */
+      let name = ''
       if (library.downloads && library.downloads.artifact && library.downloads.artifact.path) {
         name = library.downloads.artifact.path.split('/')[library.downloads.artifact.path.split('/').length - 1]
         jarPath = path.join(directory, this.popString(library.downloads.artifact.path))
@@ -751,13 +878,14 @@ class Handler {
         jarPath = path.join(directory, `${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}`)
       }
 
-      const downloadLibrary = async library => {
-        if (library.url) {
-          const baseUrl = library.url.endsWith('/') ? library.url : `${library.url}/`
+      /** @param {any} libItem */
+      const downloadLibrary = async (libItem) => {
+        if (libItem.url) {
+          const baseUrl = libItem.url.endsWith('/') ? libItem.url : `${libItem.url}/`
           const url = `${baseUrl}${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}/${name}`
           await this.downloadAsync(url, jarPath, name, true, eventName)
-        } else if (library.downloads && library.downloads.artifact && library.downloads.artifact.url) {
-          await this.downloadAsync(library.downloads.artifact.url, jarPath, name, true, eventName)
+        } else if (libItem.downloads && libItem.downloads.artifact && libItem.downloads.artifact.url) {
+          await this.downloadAsync(libItem.downloads.artifact.url, jarPath, name, true, eventName)
         }
       }
 
@@ -786,7 +914,12 @@ class Handler {
     return libs
   }
 
+  /**
+   * @param {any} [classJson]
+   * @returns {Promise<string[]>}
+   */
   async getClasses(classJson) {
+    /** @type {string[]} */
     let libs = []
 
     const libraryDirectory = path.resolve(this.options.overrides.libraryRoot || path.join(this.options.root, 'libraries'))
@@ -798,10 +931,11 @@ class Handler {
       libs = await this.downloadToDirectory(libraryDirectory, classJson.libraries, 'classes-custom')
     }
 
-    const parsed = this.version.libraries.filter(lib => {
+    const parsed = this.version.libraries.filter((/** @type {any} */ lib) => {
       if (lib.downloads && lib.downloads.artifact && !this.parseRule(lib)) {
+        /** @param {any} n */
         const getLibIdentity = (n) => { const p = String(n || '').split(':'); return `${p[0] || ''}:${p[1] || ''}:${p[3] || ''}`; };
-        if (!classJson || !classJson.libraries.some(l => l && getLibIdentity(l.name) === getLibIdentity(lib.name))) {
+        if (!classJson || !classJson.libraries.some((/** @type {any} */ l) => l && getLibIdentity(l.name) === getLibIdentity(lib.name))) {
           return true
         }
       }
@@ -816,22 +950,31 @@ class Handler {
     return libs
   }
 
-  popString(path) {
-    return path.split('/').slice(0, -1).join('/')
+  /**
+   * @param {string} p
+   * @returns {string}
+   */
+  popString(p) {
+    return p.split('/').slice(0, -1).join('/')
   }
 
+  /**
+   * @param {any} array
+   * @returns {any[]}
+   */
   cleanUp(array) {
     return [...new Set(Object.values(array).filter(value => value !== null))]
   }
 
   formatQuickPlay() {
+    /** @type {Record<string, string | null>} */
     const types = {
       singleplayer: '--quickPlaySingleplayer',
       multiplayer: '--quickPlayMultiplayer',
       realms: '--quickPlayRealms',
       legacy: null
     }
-    const { type, identifier, path } = this.options.quickPlay
+    const { type, identifier, path: qpPath } = this.options.quickPlay
     const keys = Object.keys(types)
     if (!keys.includes(type)) {
       this.client.emit('debug', `[Gens-Core]: quickPlay type is not valid. Valid types are: ${keys.join(', ')}`)
@@ -839,11 +982,15 @@ class Handler {
     }
     const returnArgs = type === 'legacy'
       ? ['--server', identifier.split(':')[0], '--port', identifier.split(':')[1] || '25565']
-      : [types[type], identifier]
-    if (path) returnArgs.push('--quickPlayPath', path)
+      : [types[type] || '', identifier]
+    if (qpPath) returnArgs.push('--quickPlayPath', qpPath)
     return returnArgs
   }
 
+  /**
+   * @param {any} [modification]
+   * @returns {Promise<string[]>}
+   */
   async getLaunchOptions(modification) {
     const type = Object.assign({}, this.version, modification)
 
@@ -861,6 +1008,7 @@ class Handler {
 
     this.options.authorization = await Promise.resolve(this.options.authorization)
     this.options.authorization.meta = this.options.authorization.meta ? this.options.authorization.meta : { type: 'mojang' }
+    /** @type {Record<string, any>} */
     const fields = {
       '${auth_access_token}': this.options.authorization.access_token,
       '${auth_session}': this.options.authorization.access_token,
@@ -884,6 +1032,10 @@ class Handler {
       args.push('--demo')
     }
 
+    /**
+     * @param {any} obj
+     * @param {number} index
+     */
     const replaceArg = (obj, index) => {
       if (Array.isArray(obj.value)) {
         for (const arg of obj.value) {
@@ -941,17 +1093,24 @@ class Handler {
         this.options.proxy.password
       )
     }
-    args = args.filter(value => typeof value === 'string' || typeof value === 'number')
+    args = args.filter((/** @type {any} */ value) => typeof value === 'string' || typeof value === 'number')
     this.client.emit('debug', '[Gens-Core]: Set launch options')
     return args
   }
 
+  /**
+   * @param {any} modifyJson
+   * @param {string} nativePath
+   * @returns {Promise<string[]>}
+   */
   async getJVMArgs(modifyJson, nativePath) {
+    /** @type {string[]} */
     const args = [];
     const libraryDirectory = path.resolve(this.options.overrides.libraryRoot || path.join(this.options.root, 'libraries'));
     const assetRoot = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'));
     const classpathSep = this.getOS() === 'windows' ? ';' : ':';
     const versionName = (this.options.version && (this.options.version.custom || this.options.version.number)) || this.options.overrides.versionName || '';
+    /** @type {Record<string, string>} */
     const fields = {
       '${natives_directory}': nativePath,
       '${launcher_name}': this.options.overrides.launcherBrand || 'Gens-Launcher',
@@ -965,6 +1124,7 @@ class Handler {
       '${assets_index_name}': this.getAssetIndexName()
     };
 
+    /** @param {any} rule */
     const checkRule = (rule) => {
       if (!rule) return true;
       if (rule.action === 'allow') {
@@ -986,6 +1146,7 @@ class Handler {
       return true;
     };
 
+    /** @param {any} entry */
     const processEntry = (entry) => {
       if (typeof entry === 'string') {
         if (entry === '-cp' || entry === '${classpath}') return;
@@ -1042,12 +1203,13 @@ class Handler {
   }
 
   async getJVM() {
+    /** @type {Record<string, string>} */
     const opts = {
       windows: '-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump',
       osx: '-XstartOnFirstThread',
       linux: '-Xss1M'
     }
-    return opts[this.getOS()]
+    return opts[this.getOS()] || '-Xss1M';
   }
 
   isLegacy() {
@@ -1084,6 +1246,9 @@ class Handler {
     } else { return [`${this.options.memory.max}`, `${this.options.memory.min}`] }
   }
 
+  /**
+   * @param {any} [options]
+   */
   async extractPackage(options = this.options) {
     if (options.clientPackage.startsWith('http')) {
       await this.downloadAsync(options.clientPackage, options.root, 'clientPackage.zip', true, 'client-package')

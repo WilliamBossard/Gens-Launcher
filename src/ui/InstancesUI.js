@@ -246,7 +246,7 @@ async function fetchLoaderVersions(loader, mcVer) {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
+        let ramMB = inst.ram ? parseInt(String(inst.ram)) : store.globalSettings.defaultRam;
         if (ramMB < 128) ramMB = ramMB * 1024;
         const searchBar = $("local-mod-search");
         if (searchBar) searchBar.value = "";
@@ -584,8 +584,8 @@ async function fetchLoaderVersions(loader, mcVer) {
         inst.javaPath   = $("edit-javapath").value;
         inst.resW = $("edit-res-w").value;
         inst.resH = $("edit-res-h").value;
-        if (inst.resW) { const w = parseInt(inst.resW); inst.resW = isNaN(w) ? "" : String(Math.max(320, Math.min(7680, w))); }
-        if (inst.resH) { const h = parseInt(inst.resH); inst.resH = isNaN(h) ? "" : String(Math.max(240, Math.min(4320, h))); }
+        if (inst.resW) { const w = parseInt(String(inst.resW)); inst.resW = isNaN(w) ? "" : String(Math.max(320, Math.min(7680, w))); }
+        if (inst.resH) { const h = parseInt(String(inst.resH)); inst.resH = isNaN(h) ? "" : String(Math.max(240, Math.min(4320, h))); }
         inst.jvmArgs    = $("edit-jvmargs").value;
         inst.jvmProfile = $("edit-jvm-profile").value;
         inst.notes      = $("edit-notes").value;
@@ -982,7 +982,7 @@ async function fetchLoaderVersions(loader, mcVer) {
             .map((inst, index) => ({ ...inst, originalIndex: index }))
             .filter(inst => inst.name.toLowerCase().includes(search));
         if      (sort === "name")       filtered.sort((a, b) => a.name.localeCompare(b.name));
-        else if (sort === "lastPlayed") filtered.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
+        else if (sort === "lastPlayed") filtered.sort((a, b) => (Number(b.lastPlayed) || 0) - (Number(a.lastPlayed) || 0));
         else if (sort === "playTime")   filtered.sort((a, b) => (b.playTime    || 0) - (a.playTime    || 0));
         const defaultGroup = t("lbl_group_general", "Général");
 /** @type {Record<string, any[]>} */
@@ -1089,7 +1089,7 @@ async function fetchLoaderVersions(loader, mcVer) {
         });
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
-                .sort((a,b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
+                .sort((a,b) => (Number(b.lastPlayed) || 0) - (Number(a.lastPlayed) || 0))
                 .slice(0, 3);
             window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
         }
@@ -1258,7 +1258,7 @@ async function fetchLoaderVersions(loader, mcVer) {
                 if (badgeVersion) badgeVersion.textContent = inst.version || "";
                 if (badgeLoader)  badgeLoader.textContent  = inst.loader  || "vanilla";
                 if (badgeRam) {
-                    let ram = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
+                    let ram = inst.ram ? parseInt(String(inst.ram)) : store.globalSettings.defaultRam;
                     if (ram > 0 && ram < 8) ram = ram * 1024;
                     badgeRam.textContent = ram >= 1024 ? (ram / 1024).toFixed(1) + " Go" : ram + " Mo";
                 }

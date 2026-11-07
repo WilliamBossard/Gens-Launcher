@@ -58,10 +58,10 @@ export interface LaunchGameRejectedEvent {
 /** Les champs proviennent de gens-core (`{ instanceId, ...e }`) : contenu volontairement ouvert. */
 export interface McProgressEvent {
   instanceId: string;
-  task?: number;
-  total?: number;
+  task?: any;
+  total?: any;
   type?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface McDataEvent {
@@ -243,14 +243,15 @@ export interface HorizonEngineStatus {
 
 /** Clés acceptées par `save-horizon-settings` (ALLOWED_KEYS dans ipc-horizon.js). */
 export interface HorizonSettings {
-  systemEnabled?: boolean;
-  syncMode?: "SMART" | "FULL";
-  autoSync?: boolean;
-  autoUpload?: boolean;
+  systemEnabled?: boolean | string;
+  syncMode?: "SMART" | "FULL" | string;
+  autoSync?: boolean | string;
+  autoUpload?: boolean | string;
   provider?: OpenString<"google" | "dropbox" | "onedrive">;
   maxRetries?: number;
   retryBaseDelay?: number;
   deltaCleanupThreshold?: number;
+  [key: string]: any;
 }
 
 export interface OperationResult {
@@ -293,38 +294,38 @@ export interface ReceivePayloadByChannel {
 }
 
 export interface ApiFsStat {
-  isDirectory: boolean;
-  isFile: boolean;
+  isDirectory: any;
+  isFile: any;
   size: number;
-  mtime: string | number | Date;
+  mtime: any;
   mtimeMs: number;
-  birthtime: string | number | Date;
+  birthtime: any;
 }
 
 export interface GensLauncherApi {
-  send: (channel: SendChannel, data?: unknown) => void;
+  send: (channel: SendChannel, data?: any) => void;
   invoke: <C extends InvokeChannel>(
     channel: C,
-    data?: C extends keyof InvokeArgByChannel ? InvokeArgByChannel[C] : unknown
-  ) => Promise<C extends keyof InvokeResultByChannel ? InvokeResultByChannel[C] : unknown>;
+    data?: C extends keyof InvokeArgByChannel ? InvokeArgByChannel[C] : any
+  ) => Promise<C extends keyof InvokeResultByChannel ? InvokeResultByChannel[C] : any>;
   on: <C extends ReceiveChannel>(channel: C, func: (payload: ReceivePayloadByChannel[C]) => void) => Unsubscribe | undefined;
 
   nbt: {
-    parse: (arr: ArrayBuffer | Uint8Array | number[]) => Promise<unknown>;
-    write: (data: unknown) => Uint8Array;
+    parse: (arr: ArrayBuffer | Uint8Array | number[]) => Promise<any>;
+    write: (data: any) => Uint8Array;
   };
 
   security: {
-    writeJSON: (filePath: string, data: unknown) => Promise<void>;
-    readJSON: (filePath: string) => Promise<unknown>;
-    writeJSONAsync: (filePath: string, data: unknown) => Promise<void>;
-    readJSONAsync: (filePath: string) => Promise<unknown>;
+    writeJSON: (filePath: string, data: any) => Promise<void>;
+    readJSON: (filePath: string) => Promise<any>;
+    writeJSONAsync: (filePath: string, data: any) => Promise<void>;
+    readJSONAsync: (filePath: string) => Promise<any>;
   };
 
   tools: {
     hashFile: (filePath: string, algo: "sha1" | "sha256" | "sha512" | "md5") => Promise<string>;
     hashBuffer: (arr: ArrayBuffer | Uint8Array | number[], algo: "sha1" | "sha256" | "sha512" | "md5") => Promise<string>;
-    extractTar: (archivePath: string, destDir: string) => Promise<unknown>;
+    extractTar: (archivePath: string, destDir: string) => Promise<any>;
   };
 
   path: {
@@ -337,19 +338,19 @@ export interface GensLauncherApi {
 
   fs: {
     promises: {
-      readFile: (p: string, enc?: BufferEncoding) => Promise<unknown>;
+      readFile: (p: string, enc?: BufferEncoding | string) => Promise<any>;
       readdir: (p: string) => Promise<string[]>;
       stat: (p: string) => Promise<ApiFsStat>;
-      writeFile: (p: string, d: unknown, enc?: BufferEncoding) => Promise<unknown>;
-      rm: (p: string, opts?: unknown) => Promise<unknown>;
-      cp: (src: string, dest: string, opts?: unknown) => Promise<unknown>;
-      unlink: (p: string) => Promise<unknown>;
-      chmod: (p: string, mode: unknown) => Promise<unknown>;
-      mkdir: (p: string, opts?: unknown) => Promise<unknown>;
-      rename: (oldPath: string, newPath: string) => Promise<unknown>;
-      appendFile: (p: string, d: unknown, enc?: BufferEncoding) => Promise<unknown>;
-      access: (p: string, mode?: number) => Promise<unknown>;
-      copyFile: (src: string, dest: string) => Promise<unknown>;
+      writeFile: (p: string, d: any, enc?: BufferEncoding | string) => Promise<void>;
+      rm: (p: string, opts?: any) => Promise<void>;
+      cp: (src: string, dest: string, opts?: any) => Promise<void>;
+      unlink: (p: string) => Promise<void>;
+      chmod: (p: string, mode: any) => Promise<void>;
+      mkdir: (p: string, opts?: any) => Promise<void>;
+      rename: (oldPath: string, newPath: string) => Promise<void>;
+      appendFile: (p: string, d: any, enc?: BufferEncoding | string) => Promise<void>;
+      access: (p: string, mode?: number) => Promise<void>;
+      copyFile: (src: string, dest: string) => Promise<void>;
       exists: (p: string) => Promise<boolean>;
     };
   };
@@ -357,19 +358,19 @@ export interface GensLauncherApi {
   os: {
     totalmem: () => number;
     freemem: () => number;
-    cpus: () => unknown[];
+    cpus: () => any[];
     hostname: () => string;
     userInfo: () => { username: string; homedir: string };
   };
 
   shell: {
-    openExternal: (url: string) => Promise<unknown>;
-    openPath: (p: string) => Promise<unknown>;
-    showItemInFolder: (p: string) => Promise<unknown>;
+    openExternal: (url: string) => Promise<any>;
+    openPath: (p: string) => Promise<any>;
+    showItemInFolder: (p: string) => Promise<any>;
   };
 
   clipboard: {
-    writeText: (text: string) => Promise<unknown>;
+    writeText: (text: string) => Promise<any>;
   };
 
   appData: string;
@@ -380,6 +381,6 @@ export interface GensLauncherApi {
   isAppImage: boolean;
 
   getFilePath: (file: File) => string;
-  copyImageToSandbox: (srcPath: string, destName: string, subDir?: string) => Promise<unknown>;
-  copyFileToSandbox: (srcPath: string, destName: string) => Promise<unknown>;
+  copyImageToSandbox: (srcPath: string, destName: string, subDir?: string) => Promise<any>;
+  copyFileToSandbox: (srcPath: string, destName: string) => Promise<any>;
 }

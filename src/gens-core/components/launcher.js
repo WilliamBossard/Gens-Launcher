@@ -1,3 +1,4 @@
+// @ts-check
 const child = require('child_process')
 const path = require('path')
 const Handler = require('./handler')
@@ -5,6 +6,21 @@ const fs = require('fs')
 const EventEmitter = require('events').EventEmitter
 
 class MCLCore extends EventEmitter {
+  constructor() {
+    super()
+    /** @type {any} */
+    this.options = null
+    /** @type {any} */
+    this.handler = null
+    /** @type {boolean} */
+    this.aborted = false
+  }
+
+  /**
+   * Launches Minecraft with the specified launch configuration.
+   * @param {any} options
+   * @returns {Promise<import('child_process').ChildProcess | null>}
+   */
   async launch(options) {
     try {
       this.options = { ...options }
@@ -73,6 +89,7 @@ class MCLCore extends EventEmitter {
 
       const modifyJson = await this.getModifyJson()
 
+      /** @type {string[]} */
       const args = []
 
       let jvm = [
@@ -137,7 +154,7 @@ class MCLCore extends EventEmitter {
 
       return this.startMinecraft(launchArguments)
     } catch (e) {
-      if (e && e.message === "Launch aborted by user") throw e;
+      if (e && /** @type {any} */(e).message === "Launch aborted by user") throw e;
       this.emit('debug', `[Gens-Core]: Failed to start due to ${e}, closing...`)
       return null
     }
@@ -148,9 +165,14 @@ class MCLCore extends EventEmitter {
   }
 
   async printVersion() {
-    if (fs.existsSync(path.join(__dirname, '..', 'package.json'))) {
-      const { version } = require('../package.json')
-      this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
+    const pkgPath = path.join(__dirname, '..', 'package.json')
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const { version } = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+        this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
+      } catch (e) {
+        this.emit('debug', '[Gens-Core]: Error reading package.json')
+      }
     } else { this.emit('debug', '[Gens-Core]: Package JSON not found, skipping MCLC version check.') }
   }
 
@@ -192,12 +214,17 @@ class MCLCore extends EventEmitter {
     return modifyJson
   }
 
+  /**
+   * Spawns the Minecraft Java process.
+   * @param {string[]} launchArguments
+   * @returns {import('child_process').ChildProcess}
+   */
   startMinecraft(launchArguments) {
     const isDetached = this.options.overrides.detached !== false;
     const minecraft = child.spawn(this.options.javaPath ? this.options.javaPath : 'java', launchArguments,
       { cwd: this.options.overrides.cwd || this.options.root, detached: isDetached })
-    minecraft.stdout.on('data', (data) => this.emit('data', data.toString('utf-8')))
-    minecraft.stderr.on('data', (data) => this.emit('data', data.toString('utf-8')))
+    minecraft.stdout?.on('data', (data) => this.emit('data', data.toString('utf-8')))
+    minecraft.stderr?.on('data', (data) => this.emit('data', data.toString('utf-8')))
     minecraft.on('close', (code) => this.emit('close', code))
     if (isDetached) minecraft.unref();
     return minecraft

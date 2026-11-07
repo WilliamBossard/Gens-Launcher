@@ -9,9 +9,9 @@ export const store = {
     instanceFile: path.join(dataDir, "instances.json"),
     accountFile: path.join(dataDir, "accounts.json"),
     settingsFile: path.join(dataDir, "settings.json"),
-    /** @type {any[]} */
+    /** @type {import('./types/models').MinecraftInstance[]} */
     allInstances: [],
-    /** @type {any[]} */
+    /** @type {import('./types/models').MinecraftAccount[]} */
     allAccounts: [],
     /** @type {any[]} */
     rawVersions: [],
@@ -57,7 +57,7 @@ export const store = {
     maxSafeRam: 4096,
     /** @type {string | null} */
     pendingIconPath: null,
-    /** @type {any} */
+    /** @type {string | null} */
     primaryRpcInstance: null,
     /** @type {any} */
     pendingLauncherUpdate: null,

@@ -464,7 +464,7 @@ function setupMods() {
                         if (dlRes?.success) {
                             if (sha1Obj?.value) {
                                 const hashRes = await window.api.invoke("hash-file", { filePath, algo: "sha1" });
-                                if (hashRes?.success && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
+                                if (hashRes?.success && hashRes.hash && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
                                     sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${fileData.fileName}`, true);
                                     try { await fs.promises.unlink(filePath); } catch (/** @type {any} */ _) {}
                                     continue;

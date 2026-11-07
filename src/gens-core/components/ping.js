@@ -1,7 +1,14 @@
+// @ts-check
 const net = require('net');
 const dns = require('dns');
 
+/**
+ * Encodes a number into a Minecraft VarInt Buffer.
+ * @param {number} value
+ * @returns {Buffer}
+ */
 function writeVarInt(value) {
+    /** @type {number[]} */
     const buffer = [];
     while (true) {
         if ((value & 0xFFFFFF80) === 0) {
@@ -13,6 +20,12 @@ function writeVarInt(value) {
     }
 }
 
+/**
+ * Reads a Minecraft VarInt from a Buffer at the given offset.
+ * @param {Buffer} buffer
+ * @param {number} offset
+ * @returns {{ value: number, length: number } | null}
+ */
 function readVarInt(buffer, offset) {
     let numRead = 0;
     let result = 0;
@@ -28,11 +41,21 @@ function readVarInt(buffer, offset) {
     return { value: result, length: numRead };
 }
 
+/**
+ * Writes a UTF-8 string prefixed with its VarInt length.
+ * @param {string} str
+ * @returns {Buffer}
+ */
 function writeString(str) {
     const buffer = Buffer.from(str, 'utf8');
     return Buffer.concat([writeVarInt(buffer.length), buffer]);
 }
 
+/**
+ * Resolves Minecraft SRV DNS records for a given host.
+ * @param {string} host
+ * @returns {Promise<{ host: string, port: number }>}
+ */
 function resolveSrv(host) {
     return new Promise((resolve) => {
         let resolved = false;
@@ -56,6 +79,12 @@ function resolveSrv(host) {
     });
 }
 
+/**
+ * Pings a Minecraft server via Server List Ping (SLP) protocol.
+ * @param {string} address - Hostname or IP with optional port (e.g. "mc.hypixel.net" or "localhost:25565")
+ * @param {number} [timeoutMs=5000]
+ * @returns {Promise<any>} Server status response object
+ */
 async function pingServer(address, timeoutMs = 5000) {
     let host = address;
     let port = 25565;
@@ -83,6 +112,10 @@ async function pingServer(address, timeoutMs = 5000) {
 
     return new Promise((resolve, reject) => {
         let settled = false;
+        /**
+         * @param {(v: any) => void} fn
+         * @param {any} val
+         */
         const finish = (fn, val) => {
             if (settled) return;
             settled = true;
@@ -113,7 +146,8 @@ async function pingServer(address, timeoutMs = 5000) {
 
         client.on('data', (chunk) => {
             try {
-                dataBuffer = Buffer.concat([dataBuffer, chunk]);
+                const bufChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                dataBuffer = Buffer.concat([dataBuffer, bufChunk]);
                 
                 const pktLenResult = readVarInt(dataBuffer, 0);
                 if (!pktLenResult) return;

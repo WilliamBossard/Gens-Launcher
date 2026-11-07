@@ -396,6 +396,7 @@ export function setupSettings() {
             const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
             let receivedBytes = 0;
             const chunks = [];
+            if (!res.body) throw new Error("No response body");
             const reader = res.body.getReader();
             window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
             while (true) {

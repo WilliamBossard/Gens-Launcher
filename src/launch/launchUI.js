@@ -208,6 +208,7 @@ export function setupLauncher() {
             if (el) el.textContent = text;
         }
         let closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
+        /** @type {import('../types/models').MinecraftInstance | null} */
         let closedInst = null;
         if (instanceId === store.primaryRpcInstance) {
             store.primaryRpcInstance = null;
@@ -298,7 +299,7 @@ export function setupLauncher() {
                                 closedInst._localConfigUpdatedAt = Date.now();
                                 await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
                                 await writeInstanceMetaForCloud(closedInst, { preserveTimestamp: true });
-                                window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", closedInst.javaVersion || 17), "success");
+                                window.showToast(t("msg_java_updated", "L'instance utilise maintenant Java {0}").replace("{0}", String(closedInst.javaVersion || 17)), "success");
                             }
                         }
                     });
@@ -307,7 +308,7 @@ export function setupLauncher() {
                     if (consoleContainer) consoleContainer.style.display = "block";
                     const analysis = await window.analyzeCrash(instanceId, code);
                     const crashSummary = document.getElementById("crash-summary");
-                    if (crashSummary) crashSummary.innerText = t("msg_game_closed_error", "Le jeu s'est arrêté avec une erreur (code {code}).").replace("{code}", code);
+                    if (crashSummary) crashSummary.innerText = t("msg_game_closed_error", "Le jeu s'est arrêté avec une erreur (code {code}).").replace("{code}", String(code));
                     const crashCause = document.getElementById("crash-cause");
                     if (crashCause) crashCause.innerText = analysis.cause || t("cause_unknown", "Raison inconnue");
                     let actionHtml = analysis.action || "Aucune action spécifique recommandée.";
@@ -329,7 +330,7 @@ export function setupLauncher() {
                         
                         const javaSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById("global-java"));
                         if (javaSelect) {
-                            for (let opt of javaSelect.options) {
+                            for (let opt of Array.from(javaSelect.options)) {
                                 if (opt.innerText.includes("Java " + targetVerStr)) {
                                     existingJavaPath = opt.value;
                                     break;
@@ -401,7 +402,7 @@ export function setupLauncher() {
                             const crashModal = document.getElementById('modal-crash');
                             if (crashModal) crashModal.style.display = 'none';
                             let targetVer = parseInt(String(analysis.javaNeeded));
-                            if (isNaN(targetVer)) targetVer = closedInst?.javaVersion || 17;
+                            if (isNaN(targetVer)) targetVer = Number(closedInst?.javaVersion) || 17;
                             const newJava = await window.downloadJavaAuto(targetVer);
                             if (newJava && closedInst) {
                                 closedInst.javaPath = newJava;
@@ -420,7 +421,7 @@ export function setupLauncher() {
                 }
             } else {
                 window.showToast(
-                    t("msg_crash_bg", `L'instance "${instanceId}" a planté (code ${code}).`).replace("{name}", instanceId).replace("{code}", code),
+                    t("msg_crash_bg", `L'instance "${instanceId}" a planté (code ${code}).`).replace("{name}", instanceId).replace("{code}", String(code)),
                     "error"
                 );
             }

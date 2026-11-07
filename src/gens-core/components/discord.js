@@ -1,17 +1,33 @@
+// @ts-check
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
 class DiscordRPC {
+    /**
+     * @param {string} clientId
+     */
     constructor(clientId) {
         this.clientId = clientId;
+        /** @type {import('net').Socket | null} */
         this.socket = null;
+        /** @type {boolean} */
         this.connected = false;
+        /** @type {NodeJS.Timeout | null} */
         this.reconnectTimer = null;
+        /** @type {NodeJS.Timeout | null} */
         this.activityTimeout = null;
+        /** @type {boolean} */
         this.manualDisconnect = false;
+        /** @type {number} */
+        this.lastActivityUpdate = 0;
     }
 
+    /**
+     * Gets the IPC pipe path for Discord on the current OS.
+     * @param {number} id
+     * @returns {string}
+     */
     getIpcPath(id) {
         if (process.platform === 'win32') {
             return `\\\\?\\pipe\\discord-ipc-${id}`;
@@ -21,11 +37,18 @@ class DiscordRPC {
         return path.join(prefix, `discord-ipc-${id}`);
     }
 
+    /**
+     * Attempts to connect to Discord's local IPC pipe.
+     * @returns {Promise<boolean>}
+     */
     async connect() {
-        if (this.connected) return;
+        if (this.connected) return true;
         this.manualDisconnect = false;
 
         return new Promise((resolve) => {
+            /**
+             * @param {number} id
+             */
             const tryConnect = (id) => {
                 if (id > 9) {
                     if (!this.manualDisconnect) this.scheduleReconnect();
@@ -36,8 +59,12 @@ class DiscordRPC {
                 const socket = net.createConnection(ipcPath);
 
                 let resolved = false;
+                /** @type {NodeJS.Timeout | null} */
                 let connectTimeout = null;
 
+                /**
+                 * @param {boolean} success
+                 */
                 const finishConnect = (success) => {
                     if (resolved) return;
                     resolved = true;
@@ -100,6 +127,12 @@ class DiscordRPC {
         }
     }
 
+    /**
+     * Sends an IPC frame to Discord.
+     * @param {number} opcode
+     * @param {any} payload
+     * @param {import('net').Socket | null} [targetSocket=null]
+     */
     send(opcode, payload, targetSocket = null) {
         const sock = targetSocket || this.socket;
         if (!sock || sock.destroyed) return;
@@ -119,15 +152,26 @@ class DiscordRPC {
         }
     }
 
+    /**
+     * Sends initial handshake frame.
+     * @param {import('net').Socket} sock
+     */
     handshake(sock) {
         this.send(0, { v: 1, client_id: this.clientId }, sock);
     }
 
+    /**
+     * @param {Buffer | string} data
+     */
     handleData(data) {
         // Simple handler, full protocol parsing not strictly needed for basic usage 
         // since we only SEND status updates, but we need to read to keep buffer clean.
     }
 
+    /**
+     * Sets Discord Rich Presence activity.
+     * @param {Record<string, any>} activity
+     */
     setActivity(activity) {
         if (!this.connected) return;
 
@@ -143,6 +187,9 @@ class DiscordRPC {
         this.queueActivity(payload);
     }
 
+    /**
+     * Clears current Discord Rich Presence activity.
+     */
     clearActivity() {
         if (!this.connected) return;
 
@@ -157,6 +204,10 @@ class DiscordRPC {
         this.queueActivity(payload);
     }
 
+    /**
+     * Throttles presence updates to respect Discord's rate limits (max 1 every 15s).
+     * @param {any} payload
+     */
     queueActivity(payload) {
         const now = Date.now();
         if (now - (this.lastActivityUpdate || 0) >= 15000) {
@@ -172,6 +223,9 @@ class DiscordRPC {
         }
     }
 
+    /**
+     * Closes the Discord connection and stops any reconnect attempts.
+     */
     disconnect() {
         this.manualDisconnect = true;
         if (this.reconnectTimer) {

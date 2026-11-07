@@ -5,7 +5,7 @@
  * @param {(key: string, fallback?: string) => string} t
  * @returns {Promise<"jre" | "jdk" | null>}
  */
-export function showJavaTypeModal(version, t) {
+export function showJavaTypeModal(version, t = window.t) {
     return new Promise((resolve) => {
         const modal = document.createElement("div");
         modal.id = "modal-java-choice";

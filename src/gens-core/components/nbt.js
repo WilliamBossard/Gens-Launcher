@@ -1,3 +1,4 @@
+// @ts-check
 const zlib = require('zlib');
 
 const TAG_END = 0;
@@ -14,14 +15,19 @@ const TAG_COMPOUND = 10;
 const TAG_INT_ARRAY = 11;
 const TAG_LONG_ARRAY = 12;
 
+/** @type {Record<number, string>} */
 const typeNames = {
     1: 'byte', 2: 'short', 3: 'int', 4: 'long', 5: 'float', 6: 'double',
     7: 'byteArray', 8: 'string', 9: 'list', 10: 'compound', 11: 'intArray', 12: 'longArray'
 };
 
+/** @type {Record<string, number>} */
 const typeIds = Object.fromEntries(Object.entries(typeNames).map(([k, v]) => [v, parseInt(k)]));
 
 class NBTReader {
+    /**
+     * @param {Buffer} buffer
+     */
     constructor(buffer) {
         this.buffer = buffer;
         this.offset = 0;
@@ -47,6 +53,10 @@ class NBTReader {
         return v;
     }
 
+    /**
+     * @param {number} type
+     * @returns {any}
+     */
     readTag(type) {
         switch (type) {
             case TAG_BYTE: return this.readByte();
@@ -72,6 +82,7 @@ class NBTReader {
                 return { type: typeNames[listType] || 'end', value: val };
             }
             case TAG_COMPOUND: {
+                /** @type {Record<string, { type: string, value: any }>} */
                 const val = {};
                 while (true) {
                     const nextType = this.readByte();
@@ -113,6 +124,9 @@ class NBTWriter {
         this.offset = 0;
     }
 
+    /**
+     * @param {number} size
+     */
     ensureCapacity(size) {
         if (this.offset + size > this.buffer.length) {
             const newBuf = Buffer.alloc(this.buffer.length * 2 + size);
@@ -121,9 +135,13 @@ class NBTWriter {
         }
     }
 
+    /** @param {number} v */
     writeByte(v) { this.ensureCapacity(1); this.buffer.writeInt8(v, this.offset); this.offset += 1; }
+    /** @param {number} v */
     writeShort(v) { this.ensureCapacity(2); this.buffer.writeInt16BE(v, this.offset); this.offset += 2; }
+    /** @param {number} v */
     writeInt(v) { this.ensureCapacity(4); this.buffer.writeInt32BE(v, this.offset); this.offset += 4; }
+    /** @param {number | number[]} v */
     writeLong(v) { 
         this.ensureCapacity(8);
         if (Array.isArray(v)) {
@@ -135,9 +153,12 @@ class NBTWriter {
         }
         this.offset += 8; 
     }
+    /** @param {number} v */
     writeFloat(v) { this.ensureCapacity(4); this.buffer.writeFloatBE(v, this.offset); this.offset += 4; }
+    /** @param {number} v */
     writeDouble(v) { this.ensureCapacity(8); this.buffer.writeDoubleBE(v, this.offset); this.offset += 8; }
     
+    /** @param {string} v */
     writeString(v) {
         const len = Buffer.byteLength(v, 'utf8');
         this.ensureCapacity(2 + len);
@@ -147,6 +168,10 @@ class NBTWriter {
         this.offset += len;
     }
 
+    /**
+     * @param {number} type
+     * @param {any} value
+     */
     writeTag(type, value) {
         switch (type) {
             case TAG_BYTE: this.writeByte(value); break;
@@ -194,6 +219,10 @@ class NBTWriter {
         }
     }
 
+    /**
+     * @param {any} root
+     * @returns {Buffer}
+     */
     writeRoot(root) {
         const type = typeIds[root.type];
         this.writeByte(type);
@@ -203,6 +232,11 @@ class NBTWriter {
     }
 }
 
+/**
+ * Parses NBT data from a Buffer (handles gzip compressed or uncompressed).
+ * @param {Buffer} buffer
+ * @returns {Promise<{ parsed: any }>}
+ */
 async function parse(buffer) {
     let buf = buffer;
     try { 
@@ -214,6 +248,11 @@ async function parse(buffer) {
     return { parsed: reader.readRoot() };
 }
 
+/**
+ * Serializes NBT data structure to an uncompressed Buffer.
+ * @param {any} data
+ * @returns {Buffer}
+ */
 function writeUncompressed(data) {
     const writer = new NBTWriter();
     return writer.writeRoot(data);

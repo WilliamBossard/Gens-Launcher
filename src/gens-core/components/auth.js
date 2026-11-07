@@ -1,9 +1,28 @@
+// @ts-check
 const crypto = require('crypto');
 
 const CLIENT_ID = '00000000441cc96b'; // Nintendo Switch Microsoft App ID
 
+/**
+ * @typedef {Object} DeviceCodeInfo
+ * @property {string} user_code
+ * @property {string} device_code
+ * @property {string} verification_uri
+ * @property {number} interval
+ * @property {number} expires_in
+ * @property {string} message
+ */
+
+/**
+ * @typedef {Object} AuthExchangeResult
+ * @property {string} mcToken
+ * @property {any} profile
+ * @property {string | null} msaRefreshToken
+ */
+
 class MicrosoftAuth {
     constructor() {
+        /** @type {boolean} */
         this.cancelled = false;
     }
 
@@ -11,6 +30,10 @@ class MicrosoftAuth {
         this.cancelled = true;
     }
 
+    /**
+     * Initiates the OAuth 2.0 Device Authorization flow.
+     * @returns {Promise<DeviceCodeInfo>}
+     */
     async getDeviceCode() {
         const res = await fetch('https://login.live.com/oauth20_connect.srf', {
             method: 'POST',
@@ -33,6 +56,13 @@ class MicrosoftAuth {
         };
     }
 
+    /**
+     * Polls the Microsoft OAuth token endpoint until the user enters their code.
+     * @param {string} deviceCode
+     * @param {number} interval
+     * @param {number} [expiresIn=900]
+     * @returns {Promise<any>}
+     */
     async pollDeviceCode(deviceCode, interval, expiresIn = 900) {
         let currentInterval = Math.max(0.01, Number(interval) || 5);
         const deadline = Date.now() + (Number(expiresIn) || 900) * 1000;
@@ -77,6 +107,11 @@ class MicrosoftAuth {
         });
     }
 
+    /**
+     * Refreshes a Microsoft Account access token using a refresh token.
+     * @param {string} refreshToken
+     * @returns {Promise<any>}
+     */
     async refreshMsaToken(refreshToken) {
         const res = await fetch('https://login.live.com/oauth20_token.srf', {
             method: 'POST',
@@ -95,6 +130,11 @@ class MicrosoftAuth {
         return await res.json();
     }
 
+    /**
+     * Authenticates with Xbox Live using MSA access token.
+     * @param {string} msaAccessToken
+     * @returns {Promise<any>}
+     */
     async getXboxLiveToken(msaAccessToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
         const res = await fetch('https://user.auth.xboxlive.com/user/authenticate', {
@@ -118,6 +158,11 @@ class MicrosoftAuth {
         return await res.json();
     }
 
+    /**
+     * Exchanges Xbox Live token for an XSTS token.
+     * @param {string} xblToken
+     * @returns {Promise<any>}
+     */
     async getXstsToken(xblToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
         const res = await fetch('https://xsts.auth.xboxlive.com/xsts/authorize', {
@@ -146,6 +191,12 @@ class MicrosoftAuth {
         return await res.json();
     }
 
+    /**
+     * Obtains a Minecraft Services access token.
+     * @param {string} userHash
+     * @param {string} xstsToken
+     * @returns {Promise<any>}
+     */
     async getMinecraftToken(userHash, xstsToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
         const res = await fetch('https://api.minecraftservices.com/authentication/login_with_xbox', {
@@ -162,6 +213,11 @@ class MicrosoftAuth {
         return await res.json();
     }
 
+    /**
+     * Fetches Minecraft user profile.
+     * @param {string} mcAccessToken
+     * @returns {Promise<any>}
+     */
     async getMinecraftProfile(mcAccessToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
         const res = await fetch('https://api.minecraftservices.com/minecraft/profile', {
@@ -173,6 +229,11 @@ class MicrosoftAuth {
         return await res.json();
     }
 
+    /**
+     * Full OAuth Device Code authentication flow.
+     * @param {(codeInfo: DeviceCodeInfo) => void} onCode
+     * @returns {Promise<AuthExchangeResult>}
+     */
     async flowDeviceCode(onCode) {
         const devCodeInfo = await this.getDeviceCode();
         onCode(devCodeInfo);
@@ -180,11 +241,22 @@ class MicrosoftAuth {
         return this.exchangeTokens(tokenRes.access_token, tokenRes.refresh_token);
     }
 
+    /**
+     * Refreshes a saved Minecraft session using a refresh token.
+     * @param {string} refreshToken
+     * @returns {Promise<AuthExchangeResult>}
+     */
     async flowRefresh(refreshToken) {
         const tokenRes = await this.refreshMsaToken(refreshToken);
         return this.exchangeTokens(tokenRes.access_token, tokenRes.refresh_token);
     }
 
+    /**
+     * Exchanges MSA token across Xbox Live and Minecraft Services.
+     * @param {string} msaAccessToken
+     * @param {string | null} [newRefreshToken=null]
+     * @returns {Promise<AuthExchangeResult>}
+     */
     async exchangeTokens(msaAccessToken, newRefreshToken = null) {
         const xblRes = await this.getXboxLiveToken(msaAccessToken);
         const xblToken = xblRes.Token;

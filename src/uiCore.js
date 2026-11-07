@@ -39,7 +39,7 @@ export function setupUICore() {
                         if (inst) {
                             const now = Date.now();
                             const sessionDuration = inst._tempSessionStart
-                                ? now - inst._tempSessionStart
+                                ? now - Number(inst._tempSessionStart)
                                 : 0;
                             inst._tempSessionStart = null;
                             if (sessionDuration > 0 && sessionDuration < 86400000) {

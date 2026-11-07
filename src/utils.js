@@ -310,7 +310,7 @@ window.showCustomConfirm = (msg, isDestructive = false) => {
         newNo.addEventListener("click", () => { modal.style.display = "none"; resolve(false); });
     });
 };
-window.showLoading = (text, percent = null) => {
+window.showLoading = (text = "", percent = null) => {
     const txtEl = document.getElementById("loading-text");
     if (txtEl) txtEl.innerText = text;
     const pctEl = document.getElementById("loading-percent");
