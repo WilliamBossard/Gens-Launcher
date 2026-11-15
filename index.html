@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*; connect-src 'self' https://* wss://*; font-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*; connect-src 'self' https://api.modrinth.com https://cdn.modrinth.com https://api.curseforge.com https://edge.forgecdn.net https://mediafilez.forgecdn.net https://piston-meta.mojang.com https://launchermeta.mojang.com https://launchercontent.mojang.com https://api.mojang.com https://sessionserver.mojang.com https://api.minecraftservices.com https://textures.minecraft.net https://meta.fabricmc.net https://meta.quiltmc.org https://files.minecraftforge.net https://maven.minecraftforge.net https://maven.neoforged.net https://bmclapi2.bangbang93.com https://api.adoptium.net https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net; font-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none';"
     />
     <meta name="referrer" content="no-referrer" />
     <title>Gens Launcher</title>
@@ -1351,6 +1351,23 @@
               </div>
             </div>
             <select id="global-offline-mode">
+              <option value="false" data-i18n="btn_no">Non</option>
+              <option value="true" data-i18n="btn_yes">Oui</option>
+            </select>
+
+            <div style="display: flex; align-items: center; margin-top: 15px">
+              <label style="margin-top: 0" data-i18n="lbl_fast_verify"
+                >Vérification rapide des fichiers</label
+              >
+              <div
+                class="ram-help-icon custom-tooltip-trigger"
+                data-i18n-tooltip="tt_fast_verify"
+                data-tooltip="Vérifie uniquement la taille des fichiers déjà présents au lieu de recalculer leur empreinte SHA-1 à chaque lancement. Accélère le démarrage, mais désactive la détection de corruption silencieuse à taille égale."
+              >
+                ?
+              </div>
+            </div>
+            <select id="global-fast-verify">
               <option value="false" data-i18n="btn_no">Non</option>
               <option value="true" data-i18n="btn_yes">Oui</option>
             </select>

@@ -37,6 +37,27 @@ test('Crypto Utils - safeStorage (mocked)', async (t) => {
     assert.strictEqual(decrypted, text, 'Le déchiffrement doit correspondre au texte original');
 });
 
+test('Crypto Utils - safeStorage decryptText skips PBKDF2 computation', async () => {
+    delete require.cache[modulePath];
+    mockElectron.safeStorage.isAsyncEncryptionAvailable = async () => true;
+    const origPbkdf2 = crypto.pbkdf2;
+    let pbkdf2Calls = 0;
+    crypto.pbkdf2 = (...args) => {
+        pbkdf2Calls++;
+        return origPbkdf2(...args);
+    };
+    try {
+        const freshCrypto = require('../src/main/crypto-utils.js');
+        const enc = await freshCrypto.encryptText('fast-startup-token');
+        const dec = await freshCrypto.decryptText(enc);
+        assert.strictEqual(dec, 'fast-startup-token');
+        assert.strictEqual(pbkdf2Calls, 0, 'decryptText ne doit pas exécuter PBKDF2 pour un préfixe safeStorage:');
+    } finally {
+        crypto.pbkdf2 = origPbkdf2;
+        delete require.cache[modulePath];
+    }
+});
+
 test('Crypto Utils - AES fallback', async (t) => {
     mockElectron.safeStorage.isAsyncEncryptionAvailable = async () => false;
 

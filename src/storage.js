@@ -26,10 +26,29 @@ export function setupStorage() {
                                     console.log("Settings migrés vers format clair.");
                                 }
                             }
-                            if (parsed) store.globalSettings = { ...store.globalSettings, ...parsed };
+                            if (parsed) {
+                                const legacyPlainKey = typeof parsed.cfApiKey === 'string' && parsed.cfApiKey.trim()
+                                    ? parsed.cfApiKey.trim()
+                                    : '';
+                                store.globalSettings = { ...store.globalSettings, ...parsed };
+                                if (legacyPlainKey && store.cfApiKeyFile && window.api?.security?.writeJSON) {
+                                    await window.api.security.writeJSON(store.cfApiKeyFile, { cfApiKey: legacyPlainKey });
+                                    await window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+                                }
+                            }
                         }
                     } catch (e) { 
                         console.error("Erreur critique lecture settings:", e);
+                    }
+                }
+                if (store.cfApiKeyFile && await window.existsSafe(store.cfApiKeyFile) && window.api?.security?.readJSONAsync) {
+                    try {
+                        const sec = await window.api.security.readJSONAsync(store.cfApiKeyFile);
+                        if (sec && typeof sec.cfApiKey === 'string') {
+                            store.globalSettings.cfApiKey = sec.cfApiKey;
+                        }
+                    } catch (e) {
+                        console.error("Erreur lecture clé CurseForge chiffrée:", e);
                     }
                 }
             })(),

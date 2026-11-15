@@ -1,9 +1,11 @@
 // @ts-check
 
+const APT_KEY_SHA256 = '65770db50f5ecf86c0a2f8d10309540851131846a876682f27b579d82830a9f4';
+
 /**
  * @param {import('../types/main').MainContext} context
  */
-module.exports = function (context) {
+function setupUpdater(context) {
     const { app, ipcMain, shell, getMainWindow, mainLog, autoUpdater } = context;
 
     let userConfirmedUpdate = false;
@@ -17,47 +19,82 @@ module.exports = function (context) {
         const sourcesPath = '/etc/apt/sources.list.d/gens-launcher.list';
         const keyUrl = 'https://williambossard.github.io/Gens-Launcher/public.key';
         const repoLine = `deb [signed-by=${keyPath}] https://williambossard.github.io/Gens-Launcher ./`;
-        
+
         const fs = require('fs');
+        const os = require('os');
+        const path = require('path');
+        const crypto = require('crypto');
+        const { execFile } = require('child_process');
+
         let hasKey = false, hasSources = false;
         try { await fs.promises.access(keyPath); hasKey = true; } catch (_) { if (_ && typeof _ === 'object' && 'code' in _ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _); }
         try { await fs.promises.access(sourcesPath); hasSources = true; } catch (_) { if (_ && typeof _ === 'object' && 'code' in _ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _); }
         mainLog(`[deb-update] hasKey=${hasKey}, hasSources=${hasSources}`);
-        
-        /** @type {string} */
-        let shellCmd;
-        if (!hasKey || !hasSources) {
-            mainLog('[deb-update] Dépôt APT non configuré, ajout automatique...');
-            getMainWindow()?.webContents.send('update-msg', { key: 'msg_apt_setup', text: 'Configuration du dépôt APT...', type: 'info' });
-            const setupParts = [];
-            if (!hasKey) setupParts.push(`curl -fsSL '${keyUrl}' | gpg --dearmor -o '${keyPath}'`);
-            if (!hasSources) setupParts.push(`echo '${repoLine}' > '${sourcesPath}'`);
-            setupParts.push('apt-get update -qq');
-            setupParts.push('apt-get install -y gens-launcher');
-            shellCmd = `pkexec sh -c "${setupParts.join(' && ').replace(/"/g, '\\"')}"`;
-        } else {
-            mainLog('[deb-update] Dépôt configuré, lancement apt-get install...');
-            shellCmd = 'pkexec apt-get install -y gens-launcher';
-        }
-        mainLog('[deb-update] Commande : ' + shellCmd);
-        getMainWindow()?.webContents.send('update-msg', { key: 'msg_apt_installing', text: 'Installation en cours (cela peut prendre quelques secondes)...', type: 'info' });
-        return new Promise((resolve) => {
-            const { exec } = require('child_process');
-            exec(shellCmd, { timeout: 180000 }, (err, stdout, stderr) => {
-                if (!err) {
-                    mainLog('[deb-update] Succès.');
-                    resolve({ success: true });
-                } else {
-                    mainLog('[deb-update] Erreur : ' + (stderr || err.message));
-                    resolve({ success: false, error: (stderr || err.message).split('\n')[0] });
+
+        /** @type {string | null} */
+        let tmpKeyFile = null;
+        try {
+            /** @type {string[]} */
+            let pkexecArgs;
+            if (!hasKey || !hasSources) {
+                mainLog('[deb-update] Dépôt APT non configuré, ajout automatique...');
+                getMainWindow()?.webContents.send('update-msg', { key: 'msg_apt_setup', text: 'Configuration du dépôt APT...', type: 'info' });
+                const setupParts = [];
+                if (!hasKey) {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 15000);
+                    /** @type {Buffer} */
+                    let keyBuf;
+                    try {
+                        const res = await fetch(keyUrl, { signal: controller.signal });
+                        if (!res.ok) throw new Error(`Téléchargement clé GPG HTTP ${res.status}`);
+                        keyBuf = Buffer.from(await res.arrayBuffer());
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                    const actualSha = crypto.createHash('sha256').update(keyBuf).digest('hex').toLowerCase();
+                    if (actualSha !== APT_KEY_SHA256) {
+                        throw new Error(`Empreinte SHA-256 invalide pour public.key (${actualSha})`);
+                    }
+                    tmpKeyFile = path.join(os.tmpdir(), `gens-apt-pubkey-${process.pid}-${Date.now()}.asc`);
+                    await fs.promises.writeFile(tmpKeyFile, keyBuf, { mode: 0o600 });
+                    setupParts.push('gpg --batch --yes --dearmor -o "$1" "$2"');
                 }
+                if (!hasSources) setupParts.push('printf "%s\\n" "$3" > "$4"');
+                setupParts.push('apt-get update -qq');
+                setupParts.push('apt-get install -y gens-launcher');
+                pkexecArgs = ['sh', '-c', setupParts.join(' && '), '_', keyPath, tmpKeyFile || '', repoLine, sourcesPath];
+            } else {
+                mainLog('[deb-update] Dépôt configuré, lancement apt-get install...');
+                pkexecArgs = ['apt-get', 'install', '-y', 'gens-launcher'];
+            }
+            mainLog('[deb-update] Commande : pkexec ' + pkexecArgs.join(' '));
+            getMainWindow()?.webContents.send('update-msg', { key: 'msg_apt_installing', text: 'Installation en cours (cela peut prendre quelques secondes)...', type: 'info' });
+            return await new Promise((resolve) => {
+                execFile('pkexec', pkexecArgs, { timeout: 180000 }, (err, stdout, stderr) => {
+                    if (!err) {
+                        mainLog('[deb-update] Succès.');
+                        resolve({ success: true });
+                    } else {
+                        mainLog('[deb-update] Erreur : ' + (stderr || err.message));
+                        resolve({ success: false, error: (stderr || err.message).split('\n')[0] });
+                    }
+                });
             });
-        });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            mainLog('[deb-update] Erreur préparation clé/dépôt : ' + msg);
+            return { success: false, error: msg };
+        } finally {
+            if (tmpKeyFile) {
+                try { await fs.promises.unlink(tmpKeyFile); } catch (_) {}
+            }
+        }
     });
 
     ipcMain.on("confirm-update", () => { userConfirmedUpdate = true; });
     ipcMain.on("restart_app", async () => {
-        if (process.platform === 'linux' && !process.env.APPIMAGE && !userConfirmedUpdate) {
+        if (!userConfirmedUpdate) {
             mainLog("[Sécurité] restart_app rejeté : l'utilisateur n'a pas confirmé la mise à jour.");
             return;
         }
@@ -68,25 +105,42 @@ module.exports = function (context) {
                 return;
             }
             mainLog("MAJ Linux .deb : lancement via pkexec apt-get...");
-            const { exec } = require('child_process');
-            exec('pkexec apt-get install -y gens-launcher', (err, stdout, stderr) => {
+            const { execFile } = require('child_process');
+            execFile('pkexec', ['apt-get', 'install', '-y', 'gens-launcher'], (err, stdout, stderr) => {
                 if (!err) {
                     mainLog("Mise à jour APT réussie. Relancement...");
                     app.relaunch();
                     app.exit(0);
                 } else {
                     mainLog("Erreur MAJ APT : " + stderr);
-                    exec(`x-terminal-emulator -e 'bash -c "sudo apt update && sudo apt install gens-launcher; read -p \\"Appuyez sur Entree pour fermer...\\" "'`, (err2) => {
-                        if (err2) {
-                            shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+                    execFile(
+                        'x-terminal-emulator',
+                        ['-e', 'bash', '-c', 'sudo apt update && sudo apt install gens-launcher; read -p "Appuyez sur Entree pour fermer..."'],
+                        (err2) => {
+                            if (err2) {
+                                shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
+                            }
                         }
-                    });
+                    );
                 }
             });
         } else {
             autoUpdater.quitAndInstall();
         }
     });
+
+    /**
+     * @param {string} a
+     * @param {string} b
+     */
+    const compareSemver = (a, b) => {
+        const pa = String(a).split(/[.-]/).slice(0, 3).map(n => parseInt(n, 10) || 0);
+        const pb = String(b).split(/[.-]/).slice(0, 3).map(n => parseInt(n, 10) || 0);
+        for (let i = 0; i < 3; i++) {
+            if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+        }
+        return 0;
+    };
 
     ipcMain.handle("check-for-updates", async () => {
         isManualUpdateCheck = true;
@@ -95,33 +149,51 @@ module.exports = function (context) {
             try {
                 const { net } = require('electron');
                 return await new Promise((resolve) => {
+                    let settled = false;
+                    /** @type {NodeJS.Timeout | null} */
+                    let reqTimeout = null;
                     const req = net.request({ url: 'https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest', headers: { 'User-Agent': 'Gens-Launcher-AutoUpdater' } });
+                    /** @param {any} result */
+                    const finish = (result) => {
+                        if (settled) return;
+                        settled = true;
+                        if (reqTimeout) clearTimeout(reqTimeout);
+                        isManualUpdateCheck = false;
+                        resolve(result);
+                    };
+                    reqTimeout = setTimeout(() => {
+                        try { req.abort(); } catch (_) {}
+                        finish({ success: false, error: 'Délai dépassé lors de la vérification des mises à jour.' });
+                    }, 10000);
                     req.on('response', (res) => {
                         let data = '';
-                        res.on('data', (c) => { data += c; });
+                        res.on('data', (c) => {
+                            if (data.length < 512 * 1024) data += c;
+                        });
                         res.on('end', () => {
-                            isManualUpdateCheck = false;
+                            if (res.statusCode !== 200) {
+                                return finish({ success: false, error: `GitHub API HTTP ${res.statusCode}` });
+                            }
                             try {
                                 const release = JSON.parse(data);
                                 const latestVer = (release.tag_name || '').replace(/^v/, '');
                                 const currentVer = app.getVersion();
-                                if (latestVer && latestVer !== currentVer) {
+                                if (latestVer && compareSemver(latestVer, currentVer) > 0) {
                                     getMainWindow()?.webContents.send('update-available-prompt', { version: latestVer });
-                                    resolve({ success: true, version: latestVer });
+                                    finish({ success: true, version: latestVer });
                                 } else {
                                     getMainWindow()?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
-                                    resolve({ success: true, version: null });
+                                    finish({ success: true, version: null });
                                 }
                             } catch(e) {
                                 const error = e instanceof Error ? e.message : String(e);
-                                resolve({ success: false, error });
+                                finish({ success: false, error });
                             }
                         });
                     });
                     req.on('error', (e) => {
-                        isManualUpdateCheck = false;
                         const error = e instanceof Error ? e.message : String(e);
-                        resolve({ success: false, error });
+                        finish({ success: false, error });
                     });
                     req.end();
                 });
@@ -178,4 +250,7 @@ module.exports = function (context) {
     return {
         getIsManualUpdateCheck: () => isManualUpdateCheck,
     };
-};
+}
+
+setupUpdater.APT_KEY_SHA256 = APT_KEY_SHA256;
+module.exports = setupUpdater;

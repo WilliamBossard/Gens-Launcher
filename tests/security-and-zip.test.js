@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const { Worker } = require('node:worker_threads');
 
-const yauzl = require('yauzl-promise');
+const { openZip } = require('../src/main/zip-utils');
 
 const { createSandboxValidator, parseMotdComponent } = require('../src/main/fs-utils');
 
@@ -186,7 +186,7 @@ test('compress-worker, extract-worker (.zip) et lecture entry.filename (yauzl-pr
 
         assert.strictEqual(compressRes.success, true, 'compress-worker doit réussir');
 
-        const zipfile = await yauzl.open(zipPath);
+        const zipfile = await openZip(zipPath);
 
         let foundText = null;
 
@@ -543,14 +543,18 @@ test('Gens-Core Handler (Lot 6 & 7) - interpolation complète getJVMArgs et veri
         );
 
         const sampleFile = path.join(baseTmp, 'asset.bin');
+        const sampleBuf = Buffer.alloc(1234, 0x42);
+        const sampleSha1 = require('crypto').createHash('sha1').update(sampleBuf).digest('hex');
 
-        await fs.promises.writeFile(sampleFile, Buffer.alloc(1234, 0x42));
+        await fs.promises.writeFile(sampleFile, sampleBuf);
 
-        assert.strictEqual(await handler.verifyFileFast(sampleFile, 1234, 'deadbeef'), true, 'Taille identique = validation rapide réussie');
+        assert.strictEqual(await handler.verifyFileFast(sampleFile, 1234, sampleSha1), true, 'Taille et SHA-1 valides = true');
 
-        assert.strictEqual(await handler.verifyFileFast(sampleFile, 9999, 'deadbeef'), false, 'Taille différente = doit retourner false');
+        assert.strictEqual(await handler.verifyFileFast(sampleFile, 1234, 'deadbeef'), false, 'Taille identique mais SHA-1 invalide = doit retourner false');
 
-        assert.strictEqual(await handler.verifyFileFast(path.join(baseTmp, 'missing.bin'), 1234, 'deadbeef'), false, 'Fichier manquant = false');
+        assert.strictEqual(await handler.verifyFileFast(sampleFile, 9999, sampleSha1), false, 'Taille différente = doit retourner false');
+
+        assert.strictEqual(await handler.verifyFileFast(path.join(baseTmp, 'missing.bin'), 1234, sampleSha1), false, 'Fichier manquant = false');
 
     } finally {
 

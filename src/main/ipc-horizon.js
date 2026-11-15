@@ -1,5 +1,7 @@
 // @ts-check
+const { StringDecoder } = require('string_decoder');
 const { existsSafe } = require('./fs-utils');
+const { pipeStreams } = require('./zip-utils');
 
 /**
  * @param {import('../types/main').MainContext} context
@@ -73,6 +75,27 @@ module.exports = function setupHorizonHandlers(context) {
         return (pat1 || 0) >= (pat2 || 0);
     }
 
+    /**
+     * Retourne true uniquement si candidateVersion est strictement supérieure à currentVersion (semver).
+     * @param {string | null | undefined} candidateVersion
+     * @param {string | null | undefined} currentVersion
+     * @returns {boolean}
+     */
+    function isHorizonVersionNewer(candidateVersion, currentVersion) {
+        if (!candidateVersion || typeof candidateVersion !== 'string') return false;
+        if (!currentVersion || typeof currentVersion !== 'string') return true;
+        const semverRe = /^v?\d+(?:\.\d+){0,2}(?:[-+].*)?$/i;
+        if (!semverRe.test(candidateVersion.trim()) || !semverRe.test(currentVersion.trim())) {
+            return candidateVersion.trim() !== currentVersion.trim();
+        }
+        const parse = (/** @type {string} */ v) => v.replace(/^v/i, '').split(/[-+]/)[0].trim().split('.').map(n => parseInt(n, 10) || 0);
+        const [maj1 = 0, min1 = 0, pat1 = 0] = parse(candidateVersion);
+        const [maj2 = 0, min2 = 0, pat2 = 0] = parse(currentVersion);
+        if (maj1 !== maj2) return maj1 > maj2;
+        if (min1 !== min2) return min1 > min2;
+        return pat1 > pat2;
+    }
+
     /** @type {Promise<any>} */
     let _horizonQueue = Promise.resolve();
 
@@ -91,24 +114,211 @@ module.exports = function setupHorizonHandlers(context) {
     let _localHashCacheMtime = 0;
     let _localHashCacheSize = 0;
 
+    /** @type {Buffer | null} */
+    let _sealHmacKey = null;
+    const sealKeyFile = path.join(safeDataDir, 'horizon_seal.key');
+
+    async function getSealHmacKey() {
+        if (_sealHmacKey) return _sealHmacKey;
+        /** @type {any} */
+        let safeStorage = null;
+        try {
+            safeStorage = require('electron').safeStorage;
+        } catch (_) {}
+        if (!safeStorage) return null;
+
+        const hasAsync = typeof safeStorage.isAsyncEncryptionAvailable === 'function'
+            && typeof safeStorage.encryptStringAsync === 'function'
+            && typeof safeStorage.decryptStringAsync === 'function';
+        const available = hasAsync
+            ? await safeStorage.isAsyncEncryptionAvailable()
+            : (typeof safeStorage.isEncryptionAvailable === 'function' && safeStorage.isEncryptionAvailable());
+        if (!available) return null;
+
+        try {
+            if (await existsSafe(sealKeyFile)) {
+                const enc = await fs.promises.readFile(sealKeyFile);
+                const decRes = hasAsync
+                    ? await safeStorage.decryptStringAsync(enc)
+                    : safeStorage.decryptString(enc);
+                const rawHex = typeof decRes === 'string' ? decRes : decRes?.result;
+                if (rawHex && rawHex.length >= 64) {
+                    _sealHmacKey = Buffer.from(rawHex, 'hex');
+                    return _sealHmacKey;
+                }
+            }
+            const generated = crypto.randomBytes(32);
+            const enc = hasAsync
+                ? await safeStorage.encryptStringAsync(generated.toString('hex'))
+                : safeStorage.encryptString(generated.toString('hex'));
+            await fs.promises.writeFile(sealKeyFile, enc);
+            _sealHmacKey = generated;
+            return _sealHmacKey;
+        } catch (err) {
+            mainLog("[Horizon] Impossible d'initialiser la clé de scellement locale: " + (err instanceof Error ? err.message : String(err)));
+            return null;
+        }
+    }
+
+    /**
+     * Comparaison temps-constant de deux condensats hexadécimaux.
+     * @param {unknown} actualHex
+     * @param {unknown} expectedHex
+     * @returns {boolean}
+     */
+    function verifyTimingSafeHex(actualHex, expectedHex) {
+        if (typeof actualHex !== 'string' || typeof expectedHex !== 'string') return false;
+        if (!actualHex || actualHex.length !== expectedHex.length) return false;
+        if (actualHex.length % 2 !== 0) return false;
+        try {
+            const a = Buffer.from(actualHex, 'hex');
+            const b = Buffer.from(expectedHex, 'hex');
+            return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    const ALLOWED_GITHUB_ASSET_HOSTS = new Set([
+        'github.com',
+        'objects.githubusercontent.com',
+        'github-releases.githubusercontent.com',
+        'release-assets.githubusercontent.com'
+    ]);
+
+    /**
+     * Vérifie qu'une URL d'asset de release Horizon pointe bien vers GitHub en HTTPS.
+     * @param {unknown} urlStr
+     * @returns {string}
+     */
+    function assertTrustedGithubDownloadUrl(urlStr) {
+        if (typeof urlStr !== 'string' || !urlStr.trim()) {
+            throw new Error("URL de téléchargement Horizon vide.");
+        }
+        const parsed = new URL(urlStr);
+        if (parsed.protocol !== 'https:') {
+            throw new Error(`Protocole non HTTPS refusé pour l'asset Horizon : ${parsed.protocol}`);
+        }
+        const host = parsed.hostname.toLowerCase();
+        if (!ALLOWED_GITHUB_ASSET_HOSTS.has(host)) {
+            throw new Error(`Hôte de téléchargement Horizon non autorisé : ${parsed.hostname}`);
+        }
+        return parsed.toString();
+    }
+
+    /**
+     * @param {Record<string, any>} obj
+     * @param {Buffer | null} key
+     */
+    function computePayloadHmac(obj, key) {
+        if (!key) return null;
+        /** @type {Record<string, any>} */
+        const clean = {};
+        for (const k of Object.keys(obj).sort()) {
+            if (k === '_sig') continue;
+            clean[k] = obj[k];
+        }
+        return crypto.createHmac('sha256', key).update(JSON.stringify(clean)).digest('hex');
+    }
+
+    /**
+     * Lit et vérifie le fichier horizon_version.json (scellé par HMAC lorsque disponible).
+     * Rejette toute falsification manifeste lorsque _sig est invalide, et refuse
+     * les tags non signés en mode packagé (tout en préservant le mode dev local).
+     * @param {string} versionPath
+     * @returns {Promise<{ version: string | null, tampered: boolean, unsignedLegacy?: boolean }>}
+     */
+    async function readVerifiedHorizonVersion(versionPath) {
+        if (!(await existsSafe(versionPath))) {
+            return { version: null, tampered: false, unsignedLegacy: false };
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(await fs.promises.readFile(versionPath, 'utf8'));
+        } catch (_) {
+            return { version: null, tampered: true, unsignedLegacy: false };
+        }
+        if (!parsed || typeof parsed.version !== 'string' || !parsed.version.trim()) {
+            return { version: null, tampered: true, unsignedLegacy: false };
+        }
+        const hmacKey = await getSealHmacKey();
+        if (hmacKey) {
+            if (parsed._sig) {
+                const expectedSig = computePayloadHmac(parsed, hmacKey);
+                if (!verifyTimingSafeHex(parsed._sig, expectedSig)) {
+                    return { version: null, tampered: true, unsignedLegacy: false };
+                }
+            } else if (app?.isPackaged) {
+                // En mode packagé, ne jamais faire confiance à un tag non scellé (anti-downgrade).
+                // En mode dev (!app.isPackaged), le tag local reste accepté sans _sig.
+                return { version: null, tampered: true, unsignedLegacy: true };
+            }
+        }
+        return { version: parsed.version, tampered: false, unsignedLegacy: false };
+    }
+
+    /** @type {Promise<void>} */
+    let _githubCacheWriteQueue = Promise.resolve();
+
+    /**
+     * @param {string} src
+     * @param {string} dest
+     */
+    async function renameWithRetry(src, dest) {
+        let lastErr = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                await fs.promises.rename(src, dest);
+                return;
+            } catch (err) {
+                lastErr = err;
+                const e = /** @type {any} */ (err);
+                if (e && (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES')) {
+                    await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
+                } else {
+                    throw err;
+                }
+            }
+        }
+        throw lastErr;
+    }
+
     /**
      * Met à jour de façon atomique et incrémentale le fichier de cache GitHub sans écraser les clés existantes.
      * @param {Record<string, any>} updates
      */
-    async function updateGithubCache(updates) {
-        try {
-            let c = /** @type {Record<string, any>} */ ({});
+    function updateGithubCache(updates) {
+        const next = _githubCacheWriteQueue.catch(() => {}).then(async () => {
             try {
-                if (await existsSafe(githubCacheFile)) {
-                    c = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
+                let c = /** @type {Record<string, any>} */ ({});
+                const hmacKey = await getSealHmacKey();
+                try {
+                    if (await existsSafe(githubCacheFile)) {
+                        const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
+                        const expectedSig = computePayloadHmac(parsed, hmacKey);
+                        if ((!hmacKey && !app?.isPackaged) || (hmacKey && verifyTimingSafeHex(parsed._sig, expectedSig))) {
+                            c = parsed;
+                        }
+                    }
+                } catch (_) {}
+                Object.assign(c, updates);
+                const sig = computePayloadHmac(c, hmacKey);
+                if (sig) c._sig = sig;
+                const rand = crypto.randomBytes(6).toString('hex');
+                const tmpFile = `${githubCacheFile}.tmp.${process.pid}.${Date.now()}.${rand}`;
+                try {
+                    await fs.promises.writeFile(tmpFile, JSON.stringify(c), 'utf8');
+                    await renameWithRetry(tmpFile, githubCacheFile);
+                } finally {
+                    try { await fs.promises.unlink(tmpFile); } catch (_) {}
                 }
-            } catch (_) {}
-            Object.assign(c, updates);
-            await fs.promises.writeFile(githubCacheFile, JSON.stringify(c));
-        } catch (err) {
-            const e = /** @type {any} */ (err);
-            if (e && e.code !== 'ENOENT') mainLog("[ipc] Erreur écriture cache GitHub: " + (e.message || e));
-        }
+            } catch (err) {
+                const e = /** @type {any} */ (err);
+                if (e && e.code !== 'ENOENT') mainLog("[ipc] Erreur écriture cache GitHub: " + (e.message || e));
+            }
+        });
+        _githubCacheWriteQueue = next;
+        return next;
     }
 
     /**
@@ -162,10 +372,28 @@ module.exports = function setupHorizonHandlers(context) {
         }
     }
 
-    (async () => {
+    const horizonInitPromise = (async () => {
         try {
             if (await existsSafe(githubCacheFile)) {
                 const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
+                const hmacKey = await getSealHmacKey();
+                if (!hmacKey && app?.isPackaged) {
+                    mainLog("[Horizon] Clé de scellement indisponible en mode packagé — cache GitHub ignoré.");
+                    return;
+                }
+                if (hmacKey && parsed && parsed._sig) {
+                    const expectedSig = computePayloadHmac(parsed, hmacKey);
+                    if (!verifyTimingSafeHex(parsed._sig, expectedSig)) {
+                        mainLog("[Horizon] SÉCURITÉ : Signature HMAC invalide sur github_release_cache.json — cache ignoré.");
+                        return;
+                    }
+                } else if (hmacKey && parsed && !parsed._sig) {
+                    // Cache hérité non signé : on ne fait pas confiance à un hash non signé en mode packagé
+                    if (app?.isPackaged) {
+                        mainLog("[Horizon] Cache GitHub hérité non signé ignoré en mode packagé.");
+                        return;
+                    }
+                }
                 if (parsed && parsed.time && parsed.data) {
                     githubReleaseCacheTime = parsed.time;
                     githubReleaseCache = parsed.data;
@@ -236,41 +464,45 @@ module.exports = function setupHorizonHandlers(context) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
         // AUDIT-20 : version dynamique via app.getVersion() au lieu de la valeur hardcodée
-        const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.8.4';
+        const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.9.4';
         
         let url = 'https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest';
         if (targetVersion) {
             url = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/${encodeURIComponent(targetVersion)}`;
         }
 
-        let res = await fetch(url, { 
-            headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
-            signal: controller.signal 
-        });
-
-        if (!res.ok && targetVersion && !targetVersion.startsWith('v')) {
-            const vUrl = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/v${encodeURIComponent(targetVersion)}`;
-            res = await fetch(vUrl, { 
+        let res;
+        try {
+            res = await fetch(url, { 
                 headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
                 signal: controller.signal 
             });
+
+            if (!res.ok && targetVersion && !targetVersion.startsWith('v')) {
+                const vUrl = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/v${encodeURIComponent(targetVersion)}`;
+                res = await fetch(vUrl, { 
+                    headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
+                    signal: controller.signal 
+                });
+            }
+
+            // Si on cherche une version précise et qu'elle n'existe pas, on ne doit SURTOUT PAS
+            // retomber sur latest, sinon le check de SHA va comparer un vieux binaire avec le hash du latest.
+            if (!res.ok && !targetVersion) {
+                res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
+                    headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
+                    signal: controller.signal 
+                });
+            }
+        } finally {
+            clearTimeout(timeoutId);
         }
 
-        // Si on cherche une version précise et qu'elle n'existe pas, on ne doit SURTOUT PAS
-        // retomber sur latest, sinon le check de SHA va comparer un vieux binaire avec le hash du latest.
-        if (!res.ok && !targetVersion) {
-            res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
-                headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
-                signal: controller.signal 
-            });
-        }
-
-        clearTimeout(timeoutId);
         if (!res.ok) throw new Error("Erreur fetch Github (tag introuvable ou erreur réseau)");
         const data = await res.json();
         
-        // Mettre en cache uniquement si on a récupéré latest ou si on a pas de cache
-        if (!targetVersion || !githubReleaseCache) {
+        // Mettre en cache uniquement la release latest (jamais une version ciblée)
+        if (!targetVersion) {
             githubReleaseCache = data;
             githubReleaseCacheTime = Date.now();
             await updateGithubCache({ time: githubReleaseCacheTime, data });
@@ -293,6 +525,7 @@ module.exports = function setupHorizonHandlers(context) {
      * @returns {Promise<{ exitCode: number, lastJson: any }>}
      */
     async function _runHorizonActionImpl(action, event = null) {
+        await horizonInitPromise;
         const _lockArgs = Array.isArray(action) ? action : [action];
         const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
         
@@ -300,9 +533,9 @@ module.exports = function setupHorizonHandlers(context) {
         // AUDIT-11 : validation durcie des arguments — les arguments positionnels (noms d'instance) n'acceptent plus '/' ni '.'
         const isSafeChars = _lockArgs.every((arg, i) => {
             if (i === 0) return ALLOWED_COMMANDS.includes(arg); // commande principale déjà validée ci-dessus
-            if (arg.startsWith('--')) return /^--[a-zA-Z\-]+(=[a-zA-Z0-9_\-\.]+)?$/.test(arg); // flags booléens ou avec valeur
-            // Argument positionnel (nom d'instance) : pas de slash, pas de point, pas de séquence ..
-            return /^[a-zA-Z0-9_\-\u00C0-\u017F ]+$/.test(arg) && !arg.includes('..');
+            if (arg.startsWith('--')) return !arg.includes('..') && /^--[a-zA-Z\-]+(=[a-zA-Z0-9_\-\.]+)?$/.test(arg); // flags booléens ou avec valeur
+            // Argument positionnel (nom d'instance) : pas de tiret en tête, pas de slash, pas de point, pas de ..
+            return !arg.startsWith('-') && /^[a-zA-Z0-9_\-\u00C0-\u017F ]+$/.test(arg) && !arg.includes('..');
         });
         
         if (!isSafeCommand || !isSafeChars) {
@@ -315,58 +548,90 @@ module.exports = function setupHorizonHandlers(context) {
         const activeVersionPath = await resolveVersionPath();
 
         // Vérification de sécurité du binaire Horizon
-        // En mode développement (!app.isPackaged), la vérification distante GitHub est totalement désactivée
-        // car le binaire est compilé localement et ne correspond pas aux releases GitHub. Cela élimine
-        // tout freeze réseau ou délai au lancement.
+        // En mode développement (!app.isPackaged), la vérification distante GitHub reste désactivée
+        // pour permettre l'exécution des binaires compilés localement.
         if (app.isPackaged && (await existsSafe(activeExePath))) {
             let expectedHash = cachedExpectedHash;
             const hashIsStale = !expectedHash || (Date.now() - cachedExpectedHashTime > HASH_CACHE_TTL_MS);
+            /** @type {string | null} */
+            let legacyResealTag = null;
 
-            // Si le hash est absent ou obsolète, on le rafraîchit en tâche de fond sans bloquer l'action
             if (hashIsStale) {
-                cachedExpectedHashTime = Date.now();
-                (async () => {
-                    try {
-                        let localVersion = null;
-                        try {
-                            if (await existsSafe(activeVersionPath)) {
-                                localVersion = JSON.parse(await fs.promises.readFile(activeVersionPath, 'utf8')).version;
-                            }
-                        } catch (_) {}
+                try {
+                    const verState = await readVerifiedHorizonVersion(activeVersionPath);
+                    if (verState.tampered && !verState.unsignedLegacy) {
+                        mainLog(`SÉCURITÉ CRITIQUE : Signature HMAC de horizon_version.json invalide (tentative de downgrade/falsification).`);
+                        if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Fichier de version Horizon falsifié. Veuillez réinstaller le module Cloud." });
+                        return Promise.resolve({ exitCode: -1, lastJson: null });
+                    }
+                    // Si unsignedLegacy, localVersion vaut null : on résout exclusivement contre `releases/latest` (anti-downgrade).
+                    const localVersion = verState.unsignedLegacy ? null : verState.version;
 
-                        const data = await fetchHorizonRelease(localVersion);
-                        const asset = findCompatibleHorizonAsset(data.assets);
-                        if (asset) {
-                            const shaAsset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
-                            if (shaAsset) {
-                                const hashRes = await fetchWithTimeout(shaAsset.browser_download_url, 4000);
-                                if (hashRes.ok) {
-                                    const h = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
-                                    if (isValidSha256(h)) {
-                                        cachedExpectedHash = h;
-                                        cachedExpectedHashTime = Date.now();
-                                        await updateGithubCache({ hash: h, hashTime: cachedExpectedHashTime });
-                                    }
+                    const data = await fetchHorizonRelease(localVersion);
+                    if (verState.unsignedLegacy && data && typeof data.tag_name === 'string') {
+                        legacyResealTag = data.tag_name;
+                    }
+                    const asset = findCompatibleHorizonAsset(data.assets);
+                    if (asset) {
+                        const shaAsset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
+                        if (shaAsset) {
+                            const hashUrl = assertTrustedGithubDownloadUrl(shaAsset.browser_download_url);
+                            const hashRes = await fetchWithTimeout(hashUrl, 4000);
+                            if (hashRes.ok) {
+                                const h = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
+                                if (isValidSha256(h)) {
+                                    expectedHash = h;
+                                    cachedExpectedHash = h;
+                                    cachedExpectedHashTime = Date.now();
+                                    await updateGithubCache({ hash: h, hashTime: cachedExpectedHashTime });
                                 }
                             }
                         }
-                    } catch (_) {}
-                })();
+                    }
+                } catch (fetchErr) {
+                    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                    mainLog(`[Horizon] Rafraîchissement SHA-256 impossible : ${msg}`);
+                }
             }
 
-            if (expectedHash) {
-                try {
-                    // Stream async ou cache — ne bloque pas le Main Process
-                    const actualHash = await getLocalHorizonHash(activeExePath);
-                    if (actualHash !== expectedHash) {
-                        mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
-                        if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
-                        return Promise.resolve({ exitCode: -1, lastJson: null });
-                    }
-                } catch (hashReadErr) {
-                    const err = hashReadErr instanceof Error ? hashReadErr.message : String(hashReadErr);
-                    mainLog(`Erreur lecture Horizon.exe pour hash : ${err}`);
+            if (!expectedHash) {
+                const sealKeyAvail = !!(await getSealHmacKey());
+                const errorCode = !sealKeyAvail ? 'HORIZON_KEYRING_UNAVAILABLE' : 'HORIZON_VERIFY_OFFLINE';
+                const errMsg = !sealKeyAvail
+                    ? "SÉCURITÉ : Trousseau système (safeStorage) indisponible et GitHub inaccessible pour vérifier le SHA-256 d'Horizon."
+                    : "SÉCURITÉ : Impossible de vérifier l'intégrité du module Cloud Horizon hors-ligne (aucun SHA-256 vérifié en cache).";
+                mainLog(`SÉCURITÉ CRITIQUE [${errorCode}] : Aucun hash SHA-256 attendu disponible pour vérifier Horizon.`);
+                if (event) safeSend(event, 'horizon-status', { type: 'ERROR', errorCode, message: errMsg });
+                return Promise.resolve({ exitCode: -1, lastJson: null });
+            }
+
+            try {
+                // Stream async ou cache — ne bloque pas le Main Process
+                const actualHash = await getLocalHorizonHash(activeExePath);
+                if (actualHash !== expectedHash) {
+                    mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
+                    if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
+                    return Promise.resolve({ exitCode: -1, lastJson: null });
                 }
+                if (legacyResealTag) {
+                    try {
+                        const sealKey = await getSealHmacKey();
+                        const resealPayload = /** @type {Record<string, any>} */ ({ version: legacyResealTag });
+                        const verSig = computePayloadHmac(resealPayload, sealKey);
+                        if (verSig) {
+                            resealPayload._sig = verSig;
+                            const tmpVer = `${activeVersionPath}.tmp.${process.pid}.${Date.now()}`;
+                            await fs.promises.writeFile(tmpVer, JSON.stringify(resealPayload));
+                            await renameWithRetry(tmpVer, activeVersionPath);
+                            mainLog(`[Horizon] horizon_version.json legacy re-scellé sur la version vérifiée ${legacyResealTag}.`);
+                        }
+                    } catch (_) {}
+                }
+            } catch (hashReadErr) {
+                const err = hashReadErr instanceof Error ? hashReadErr.message : String(hashReadErr);
+                mainLog(`SÉCURITÉ CRITIQUE : Erreur lecture Horizon pour vérification SHA-256 : ${err}`);
+                if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ : Impossible de lire l'exécutable Horizon pour vérification d'intégrité." });
+                return Promise.resolve({ exitCode: -1, lastJson: null });
             }
         }
 
@@ -384,14 +649,15 @@ module.exports = function setupHorizonHandlers(context) {
                 const err = /** @type {any} */ (e);
                 if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
             }
-            if (!isNaN(rawPid)) {
+            if (!isNaN(rawPid) && rawPid > 0) {
+                const ALIVE_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
                 let alive = false;
                 try {
                     process.kill(rawPid, 0);
                     const stat = await fs.promises.stat(lockFile);
                     const age = Date.now() - stat.mtimeMs;
-                    if (age > 30000) {
-                        mainLog(`[Horizon] Lock PID ${rawPid} actif mais heartbeat obsolète (${Math.round(age/1000)}s > 30s) — PID recyclé détecté.`);
+                    if (age > ALIVE_HEARTBEAT_STALE_MS) {
+                        mainLog(`[Horizon] Lock PID ${rawPid} actif mais heartbeat obsolète (${Math.round(age/1000)}s > 300s) — PID recyclé détecté.`);
                         alive = false;
                     } else {
                         alive = true;
@@ -401,7 +667,7 @@ module.exports = function setupHorizonHandlers(context) {
                     if (kErr?.code === 'EPERM') {
                         try {
                             const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
-                            if (age > 30000) {
+                            if (age > ALIVE_HEARTBEAT_STALE_MS) {
                                 alive = false;
                             } else {
                                 alive = true;
@@ -419,6 +685,8 @@ module.exports = function setupHorizonHandlers(context) {
                     await fs.promises.rm(lockFile, { force: true }); 
                     mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
                 }
+            } else if (!isNaN(rawPid)) {
+                await fs.promises.rm(lockFile, { force: true });
             }
         }
 
@@ -429,11 +697,13 @@ module.exports = function setupHorizonHandlers(context) {
 
             const currentCwd = path.dirname(activeExePath);
             const horizon = spawn(activeExePath, args, { cwd: currentCwd, env: { ...process.env, HORIZON_DATA_DIR: currentCwd, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') } });
+            horizon.stdin?.on('error', () => {});
             let settled = false;
             /** @type {NodeJS.Timeout | undefined} */
             let killTimer;
             /** @type {NodeJS.Timeout | undefined} */
             let shutdownTimer;
+            const stdoutDecoder = new StringDecoder('utf8');
             let stdoutBuf = '';
             /** @type {any} */
             let lastJson = null;
@@ -444,6 +714,7 @@ module.exports = function setupHorizonHandlers(context) {
                 settled = true;
                 if (killTimer) clearTimeout(killTimer);
                 if (shutdownTimer) clearTimeout(shutdownTimer);
+                stdoutBuf += stdoutDecoder.end();
                 if (stdoutBuf.trim()) {
                     for (const line of stdoutBuf.split('\n')) {
                         if (!line.trim()) continue;
@@ -462,20 +733,33 @@ module.exports = function setupHorizonHandlers(context) {
             };
 
             killTimer = setTimeout(() => {
-                mainLog(`[Horizon] Timeout global dépassé (${timeoutMs / 1000}s), terminaison...`);
-                horizon.kill('SIGTERM');
+                mainLog(`[Horizon] Timeout global dépassé (${timeoutMs / 1000}s), arrêt gracieux SHUTDOWN...`);
+                try {
+                    if (horizon.stdin && horizon.stdin.writable) {
+                        horizon.stdin.write("SHUTDOWN\n");
+                    }
+                } catch (_) {}
                 shutdownTimer = setTimeout(() => {
-                    mainLog('[Horizon] Ne répond pas au SIGTERM, envoi de SIGKILL');
-                    horizon.kill('SIGKILL');
-                    finish(-1);
-                }, 5000);
+                    if (settled) return;
+                    mainLog('[Horizon] Arrêt gracieux expiré, envoi SIGTERM...');
+                    try { horizon.kill('SIGTERM'); } catch (_) {}
+                    shutdownTimer = setTimeout(() => {
+                        if (settled) return;
+                        mainLog('[Horizon] Ne répond pas au SIGTERM, envoi de SIGKILL');
+                        try { horizon.kill('SIGKILL'); } catch (_) {}
+                        finish(-1);
+                    }, 3500);
+                }, 1500);
             }, timeoutMs);
 
+            const MAX_HORIZON_BUF = 2 * 1024 * 1024;
             horizon.stdout.on('data', (data) => {
-                const text = data.toString();
-                stdoutBuf += text;
+                stdoutBuf += stdoutDecoder.write(data);
                 const lines = stdoutBuf.split('\n');
                 stdoutBuf = lines.pop() || '';
+                if (stdoutBuf.length > MAX_HORIZON_BUF) {
+                    stdoutBuf = stdoutBuf.slice(-MAX_HORIZON_BUF);
+                }
                 for (const line of lines) {
                     if (!line.trim()) continue;
                     mainLog(`[Horizon Output] ${line.trim()}`);
@@ -491,8 +775,8 @@ module.exports = function setupHorizonHandlers(context) {
             });
 
             horizon.stderr.on('data', (data) => {
-                const text = data.toString();
-                mainLog(`[Horizon Stderr] ${text.trim()}`);
+                const text = data.toString().trim();
+                if (text) mainLog(`[Horizon Stderr] ${text.length > 4096 ? text.slice(0, 4096) + '…' : text}`);
             });
 
             horizon.on('close', finish);
@@ -536,10 +820,29 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('save-horizon-settings', async (event, newSettings) => {
         try {
+            if (!newSettings || typeof newSettings !== 'object' || Array.isArray(newSettings)) {
+                throw new Error("Paramètres Horizon invalides.");
+            }
+            const ALLOWED_PROVIDERS = new Set(['google', 'dropbox', 'onedrive']);
             const ALLOWED_KEYS = ['provider', 'autoSync', 'autoUpload', 'systemEnabled', 'deltaThreshold', 'maxRetries'];
             const safe = /** @type {Record<string, any>} */ ({});
             for (const key of ALLOWED_KEYS) {
-                if (key in newSettings) safe[key] = newSettings[key];
+                if (!(key in newSettings)) continue;
+                const val = newSettings[key];
+                if (key === 'provider') {
+                    if (typeof val !== 'string' || !ALLOWED_PROVIDERS.has(val)) {
+                        throw new Error(`Fournisseur cloud Horizon non autorisé : ${val}`);
+                    }
+                    safe[key] = val;
+                } else if (key === 'autoSync' || key === 'autoUpload' || key === 'systemEnabled') {
+                    safe[key] = Boolean(val);
+                } else {
+                    const num = Number(val);
+                    if (!Number.isFinite(num) || num < 0) {
+                        throw new Error(`Valeur numérique invalide pour ${key}.`);
+                    }
+                    safe[key] = num;
+                }
             }
 
             const targetDir = horizonDir;
@@ -557,9 +860,14 @@ module.exports = function setupHorizonHandlers(context) {
             }
 
             const merged = { ...existing, ...safe };
-            const tmp = settingsPath + ".tmp";
-            await fs.promises.writeFile(tmp, JSON.stringify(merged, null, 2));
-            await fs.promises.rename(tmp, settingsPath);
+            const tmp = `${settingsPath}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
+            try {
+                await fs.promises.writeFile(tmp, JSON.stringify(merged, null, 2));
+                await renameWithRetry(tmp, settingsPath);
+            } catch (writeErr) {
+                await fs.promises.rm(tmp, { force: true }).catch(() => {});
+                throw writeErr;
+            }
             return { success: true };
         }
         catch (e) {
@@ -569,6 +877,7 @@ module.exports = function setupHorizonHandlers(context) {
     });
 
     ipcMain.handle("check-horizon-status", async (event, forceBypassCache = false) => {
+        await horizonInitPromise;
         let currentProvider = "google";
         const hSettingsPath = await resolveSettingsPath();
 
@@ -598,18 +907,15 @@ module.exports = function setupHorizonHandlers(context) {
             if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
         }
 
-        let localVersion = "v0.0.0";
-        try {
-            await fs.promises.access(activeVersionPath);
-            localVersion = JSON.parse(await fs.promises.readFile(activeVersionPath, "utf8")).version;
-        } catch (e) {
-            const err = /** @type {any} */ (e);
-            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        const verState = await readVerifiedHorizonVersion(activeVersionPath);
+        if (verState.tampered && !verState.unsignedLegacy) {
+            mainLog("[Horizon] horizon_version.json invalide ou falsifié ignoré lors de check-horizon-status.");
         }
+        const localVersion = verState.tampered ? (verState.unsignedLegacy ? "v0.0.0" : null) : (verState.version || "v0.0.0");
 
         try {
             const data = await fetchHorizonRelease(null, forceBypassCache);
-            return { installed: isInstalled, localVersion, latestVersion: data.tag_name, needsUpdate: data.tag_name !== localVersion, linked: isLinked, provider: currentProvider };
+            return { installed: isInstalled, localVersion, latestVersion: data.tag_name, needsUpdate: isHorizonVersionNewer(data.tag_name, localVersion), linked: isLinked, provider: currentProvider };
         } catch (e) {
             return { installed: isInstalled, localVersion, latestVersion: null, needsUpdate: false, offline: true, linked: isLinked, provider: currentProvider };
         }
@@ -618,12 +924,14 @@ module.exports = function setupHorizonHandlers(context) {
     ipcMain.handle('call-horizon', async (event, action) => runHorizonAction(action, event));
 
     ipcMain.handle('install-horizon', async (event) => {
+        await horizonInitPromise;
         try {
             const data = await fetchHorizonRelease(null, true);
             const asset = findCompatibleHorizonAsset(data.assets);
             if (!asset) throw new Error("Aucun binaire compatible trouvé sur la release GitHub");
 
-            const response = await fetch(asset.browser_download_url);
+            const assetUrl = assertTrustedGithubDownloadUrl(asset.browser_download_url);
+            const response = await fetchWithTimeout(assetUrl, 30000);
             if (!response.ok) throw new Error("Erreur de téléchargement du binaire");
 
             const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
@@ -639,32 +947,50 @@ module.exports = function setupHorizonHandlers(context) {
             await fs.promises.mkdir(horizonManifestsDir, { recursive: true });
             await fs.promises.mkdir(horizonCacheDir, { recursive: true });
 
-            const tmpPath = targetExePath + '.tmp';
+            const tmpPath = `${targetExePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
+            const { Readable, Transform } = require('stream');
             const fileStream = fs.createWriteStream(tmpPath);
+            /** @type {NodeJS.Timeout | null} */
+            let idleTimer = null;
+            const streamController = new AbortController();
+            const resetIdle = () => {
+                if (idleTimer) clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => streamController.abort(), 45000);
+            };
+            resetIdle();
 
             try {
                 if (!response.body) throw new Error("Corps de réponse HTTP vide");
-                for await (const chunk of /** @type {any} */ (response.body)) {
-                    fileStream.write(chunk);
-                    hash.update(chunk);
-                    loaded += chunk.length;
-                    if (contentLength && event) {
-                        const pct = Math.round((loaded / contentLength) * 100);
-                        if (pct !== lastPct) {
-                            safeSend(event, 'horizon-install-progress', pct);
-                            lastPct = pct;
+                const tracker = new Transform({
+                    transform(chunk, _enc, cb) {
+                        resetIdle();
+                        if (streamController.signal.aborted) {
+                            cb(new Error("Timeout d'inactivité lors du téléchargement Horizon"));
+                            return;
                         }
+                        hash.update(chunk);
+                        loaded += chunk.length;
+                        if (contentLength && event) {
+                            const pct = Math.round((loaded / contentLength) * 100);
+                            if (pct !== lastPct) {
+                                safeSend(event, 'horizon-install-progress', pct);
+                                lastPct = pct;
+                            }
+                        }
+                        cb(null, chunk);
                     }
-                }
-                fileStream.end();
-                await new Promise((resolve, reject) => {
-                    fileStream.on('finish', resolve);
-                    fileStream.on('error', reject);
                 });
+                const nodeReadable = Readable.fromWeb(/** @type {any} */ (response.body));
+                streamController.signal.addEventListener('abort', () => {
+                    nodeReadable.destroy(new Error("Timeout d'inactivité lors du téléchargement Horizon"));
+                }, { once: true });
+                await pipeStreams(nodeReadable, tracker, fileStream);
             } catch (err) {
                 fileStream.destroy();
                 await fs.promises.rm(tmpPath, { force: true });
                 throw err;
+            } finally {
+                if (idleTimer) clearTimeout(idleTimer);
             }
 
             const sha256Asset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
@@ -673,7 +999,8 @@ module.exports = function setupHorizonHandlers(context) {
                 throw new Error("SÉCURITÉ CRITIQUE : Fichier .sha256 introuvable sur la release GitHub. L'intégrité de l'exécutable ne peut être garantie.");
             }
             try {
-                const hashRes = await fetch(sha256Asset.browser_download_url);
+                const hashUrl = assertTrustedGithubDownloadUrl(sha256Asset.browser_download_url);
+                const hashRes = await fetchWithTimeout(hashUrl, 10000);
                 if (!hashRes.ok) throw new Error("Erreur fetch hash HTTP " + hashRes.status);
                 const hashText = await hashRes.text();
                 const expected = hashText.trim().split(/\s/)[0].toLowerCase();
@@ -691,9 +1018,19 @@ module.exports = function setupHorizonHandlers(context) {
                 throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${err}`);
             }
 
-            await fs.promises.rename(tmpPath, targetExePath);
+            await renameWithRetry(tmpPath, targetExePath);
             if (!isWin) await fs.promises.chmod(targetExePath, 0o755);
-            await fs.promises.writeFile(targetVersionPath, JSON.stringify({ version: data.tag_name }));
+            const versionPayload = /** @type {Record<string, any>} */ ({ version: data.tag_name });
+            const sealKey = await getSealHmacKey();
+            const verSig = computePayloadHmac(versionPayload, sealKey);
+            if (verSig) versionPayload._sig = verSig;
+            const tmpVerPath = `${targetVersionPath}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
+            try {
+                await fs.promises.writeFile(tmpVerPath, JSON.stringify(versionPayload));
+                await renameWithRetry(tmpVerPath, targetVersionPath);
+            } finally {
+                try { await fs.promises.rm(tmpVerPath, { force: true }); } catch (_) {}
+            }
             if (isHorizonVersionAtLeast(data.tag_name, "1.4.2")) {
                 try {
                     if (await existsSafe(horizonLegacyBinDir)) {

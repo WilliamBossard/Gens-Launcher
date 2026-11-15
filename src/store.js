@@ -9,6 +9,7 @@ export const store = {
     instanceFile: path.join(dataDir, "instances.json"),
     accountFile: path.join(dataDir, "accounts.json"),
     settingsFile: path.join(dataDir, "settings.json"),
+    cfApiKeyFile: path.join(dataDir, "cf_api_key.enc"),
     /** @type {import('./types/models').MinecraftInstance[]} */
     allInstances: [],
     /** @type {import('./types/models').MinecraftAccount[]} */
@@ -30,6 +31,7 @@ export const store = {
         enableNewsBanner: true,
         disableRPC: false,
         offlineMode: false,
+        fastSizeOnly: true,
         multiInstance: false,
         autoDownloadUpdates: false,
         totalInstancesCreated: 0,
@@ -53,6 +55,8 @@ export const store = {
     isGameRunning: false,
     /** @type {Set<any>} */
     activeInstances: new Set(),
+    /** @type {Set<any>} */
+    busyInstances: new Set(),
     sessionStartTime: 0,
     maxSafeRam: 4096,
     /** @type {string | null} */

@@ -731,5 +731,8 @@
   "msg_mod_disabled_success": "Mod {mod} was successfully disabled!",
   "msg_err_disable_mod": "Error disabling mod: ",
   "msg_ram_auto_adjusted": "RAM automatically adjusted to {ram} MB to protect system stability.",
-  "msg_java_version_mismatch_prompt": "This Minecraft version requires Java {req}, but your setup uses Java {cur}.\nWould you like to automatically download and use Java {req}?"
+  "msg_java_version_mismatch_prompt": "This Minecraft version requires Java {req}, but your setup uses Java {cur}.\nWould you like to automatically download and use Java {req}?",
+  "lbl_fast_verify": "Fast file verification",
+  "tt_fast_verify": "Checks only the file size of existing assets and libraries instead of recomputing SHA-1 hashes on every launch. Speeds up startup, but cannot detect same-size silent corruption.",
+  "msg_err_cloud_rename_upload": "Local rename succeeded, but the Cloud upload failed: the previous Cloud backup was kept."
 }

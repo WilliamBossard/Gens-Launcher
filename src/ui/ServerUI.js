@@ -26,7 +26,7 @@ export function setupServer() {
             if (!res.success) throw new Error(`ping HTTP ${res.error}`);
             const data = res.data;
             if (data.online) {
-                const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\//i.test(data.icon))) ? data.icon : "";
+                const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\/(?:png|jpe?g|gif|webp|bmp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i.test(data.icon))) ? data.icon : "";
                 let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
                 let motdHtml = "Serveur Minecraft";
                 if (data.motd && data.motd.html) {
@@ -48,8 +48,23 @@ export function setupServer() {
                                 } else if (el.tagName === 'SPAN') {
                                     const span = document.createElement('span');
                                     const rawStyle = el.getAttribute('style') || '';
-                                    const safeStyle = rawStyle.replace(/[^a-zA-Z0-9:#\-\s;]/g, '');
-                                    if (safeStyle) span.setAttribute('style', safeStyle);
+                                    const ALLOWED_CSS = {
+                                        'color': /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))$/,
+                                        'background-color': /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/,
+                                        'font-weight': /^(normal|bold|bolder|lighter|[1-9]00)$/,
+                                        'font-style': /^(normal|italic|oblique)$/,
+                                        'text-decoration': /^(none|underline|line-through|underline line-through)$/
+                                    };
+                                    for (const decl of rawStyle.split(';')) {
+                                        const colonIdx = decl.indexOf(':');
+                                        if (colonIdx <= 0) continue;
+                                        const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+                                        const val = decl.slice(colonIdx + 1).trim();
+                                        const validator = /** @type {Record<string, RegExp>} */ (ALLOWED_CSS)[prop];
+                                        if (validator && validator.test(val)) {
+                                            span.style.setProperty(prop, val);
+                                        }
+                                    }
                                     processNode(el, span);
                                     dest.appendChild(span);
                                 } else {

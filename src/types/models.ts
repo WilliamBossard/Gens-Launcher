@@ -93,6 +93,7 @@ export interface GlobalSettings {
   enableNewsBanner: boolean;
   disableRPC: boolean;
   offlineMode: boolean;
+  fastSizeOnly?: boolean;
   multiInstance: boolean;
   autoDownloadUpdates: boolean;
   totalInstancesCreated: number;

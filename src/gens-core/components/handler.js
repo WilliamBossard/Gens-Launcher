@@ -1,113 +1,17 @@
 // @ts-check
 const fs = require('fs')
 const path = require('path')
-const crypto = require('crypto')
-const child = require('child_process')
 
-const yauzl = require('yauzl-promise');
-const { pipeline } = require('stream/promises');
-
-class Zip {
-  /**
-   * @param {string} zipPath
-   */
-  constructor(zipPath) {
-    this.zipPath = zipPath;
-  }
-  
-  /**
-   * @param {string} dest
-   * @param {boolean} [overwrite]
-   */
-  async extractAllTo(dest, overwrite) {
-    const zipfile = await yauzl.open(this.zipPath);
-    const resolvedTarget = path.resolve(dest);
-    try {
-      for await (const entry of zipfile) {
-        const entryName = entry.filename || entry.fileName;
-        const destPath = path.join(dest, entryName);
-        const resDest = path.resolve(destPath);
-        if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) continue;
-        if (entryName.endsWith('/')) {
-          await fs.promises.mkdir(destPath, { recursive: true });
-        } else {
-          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-          const readStream = await entry.openReadStream();
-          const writeStream = fs.createWriteStream(destPath);
-          await pipeline(readStream, writeStream);
-        }
-      }
-    } finally {
-      await zipfile.close();
-    }
-  }
-  
-  /**
-   * @param {string} fileName
-   * @returns {Promise<string | null>}
-   */
-  async readAsText(fileName) {
-    try {
-      const zipfile = await yauzl.open(this.zipPath);
-      try {
-        for await (const entry of zipfile) {
-          if (entry.filename === fileName) {
-            const readStream = await entry.openReadStream();
-            let data = '';
-            for await (const chunk of readStream) {
-              data += chunk;
-            }
-            return data;
-          }
-        }
-        return null;
-      } finally {
-        await zipfile.close();
-      }
-    } catch (e) {
-      return null;
-    }
-  }
-  
-  /**
-   * @param {string} fileName
-   * @returns {boolean}
-   */
-  getEntry(fileName) {
-    return true;
-  }
-}
-
-/**
- * Executes an async callback on an array of items with bounded concurrency.
- * @template T, R
- * @param {T[]} array
- * @param {number} limit
- * @param {(item: T, index: number, array: T[]) => Promise<R> | R} asyncCallback
- * @returns {Promise<R[]>}
- */
-async function pMap(array, limit, asyncCallback) {
-  /** @type {Promise<R>[]} */
-  const results = [];
-  /** @type {Promise<any>[]} */
-  const executing = [];
-  for (let i = 0; i < array.length; i++) {
-    const p = Promise.resolve().then(() => asyncCallback(array[i], i, array));
-    results.push(p);
-    if (limit <= array.length) {
-      const e = p.finally(() => {
-        const index = executing.indexOf(e);
-        if (index !== -1) executing.splice(index, 1);
-      });
-      e.catch(() => {});
-      executing.push(e);
-      if (executing.length >= limit) {
-        await Promise.race(executing);
-      }
-    }
-  }
-  return Promise.all(results);
-}
+const { Zip, existsAsync } = require('./zip-archive');
+const {
+  pMap,
+  baseRequest,
+  fetchText,
+  downloadFileAsync,
+  checkSum,
+  verifyFileFast
+} = require('./network-utils');
+const jvmUtils = require('./jvm-utils');
 
 class Handler {
   /**
@@ -144,27 +48,16 @@ class Handler {
    * @param {string} url
    * @param {((err: any, res: any, body: any) => void) | null} [cb]
    */
-  async baseRequest(url, cb) {
-    try {
-      const res = await fetch(url, { method: 'HEAD' });
-      if (cb) cb(null, { statusCode: res.status }, null);
-    } catch (e) {
-      if (cb) cb(e, null, null);
-    }
+  baseRequest(url, cb) {
+    return baseRequest(url, cb);
   }
 
   /**
    * @param {string} url
    * @returns {Promise<string>}
    */
-  async fetchText(url) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(res.statusText);
-      return await res.text();
-    } catch (e) {
-      throw e;
-    }
+  fetchText(url) {
+    return fetchText(url);
   }
 
   /**
@@ -172,31 +65,7 @@ class Handler {
    * @returns {Promise<{ run: boolean, message?: any }>}
    */
   checkJava(java) {
-    return new Promise(resolve => {
-      let javaConsole = java;
-      if (typeof javaConsole === 'string' && process.platform === 'win32') {
-        if (javaConsole.toLowerCase().endsWith('javaw.exe')) {
-          javaConsole = javaConsole.slice(0, -9) + 'java.exe';
-        } else if (javaConsole.toLowerCase().endsWith('javaw')) {
-          javaConsole = javaConsole.slice(0, -5) + 'java';
-        }
-      }
-
-      child.execFile(javaConsole, ['-version'], (error, stdout, stderr) => {
-        if (error) {
-          resolve({
-            run: false,
-            message: error
-          })
-        } else {
-          const verMatch = (stderr && stderr.match(/"(.*?)"/)) || (stdout && stdout.match(/"(.*?)"/));
-          this.client.emit('debug', `[Gens-Core]: Using Java version ${verMatch ? verMatch[1] : 'unknown'} ${stderr && stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`)
-          resolve({
-            run: true
-          })
-        }
-      })
-    })
+    return jvmUtils.checkJava(java, this.client);
   }
 
   /**
@@ -207,64 +76,28 @@ class Handler {
    * @param {string} type
    * @returns {Promise<any>}
    */
-  async downloadAsync(url, directory, name, retry, type) {
-    if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
-    if (this.options.offline) return path.join(directory, name);
-    if (!(fs.existsSync(directory))) {
-      await fs.promises.mkdir(directory, { recursive: true });
-    }
-    /** @type {Response} */
-    let response;
-    try {
-      response = await fetch(url);
-    } catch (e) {
-      if (retry) return await this.downloadAsync(url, directory, name, false, type);
-      return { failed: true, asset: null };
-    }
-
-    if (!response.ok) {
-      this.client.emit('debug', `[Gens-Core]: Failed to download ${url} due to: ${response.statusText}`);
-      if (retry) return await this.downloadAsync(url, directory, name, false, type);
-      return { failed: true, asset: null };
-    }
-
-    const totalBytes = parseInt(response.headers.get('content-length') || '0');
-    let receivedBytes = 0;
-
-    const dest = fs.createWriteStream(path.join(directory, name));
-    const { Readable } = require('stream');
-    if (!response.body) {
-      dest.destroy();
-      return { failed: true, asset: null };
-    }
-    const bodyStream = Readable.fromWeb(/** @type {any} */(response.body));
-
-    bodyStream.on('data', chunk => {
-      if (this.client && this.client.aborted) {
-        dest.destroy(new Error("Launch aborted by user"));
-        bodyStream.destroy();
-        return;
-      }
-      receivedBytes += chunk.length;
-      this.client.emit('download-status', {
-        name: name, type: type, current: receivedBytes, total: totalBytes
-      });
+  downloadAsync(url, directory, name, retry, type) {
+    return downloadFileAsync(url, directory, name, retry, type, {
+      client: this.client,
+      options: this.options
     });
+  }
 
-    bodyStream.on('error', err => dest.destroy(err));
-    bodyStream.pipe(dest);
-
-    return new Promise((resolve, reject) => {
-      dest.once('finish', () => {
-        this.client.emit('download', name);
-        resolve({ failed: false, asset: null });
-      });
-      dest.on('error', async (e) => {
-        if (fs.existsSync(path.join(directory, name))) await fs.promises.unlink(path.join(directory, name));
-        if (retry && (!this.client || !this.client.aborted)) return resolve(await this.downloadAsync(url, directory, name, false, type));
-        resolve({ failed: true, asset: null });
-      });
-    });
+  /**
+   * Vérifie qu'un chemin cible reste confiné dans baseDir (protection path traversal).
+   * @param {string} baseDir
+   * @param {string} targetPath
+   * @returns {string}
+   */
+  _assertSubPath(baseDir, targetPath) {
+    const resolvedBase = path.resolve(baseDir);
+    const resolvedTarget = path.resolve(resolvedBase, targetPath);
+    const normBase = process.platform === 'win32' ? resolvedBase.toLowerCase() : resolvedBase;
+    const normTarget = process.platform === 'win32' ? resolvedTarget.toLowerCase() : resolvedTarget;
+    if (!normTarget.startsWith(normBase + path.sep) && normTarget !== normBase) {
+      throw new Error(`Chemin hors-périmètre bloqué : ${targetPath}`);
+    }
+    return resolvedTarget;
   }
 
   /**
@@ -273,47 +106,21 @@ class Handler {
    * @returns {Promise<boolean>}
    */
   checkSum(hash, file) {
-    return new Promise((resolve) => {
-      const hashStream = crypto.createHash('sha1');
-      const fileStream = fs.createReadStream(file);
-
-      /** @param {any} err */
-      const onError = (err) => {
-        this.client.emit('debug', `[Gens-Core]: Failed to check file hash due to ${err}`);
-        resolve(false);
-      };
-
-      fileStream.on('error', onError);
-      hashStream.on('error', onError);
-
-      hashStream.on('finish', () => {
-        const sum = hashStream.read()?.toString('hex');
-        resolve(hash === sum);
-      });
-
-      fileStream.pipe(hashStream);
-    });
+    return checkSum(hash, file, this.client);
   }
 
   /**
    * @param {string} filePath
    * @param {number} [expectedSize]
    * @param {string} [expectedSha1]
+   * @param {{ fastSizeOnly?: boolean }} [opts]
    * @returns {Promise<boolean>}
    */
-  async verifyFileFast(filePath, expectedSize, expectedSha1) {
-    try {
-      const stat = await fs.promises.stat(filePath);
-      if (typeof expectedSize === 'number' && expectedSize > 0) {
-        return stat.size === expectedSize;
-      }
-      if (expectedSha1) {
-        return await this.checkSum(expectedSha1, filePath);
-      }
-      return stat.size > 0;
-    } catch (_) {
-      return false;
-    }
+  verifyFileFast(filePath, expectedSize, expectedSha1, opts) {
+    return verifyFileFast(filePath, expectedSize, expectedSha1, opts, {
+      options: this.options,
+      checkSumFn: (hash, file) => this.checkSum(hash, file)
+    });
   }
 
   /**
@@ -322,9 +129,16 @@ class Handler {
   getVersion() {
     return new Promise(async (resolve, reject) => {
       const versionJsonPath = this.options.overrides.versionJson || path.join(this.options.directory, `${this.options.version.number}.json`);
-      if (fs.existsSync(versionJsonPath)) {
-        this.version = JSON.parse(await fs.promises.readFile(versionJsonPath, 'utf8'));
-        return resolve(this.version);
+      if (await existsAsync(versionJsonPath)) {
+        try {
+          this.version = JSON.parse(await fs.promises.readFile(versionJsonPath, 'utf8'));
+          return resolve(this.version);
+        } catch (parseErr) {
+          this.client?.emit('debug', `[Gens-Core]: Corrupted version JSON at ${versionJsonPath}: ${parseErr}`);
+          if (this.options.offline) {
+            return reject(new Error(`Version JSON corrompu en mode hors-ligne : ${versionJsonPath}`));
+          }
+        }
       }
 
       const cache = this.options.cache ? `${this.options.cache}/json` : `${this.options.root}/cache/json`;
@@ -332,12 +146,16 @@ class Handler {
       const baseVersionJson = path.join(this.options.root, 'versions', `${this.options.version.number}`, `${this.options.version.number}.json`);
 
       for (const candidate of [baseVersionJson, cachedVersionJson]) {
-        if (fs.existsSync(candidate)) {
+        if (await existsAsync(candidate)) {
           try {
             this.version = JSON.parse(await fs.promises.readFile(candidate, 'utf8'));
             return resolve(this.version);
           } catch (_) { /* ignore corrupted cache and refetch */ }
         }
+      }
+
+      if (this.options.offline) {
+        return reject(new Error(`Métadonnées de version ${this.options.version.number} introuvables localement en mode hors-ligne.`));
       }
 
       const manifestUrls = [
@@ -346,7 +164,7 @@ class Handler {
       ];
 
       try {
-        if (!(fs.existsSync(cache))) {
+        if (!(await existsAsync(cache))) {
           await fs.promises.mkdir(cache, { recursive: true });
         }
         let parsed = null;
@@ -373,7 +191,7 @@ class Handler {
         }
       } catch (e) {
         try {
-          if (fs.existsSync(cachedVersionJson)) {
+          if (await existsAsync(cachedVersionJson)) {
             this.version = JSON.parse(await fs.promises.readFile(cachedVersionJson, 'utf8'));
             return resolve(this.version);
           }
@@ -389,11 +207,11 @@ class Handler {
   async getJar() {
     const jarPath = path.join(this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`);
     const clientSha1 = this.version?.downloads?.client?.sha1;
-    if (fs.existsSync(jarPath) && (!clientSha1 || await this.checkSum(clientSha1, jarPath))) {
+    if ((await existsAsync(jarPath)) && (!clientSha1 || await this.checkSum(clientSha1, jarPath))) {
       this.client.emit('debug', '[Gens-Core]: Using existing version jar');
     } else {
       const vanillaJar = this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.number, `${this.options.version.number}.jar`) : null;
-      if (vanillaJar && fs.existsSync(vanillaJar) && (!clientSha1 || await this.checkSum(clientSha1, vanillaJar))) {
+      if (vanillaJar && (await existsAsync(vanillaJar)) && (!clientSha1 || await this.checkSum(clientSha1, vanillaJar))) {
         this.client.emit('debug', '[Gens-Core]: Reusing vanilla version jar for custom loader');
         await fs.promises.mkdir(this.options.directory, { recursive: true });
         await fs.promises.copyFile(vanillaJar, jarPath);
@@ -419,23 +237,58 @@ class Handler {
     return defaultId;
   }
 
+  /**
+   * @returns {Promise<string>}
+   */
+  async getAssetIndexNameAsync() {
+    if (this.options.overrides && this.options.overrides.assetIndex) return this.options.overrides.assetIndex;
+    const assetDirectory = path.resolve((this.options.overrides && this.options.overrides.assetRoot) || path.join(this.options.root, 'assets'));
+    const defaultId = (this.version && this.version.assetIndex && this.version.assetIndex.id) || this.options.version.number;
+    const customId = this.options.version && this.options.version.custom;
+    if (await existsAsync(path.join(assetDirectory, 'indexes', `${defaultId}.json`))) return defaultId;
+    if (customId && await existsAsync(path.join(assetDirectory, 'indexes', `${customId}.json`))) return customId;
+    return defaultId;
+  }
+
   async getAssets() {
     const assetDirectory = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'))
-    const assetId = this.getAssetIndexName()
-    if (!(fs.existsSync(path.join(assetDirectory, 'indexes', `${assetId}.json`)))) {
+    const assetId = await this.getAssetIndexNameAsync()
+    const indexJsonPath = path.join(assetDirectory, 'indexes', `${assetId}.json`)
+    if (!(await existsAsync(indexJsonPath))) {
+      if (this.options.offline) {
+        this.client.emit('debug', `[Gens-Core]: Asset index ${assetId}.json absent en mode hors-ligne, téléchargement ignoré.`)
+        return
+      }
       await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
     }
 
-    const index = JSON.parse(await fs.promises.readFile(path.join(assetDirectory, 'indexes', `${assetId}.json`), { encoding: 'utf8' }))
+    if (!(await existsAsync(indexJsonPath))) return
+
+    let index;
+    try {
+      index = JSON.parse(await fs.promises.readFile(indexJsonPath, { encoding: 'utf8' }))
+    } catch (e) {
+      if (this.options.offline) {
+        this.client.emit('debug', `[Gens-Core]: Asset index corrompu en mode hors-ligne : ${e}`)
+        return
+      }
+      throw e
+    }
+    const assetKeys = Object.keys(index?.objects || {})
     let counter = 0
 
     this.client.emit('progress', {
       type: 'assets',
       task: 0,
-      total: Object.keys(index.objects).length
+      total: assetKeys.length
     })
 
-    await pMap(Object.keys(index.objects), 50, async (/** @type {string} */ asset) => {
+    if (this.options.offline) {
+      // Hors-ligne : aucune requête réseau, ni vérification/téléchargement bloquant
+      return
+    }
+
+    await pMap(assetKeys, 16, async (/** @type {string} */ asset) => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
       const assetObj = index.objects[asset]
       const hash = assetObj.hash
@@ -445,22 +298,25 @@ class Handler {
       const assetFile = path.join(subAsset, hash)
 
       if (!(await this.verifyFileFast(assetFile, expectedSize, hash))) {
-        await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
-        if (!(await this.checkSum(hash, assetFile))) {
-          await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
+        const dl1 = await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
+        if (dl1?.failed || !(await this.checkSum(hash, assetFile))) {
+          const dl2 = await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash, true, 'assets')
+          if (dl2?.failed || !(await this.checkSum(hash, assetFile))) {
+            throw new Error(`Failed to verify or download asset ${asset} (${hash})`)
+          }
         }
       }
       counter++
       this.client.emit('progress', {
         type: 'assets',
         task: counter,
-        total: Object.keys(index.objects).length
+        total: assetKeys.length
       })
     })
 
 
     if (this.isLegacy()) { counter = 0;
-      if (fs.existsSync(path.join(assetDirectory, 'legacy'))) {
+      if (await existsAsync(path.join(assetDirectory, 'legacy'))) {
         this.client.emit('debug', '[Gens-Core]: The \'legacy\' directory is no longer used as Minecraft looks ' +
           'for the resouces folder regardless of what is passed in the assetDirecotry launch option. I\'d ' +
           `recommend removing the directory (${path.join(assetDirectory, 'legacy')})`)
@@ -475,21 +331,20 @@ class Handler {
         total: Object.keys(index.objects).length
       })
 
-      await pMap(Object.keys(index.objects), 50, async (/** @type {string} */ asset) => {
+      await pMap(Object.keys(index.objects), 16, async (/** @type {string} */ asset) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const hash = index.objects[asset].hash
         const subhash = hash.substring(0, 2)
         const subAsset = path.join(assetDirectory, 'objects', subhash)
+        const targetLegacyPath = this._assertSubPath(legacyDirectory, asset)
+        const targetLegacyDir = path.dirname(targetLegacyPath)
 
-        const legacyAsset = asset.split('/')
-        legacyAsset.pop()
-
-        if (!(fs.existsSync(path.join(legacyDirectory, legacyAsset.join('/'))))) {
-          await fs.promises.mkdir(path.join(legacyDirectory, legacyAsset.join('/')), { recursive: true })
+        if (!(await existsAsync(targetLegacyDir))) {
+          await fs.promises.mkdir(targetLegacyDir, { recursive: true })
         }
 
-        if (!(fs.existsSync(path.join(legacyDirectory, asset)))) {
-          await fs.promises.copyFile(path.join(subAsset, hash), path.join(legacyDirectory, asset))
+        if (!(await existsAsync(targetLegacyPath))) {
+          await fs.promises.copyFile(path.join(subAsset, hash), targetLegacyPath)
         }
         counter++
         this.client.emit('progress', {
@@ -509,37 +364,7 @@ class Handler {
    * @returns {{ major: number, minor: number, patch: number }}
    */
   parseVersion(versionStr) {
-    if (!versionStr) return { major: 0, minor: 0, patch: 0 };
-    const str = String(versionStr);
-    const mcMatch = str.match(/1\.(\d+)(?:\.(\d+))?/);
-    if (mcMatch) {
-      return {
-        major: 1,
-        minor: parseInt(mcMatch[1], 10) || 0,
-        patch: parseInt(mcMatch[2], 10) || 0
-      };
-    }
-    const modernMatch = str.match(/(?:^|[^\d])(\d+)\.(\d+)(?:\.(\d+))?/);
-    if (modernMatch) {
-      return {
-        major: parseInt(modernMatch[1], 10) || 0,
-        minor: parseInt(modernMatch[2], 10) || 0,
-        patch: parseInt(modernMatch[3], 10) || 0
-      };
-    }
-    const parts = str.split('.');
-    if (parts[0] === '1') {
-      return {
-        major: 1,
-        minor: parseInt(parts[1], 10) || 0,
-        patch: parseInt(parts[2], 10) || 0
-      };
-    }
-    return {
-      major: parseInt(parts[0], 10) || 0,
-      minor: parseInt(parts[1], 10) || 0,
-      patch: parseInt(parts[2], 10) || 0
-    };
+    return jvmUtils.parseVersion(versionStr);
   }
 
   /**
@@ -548,11 +373,7 @@ class Handler {
    * @returns {number}
    */
   compareVersion(v1, v2) {
-    const a = typeof v1 === 'string' ? this.parseVersion(v1) : v1;
-    const b = typeof v2 === 'string' ? this.parseVersion(v2) : v2;
-    if (a.major !== b.major) return a.major - b.major;
-    if (a.minor !== b.minor) return a.minor - b.minor;
-    return a.patch - b.patch;
+    return jvmUtils.compareVersion(v1, v2);
   }
 
   /**
@@ -574,37 +395,7 @@ class Handler {
    * @returns {boolean}
    */
   parseRule(lib) {
-    if (lib.name) {
-      const isArm64 = process.arch === 'arm64';
-      const isX86 = process.arch === 'ia32';
-
-      if (lib.name.includes('-arm64') && !isArm64) return true;
-      if (lib.name.includes('-arm32') && process.arch !== 'arm') return true;
-      if ((lib.name.endsWith('-x86') || lib.name.includes('-x86:')) && !isX86) return true;
-    }
-
-    if (lib.rules && lib.rules.length > 0) {
-      const currentOS = this.getOS();
-      const currentArch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
-      let allowed = !lib.rules.some((/** @type {any} */ r) => r && r.action === 'allow');
-      for (const rule of lib.rules) {
-        if (!rule) continue;
-        let matches = true;
-        if (rule.os) {
-          if (rule.os.name && rule.os.name !== currentOS) matches = false;
-          if (matches && rule.os.arch) {
-            try {
-              matches = new RegExp(rule.os.arch).test(currentArch);
-            } catch (_) {
-              matches = (rule.os.arch === currentArch);
-            }
-          }
-        }
-        if (matches) allowed = (rule.action === 'allow');
-      }
-      return !allowed;
-    }
-    return false;
+    return jvmUtils.parseRule(lib, this.getOS());
   }
 
   /**
@@ -624,7 +415,7 @@ class Handler {
 
     const stampFile = path.join(nativeDirectory, '.natives_complete');
     let hasNatives = false;
-    if (fs.existsSync(stampFile)) {
+    if (await existsAsync(stampFile)) {
       hasNatives = true;
     }
     if (!hasNatives) {
@@ -633,7 +424,7 @@ class Handler {
       const natives = async () => {
         /** @type {any[]} */
         const natives = []
-        await pMap(this.version.libraries, 50, async (/** @type {any} */ lib) => {
+        await pMap(this.version.libraries, 16, async (/** @type {any} */ lib) => {
           if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
           if (!lib.downloads || !lib.downloads.classifiers) return
           if (this.parseRule(lib)) return
@@ -648,6 +439,7 @@ class Handler {
       }
       const stat = await natives()
       let counter = 0
+      let nativesAllOk = true
 
       this.client.emit('progress', {
         type: 'natives',
@@ -655,19 +447,53 @@ class Handler {
         total: stat.length
       })
 
-      await pMap(stat, 50, async (/** @type {any} */ native) => {
+      let extractQueue = Promise.resolve();
+      const serializeExtract = (/** @type {() => Promise<void>} */ fn) => {
+        const next = extractQueue.then(fn, fn);
+        extractQueue = next.catch(() => {});
+        return next;
+      };
+
+      await pMap(stat, 16, async (/** @type {any} */ native) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
         const name = native.path.split('/').pop()
-        if (!(fs.existsSync(path.join(nativeDirectory, name))) || !await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
-          await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives')
+        const nativeFile = this._assertSubPath(nativeDirectory, name)
+        if (this.options.offline) {
+          if (await existsAsync(nativeFile)) {
+            try {
+              await serializeExtract(() => new Zip(nativeFile).extractAllTo(nativeDirectory, true, { skipMetaInf: true }))
+            } finally {
+              if (await existsAsync(nativeFile)) {
+                try { await fs.promises.unlink(nativeFile) } catch (_) {}
+              }
+            }
+          }
+          counter++
+          this.client.emit('progress', {
+            type: 'natives',
+            task: counter,
+            total: stat.length
+          })
+          return
+        }
+        if (!(await existsAsync(nativeFile)) || !await this.checkSum(native.sha1, nativeFile)) {
+          const dl = await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives')
+          if (dl?.failed || !(await this.checkSum(native.sha1, nativeFile))) {
+            nativesAllOk = false
+            throw new Error(`Failed to download/verify native library ${name}`)
+          }
         }
         try {
-          await new Zip(path.join(nativeDirectory, name)).extractAllTo(nativeDirectory, true)
+          await serializeExtract(() => new Zip(nativeFile).extractAllTo(nativeDirectory, true, { skipMetaInf: true }))
         } catch (e) {
-          console.warn(e)
+          nativesAllOk = false
+          throw e
+        } finally {
+          if (await existsAsync(nativeFile)) {
+            try { await fs.promises.unlink(nativeFile) } catch (_) {}
+          }
         }
-        if (fs.existsSync(path.join(nativeDirectory, name))) await fs.promises.unlink(path.join(nativeDirectory, name))
         counter++
         this.client.emit('progress', {
           type: 'natives',
@@ -675,8 +501,10 @@ class Handler {
           total: stat.length
         })
       })
-      await fs.promises.writeFile(stampFile, Date.now().toString(), 'utf8');
-      this.client.emit('debug', '[Gens-Core]: Downloaded and extracted natives')
+      if (nativesAllOk && !this.options.offline) {
+        await fs.promises.writeFile(stampFile, Date.now().toString(), 'utf8');
+        this.client.emit('debug', '[Gens-Core]: Downloaded and extracted natives')
+      }
     }
 
 
@@ -719,7 +547,7 @@ class Handler {
     let json = null
     let installerJson = null
     const versionPath = path.join(this.options.root, 'forge', `${this.version.id}`, 'version.json')
-    if (fs.existsSync(versionPath)) {
+    if (await existsAsync(versionPath)) {
       try {
         json = JSON.parse(await fs.promises.readFile(versionPath, 'utf8'))
         if (!json.forgeWrapperVersion || !(json.forgeWrapperVersion === this.options.overrides.fw.version)) {
@@ -739,8 +567,9 @@ class Handler {
 
     this.client.emit('debug', '[Gens-Core]: Generating Forge version json, this might take a bit')
     const zipFile = new Zip(this.options.forge)
-    json = await zipFile.readAsText('version.json')
-    if (zipFile.getEntry('install_profile.json')) installerJson = await zipFile.readAsText('install_profile.json')
+    const forgeTexts = await zipFile.readEntriesAsText(['version.json', 'install_profile.json'])
+    json = forgeTexts['version.json'] ?? null
+    if (forgeTexts['install_profile.json'] !== undefined) installerJson = forgeTexts['install_profile.json']
 
     try {
       json = JSON.parse(json || '{}')
@@ -777,8 +606,11 @@ class Handler {
 
         for (const library of (json.mavenFiles || [])) {
           const lib = library.name.split(':')
-          if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
-            library.downloads.artifact.url = this.options.overrides.url.mavenForge + library.downloads.artifact.path
+          if ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge'))) {
+            if (library.downloads?.artifact?.path && (!library.downloads.artifact.url)) {
+              const repoBase = lib[0] === 'net.neoforged' ? 'https://maven.neoforged.net/releases/' : this.options.overrides.url.mavenForge;
+              library.downloads.artifact.url = repoBase + library.downloads.artifact.path;
+            }
             break
           }
         }
@@ -786,7 +618,7 @@ class Handler {
         if (json.mavenFiles) {
           for (const library in json.mavenFiles) {
             const lib = json.mavenFiles[library]?.name?.split(':');
-            if (lib && lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
+            if (lib && ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge')))) {
               delete json.mavenFiles[library];
               break;
             }
@@ -794,10 +626,10 @@ class Handler {
         }
       }
     } else {
-      await pMap(json.libraries || [], 50, async (/** @type {any} */ library) => {
+      await pMap(json.libraries || [], 16, async (/** @type {any} */ library) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         const lib = library.name.split(':')
-        if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) return
+        if ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge'))) return
 
         let url = this.options.overrides.url.mavenForge
         const name = `${lib[1]}-${lib[2]}.jar`
@@ -822,10 +654,13 @@ class Handler {
     }
     if (json.libraries && json.libraries[0] && json.libraries[0].downloads) {
       const name = json.libraries[0].name
-      if (name.includes('minecraftforge:forge') && !name.includes('universal')) {
+      if ((name.includes('minecraftforge:forge') || name.includes('net.neoforged:neoforge')) && !name.includes('universal')) {
         json.libraries[0].name = name + `:${jarEnding}`
         json.libraries[0].downloads.artifact.path = json.libraries[0].downloads.artifact.path.replace('.jar', `-${jarEnding}.jar`)
-        json.libraries[0].downloads.artifact.url = this.options.overrides.url.mavenForge + json.libraries[0].downloads.artifact.path
+        const repoBase = name.includes('net.neoforged:') ? 'https://maven.neoforged.net/releases/' : this.options.overrides.url.mavenForge;
+        if (!json.libraries[0].downloads.artifact.url || !name.includes('net.neoforged:')) {
+          json.libraries[0].downloads.artifact.url = repoBase + json.libraries[0].downloads.artifact.path
+        }
       }
     } else if (json.libraries && json.libraries[0]) {
       delete json.libraries[0]
@@ -836,7 +671,7 @@ class Handler {
 
     json.forgeWrapperVersion = this.options.overrides.fw.version
 
-    if (!(fs.existsSync(path.join(this.options.root, 'forge', this.version.id)))) {
+    if (!(await existsAsync(path.join(this.options.root, 'forge', this.version.id)))) {
       await fs.promises.mkdir(path.join(this.options.root, 'forge', this.version.id), { recursive: true })
     }
     await fs.promises.writeFile(versionPath, JSON.stringify(json, null, 4))
@@ -853,14 +688,11 @@ class Handler {
    * @returns {Promise<string[]>}
    */
   async downloadToDirectory(directory, libraries, eventName) {
-    /** @type {string[]} */
-    const libs = []
     let counter = 0
+    const activeLibraries = (libraries || []).filter((/** @type {any} */ lib) => lib && !this.parseRule(lib))
 
-    await pMap(libraries, 50, async (/** @type {any} */ library) => {
+    const results = await pMap(activeLibraries, 12, async (/** @type {any} */ library) => {
       if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
-      if (!library) return
-      if (this.parseRule(library)) return
       const lib = library.name.split(':')
       const libNameClean = lib[1] || ''
       const libVersionClean = (lib[2] || '').replace(/@jar$/i, '')
@@ -883,21 +715,37 @@ class Handler {
         if (libItem.url) {
           const baseUrl = libItem.url.endsWith('/') ? libItem.url : `${libItem.url}/`
           const url = `${baseUrl}${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}/${name}`
-          await this.downloadAsync(url, jarPath, name, true, eventName)
+          return await this.downloadAsync(url, jarPath, name, true, eventName)
         } else if (libItem.downloads && libItem.downloads.artifact && libItem.downloads.artifact.url) {
-          await this.downloadAsync(libItem.downloads.artifact.url, jarPath, name, true, eventName)
+          return await this.downloadAsync(libItem.downloads.artifact.url, jarPath, name, true, eventName)
         }
+        return { failed: false, asset: null }
       }
 
-      const libFile = path.join(jarPath, name)
+      const libFile = this._assertSubPath(directory, path.join(jarPath, name))
+      jarPath = path.dirname(libFile)
       const artifact = library.downloads && library.downloads.artifact
       const expectedSize = artifact ? artifact.size : undefined
       const expectedSha1 = artifact ? artifact.sha1 : undefined
 
+      if (this.options.offline) {
+        const exists = await existsAsync(libFile);
+        counter++
+        this.client.emit('progress', {
+          type: eventName,
+          task: counter,
+          total: activeLibraries.length
+        })
+        return exists ? `${jarPath}${path.sep}${name}` : null
+      }
+
       if (!(await this.verifyFileFast(libFile, expectedSize, expectedSha1))) {
-        await downloadLibrary(library)
-        if (expectedSha1 && !(await this.checkSum(expectedSha1, libFile))) {
-          await downloadLibrary(library)
+        const dl1 = await downloadLibrary(library)
+        if (dl1?.failed || (expectedSha1 && !(await this.checkSum(expectedSha1, libFile)))) {
+          const dl2 = await downloadLibrary(library)
+          if (dl2?.failed || (expectedSha1 && !(await this.checkSum(expectedSha1, libFile))) || !(await existsAsync(libFile))) {
+            throw new Error(`Failed to download/verify library ${library.name}`)
+          }
         }
       }
 
@@ -905,13 +753,12 @@ class Handler {
       this.client.emit('progress', {
         type: eventName,
         task: counter,
-        total: libraries.length
+        total: activeLibraries.length
       })
-      libs.push(`${jarPath}${path.sep}${name}`)
+      return `${jarPath}${path.sep}${name}`
     })
 
-
-    return libs
+    return /** @type {string[]} */ (results.filter((p) => Boolean(p)))
   }
 
   /**
@@ -967,135 +814,23 @@ class Handler {
   }
 
   formatQuickPlay() {
-    /** @type {Record<string, string | null>} */
-    const types = {
-      singleplayer: '--quickPlaySingleplayer',
-      multiplayer: '--quickPlayMultiplayer',
-      realms: '--quickPlayRealms',
-      legacy: null
-    }
-    const { type, identifier, path: qpPath } = this.options.quickPlay
-    const keys = Object.keys(types)
-    if (!keys.includes(type)) {
-      this.client.emit('debug', `[Gens-Core]: quickPlay type is not valid. Valid types are: ${keys.join(', ')}`)
-      return null
-    }
-    const returnArgs = type === 'legacy'
-      ? ['--server', identifier.split(':')[0], '--port', identifier.split(':')[1] || '25565']
-      : [types[type] || '', identifier]
-    if (qpPath) returnArgs.push('--quickPlayPath', qpPath)
-    return returnArgs
+    return jvmUtils.formatQuickPlay(this.options, this.client);
   }
 
   /**
    * @param {any} [modification]
    * @returns {Promise<string[]>}
    */
-  async getLaunchOptions(modification) {
-    const type = Object.assign({}, this.version, modification)
-
-    let args = type.minecraftArguments
-      ? type.minecraftArguments.split(' ')
-      : type.arguments.game
-    const assetRoot = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'))
-    const assetPath = this.isLegacy()
-      ? path.join(this.options.root, 'resources')
-      : path.join(assetRoot)
-
-    const minArgs = this.options.overrides.minArgs || (this.isLegacy() ? 5 : 11)
-    if (args.length < minArgs) args = args.concat(this.version.minecraftArguments ? this.version.minecraftArguments.split(' ') : this.version.arguments.game)
-    if (this.options.customLaunchArgs) args = args.concat(this.options.customLaunchArgs)
-
-    this.options.authorization = await Promise.resolve(this.options.authorization)
-    this.options.authorization.meta = this.options.authorization.meta ? this.options.authorization.meta : { type: 'mojang' }
-    /** @type {Record<string, any>} */
-    const fields = {
-      '${auth_access_token}': this.options.authorization.access_token,
-      '${auth_session}': this.options.authorization.access_token,
-      '${auth_player_name}': this.options.authorization.name,
-      '${auth_uuid}': this.options.authorization.uuid,
-      '${auth_xuid}': this.options.authorization.meta.xuid || this.options.authorization.access_token,
-      '${user_properties}': this.options.authorization.user_properties,
-      '${user_type}': this.options.authorization.meta.type,
-      '${version_name}': this.options.version.number || this.options.overrides.versionName,
-      '${assets_index_name}': this.getAssetIndexName(),
-      '${game_directory}': this.options.overrides.gameDirectory || this.options.root,
-      '${assets_root}': assetPath,
-      '${game_assets}': assetPath,
-      '${version_type}': this.options.version.type,
-      '${clientid}': this.options.authorization.meta.clientId || (this.options.authorization.client_token || this.options.authorization.access_token),
-      '${resolution_width}': this.options.window ? this.options.window.width : 856,
-      '${resolution_height}': this.options.window ? this.options.window.height : 482
-    }
-
-    if (this.options.authorization.meta.demo && (this.options.features ? !this.options.features.includes('is_demo_user') : true)) {
-      args.push('--demo')
-    }
-
-    /**
-     * @param {any} obj
-     * @param {number} index
-     */
-    const replaceArg = (obj, index) => {
-      if (Array.isArray(obj.value)) {
-        for (const arg of obj.value) {
-          args.push(arg)
-        }
-      } else {
-        args.push(obj.value)
-      }
-      delete args[index]
-    }
-
-    for (let index = 0; index < args.length; index++) {
-      if (typeof args[index] === 'object') {
-        if (args[index].rules) {
-          if (!this.options.features) continue
-          const featureFlags = []
-          for (const rule of args[index].rules) {
-            featureFlags.push(...Object.keys(rule.features))
-          }
-          let hasAllRules = true
-          for (const feature of this.options.features) {
-            if (!featureFlags.includes(feature)) {
-              hasAllRules = false
-            }
-          }
-          if (hasAllRules) replaceArg(args[index], index)
-        } else {
-          replaceArg(args[index], index)
-        }
-      } else {
-        if (Object.keys(fields).includes(args[index])) {
-          args[index] = fields[args[index]]
-        }
-      }
-    }
-    if (this.options.window) {
-      if (this.options.window.fullscreen) {
-        args.push('--fullscreen')
-      } else {
-        if (this.options.window.width) args.push('--width', this.options.window.width)
-        if (this.options.window.height) args.push('--height', this.options.window.height)
-      }
-    }
-    if (this.options.server) this.client.emit('debug', '[Gens-Core]: server and port are deprecated launch flags. Use the quickPlay field.')
-    if (this.options.quickPlay) args = args.concat(this.formatQuickPlay())
-    if (this.options.proxy) {
-      args.push(
-        '--proxyHost',
-        this.options.proxy.host,
-        '--proxyPort',
-        this.options.proxy.port || '8080',
-        '--proxyUser',
-        this.options.proxy.username,
-        '--proxyPass',
-        this.options.proxy.password
-      )
-    }
-    args = args.filter((/** @type {any} */ value) => typeof value === 'string' || typeof value === 'number')
-    this.client.emit('debug', '[Gens-Core]: Set launch options')
-    return args
+  getLaunchOptions(modification) {
+    return jvmUtils.buildLaunchOptions({
+      version: this.version,
+      options: this.options,
+      client: this.client,
+      isLegacy: this.isLegacy(),
+      assetIndexName: this.getAssetIndexName(),
+      quickPlayArgs: this.options.quickPlay ? this.formatQuickPlay() : null,
+      modification
+    });
   }
 
   /**
@@ -1104,112 +839,19 @@ class Handler {
    * @returns {Promise<string[]>}
    */
   async getJVMArgs(modifyJson, nativePath) {
-    /** @type {string[]} */
-    const args = [];
-    const libraryDirectory = path.resolve(this.options.overrides.libraryRoot || path.join(this.options.root, 'libraries'));
-    const assetRoot = path.resolve(this.options.overrides.assetRoot || path.join(this.options.root, 'assets'));
-    const classpathSep = this.getOS() === 'windows' ? ';' : ':';
-    const versionName = (this.options.version && (this.options.version.custom || this.options.version.number)) || this.options.overrides.versionName || '';
-    /** @type {Record<string, string>} */
-    const fields = {
-      '${natives_directory}': nativePath,
-      '${launcher_name}': this.options.overrides.launcherBrand || 'Gens-Launcher',
-      '${launcher_version}': this.options.overrides.launcherVersion || '1.0.0',
-      '${classpath}': '',
-      '${library_directory}': libraryDirectory,
-      '${classpath_separator}': classpathSep,
-      '${version_name}': versionName,
-      '${game_directory}': this.options.overrides.gameDirectory || this.options.root,
-      '${assets_root}': assetRoot,
-      '${assets_index_name}': this.getAssetIndexName()
-    };
-
-    /** @param {any} rule */
-    const checkRule = (rule) => {
-      if (!rule) return true;
-      if (rule.action === 'allow') {
-        if (rule.os) {
-          if (rule.os.name && rule.os.name !== this.getOS()) return false;
-          if (rule.os.arch) {
-            const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'ia32' ? 'x86' : process.arch);
-            if (rule.os.arch === 'x86' && arch !== 'x86') return false;
-            if (rule.os.arch === 'x86_64' && arch !== 'x86_64') return false;
-            if (rule.os.arch === 'arm64' && arch !== 'arm64') return false;
-          }
-        }
-        return true;
-      }
-      if (rule.action === 'disallow') {
-        if (rule.os && rule.os.name && rule.os.name === this.getOS()) return false;
-        return true;
-      }
-      return true;
-    };
-
-    /** @param {any} entry */
-    const processEntry = (entry) => {
-      if (typeof entry === 'string') {
-        if (entry === '-cp' || entry === '${classpath}') return;
-        let val = entry;
-        for (const [k, v] of Object.entries(fields)) {
-          val = val.split(k).join(v);
-        }
-        if ((val.startsWith('-D') || val.startsWith('-XX:')) && args.includes(val)) return;
-        args.push(val);
-      } else if (typeof entry === 'object' && entry !== null) {
-        if (entry.rules) {
-          const allowed = entry.rules.every(checkRule);
-          if (!allowed) return;
-        }
-        const values = Array.isArray(entry.value) ? entry.value : [entry.value];
-        for (const val of values) {
-          if (val) processEntry(val);
-        }
-      }
-    };
-
-    if (this.version.arguments && this.version.arguments.jvm) {
-      for (const entry of this.version.arguments.jvm) {
-        processEntry(entry);
-      }
-    }
-
-    if (modifyJson && modifyJson.arguments && modifyJson.arguments.jvm) {
-      for (const entry of modifyJson.arguments.jvm) {
-        processEntry(entry);
-      }
-    }
-
-    if (args.length > 0) {
-      if (!args.some(a => a.startsWith('-Djava.library.path='))) {
-        args.push(`-Djava.library.path=${nativePath}`);
-      }
-      if (this.isVersionAtLeast(26, 0) && !args.some(a => a.includes('StackShadowPages'))) {
-        args.push('-XX:StackShadowPages=32');
-      }
-      return args;
-    }
-
-    // Fallback for legacy Minecraft (< 1.13) without arguments.jvm
-    const legacyArgs = [
-      '-XX:-UseAdaptiveSizePolicy',
-      '-XX:-OmitStackTraceInFastThrow',
-      '-Dfml.ignorePatchDiscrepancies=true',
-      '-Dfml.ignoreInvalidMinecraftCertificates=true',
-      `-Djava.library.path=${nativePath}`
-    ];
-    legacyArgs.push(await this.getJVM());
-    return legacyArgs;
+    return jvmUtils.buildJVMArgs({
+      version: this.version,
+      options: this.options,
+      modifyJson,
+      nativePath,
+      isAtLeast26: this.isVersionAtLeast(26, 0),
+      legacyJvmArg: await this.getJVM(),
+      assetIndexName: await this.getAssetIndexNameAsync()
+    });
   }
 
   async getJVM() {
-    /** @type {Record<string, string>} */
-    const opts = {
-      windows: '-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump',
-      osx: '-XstartOnFirstThread',
-      linux: '-Xss1M'
-    }
-    return opts[this.getOS()] || '-Xss1M';
+    return jvmUtils.getJVMDefaultArg(this.getOS());
   }
 
   isLegacy() {
@@ -1217,33 +859,11 @@ class Handler {
   }
 
   getOS() {
-    if (this.options.os) {
-      return this.options.os
-    } else {
-      switch (process.platform) {
-        case 'win32': return 'windows'
-        case 'darwin': return 'osx'
-        default: return 'linux'
-      }
-    }
+    return jvmUtils.getOS(this.options);
   }
 
   getMemory() {
-    if (!this.options.memory) {
-      this.client.emit('debug', '[Gens-Core]: Memory not set! Setting 1GB as MAX!')
-      this.options.memory = {
-        min: 512,
-        max: 1023
-      }
-    }
-    if (!isNaN(this.options.memory.max) && !isNaN(this.options.memory.min)) {
-      if (this.options.memory.max < this.options.memory.min) {
-        this.client.emit('debug', '[Gens-Core]: MIN memory is higher then MAX! Resetting!')
-        this.options.memory.max = 1023
-        this.options.memory.min = 512
-      }
-      return [`${this.options.memory.max}M`, `${this.options.memory.min}M`]
-    } else { return [`${this.options.memory.max}`, `${this.options.memory.min}`] }
+    return jvmUtils.getMemory(this.options, this.client);
   }
 
   /**
@@ -1256,7 +876,7 @@ class Handler {
     }
     await new Zip(options.clientPackage).extractAllTo(options.root, true)
     if (options.removePackage) {
-      if (fs.existsSync(options.clientPackage)) await fs.promises.unlink(options.clientPackage)
+      if (await existsAsync(options.clientPackage)) await fs.promises.unlink(options.clientPackage)
     }
 
     return this.client.emit('package-extract', true)

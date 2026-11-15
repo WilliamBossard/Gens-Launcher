@@ -103,6 +103,7 @@ const currentLogFile = path.join(
     `launcher_${new Date().toISOString().replace(/[:.]/g, "-")}.log`
 );
 
+const MAX_LOG_QUEUE_CHARS = 256 * 1024;
 let logQueue = `=== Gens Launcher Log - ${new Date().toLocaleString()} ===\n`;
 let isWriting = false;
 
@@ -121,7 +122,14 @@ window.safeRm = async (targetPath, options = { recursive: true, force: true }) =
     }
 };
 
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _logFlushTimer = null;
+
 async function flushLogQueue() {
+    if (_logFlushTimer) {
+        clearTimeout(_logFlushTimer);
+        _logFlushTimer = null;
+    }
     if (isWriting || !logQueue) return;
     isWriting = true;
     const toWrite = logQueue;
@@ -142,27 +150,60 @@ async function flushLogQueue() {
 }
 flushLogQueue();
 
+function scheduleLogFlush() {
+    if (logQueue.length >= 16384) {
+        flushLogQueue();
+        return;
+    }
+    if (!_logFlushTimer) {
+        _logFlushTimer = setTimeout(() => {
+            _logFlushTimer = null;
+            flushLogQueue();
+        }, 250);
+    }
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('beforeunload', () => { flushLogQueue(); });
+}
+
 function sysLog(/** @type {string} */ msg, isError = false) {
     const line = `[${new Date().toLocaleTimeString()}] ${isError ? "ERROR" : "INFO"}: ${msg}\n`;
+    if (logQueue.length + line.length > MAX_LOG_QUEUE_CHARS) {
+        const keep = Math.max(0, MAX_LOG_QUEUE_CHARS - line.length - 32);
+        logQueue = `[...logs tronqués...]\n` + (keep > 0 ? logQueue.slice(-keep) : "");
+    }
     logQueue += line;
-    flushLogQueue();
+    scheduleLogFlush();
 }
 
 const originalLog = console.log;
 const originalWarn = console.warn;
 const originalError = console.error;
 
+const SENSITIVE_LOG_KEY_RE = /^(access_?token|refresh_?token|xsts_?token|mc_?token|password|secret|api_?key|cfApiKey|authorization|cookie)$/i;
+/** @param {any} val */
+function sanitizeLogArg(val) {
+    if (typeof val !== "object" || val === null) return val;
+    if (val instanceof Error) return val.stack || val.message || String(val);
+    try {
+        return JSON.stringify(val, (k, v) => (k && SENSITIVE_LOG_KEY_RE.test(k) ? "[REDACTED]" : v));
+    } catch {
+        return String(val);
+    }
+}
+
 console.log = function (...args) {
     originalLog.apply(console, args);
-    sysLog(args.map(a => typeof a === "object" ? JSON.stringify(a) : a).join(" "), false);
+    sysLog(args.map(sanitizeLogArg).join(" "), false);
 };
 console.warn = function (...args) {
     originalWarn.apply(console, args);
-    sysLog(args.map(a => typeof a === "object" ? JSON.stringify(a) : a).join(" "), false);
+    sysLog(args.map(sanitizeLogArg).join(" "), false);
 };
 console.error = function (...args) {
     originalError.apply(console, args);
-    sysLog(args.map(a => typeof a === "object" ? JSON.stringify(a) : a).join(" "), true);
+    sysLog(args.map(sanitizeLogArg).join(" "), true);
 };
 window.appendLog = (/** @type {string} */ html) => {
     const logOutput = document.getElementById("log-output");
@@ -257,42 +298,26 @@ window.safeWriteJSONAsync = (filePath, data) => {
     if (!_writeQueues[filePath]) {
         _writeQueues[filePath] = Promise.resolve();
     }
-    
+
+    // ipc-fs (fs:writeFile) assure déjà l'écriture atomique via .tmp + retries de rename côté Main.
     _writeQueues[filePath] = _writeQueues[filePath].then(async () => {
-        const tmp = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         try {
             const parentDir = window.api?.path ? window.api.path.dirname(filePath) : (typeof path !== 'undefined' ? path.dirname(filePath) : null);
             if (parentDir) await fs.promises.mkdir(parentDir, { recursive: true });
-            await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2));
-
-            let renamed = false;
-            let lastErr = null;
-            for (let attempt = 0; attempt < 3; attempt++) {
-                try {
-                    await fs.promises.rename(tmp, filePath);
-                    renamed = true;
-                    break;
-                } catch (/** @type {any} */ rErr) {
-                    lastErr = rErr;
-                    if (rErr.code === 'EPERM' || rErr.code === 'EBUSY' || rErr.code === 'EACCES') {
-                        await new Promise(r => setTimeout(r, 50));
-                    } else {
-                        throw rErr;
-                    }
-                }
+            let payload = data;
+            if (store?.settingsFile && filePath === store.settingsFile && data && typeof data === 'object' && 'cfApiKey' in data) {
+                const clean = { ...data };
+                delete clean.cfApiKey;
+                payload = clean;
             }
-            if (!renamed && lastErr) throw lastErr;
+            await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2));
         } catch (/** @type {any} */ e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
-            try {
-                const exists = window.existsSafe ? await window.existsSafe(tmp) : await fs.promises.access(tmp).then(() => true).catch(() => false);
-                if (exists) await fs.promises.unlink(tmp);
-            } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in utils.js:", _); }
         }
     }).catch((/** @type {any} */ err) => {
         if (typeof sysLog !== 'undefined') sysLog("Erreur inattendue queue d'écriture " + filePath + " : " + err.message, true);
     });
-    
+
     return _writeQueues[filePath];
 };
 let _lastToastMsg = "";
@@ -445,12 +470,14 @@ window.fetchWithTimeout = async (/** @type {string | URL | Request} */ resource,
     const { timeout = 30000 } = options;
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
-    const response = await fetch(resource, {
-        ...options,
-        signal: controller.signal
-    });
-    clearTimeout(id);
-    return response;
+    try {
+        return await fetch(resource, {
+            ...options,
+            signal: controller.signal
+        });
+    } finally {
+        clearTimeout(id);
+    }
 };
 
 export { sysLog, yieldUI };

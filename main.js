@@ -1,5 +1,7 @@
 // @ts-check
+const { pipeStreams } = require('./src/main/zip-utils');
 const { existsSafe, createSandboxValidator } = require('./src/main/fs-utils');
+const { createDownloadFile } = require('./src/main/download-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
 const path = require("path");
@@ -8,12 +10,7 @@ const os = require("os");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
-const { safeStorage } = require('electron');
 const { encryptText, decryptText, legacyDecryptText } = require('./src/main/crypto-utils');
-if (process.platform === 'linux' && process.env.APPIMAGE) {
-    app.commandLine.appendSwitch('no-sandbox');
-    app.commandLine.appendSwitch('disable-setuid-sandbox');
-}
 app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 /** @param {string} name */
@@ -99,6 +96,10 @@ const mainInitPromise = (async () => {
     await fs.promises.mkdir(horizonCacheDir, { recursive: true });
     await fs.promises.writeFile(logPath, `--- Gens Launcher Main Log - ${new Date().toLocaleString()} ---\n`);
     _logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    _logStream.on('error', (err) => {
+        console.error('[mainLog] Erreur flux de log:', err?.message || err);
+        _logStream = null;
+    });
 
     _logStreamBytes = 0;
 
@@ -263,6 +264,10 @@ function mainLog(msg) {
             _logStream.end();
             const newLogPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
             _logStream = fs.createWriteStream(newLogPath, { flags: 'a' });
+            _logStream.on('error', (err) => {
+                console.error('[mainLog] Erreur flux de log (rotation):', err?.message || err);
+                _logStream = null;
+            });
             _logStreamBytes = 0;
             _logStream.write(`--- Gens Launcher Main Log (Rotation) - ${new Date().toLocaleString()} ---\n`);
         }
@@ -290,6 +295,55 @@ async function safeRm(dirPath) {
     }
 }
 
+/** @type {Map<number, Set<string>>} */
+const _approvedCopySourcesBySender = new Map();
+
+/** @param {string} p */
+function normalizeCopySourcePath(p) {
+    const resolved = path.resolve(String(p || ''));
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * @param {number | undefined} senderId
+ * @param {string} srcPath
+ */
+function isApprovedCopySource(senderId, srcPath) {
+    if (typeof srcPath !== 'string' || !srcPath.trim()) return false;
+    if (typeof senderId === 'number') {
+        const set = _approvedCopySourcesBySender.get(senderId);
+        if (set && set.has(normalizeCopySourcePath(srcPath))) return true;
+    }
+    try {
+        assertPathUnderSandbox(srcPath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+const MAX_APPROVED_COPY_SOURCES = 200;
+
+ipcMain.on('internal:approve-copy-source', (event, rawPath) => {
+    if (typeof rawPath !== 'string' || !rawPath.trim()) return;
+    let set = _approvedCopySourcesBySender.get(event.sender.id);
+    if (!set) {
+        set = new Set();
+        _approvedCopySourcesBySender.set(event.sender.id, set);
+    }
+    const normalized = normalizeCopySourcePath(rawPath);
+    if (!set.has(normalized) && set.size >= MAX_APPROVED_COPY_SOURCES) {
+        const oldest = set.values().next().value;
+        if (oldest !== undefined) set.delete(oldest);
+    }
+    set.add(normalized);
+});
+
+ipcMain.handle('system:get-mem-info', async () => ({
+    totalmem: os.totalmem(),
+    freemem: os.freemem()
+}));
+
 /** @type {import('./src/types/main').MainContext} */
 const context = {
     app, ipcMain,
@@ -301,33 +355,24 @@ const context = {
     horizonBinDir, horizonExePath, horizonVersionPath,
     horizonDir, horizonLegacyBinDir, horizonAuthDir, horizonMetaDir, horizonManifestsDir, horizonCacheDir,
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
-    assertPathUnderSandbox, sanitizeShortcutName, shell
+    assertPathUnderSandbox, sanitizeShortcutName, isApprovedCopySource, shell
 };
 
 process.on('uncaughtException', (err) => {
-    mainLog("Erreur critique (uncaughtException) : " + (err?.stack || err));
-    if (_logStream && _logStream.writable) _logStream.end(() => app.quit());
-    else app.quit();
+    const msg = String(err?.stack || err);
+    mainLog("Erreur critique (uncaughtException) : " + msg);
+    try {
+        if (app && typeof app.isReady === 'function' && app.isReady() && dialog && typeof dialog.showErrorBox === 'function') {
+            dialog.showErrorBox("Erreur critique — Gens Launcher", err?.message || msg);
+        }
+    } catch (_) {}
+    if (_logStream && _logStream.writable) _logStream.end(() => app.exit(1));
+    else app.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
     const r = /** @type {any} */ (reason);
     mainLog("Rejet asynchrone évité (unhandledRejection) : " + (r?.stack || r));
 });
-
-/** @param {string} text */
-async function decryptSettingsMainProc(text) { 
-    try {
-        const decrypted = await decryptText(text);
-        if (decrypted !== null) return decrypted;
-        
-        const leg = await legacyDecryptText(text);
-        if (leg !== null) return leg;
-    } catch (err) {
-        const e = /** @type {any} */ (err);
-        mainLog(`[Decrypt] Erreur tentative de déchiffrement: ${e.message}`);
-    }
-    return text;
-}
 
 function createWindow() {
     const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
@@ -357,12 +402,17 @@ function createWindow() {
                 `--app-homedir=${encodeURIComponent(os.homedir())}`,
                 `--app-username=${encodeURIComponent((os.userInfo && os.userInfo().username) || '')}`,
                 `--app-totalmem=${os.totalmem()}`,
+                `--app-freemem=${os.freemem()}`,
                 `--app-hostname=${encodeURIComponent(os.hostname())}`,
                 `--app-tempdir=${encodeURIComponent(os.tmpdir())}`,
                 ...(process.env.APPIMAGE ? ['--is-appimage'] : []),
                 ...(isAutoLaunch ? ['--is-auto-launch'] : [])
             ]
         },
+    });
+    const wcId = mainWindow.webContents.id;
+    mainWindow.webContents.once('destroyed', () => {
+        _approvedCopySourcesBySender.delete(wcId);
     });
     mainWindow.setMenuBarVisibility(false);
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -371,18 +421,50 @@ function createWindow() {
         try { console.error(`SÉCURITÉ : Navigation du webContents bloquée -> ${url}`); } catch (_) {}
     });
 
+    const CONNECT_ALLOWLIST = [
+        "'self'",
+        "https://api.modrinth.com",
+        "https://cdn.modrinth.com",
+        "https://api.curseforge.com",
+        "https://edge.forgecdn.net",
+        "https://mediafilez.forgecdn.net",
+        "https://piston-meta.mojang.com",
+        "https://launchermeta.mojang.com",
+        "https://launchercontent.mojang.com",
+        "https://api.mojang.com",
+        "https://sessionserver.mojang.com",
+        "https://api.minecraftservices.com",
+        "https://textures.minecraft.net",
+        "https://meta.fabricmc.net",
+        "https://meta.quiltmc.org",
+        "https://files.minecraftforge.net",
+        "https://maven.minecraftforge.net",
+        "https://maven.neoforged.net",
+        "https://bmclapi2.bangbang93.com",
+        "https://api.adoptium.net",
+        "https://api.github.com",
+        "https://github.com",
+        "https://objects.githubusercontent.com",
+        "https://release-assets.githubusercontent.com",
+        "https://mc-heads.net",
+        "https://crafatar.com",
+        "https://minotar.net"
+    ].join(" ");
     const rendererCSP = [
         "default-src 'self'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: https://*",
-        "connect-src 'self' https://* wss://*",
+        `connect-src ${CONNECT_ALLOWLIST}`,
         "font-src 'self' data:",
         "base-uri 'none'",
         "form-action 'none'",
         "object-src 'none'",
     ].join("; ") + ";";
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        if (details.resourceType !== 'mainFrame' && !details.url.startsWith('file://')) {
+            return callback({ responseHeaders: details.responseHeaders });
+        }
         /** @type {Record<string, string | string[]>} */
         const responseHeaders = {
             ...(details.responseHeaders || {}),
@@ -430,24 +512,12 @@ app.whenReady().then(async () => {
     
     let dynamicChromeUA = session.defaultSession.getUserAgent();
 
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        if (details.resourceType !== 'mainFrame' && !details.url.startsWith('file://')) {
-            return callback({ responseHeaders: details.responseHeaders });
-        }
-        /** @type {Record<string, string | string[]>} */
-        const responseHeaders = {
-            ...(details.responseHeaders || {}),
-            'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss:"]
-        };
-        callback({ responseHeaders });
-    });
-
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         try {
             const url = new URL(details.url);
             const isMojang = MOJANG_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
             const isSkin = SKIN_HOSTS.some(h => url.hostname === h || url.hostname.endsWith("." + h));
-            const isModrinth = url.hostname.includes("modrinth.com");
+            const isModrinth = url.hostname === "modrinth.com" || url.hostname.endsWith(".modrinth.com");
             if (isMojang || isSkin) {
                 details.requestHeaders['User-Agent'] = dynamicChromeUA;
                 delete details.requestHeaders['sec-ch-ua'];
@@ -497,30 +567,37 @@ app.whenReady().then(async () => {
             ? path.join(__dirname, "assets/icon.ico")
             : path.join(__dirname, "assets/icon.png");
         tray = new Tray(trayIcon);
-        
-        let labelShow = 'Afficher Gens Launcher';
-        let labelQuit = 'Quitter';
-        try {
-            const setPath = path.join(app.getPath("appData"), "GensLauncher", "settings.json");
-            if (fs.existsSync(setPath)) {
-                const sets = JSON.parse(fs.readFileSync(setPath, 'utf8'));
-                const lang = sets.language || 'fr';
-                const langPath = path.join(__dirname, 'src', 'locales', lang + '.json');
-                if (fs.existsSync(langPath)) {
-                    const lData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
-                    if (lData.ctx_tray_show) labelShow = lData.ctx_tray_show;
-                    if (lData.ctx_tray_quit) labelQuit = lData.ctx_tray_quit;
-                }
-            }
-        } catch(e) {}
 
-        const contextMenu = Menu.buildFromTemplate([
-            { label: labelShow, click: () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } } },
+        /**
+         * @param {string} showLbl
+         * @param {string} quitLbl
+         */
+        const buildTrayMenu = (showLbl, quitLbl) => Menu.buildFromTemplate([
+            { label: showLbl, click: () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } } },
             { type: 'separator' },
-            { label: labelQuit, click: () => { app.quit(); } }
+            { label: quitLbl, click: () => { app.quit(); } }
         ]);
+
         tray.setToolTip('Gens Launcher');
-        tray.setContextMenu(contextMenu);
+        tray.setContextMenu(buildTrayMenu('Afficher Gens Launcher', 'Quitter'));
+
+        (async () => {
+            try {
+                const setPath = path.join(app.getPath("appData"), "GensLauncher", "settings.json");
+                const rawSettings = await fs.promises.readFile(setPath, 'utf8');
+                const sets = JSON.parse(rawSettings);
+                const rawLang = typeof sets.language === 'string' ? sets.language.trim() : '';
+                const lang = /^[a-zA-Z]{2,8}(?:[-_][a-zA-Z0-9]{2,8})?$/.test(rawLang) ? rawLang : 'fr';
+                const langPath = path.join(__dirname, 'src', 'locales', lang + '.json');
+                const lData = JSON.parse(await fs.promises.readFile(langPath, 'utf8'));
+                if (tray && !tray.isDestroyed() && (lData.ctx_tray_show || lData.ctx_tray_quit)) {
+                    tray.setContextMenu(buildTrayMenu(
+                        lData.ctx_tray_show || 'Afficher Gens Launcher',
+                        lData.ctx_tray_quit || 'Quitter'
+                    ));
+                }
+            } catch (_) {}
+        })();
         tray.on('double-click', () => { if (mainWindow && !mainWindow.isDestroyed()) { if (process.platform === 'linux') mainWindow.setSkipTaskbar(false); mainWindow.show(); } });
     } catch (err) {
         const e = /** @type {any} */ (err);
@@ -549,16 +626,36 @@ app.whenReady().then(async () => {
         if (isLinuxManaged) {
             try {
                 const { net } = require("electron");
+                const compareSemver = (/** @type {string} */ a, /** @type {string} */ b) => {
+                    const pa = String(a).split(/[.-]/).slice(0, 3).map(n => parseInt(n, 10) || 0);
+                    const pb = String(b).split(/[.-]/).slice(0, 3).map(n => parseInt(n, 10) || 0);
+                    for (let i = 0; i < 3; i++) {
+                        if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+                    }
+                    return 0;
+                };
                 const req = net.request({ url: "https://api.github.com/repos/WilliamBossard/Gens-Launcher/releases/latest", headers: { "User-Agent": "Gens-Launcher-AutoUpdater" } });
+                let aborted = false;
+                const reqTimeout = setTimeout(() => {
+                    aborted = true;
+                    try { req.abort(); } catch (_) {}
+                }, 10000);
                 req.on("response", (res) => {
                     let data = "";
-                    res.on("data", (chunk) => { data += chunk; });
+                    res.on("data", (chunk) => {
+                        if (data.length < 512 * 1024) data += chunk;
+                    });
                     res.on("end", () => {
+                        clearTimeout(reqTimeout);
+                        if (aborted || res.statusCode !== 200) {
+                            mainLog(`Check MAJ Linux ignoré (HTTP ${res.statusCode})`);
+                            return;
+                        }
                         try {
                             const release = JSON.parse(data);
                             const latestVer = (release.tag_name || "").replace(/^v/, "");
                             const currentVer = app.getVersion();
-                            if (latestVer && latestVer !== currentVer) {
+                            if (latestVer && compareSemver(latestVer, currentVer) > 0) {
                                 mainLog(`MAJ disponible: ${currentVer} -> ${latestVer}`);
                                 mainWindow?.webContents.send("update-available-prompt", { version: latestVer });
                             }
@@ -568,7 +665,10 @@ app.whenReady().then(async () => {
                         }
                     });
                 });
-                req.on("error", (e) => { mainLog("Erreur check MAJ Linux: " + e.message); });
+                req.on("error", (e) => {
+                    clearTimeout(reqTimeout);
+                    mainLog("Erreur check MAJ Linux: " + e.message);
+                });
                 req.end();
             } catch(e) {
                 const err = /** @type {any} */ (e);
@@ -582,84 +682,28 @@ app.whenReady().then(async () => {
     }, 3000);
 });
 
-const https = require('https');
+const downloadFile = createDownloadFile({
+    fs,
+    path,
+    crypto,
+    pipeStreams,
+    existsSafe,
+    safeUnlink
+});
 
-const ALLOWED_DOMAINS = [
-    'github.com', 'githubusercontent.com', 'modrinth.com',
-    'curseforge.com', 'curseforge.net', 'cursecdn.com', 'forgecdn.net',
-    'mojang.com', 'minecraft.net', 'edgecastcdn.net',
-    'googleapis.com', 'cloudfront.net', 'amazonaws.com',
-    'fabricmc.net', 'quiltmc.org', 'minecraftforge.net', 'neoforged.net',
-    'bangbang93.com', 'adoptium.net'
-];
-
-/**
- * @param {string} url
- * @param {string} dest
- * @param {number} [redirectCount]
- */
-async function downloadFile(url, dest, redirectCount = 0) {
-    if (redirectCount >= 5) {
-        throw new Error("Trop de redirections (max 5)");
-    }
-    
-    /** @type {URL} */
-    let parsedUrl;
-    try {
-        parsedUrl = new URL(url);
-    } catch (_) {
-        throw new Error("URL invalide");
-    }
-    const isAllowed = ALLOWED_DOMAINS.some(d => parsedUrl.hostname === d || parsedUrl.hostname.endsWith('.' + d));
-    if (!isAllowed) {
-        throw new Error(`Domaine non autorisé pour le téléchargement : ${parsedUrl.hostname}`);
-    }
-    
-    if (!url.startsWith('https://')) {
-        throw new Error(`Seul HTTPS est autorisé pour les téléchargements. URL reçue : ${url}`);
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000); 
-    
-    try {
-        const res = await fetch(url, { redirect: 'manual', signal: controller.signal });
-        
-        if ([301, 302, 303, 307, 308].includes(res.status)) {
-            clearTimeout(timeout);
-            const location = res.headers.get('location');
-            if (!location) throw new Error(`Redirection ${res.status} sans en-tête Location pour '${url}'`);
-            const locationUrl = new URL(location, url).href;
-            return downloadFile(locationUrl, dest, redirectCount + 1);
-        }
-        
-        if (!res.ok) {
-            throw new Error(`Failed to get '${url}' (${res.status})`);
-        }
-        if (!res.body) {
-            throw new Error(`Corps de réponse vide pour '${url}'`);
-        }
-        
-        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-        const fileStream = fs.createWriteStream(dest);
-        const { pipeline } = require('stream/promises');
-        await pipeline(/** @type {any} */ (res.body), fileStream);
-        
-        clearTimeout(timeout);
-        return { success: true };
-    } catch (err) {
-        clearTimeout(timeout);
-        if (await existsSafe(dest)) {
-            await safeUnlink(dest);
-        }
-        throw err;
-    }
-}
-
-ipcMain.handle("download-file-stream", async (event, { url, destPath }) => {
+ipcMain.handle("download-file-stream", async (event, { url, destPath, expectedSha256, expectedHash, hashAlgo, progressId }) => {
     try {
         const safeDest = assertPathUnderSandbox(destPath);
-        await downloadFile(url, safeDest);
+        await downloadFile(url, safeDest, {
+            expectedSha256: typeof expectedSha256 === 'string' ? expectedSha256 : null,
+            expectedHash: typeof expectedHash === 'string' ? expectedHash : null,
+            hashAlgo: (hashAlgo === 'sha1' || hashAlgo === 'sha256' || hashAlgo === 'sha512') ? hashAlgo : null,
+            onProgress: progressId ? (p) => {
+                if (!event.sender.isDestroyed()) {
+                    event.sender.send("download-progress", { progressId, ...p });
+                }
+            } : undefined
+        });
         return { success: true };
     } catch (err) {
         const e = err instanceof Error ? err.message : String(err);
@@ -671,38 +715,50 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
     try {
         const ALLOWED_IMG_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'];
         const MAGIC_SIGNATURES = [
-            { ext: ['.png'],              bytes: [0x89, 0x50, 0x4E, 0x47], offset: 0 },
-            { ext: ['.jpg', '.jpeg'],     bytes: [0xFF, 0xD8, 0xFF],       offset: 0 },
-            { ext: ['.gif'],              bytes: [0x47, 0x49, 0x46],       offset: 0 },
-            { ext: ['.webp'],             bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 },
-            { ext: ['.bmp'],              bytes: [0x42, 0x4D],             offset: 0 },
-            { ext: ['.ico'],              bytes: [0x00, 0x00, 0x01, 0x00], offset: 0 },
+            { ext: ['.png'],              checks: [{ bytes: [0x89, 0x50, 0x4E, 0x47], offset: 0 }] },
+            { ext: ['.jpg', '.jpeg'],     checks: [{ bytes: [0xFF, 0xD8, 0xFF],       offset: 0 }] },
+            { ext: ['.gif'],              checks: [{ bytes: [0x47, 0x49, 0x46],       offset: 0 }] },
+            { ext: ['.webp'],             checks: [{ bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 }, { bytes: [0x57, 0x45, 0x42, 0x50], offset: 8 }] },
+            { ext: ['.bmp'],              checks: [{ bytes: [0x42, 0x4D],             offset: 0 }] },
+            { ext: ['.ico'],              checks: [{ bytes: [0x00, 0x00, 0x01, 0x00], offset: 0 }] },
         ];
 
-        const stat = await fs.promises.stat(srcPath);
-        if (!stat.isFile()) {
-            return { success: false, error: "Le chemin spécifié n'est pas un fichier." };
+        if (typeof srcPath !== 'string' || !srcPath.trim()) {
+            return { success: false, error: "Chemin source invalide." };
         }
-        if (stat.size > 20 * 1024 * 1024) {
+        if (!isApprovedCopySource(event?.sender?.id, srcPath)) {
+            mainLog(`[Sécurité] copy-image-to-sandbox refusé pour source non approuvée : ${srcPath}`);
+            return { success: false, error: "EACCES: Source non autorisée (doit provenir d'un sélecteur ou glisser-déposer)." };
+        }
+        const lstat = await fs.promises.lstat(srcPath);
+        if (lstat.isSymbolicLink() || !lstat.isFile()) {
+            return { success: false, error: "Le chemin spécifié n'est pas un fichier régulier." };
+        }
+        const realSrcPath = await fs.promises.realpath(srcPath);
+        const realStat = await fs.promises.lstat(realSrcPath);
+        if (realStat.isSymbolicLink() || !realStat.isFile()) {
+            return { success: false, error: "Le chemin résolu n'est pas un fichier régulier." };
+        }
+        if (realStat.size > 20 * 1024 * 1024) {
             return { success: false, error: "L'image est trop volumineuse (max 20 Mo)." };
         }
 
-        const ext = path.extname(srcPath).toLowerCase();
+        const ext = path.extname(realSrcPath).toLowerCase();
         if (!ALLOWED_IMG_EXTS.includes(ext)) {
             return { success: false, error: `Extension non autorisée : ${ext}` };
         }
 
-        const fd = await fs.promises.open(srcPath, 'r');
-        const magicBuf = Buffer.alloc(8);
+        const fd = await fs.promises.open(realSrcPath, 'r');
+        const magicBuf = Buffer.alloc(12);
         try {
-            await fd.read(magicBuf, 0, 8, 0);
+            await fd.read(magicBuf, 0, 12, 0);
         } finally {
             await fd.close();
         }
 
         const sig = MAGIC_SIGNATURES.find(s => s.ext.includes(ext));
         if (sig) {
-            const isValid = sig.bytes.every((b, i) => magicBuf[sig.offset + i] === b);
+            const isValid = sig.checks.every(c => c.bytes.every((b, i) => magicBuf[c.offset + i] === b));
             if (!isValid) {
                 return { success: false, error: 'Le fichier ne correspond pas à son extension (signature invalide).' };
             }
@@ -718,7 +774,7 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         await fs.promises.mkdir(destDir, { recursive: true });
         const destPath = path.join(destDir, safeName + ext);
         assertPathUnderSandbox(destPath); 
-        await fs.promises.copyFile(srcPath, destPath);
+        await fs.promises.copyFile(realSrcPath, destPath);
 
         return { success: true, destPath };
     } catch (err) {
@@ -732,7 +788,7 @@ ipcMain.on("set-taskbar-progress", (_, val) => {
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
 });
 ipcMain.on("hide-window", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
         if (process.platform === 'linux') {
             mainWindow.setSkipTaskbar(true);
             mainWindow.minimize();
@@ -741,13 +797,13 @@ ipcMain.on("hide-window", () => {
     }
 });
 ipcMain.on("minimize-window", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.minimize();
     }
 });
 ipcMain.on("quit-app", () => { app.quit(); });
 ipcMain.on("show-window", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
         if (process.platform === 'linux') mainWindow.setSkipTaskbar(false);
         mainWindow.show();
     }

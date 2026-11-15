@@ -1,10 +1,13 @@
 {
   "name": "gens-launcher",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "description": "Lanceur Minecraft moderne et rapide.",
   "main": "main.js",
   "author": "William Bossard <wbossard@free.fr>",
   "license": "MIT",
+  "engines": {
+    "node": ">=26.0.0"
+  },
   "scripts": {
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -13,29 +16,27 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder --win --linux",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/crypto-utils.test.js tests/utils.test.js tests/curseforge.test.js tests/security-and-zip.test.js tests/ipc-fs.test.js tests/ipc-channels.test.js tests/preload-sandbox.test.js tests/crash-and-preflight.test.js",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/crypto-utils.test.js tests/utils.test.js tests/curseforge.test.js tests/security-and-zip.test.js tests/ipc-fs.test.js tests/ipc-channels.test.js tests/preload-sandbox.test.js tests/crash-and-preflight.test.js tests/audit-security.test.js tests/audit-core-resilience.test.js tests/integration-ipc.test.js tests/hardening-and-perf.test.js",
     "docs:dev": "npm --prefix docs run docs:dev",
     "docs:build": "npm --prefix docs run docs:build"
   },
   "dependencies": {
-    "archiver": "^8.0.0",
-    "electron-updater": "^6.8.11",
-    "yauzl": "^3.4.0",
-    "yauzl-promise": "^4.0.0"
+    "electron-updater": "^6.8.12"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "electron": "^45.2.3",
+    "electron": "^45.3.2",
     "electron-builder": "^26.18.1",
     "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "electronVersion": "45.2.3",
+    "electronVersion": "45.3.2",
     "directories": {
       "output": "dist"
     },
+    "afterPack": "build/afterPackLinuxSandbox.js",
     "publish": [
       {
         "provider": "github",
@@ -66,11 +67,7 @@
       ],
       "category": "Game",
       "icon": "assets/icon-512.png",
-      "artifactName": "GensLauncher-${version}-${arch}.${ext}",
-      "executableArgs": [
-        "--no-sandbox",
-        "--disable-setuid-sandbox"
-      ]
+      "artifactName": "GensLauncher-${version}-${arch}.${ext}"
     },
     "mac": {
       "target": [
@@ -82,7 +79,9 @@
     },
     "deb": {
       "priority": "optional",
-      "maintainer": "William Bossard <wbossard@free.fr>"
+      "maintainer": "William Bossard <wbossard@free.fr>",
+      "afterInstall": "build/debPostInstall.sh",
+      "afterRemove": "build/debPostRemove.sh"
     },
     "files": [
       "main.js",
@@ -106,5 +105,9 @@
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true
+  },
+  "overrides": {
+    "minimatch@^9.0.0": "^11.0.8",
+    "minimatch@^10.0.0": "^11.0.8"
   }
 }

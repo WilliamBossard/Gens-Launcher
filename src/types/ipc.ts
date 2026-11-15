@@ -15,19 +15,19 @@ export const INVOKE_CHANNELS = [
   "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip",
   "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream",
   "copy-image-to-sandbox", "copy-file-to-sandbox", "delete-msa-cache", "hash-file",
-  "check-internet", "do-deb-update", "run-forge-installer", "duplicate-instance-folder",
-  "fs:readFile", "fs:writeFile", "fs:readdir", "fs:stat", "fs:mkdir", "fs:rm",
+  "check-internet", "do-deb-update", "run-forge-installer", "duplicate-instance-folder", "get-folder-size",
+  "fs:readFile", "fs:readTail", "fs:writeFile", "fs:readdir", "fs:stat", "fs:mkdir", "fs:rm",
   "fs:unlink", "fs:rename", "fs:cp", "fs:copyFile", "fs:chmod", "fs:appendFile",
   "fs:access", "fs:exists", "system:open-external", "system:open-path",
-  "system:show-item-in-folder", "system:clipboard-write-text", "hash-buffer",
-  "nbt:parse", "nbt:write"
+  "system:show-item-in-folder", "system:clipboard-write-text", "system:get-mem-info", "hash-buffer",
+  "nbt:parse"
 ] as const;
 
 export const RECEIVE_CHANNELS = [
   "trigger-auto-launch", "update-msg", "update-available-prompt", "update-progress",
   "update-downloaded", "microsoft-device-code", "mc-progress", "mc-data",
   "mc-started", "mc-close", "horizon-status", "zip-progress", "launch-game-rejected",
-  "horizon-install-progress"
+  "horizon-install-progress", "download-progress"
 ] as const;
 
 export type SendChannel = (typeof SEND_CHANNELS)[number];
@@ -317,6 +317,7 @@ export interface ReceivePayloadByChannel {
   "zip-progress": Record<string, unknown>;
   "launch-game-rejected": LaunchGameRejectedEvent;
   "horizon-install-progress": number;
+  "download-progress": { progressId: string; receivedBytes: number; totalBytes: number; percent: number };
 }
 
 export interface ApiFsStat {
@@ -365,6 +366,7 @@ export interface GensLauncherApi {
   fs: {
     promises: {
       readFile: (p: string, enc?: BufferEncoding | string) => Promise<any>;
+      readTail?: (p: string, maxBytes?: number) => Promise<string>;
       readdir: (p: string) => Promise<string[]>;
       stat: (p: string) => Promise<ApiFsStat>;
       writeFile: (p: string, d: any, enc?: BufferEncoding | string) => Promise<void>;
@@ -384,6 +386,7 @@ export interface GensLauncherApi {
   os: {
     totalmem: () => number;
     freemem: () => number;
+    getMemInfo?: () => Promise<{ totalmem: number; freemem: number }>;
     cpus: () => any[];
     hostname: () => string;
     userInfo: () => { username: string; homedir: string };
@@ -408,5 +411,5 @@ export interface GensLauncherApi {
 
   getFilePath: (file: File) => string;
   copyImageToSandbox: (srcPath: string, destName: string, subDir?: string) => Promise<any>;
-  copyFileToSandbox: (srcPath: string, destName: string) => Promise<any>;
+  copyFileToSandbox: (srcPath: string, destName: string, subDir?: string) => Promise<any>;
 }

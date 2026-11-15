@@ -22,7 +22,7 @@ jobs:
       - name: Configurer Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Compiler la documentation VitePress
         run: |

@@ -1,10 +1,8 @@
 // @ts-check
-const { existsSafe } = require('../main/fs-utils');
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
-// @ts-ignore
-const { ZipArchive } = require('archiver');
+const { writeZipFromFiles } = require('../main/zip-utils');
 
 /**
  * @param {{ src: string; dest: string; exclude?: string[] }} param0
@@ -28,11 +26,12 @@ async function compressFolder({ src, dest, exclude }) {
             const rootItem = relativePath.split(/[/\\]/)[0];
             if (excludeSet.has(rootItem)) continue;
 
-            const stat = await fs.promises.stat(fullPath);
+            const stat = await fs.promises.lstat(fullPath);
+            if (stat.isSymbolicLink()) continue;
             if (stat.isDirectory()) {
                 const sub = await collectFiles(fullPath);
                 collected.push(...sub);
-            } else {
+            } else if (stat.isFile()) {
                 collected.push({ fullPath, relativePath });
             }
         }
@@ -48,46 +47,23 @@ async function compressFolder({ src, dest, exclude }) {
         throw new Error(err.message);
     }
 
-    return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(dest);
-        const archive = new ZipArchive({ zlib: { level: 6 }, forceLocalTime: true, statConcurrency: 1 });
-
-        output.on('close', () => resolve(true));
-
-        archive.on('warning', (/** @type {any} */ err) => {
+    let lastPct = -1;
+    await writeZipFromFiles(dest, filesToArchive, {
+        level: 6,
+        onWarning: (err) => {
             port.postMessage({ type: 'log', message: `Warning: ${err.message}` });
-        });
-
-        archive.on('error', async (/** @type {any} */ err) => {
-            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
-            reject(err);
-        });
-
-        output.on('error', async (/** @type {any} */ err) => {
-            archive.destroy();
-            try { if (await existsSafe(dest)) await fs.promises.unlink(dest); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in compress-worker.js:", _); }
-            reject(err);
-        });
-
-        let lastPct = -1;
-        archive.on('progress', (/** @type {any} */ data) => {
-            if (data.entries.total > 0) {
-                const pct = Math.round((data.entries.processed / data.entries.total) * 100);
+        },
+        onProgress: (processed, total) => {
+            if (total > 0) {
+                const pct = Math.round((processed / total) * 100);
                 if (pct !== lastPct) {
                     lastPct = pct;
                     port.postMessage({ type: 'progress', percent: pct });
                 }
             }
-        });
-
-        archive.pipe(output);
-
-        for (const { fullPath, relativePath } of filesToArchive) {
-            archive.file(fullPath, { name: relativePath.replace(/\\/g, '/') });
         }
-
-        archive.finalize();
     });
+    return true;
 }
 
 if (parentPort) {

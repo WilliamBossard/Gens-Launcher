@@ -290,8 +290,8 @@ window.api.on("horizon-status", async (data) => {
         const richIndex = /** @type {Record<string, any>} */ ({});
         (data.richData || []).forEach((/** @type {any} */ r) => { richIndex[r.name] = r; });
         const horizonBinPath = window.api.path.join(window.api.appData, "GensLauncher", "bin");
-        let html = "";
-        for (const instName of data.data) {
+        const fileExists = async (/** @type {string} */ p) => { try { await window.api.fs.promises.access(p); return true; } catch (/** @type {any} */ e) { return false; } };
+        const buildCardHtml = async (/** @type {string} */ instName) => {
             const localInst = store.allInstances.find(i => window.safeDir(i.name) === instName || i.name === instName);
             const isLocal = !!localInst;
             const rich = richIndex[instName];
@@ -312,8 +312,6 @@ window.api.on("horizon-status", async (data) => {
                 const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
                 const customIcon = localInst.icon || "";
 
-                const fileExists = async (/** @type {string} */ p) => { try { await window.api.fs.promises.access(p); return true; } catch (/** @type {any} */ e) { return false; } };
-
                 if (localInst._iconCacheBuster) {
                     const pngPath = window.api.path.join(instFolder, "icon.png");
                     const jpgPath = window.api.path.join(instFolder, "icon.jpg");
@@ -321,8 +319,9 @@ window.api.on("horizon-status", async (data) => {
                     if (customIcon && customIcon.startsWith("file://")) {
                         targetPath = decodeURI(customIcon.replace(/file:\/\/\/?/, ""));
                     } else if (!customIcon) {
-                        if (await fileExists(pngPath)) targetPath = pngPath;
-                        else if (await fileExists(jpgPath)) targetPath = jpgPath;
+                        const [hasPng, hasJpg] = await Promise.all([fileExists(pngPath), fileExists(jpgPath)]);
+                        if (hasPng) targetPath = pngPath;
+                        else if (hasJpg) targetPath = jpgPath;
                     }
                     if (targetPath && await fileExists(targetPath)) {
                         try {
@@ -337,18 +336,25 @@ window.api.on("horizon-status", async (data) => {
                 } else {
                     if (customIcon) {
                         iconSrc = customIcon;
-                    } else if (await fileExists(window.api.path.join(instFolder, "icon.png"))) {
-                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.png").replace(/\\/g, "/"));
-                    } else if (await fileExists(window.api.path.join(instFolder, "icon.jpg"))) {
-                        iconSrc = window.pathToFileUrl(window.api.path.join(instFolder, "icon.jpg").replace(/\\/g, "/"));
                     } else {
-                        iconSrc = (/** @type {any} */ (store.defaultIcons))[localInst.loader] || store.defaultIcons.vanilla;
+                        const pngPath = window.api.path.join(instFolder, "icon.png");
+                        const jpgPath = window.api.path.join(instFolder, "icon.jpg");
+                        const [hasPng, hasJpg] = await Promise.all([fileExists(pngPath), fileExists(jpgPath)]);
+                        if (hasPng) {
+                            iconSrc = window.pathToFileUrl(pngPath.replace(/\\/g, "/"));
+                        } else if (hasJpg) {
+                            iconSrc = window.pathToFileUrl(jpgPath.replace(/\\/g, "/"));
+                        } else {
+                            iconSrc = (/** @type {any} */ (store.defaultIcons))[localInst.loader] || store.defaultIcons.vanilla;
+                        }
                     }
                 }
             } else {
                 if (rich) {
-                    iconSrc = (rich.iconData && rich.iconData !== "")
-                        ? rich.iconData
+                    const isSafeDataImage = typeof rich.iconData === "string" &&
+                        /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(rich.iconData.trim());
+                    iconSrc = isSafeDataImage
+                        ? rich.iconData.trim()
                         : ((/** @type {any} */ (store.defaultIcons))[rich.loader] || store.defaultIcons.vanilla);
                 } else {
                     iconSrc = store.defaultIcons.vanilla;
@@ -356,13 +362,24 @@ window.api.on("horizon-status", async (data) => {
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
             const fallbackSafeIcon = window.escapeHTML(store.defaultIcons.vanilla);
-            html += `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
+            return `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
                 <img class="instance-icon" src="${safeIconSrc}" data-fallback-icon="${fallbackSafeIcon}">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
                 <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
                 ${metaLine}
             </div>`;
+        };
+        const CONCURRENCY = 8;
+        /** @type {string[]} */
+        const cardParts = new Array(data.data.length);
+        for (let i = 0; i < data.data.length; i += CONCURRENCY) {
+            const batch = data.data.slice(i, i + CONCURRENCY);
+            const rendered = await Promise.all(batch.map((/** @type {string} */ instName) => buildCardHtml(instName)));
+            for (let j = 0; j < rendered.length; j++) {
+                cardParts[i + j] = rendered[j];
+            }
         }
+        const html = cardParts.join("");
         window._lastCloudGridHtml = html;
         grid.innerHTML = html;
         grid.querySelectorAll('.instance-card[data-name]').forEach((/** @type {any} */ card) => {
@@ -383,8 +400,6 @@ window.api.on("horizon-status", async (data) => {
             const cacheDir = window.api.path.dirname(cachePath);
             try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
             await window.api.fs.promises.writeFile(cachePath, JSON.stringify(data), "utf8");
-            const htmlCachePath = window.getHorizonWritePath('cache', "horizon_cloud_html_cache.txt");
-            await window.api.fs.promises.writeFile(htmlCachePath, html, "utf8");
         } catch (/** @type {any} */ e) { }
         return;
     }
@@ -407,7 +422,8 @@ window.api.on("horizon-status", async (data) => {
         const horizPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.horizonBytes / data.totalBytes) * 100)) : 0;
         const barColor = usedPct >= 90 ? "#f87171" : usedPct >= 70 ? "#f48a21" : "var(--accent)";
         const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
-        const providerLabel = (data.provider || "google").charAt(0).toUpperCase() + (data.provider || "google").slice(1);
+        const rawProvider = String(data.provider || "google");
+        const providerLabel = rawProvider.charAt(0).toUpperCase() + rawProvider.slice(1);
         const instances = (data.instances || []).sort((/** @type {any} */ a, /** @type {any} */ b) => b.bytes - a.bytes);
         let instRows = "";
         for (const inst of instances.slice(0, 8)) {
@@ -430,7 +446,7 @@ window.api.on("horizon-status", async (data) => {
         el.innerHTML = `
             <div style="margin-bottom:8px; font-weight:bold; font-size:0.88rem; color:var(--text-light);">
                 ${t("horizon_quota_title", "Espace Cloud")}
-                <span style="font-size:0.75rem; color:#888; font-weight:normal; margin-left:6px;">${providerLabel}</span>
+                <span style="font-size:0.75rem; color:#888; font-weight:normal; margin-left:6px;">${window.escapeHTML(providerLabel)}</span>
             </div>
             ${data.totalBytes > 0 ? `
             <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#aaa; margin-bottom:4px;">
@@ -465,8 +481,6 @@ window.api.on("horizon-status", async (data) => {
             const cacheDir = window.api.path.dirname(quotaCachePath);
             try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
             await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
-            const quotaHtmlCachePath = window.getHorizonWritePath('cache', "horizon_quota_html_cache.txt");
-            await window.api.fs.promises.writeFile(quotaHtmlCachePath, el.innerHTML, "utf8");
         } catch (/** @type {any} */ e) { }
         return;
     }
@@ -654,41 +668,12 @@ window.api.on("horizon-status", async (data) => {
             && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
             const refreshQuota = data.mode === "FULL" || data.mode === "SMART" || data.mode === "REPACK"
                 || data.base !== undefined || data.deltas !== undefined;
-            const localInst = store.allInstances.find(i => window.safeDir(i.name) === window.safeDir(data.instance || ""));
+            const safeSlug = window.safeDir(data.instance || "");
+            const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeSlug);
             if (localInst) {
                 try {
-                    const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(localInst.name));
-                    const jsonPath = window.api.path.join(instFolder, "instance.json");
-                    let exists = false;
-                    try { await window.api.fs.promises.access(jsonPath); exists = true; } catch (/** @type {any} */ e) {  }
-                    if (exists) {
-                        const parsed = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
-                        const diskTs = Number(parsed._localConfigUpdatedAt || parsed._cloudExportedAt) || 0;
-                        const memTs  = Number(localInst._localConfigUpdatedAt) || 0;
-
-                        if (memTs > 0 && diskTs <= memTs) {
-                            await window.api.fs.promises.writeFile(jsonPath, JSON.stringify(localInst, null, 2), "utf8");
-                            if (window.writeInstanceMetaForCloud) {
-                                await window.writeInstanceMetaForCloud(localInst, { preserveTimestamp: true });
-                            }
-                        } else {
-                            const oldRam = localInst.ram;
-                            const oldJava = localInst.javaPath;
-                            const oldArgs = localInst.jvmArgs;
-                            const oldWidth = localInst.resW;
-                            const oldHeight = localInst.resH;
-
-                            Object.assign(localInst, parsed);
-                            if (diskTs > 0) localInst._localConfigUpdatedAt = diskTs;
-
-                            if (oldRam !== undefined) localInst.ram = oldRam;
-                            if (oldJava !== undefined) localInst.javaPath = oldJava;
-                            if (oldArgs !== undefined) localInst.jvmArgs = oldArgs;
-                            if (oldWidth !== undefined) localInst.resW = oldWidth;
-                            if (oldHeight !== undefined) localInst.resH = oldHeight;
-
-                            window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-                        }
+                    if (window.mergeInstanceConfigFromDisk) {
+                        await window.mergeInstanceConfigFromDisk(safeSlug);
                     }
                 } catch (/** @type {any} */ e) { console.error("Erreur màj instance.json après sync:", e); }
 
@@ -730,6 +715,9 @@ window.openCloudContextMenu = (/** @type {any} */ e, /** @type {string} */ instN
     menu.style.left = x + "px";
     menu.style.top = y + "px";
 };
+/** @type {Set<string>} */
+const _cloudSyncLocks = new Set();
+
 window.ctxRestoreCloud = async () => {
     $("cloud-only-context-menu").style.display = "none";
     if (window.closeGlobalSettings) window.closeGlobalSettings();
@@ -745,6 +733,12 @@ window.ctxRestoreCloud = async () => {
         }
     }
     const targetSlug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
+    if (_cloudSyncLocks.has(targetSlug)) {
+        window.showToast(t("msg_sync_already_running", "Synchronisation déjà en cours pour cette instance."), "info");
+        return;
+    }
+    _cloudSyncLocks.add(targetSlug);
+    try {
     const existingIdx = store.allInstances.findIndex(i =>
         i.name === targetName || window.sameFolderSlug(window.safeDir(i.name), targetSlug)
     );
@@ -762,8 +756,12 @@ window.ctxRestoreCloud = async () => {
         window.renderUI();
     }
     window._isManualHorizon = true;
-    const syncResult = await window.api.invoke("call-horizon", ['--sync', targetSlug, '--force']);
-    window._isManualHorizon = false;
+    let syncResult;
+    try {
+        syncResult = await window.api.invoke("call-horizon", ['--sync', targetSlug, '--force']);
+    } finally {
+        window._isManualHorizon = false;
+    }
     if (window.horizonOpFailed(syncResult)) {
         const idx = store.allInstances.findIndex(i => i.name === targetName && i.version === "...");
         if (idx !== -1) store.allInstances.splice(idx, 1);
@@ -785,12 +783,35 @@ window.ctxRestoreCloud = async () => {
         realInst = JSON.parse(await window.api.fs.promises.readFile(jsonPath, "utf8"));
     } catch (/** @type {any} */ e) { }
     if (realInst) {
-        realInst._iconCacheBuster = Date.now();
         const phantomInst = store.allInstances[idx];
-        if (phantomInst && phantomInst.icon && (!realInst.icon || realInst.icon.startsWith("file://"))) {
-            realInst.icon = phantomInst.icon;
+        const safeIcon = (phantomInst && phantomInst.icon && (!realInst.icon || String(realInst.icon).startsWith("file://")))
+            ? phantomInst.icon
+            : (typeof realInst.icon === 'string' ? realInst.icon : iconData);
+        store.allInstances[idx] = {
+            name: targetName,
+            version: String(realInst.version || "1.20.4"),
+            loader: String(realInst.loader || loader || "vanilla"),
+            loaderVersion: String(realInst.loaderVersion || ""),
+            ram: String(realInst.ram || store.globalSettings.defaultRam),
+            javaPath: "",
+            jvmArgs: "",
+            jvmProfile: typeof realInst.jvmProfile === 'string' ? realInst.jvmProfile : "none",
+            notes: typeof realInst.notes === 'string' ? realInst.notes : "",
+            icon: safeIcon,
+            resW: String(realInst.resW || ""),
+            resH: String(realInst.resH || ""),
+            playTime: typeof realInst.playTime === 'number' ? realInst.playTime : 0,
+            lastPlayed: typeof realInst.lastPlayed === 'number' ? realInst.lastPlayed : 0,
+            sessionHistory: Array.isArray(realInst.sessionHistory) ? realInst.sessionHistory : [],
+            group: typeof realInst.group === 'string' ? realInst.group : t("lbl_group_general", "Général"),
+            servers: Array.isArray(realInst.servers) ? realInst.servers : [],
+            backupMode: ["none", "on_launch", "on_close"].includes(realInst.backupMode) ? realInst.backupMode : "none",
+            backupLimit: Number(realInst.backupLimit) || 5,
+            _iconCacheBuster: Date.now()
+        };
+        if (window.mergeInstanceConfigFromDisk) {
+            await window.mergeInstanceConfigFromDisk(targetSlug);
         }
-        store.allInstances[idx] = realInst;
     } else {
         let dVer = "1.20.4", dLoader = "vanilla", dLoaderVer = "";
         const vDir = window.api.path.join(instFolder, "versions");
@@ -801,7 +822,7 @@ window.ctxRestoreCloud = async () => {
                 const subDirs = await window.api.fs.promises.readdir(vDir);
                 if (subDirs.length > 0) {
                     const vName = subDirs[0].toLowerCase();
-                    const matchMC = vName.match(/(?:^|[^.\\d])(1\\.\\d+(?:\\.\\d+)?)(?:[^.\\d]|$)/);
+                    const matchMC = vName.match(/(?:^|[^.\d])(1\.\d+(?:\.\d+)?)(?:[^.\d]|$)/);
                     if (matchMC) dVer = matchMC[1];
                     if (vName.includes("fabric")) dLoader = "fabric";
                     else if (vName.includes("neoforge")) dLoader = "neoforge";
@@ -825,8 +846,11 @@ window.ctxRestoreCloud = async () => {
         window.showToast(t("msg_old_cloud_detect", "Ancienne sauvegarde : Version auto-détectée en {v} ({l}).").replace("{v}", dVer).replace("{l}", dLoader), "info");
     }
     if (window.updateIconCache) await window.updateIconCache(store.allInstances[idx]);
-    window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
+    await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
     window.renderUI();
+    } finally {
+        _cloudSyncLocks.delete(targetSlug);
+    }
 };
 window.ctxDeleteCloudOnly = async () => {
     $("cloud-only-context-menu").style.display = "none";
@@ -844,6 +868,11 @@ window.ctxSyncCloudFromMenu = async () => {
     const targetName = store.cloudTarget;
     if (!targetName) return;
     const slug = store.cloudTargetSlug || (window._cloudRichData?.find((/** @type {any} */ r) => r.name === targetName || r.realName === targetName)?.name) || window.safeDir(targetName);
+    if (_cloudSyncLocks.has(slug)) {
+        window.showToast(t("msg_sync_already_running", "Synchronisation déjà en cours pour cette instance."), "info");
+        return;
+    }
+    _cloudSyncLocks.add(slug);
     window.showToast(t("horizon_downloading", "Téléchargement de") + " " + targetName + "...", "info");
     window._isManualHorizon = true;
     try {
@@ -857,6 +886,7 @@ window.ctxSyncCloudFromMenu = async () => {
         await window.horizonScheduleCloudRefresh({ refreshQuota: true });
     } finally {
         window._isManualHorizon = false;
+        _cloudSyncLocks.delete(slug);
     }
 };
 window.ctxUploadCloudFromMenu = async () => {

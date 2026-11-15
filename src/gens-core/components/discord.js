@@ -21,6 +21,10 @@ class DiscordRPC {
         this.manualDisconnect = false;
         /** @type {number} */
         this.lastActivityUpdate = 0;
+        /** @type {number} */
+        this.reconnectAttempts = 0;
+        /** @type {Buffer} */
+        this._rxBuffer = Buffer.alloc(0);
     }
 
     /**
@@ -33,7 +37,21 @@ class DiscordRPC {
             return `\\\\?\\pipe\\discord-ipc-${id}`;
         }
         const { env } = process;
-        const prefix = env.XDG_RUNTIME_DIR || env.TMPDIR || env.TMP || env.TEMP || '/tmp';
+        const xdg = env.XDG_RUNTIME_DIR || '';
+        const tmp = env.TMPDIR || env.TMP || env.TEMP || '/tmp';
+        const candidates = [
+            xdg ? path.join(xdg, `discord-ipc-${id}`) : '',
+            xdg ? path.join(xdg, 'app', 'com.discordapp.Discord', `discord-ipc-${id}`) : '',
+            xdg ? path.join(xdg, 'snap.discord', `discord-ipc-${id}`) : '',
+            path.join(tmp, `discord-ipc-${id}`),
+            `/tmp/discord-ipc-${id}`
+        ].filter(Boolean);
+        for (const p of candidates) {
+            try {
+                if (fs.existsSync(p)) return p;
+            } catch (_) {}
+        }
+        const prefix = xdg || tmp;
         return path.join(prefix, `discord-ipc-${id}`);
     }
 
@@ -75,6 +93,8 @@ class DiscordRPC {
                     } else {
                         this.socket = socket;
                         this.connected = true;
+                        this.reconnectAttempts = 0;
+                        this._rxBuffer = Buffer.alloc(0);
                         resolve(true);
                     }
                 };
@@ -83,12 +103,11 @@ class DiscordRPC {
                     finishConnect(false);
                 }, 2000);
 
-                socket.once('data', (data) => {
-                    finishConnect(true);
-                    this.handleData(data);
-                });
-
                 socket.once('connect', () => {
+                    if (this.manualDisconnect) {
+                        finishConnect(false);
+                        return;
+                    }
                     this.handshake(socket);
                 });
 
@@ -103,13 +122,17 @@ class DiscordRPC {
                     }
                     this.connected = false;
                     this.socket = null;
+                    this._rxBuffer = Buffer.alloc(0);
                     if (!this.manualDisconnect) {
                         this.scheduleReconnect();
                     }
                 });
 
                 socket.on('data', (data) => {
-                    if (resolved) this.handleData(data);
+                    if (!resolved) {
+                        finishConnect(true);
+                    }
+                    this.handleData(data);
                 });
             };
 
@@ -118,12 +141,15 @@ class DiscordRPC {
     }
 
     scheduleReconnect() {
-        if (this.manualDisconnect) return;
+        const MAX_RECONNECT_ATTEMPTS = 10;
+        if (this.manualDisconnect || this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
         if (!this.reconnectTimer) {
+            const delayMs = Math.min(60000, 5000 * Math.pow(2, this.reconnectAttempts));
+            this.reconnectAttempts++;
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
                 if (!this.manualDisconnect) this.connect();
-            }, 5000);
+            }, delayMs);
         }
     }
 
@@ -164,8 +190,51 @@ class DiscordRPC {
      * @param {Buffer | string} data
      */
     handleData(data) {
-        // Simple handler, full protocol parsing not strictly needed for basic usage 
-        // since we only SEND status updates, but we need to read to keep buffer clean.
+        const MAX_RX_BUFFER = 1024 * 1024;
+        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        if (this._rxBuffer.length + chunk.length > MAX_RX_BUFFER) {
+            this._rxBuffer = Buffer.alloc(0);
+            if (this.socket && !this.socket.destroyed) {
+                this.socket.destroy();
+            }
+            return;
+        }
+        this._rxBuffer = this._rxBuffer.length === 0 ? chunk : Buffer.concat([this._rxBuffer, chunk]);
+        let offset = 0;
+        while (offset + 8 <= this._rxBuffer.length) {
+            const opcode = this._rxBuffer.readInt32LE(offset);
+            const length = this._rxBuffer.readInt32LE(offset + 4);
+            if (length < 0 || length > MAX_RX_BUFFER) {
+                this._rxBuffer = Buffer.alloc(0);
+                if (this.socket && !this.socket.destroyed) {
+                    this.socket.destroy();
+                }
+                return;
+            }
+            if (offset + 8 + length > this._rxBuffer.length) {
+                break;
+            }
+            offset += 8;
+            const payloadBuf = this._rxBuffer.subarray(offset, offset + length);
+            offset += length;
+
+            if (opcode === 3) {
+                // PING -> répondre PONG (opcode 4)
+                let parsed = {};
+                try { parsed = JSON.parse(payloadBuf.toString('utf8')); } catch (_) {}
+                this.send(4, parsed);
+            } else if (opcode === 2) {
+                // CLOSE -> fermer proprement la socket Discord
+                if (this.socket && !this.socket.destroyed) {
+                    this.socket.destroy();
+                }
+            }
+        }
+        if (offset > 0) {
+            this._rxBuffer = offset >= this._rxBuffer.length
+                ? Buffer.alloc(0)
+                : Buffer.from(this._rxBuffer.subarray(offset));
+        }
     }
 
     /**
@@ -228,6 +297,7 @@ class DiscordRPC {
      */
     disconnect() {
         this.manualDisconnect = true;
+        this.reconnectAttempts = 0;
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
@@ -241,6 +311,7 @@ class DiscordRPC {
             this.socket.destroy();
             this.socket = null;
         }
+        this._rxBuffer = Buffer.alloc(0);
         this.connected = false;
     }
 }

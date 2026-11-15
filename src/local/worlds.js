@@ -93,36 +93,50 @@ export function setup() {
             return;
         }
         const files = await fs.promises.readdir(savesDir);
+        const WORLD_IO_CONCURRENCY = 8;
+        /** @type {{ f: string, stats: any }[]} */
         const folders = [];
-        for (const f of files) {
-            const stat = await window.api.fs.promises.stat(path.join(savesDir, f));
-            const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
-            if (isDir) folders.push(f);
+        for (let i = 0; i < files.length; i += WORLD_IO_CONCURRENCY) {
+            const batch = files.slice(i, i + WORLD_IO_CONCURRENCY);
+            const stated = await Promise.all(batch.map(async (f) => {
+                try {
+                    const stats = await fs.promises.stat(path.join(savesDir, f));
+                    const isDir = typeof stats.isDirectory === 'function' ? stats.isDirectory() : Boolean(stats.isDirectory);
+                    return isDir ? { f, stats } : null;
+                } catch (_) {
+                    return null;
+                }
+            }));
+            for (const entry of stated) {
+                if (entry) folders.push(entry);
+            }
         }
         if (folders.length === 0) {
             listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
         }
-        let html = "";
-        for (const f of folders) {
-            const folderPath = path.join(savesDir, f);
-            const stats = await fs.promises.stat(folderPath);
-            let worldName = f;
-            try {
-                const levelDat = path.join(folderPath, "level.dat");
-                if (await window.existsSafe(levelDat)) {
-                    const buffer = await fs.promises.readFile(levelDat);
-                    const { parsed } = await window.api.nbt.parse(buffer);
-                    if (parsed && parsed.value && parsed.value.Data && parsed.value.Data.value && parsed.value.Data.value.LevelName) {
-                        worldName = parsed.value.Data.value.LevelName.value;
+        /** @type {string[]} */
+        const worldCards = new Array(folders.length);
+        for (let i = 0; i < folders.length; i += WORLD_IO_CONCURRENCY) {
+            const batch = folders.slice(i, i + WORLD_IO_CONCURRENCY);
+            const cards = await Promise.all(batch.map(async ({ f, stats }) => {
+                const folderPath = path.join(savesDir, f);
+                let worldName = f;
+                try {
+                    const levelDat = path.join(folderPath, "level.dat");
+                    if (await window.existsSafe(levelDat)) {
+                        const buffer = await fs.promises.readFile(levelDat);
+                        const { parsed } = await window.api.nbt.parse(buffer);
+                        if (parsed && parsed.value && parsed.value.Data && parsed.value.Data.value && parsed.value.Data.value.LevelName) {
+                            worldName = parsed.value.Data.value.LevelName.value;
+                        }
                     }
-                }
-            } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
-            const created = stats.birthtime.toLocaleDateString() + " " + stats.birthtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            const modified = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            const safeWorldName = window.escapeHTML(worldName);
-            const safeF = window.escapeHTML(f);
-            html += `
+                } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
+                const created = stats.birthtime.toLocaleDateString() + " " + stats.birthtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const modified = stats.mtime.toLocaleDateString() + " " + stats.mtime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const safeWorldName = window.escapeHTML(worldName);
+                const safeF = window.escapeHTML(f);
+                return `
             <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <span style="font-weight: bold; color: var(--text-light); font-size: 1rem;">${safeWorldName}</span>
@@ -136,7 +150,12 @@ export function setup() {
                     <button class="btn-secondary btn-delete-world" data-folder="${safeF}" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
+            }));
+            for (let j = 0; j < cards.length; j++) {
+                worldCards[i + j] = cards[j];
+            }
         }
+        const html = worldCards.join("");
         listDiv.innerHTML = html;
         listDiv.querySelectorAll(".btn-restore-world").forEach(btn => {
             const htmlBtn = /** @type {HTMLElement} */ (btn);

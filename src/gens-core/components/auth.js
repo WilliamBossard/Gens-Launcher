@@ -24,10 +24,51 @@ class MicrosoftAuth {
     constructor() {
         /** @type {boolean} */
         this.cancelled = false;
+        /** @type {Set<AbortController>} */
+        this._controllers = new Set();
+        /** @type {NodeJS.Timeout | null} */
+        this._pollTimer = null;
+        /** @type {((err: any) => void) | null} */
+        this._pollReject = null;
     }
 
     cancel() {
         this.cancelled = true;
+        if (this._pollTimer) {
+            clearTimeout(this._pollTimer);
+            this._pollTimer = null;
+        }
+        if (this._pollReject) {
+            const rej = this._pollReject;
+            this._pollReject = null;
+            rej(new URIError("Microsoft login cancelled"));
+        }
+        for (const ctrl of this._controllers) {
+            try { ctrl.abort(); } catch (_) {}
+        }
+        this._controllers.clear();
+    }
+
+    /**
+     * @param {string} url
+     * @param {RequestInit} [options]
+     * @param {number} [timeoutMs]
+     * @returns {Promise<Response>}
+     */
+    async _fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+        if (this.cancelled) throw new URIError("Microsoft login cancelled");
+        const controller = new AbortController();
+        this._controllers.add(controller);
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } catch (err) {
+            if (this.cancelled) throw new URIError("Microsoft login cancelled");
+            throw err;
+        } finally {
+            clearTimeout(timer);
+            this._controllers.delete(controller);
+        }
     }
 
     /**
@@ -35,7 +76,7 @@ class MicrosoftAuth {
      * @returns {Promise<DeviceCodeInfo>}
      */
     async getDeviceCode() {
-        const res = await fetch('https://login.live.com/oauth20_connect.srf', {
+        const res = await this._fetchWithTimeout('https://login.live.com/oauth20_connect.srf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({
@@ -69,11 +110,22 @@ class MicrosoftAuth {
         let transientErrors = 0;
 
         return new Promise((resolve, reject) => {
+            this._pollReject = reject;
+            const settle = (/** @type {Function} */ fn, /** @type {any} */ val) => {
+                if (this._pollTimer) { clearTimeout(this._pollTimer); this._pollTimer = null; }
+                this._pollReject = null;
+                fn(val);
+            };
+            const scheduleNext = (/** @type {number} */ ms) => {
+                if (this.cancelled) return settle(reject, new URIError("Microsoft login cancelled"));
+                this._pollTimer = setTimeout(poll, ms);
+            };
             const poll = async () => {
-                if (this.cancelled) return reject(new URIError("Microsoft login cancelled"));
-                if (Date.now() > deadline) return reject(new Error("Device code expired"));
+                this._pollTimer = null;
+                if (this.cancelled) return settle(reject, new URIError("Microsoft login cancelled"));
+                if (Date.now() > deadline) return settle(reject, new Error("Device code expired"));
                 try {
-                    const res = await fetch('https://login.live.com/oauth20_token.srf', {
+                    const res = await this._fetchWithTimeout('https://login.live.com/oauth20_token.srf', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: new URLSearchParams({
@@ -85,21 +137,21 @@ class MicrosoftAuth {
                     const data = await res.json();
                     transientErrors = 0;
                     if (data.error === 'authorization_pending') {
-                        setTimeout(poll, currentInterval * 1000);
+                        scheduleNext(currentInterval * 1000);
                     } else if (data.error === 'slow_down') {
                         currentInterval += (interval < 1 ? 0.01 : 5);
-                        setTimeout(poll, currentInterval * 1000);
+                        scheduleNext(currentInterval * 1000);
                     } else if (data.access_token) {
-                        resolve(data);
+                        settle(resolve, data);
                     } else {
-                        reject(new Error("Polling failed: " + JSON.stringify(data)));
+                        settle(reject, new Error("Polling failed: " + JSON.stringify(data)));
                     }
                 } catch (e) {
                     transientErrors++;
                     if (transientErrors <= 3 && !this.cancelled) {
-                        setTimeout(poll, currentInterval * 1000);
+                        scheduleNext(currentInterval * 1000);
                     } else {
-                        reject(e);
+                        settle(reject, e);
                     }
                 }
             };
@@ -113,7 +165,7 @@ class MicrosoftAuth {
      * @returns {Promise<any>}
      */
     async refreshMsaToken(refreshToken) {
-        const res = await fetch('https://login.live.com/oauth20_token.srf', {
+        const res = await this._fetchWithTimeout('https://login.live.com/oauth20_token.srf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({
@@ -137,7 +189,7 @@ class MicrosoftAuth {
      */
     async getXboxLiveToken(msaAccessToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
-        const res = await fetch('https://user.auth.xboxlive.com/user/authenticate', {
+        const res = await this._fetchWithTimeout('https://user.auth.xboxlive.com/user/authenticate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -165,7 +217,7 @@ class MicrosoftAuth {
      */
     async getXstsToken(xblToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
-        const res = await fetch('https://xsts.auth.xboxlive.com/xsts/authorize', {
+        const res = await this._fetchWithTimeout('https://xsts.auth.xboxlive.com/xsts/authorize', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -182,10 +234,12 @@ class MicrosoftAuth {
             })
         });
         if (res.status === 401) {
-            const err = await res.json();
-            if (err.XErr === 2148916233) throw new Error("Le compte Microsoft ne possède pas de compte Xbox Live.");
-            if (err.XErr === 2148916235) throw new Error("Le compte Xbox Live est bloqué dans une région où il n'est pas disponible.");
-            if (err.XErr === 2148916238) throw new Error("Le compte est un compte enfant. Vous devez l'ajouter à une famille.");
+            /** @type {any} */
+            let err = null;
+            try { err = await res.json(); } catch (_) {}
+            if (err?.XErr === 2148916233) throw new Error("Le compte Microsoft ne possède pas de compte Xbox Live.");
+            if (err?.XErr === 2148916235) throw new Error("Le compte Xbox Live est bloqué dans une région où il n'est pas disponible.");
+            if (err?.XErr === 2148916238) throw new Error("Le compte est un compte enfant. Vous devez l'ajouter à une famille.");
         }
         if (!res.ok) throw new Error("Failed to authenticate XSTS: " + res.status);
         return await res.json();
@@ -199,7 +253,7 @@ class MicrosoftAuth {
      */
     async getMinecraftToken(userHash, xstsToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
-        const res = await fetch('https://api.minecraftservices.com/authentication/login_with_xbox', {
+        const res = await this._fetchWithTimeout('https://api.minecraftservices.com/authentication/login_with_xbox', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -220,7 +274,7 @@ class MicrosoftAuth {
      */
     async getMinecraftProfile(mcAccessToken) {
         if (this.cancelled) throw new URIError("Microsoft login cancelled");
-        const res = await fetch('https://api.minecraftservices.com/minecraft/profile', {
+        const res = await this._fetchWithTimeout('https://api.minecraftservices.com/minecraft/profile', {
             headers: {
                 'Authorization': `Bearer ${mcAccessToken}`
             }
@@ -248,7 +302,7 @@ class MicrosoftAuth {
      */
     async flowRefresh(refreshToken) {
         const tokenRes = await this.refreshMsaToken(refreshToken);
-        return this.exchangeTokens(tokenRes.access_token, tokenRes.refresh_token);
+        return this.exchangeTokens(tokenRes.access_token, tokenRes.refresh_token || refreshToken);
     }
 
     /**
@@ -263,7 +317,8 @@ class MicrosoftAuth {
 
         const xstsRes = await this.getXstsToken(xblToken);
         const xstsToken = xstsRes.Token;
-        const userHash = xstsRes.DisplayClaims.xui[0].uhs;
+        const userHash = xstsRes?.DisplayClaims?.xui?.[0]?.uhs;
+        if (!userHash) throw new Error("Jeton Xbox XSTS invalide (uhs manquant).");
 
         const mcRes = await this.getMinecraftToken(userHash, xstsToken);
         const mcAccessToken = mcRes.access_token;

@@ -6,8 +6,6 @@ const fs = window.api.fs;
 const path = window.api.path;
 
 export function setupStats() { 
-    const EXCLUDED_DIRS = new Set(["versions", "libraries", "assets", "natives"]);
-
     async function getCacheInfoAsync() {
         /** @type {string[]} */
         let filesToDelete = [];
@@ -157,13 +155,13 @@ export function setupStats() {
         const renderAchievements = () => {
             const advDiv = document.getElementById("dashboard-achievements");
             if (advDiv && ACHIEVEMENTS && Array.isArray(ACHIEVEMENTS)) {
-                advDiv.innerHTML = "";
                 const unlocked = store.globalSettings.unlockedAchievements || [];
+                let advHtml = "";
                 ACHIEVEMENTS.forEach(adv => {
                     const isUnlocked = unlocked.includes(adv.id);
                     const safeName = t(adv.nameKey, "???");
                     const safeDesc = t(adv.descKey, "???");
-                    advDiv.innerHTML += `
+                    advHtml += `
                     <div class="adv-card ${isUnlocked ? '' : 'locked'}" style="border-color: ${isUnlocked ? 'var(--accent)' : 'var(--border)'}; margin-bottom: 5px;">
                         <img src="${adv.icon}" style="width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0; filter: ${isUnlocked ? 'none' : 'grayscale(100%) opacity(0.5)'};">
                         <div style="display: flex; flex-direction: column;">
@@ -172,6 +170,7 @@ export function setupStats() {
                         </div>
                     </div>`;
                 });
+                advDiv.innerHTML = advHtml;
             }
         };
 
@@ -280,7 +279,13 @@ export function setupStats() {
         try {
             const cacheStale = !store._diskSizeCache || (Date.now() - store._diskSizeCache.ts) >= DISK_CACHE_TTL;
             if (cacheStale) {
-                const totalBytes = await getFolderSizeAsync(store.dataDir);
+                let totalBytes = 0;
+                const folderRes = await window.api.invoke("get-folder-size", store.dataDir).catch(() => null);
+                if (folderRes && folderRes.success && typeof folderRes.bytes === "number") {
+                    totalBytes = folderRes.bytes;
+                } else {
+                    totalBytes = await getFolderSizeAsync(store.dataDir);
+                }
                 const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
                 store._diskSizeCache = { value: totalGB, ts: Date.now() };
                 const modal = document.getElementById("modal-stats");

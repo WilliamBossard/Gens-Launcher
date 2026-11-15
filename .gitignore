@@ -8,3 +8,4 @@ dist/
 website/
 tests/GensLauncher/
 scratch/
+.vscode

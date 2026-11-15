@@ -43,59 +43,80 @@ export function setup() {
         if (!(await window.existsSafe(modsPath))) return {};
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
-        
+
+        if (modCacheObj) {
+            const activeFileSet = new Set(files);
+            for (const key of Object.keys(modCacheObj)) {
+                if (path.dirname(key) === modsPath && !activeFileSet.has(path.basename(key))) {
+                    delete modCacheObj[key];
+                    cacheChanged = true;
+                }
+            }
+        }
+
+        /** @type {{ f: string, fullPath: string, fileKey: string }[]} */
+        const pendingZipReads = [];
         for (const f of files) {
             try {
                 const fullPath = path.join(modsPath, f);
                 const stat = await window.api.fs.promises.stat(fullPath);
-                const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory); 
+                const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
                 if (isDir) continue;
-                
+
                 const time = stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : 0);
                 const fileKey = "v2_" + f + "_" + stat.size + "_" + time;
-                
+
                 if (modCacheObj && modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
                     const cached = modCacheObj[fullPath];
                     if (cached.provided) cached.provided.forEach((/** @type {string} */ p) => provided.add(String(p).toLowerCase()));
                     if (cached.reqs) reqs[f] = cached.reqs;
                     continue;
                 }
+                pendingZipReads.push({ f, fullPath, fileKey });
+            } catch (e) {}
+        }
 
-                const res = await window.api.invoke("read-zip-text", { 
-                    zipPath: fullPath, 
-                    entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"] 
-                });
-                
-                /** @type {string[]} */
-                let fileProvided = [];
-                /** @type {string[]} */
-                let fileReqs = [];
-                if (res.success && res.text) {
-                    if (res.file.endsWith(".json")) {
-                        const json = JSON.parse(res.text);
-                        if (json.id) fileProvided.push(json.id);
-                        if (Array.isArray(json.provides)) json.provides.forEach((/** @type {string} */ p) => fileProvided.push(p));
-                        if (json.depends) fileReqs = Object.keys(json.depends);
-                    } else if (res.file.endsWith(".toml")) {
-                        const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
-                        if (idMatch) fileProvided.push(idMatch[1]);
-                        const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
-                        let m;
-                        while ((m = blockRegex.exec(res.text)) !== null) {
-                            fileReqs.push(m[1]);
+        const BATCH_SIZE = 8;
+        for (let i = 0; i < pendingZipReads.length; i += BATCH_SIZE) {
+            const batch = pendingZipReads.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async ({ f, fullPath, fileKey }) => {
+                try {
+                    const res = await window.api.invoke("read-zip-text", {
+                        zipPath: fullPath,
+                        entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"]
+                    });
+
+                    /** @type {string[]} */
+                    let fileProvided = [];
+                    /** @type {string[]} */
+                    let fileReqs = [];
+                    if (res.success && res.text) {
+                        if (res.file.endsWith(".json")) {
+                            const json = JSON.parse(res.text);
+                            if (json.id) fileProvided.push(json.id);
+                            if (Array.isArray(json.provides)) json.provides.forEach((/** @type {string} */ p) => fileProvided.push(p));
+                            if (json.depends) fileReqs = Object.keys(json.depends);
+                        } else if (res.file.endsWith(".toml")) {
+                            const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
+                            if (idMatch) fileProvided.push(idMatch[1]);
+                            const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
+                            let m;
+                            while ((m = blockRegex.exec(res.text)) !== null) {
+                                fileReqs.push(m[1]);
+                            }
                         }
                     }
-                }
-                
-                if (modCacheObj) {
-                    modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
-                }
-                cacheChanged = true;
-                
-                fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
-                if (fileReqs.length > 0) reqs[f] = fileReqs;
-            } catch(e) {}
-            await yieldUI(); 
+
+                    if (modCacheObj) {
+                        modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
+                    }
+                    cacheChanged = true;
+
+                    fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
+                    if (fileReqs.length > 0) reqs[f] = fileReqs;
+                } catch (e) {}
+            }));
+            await yieldUI();
         }
         
         await saveModCache();
@@ -148,7 +169,7 @@ export function setup() {
                     warningHtml = `<div style="font-size:0.7rem; color:#f48a21; margin-top:2px;">⚠ ${t("msg_warn_deps", "Dépendance manquante potentielle : ")} ${window.escapeHTML(warnings[f].join(", "))}</div>`;
                 }
                 htmlBuilder += `
-                <div class="mod-item" data-mod-file="${window.escapeHTML(f)}" style="flex-direction: column; align-items: flex-start;">
+                <div class="mod-item" data-mod-file="${window.escapeHTML(f)}" data-search-text="${window.escapeHTML(f.toLowerCase())}" style="flex-direction: column; align-items: flex-start;">
                     <div style="display:flex; width: 100%; justify-content: space-between; align-items: center;">
                         <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
                         <div style="display:flex; gap:8px; align-items: center;">
@@ -198,7 +219,7 @@ export function setup() {
         const items = document.querySelectorAll("#mods-list .mod-item");
         items.forEach(item => {
             const htmlItem = /** @type {HTMLElement} */ (item);
-            const text = htmlItem.innerText.toLowerCase();
+            const text = htmlItem.dataset.searchText ?? (htmlItem.textContent || "").toLowerCase();
             htmlItem.style.display = text.includes(filter) ? "flex" : "none";
         });
     };

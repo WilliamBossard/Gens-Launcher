@@ -133,30 +133,37 @@ export function setup() {
             );
             await yieldUI();
             try {
-                const newPath = path.join(modsPath, update.newFileObj.filename);
-                const oldPath = path.join(modsPath, update.oldFile);
-                const dlController = new AbortController();
-                const dlTimeout = setTimeout(() => dlController.abort(), 60000);
-                let buffer;
-                try {
-                    const dlRes = await fetch(update.newFileObj.url, { signal: dlController.signal });
-                    if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
-                    buffer = await dlRes.arrayBuffer();
-                } finally {
-                    clearTimeout(dlTimeout);
+                const dlUrl = update.newFileObj?.url;
+                if (!dlUrl || !/^https:\/\//i.test(dlUrl)) {
+                    throw new Error("URL de mise à jour non HTTPS ou manquante.");
                 }
-                const fileBytes = new Uint8Array(buffer);
-                if (update.newFileObj.hashes?.sha1) {
-                    const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
-                    if (dlHash !== update.newFileObj.hashes.sha1) {
-                        sysLog(`SÉCURITÉ : hash SHA1 invalide pour la mise à jour ${update.newFileObj.filename} (attendu: ${update.newFileObj.hashes.sha1}, reçu: ${dlHash})`, true);
-                        window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${update.newFileObj.filename}`, "error");
-                        continue;
-                    }
+                const hashAlgo = update.newFileObj?.hashes?.sha512 ? "sha512" : (update.newFileObj?.hashes?.sha1 ? "sha1" : null);
+                const expectedHash = hashAlgo ? String(update.newFileObj.hashes[hashAlgo]).toLowerCase() : null;
+                if (!hashAlgo || !expectedHash) {
+                    throw new Error(`Empreinte SHA manquante pour ${update.newFileObj?.filename || update.oldFile}`);
                 }
-                const tmpPath = newPath + ".tmp";
-                await fs.promises.writeFile(tmpPath, fileBytes);
-                await fs.promises.rename(tmpPath, newPath);
+                const rawModName = path.basename(String(update.newFileObj?.filename || ""));
+                const safeModName = rawModName.replace(/[^a-zA-Z0-9._\-+() ]/g, "_");
+                if (!safeModName || safeModName === "." || safeModName === ".." || !/\.(jar|jar\.disabled)$/i.test(safeModName)) {
+                    throw new Error(`Nom de fichier de mise à jour invalide ou interdit : "${rawModName}"`);
+                }
+                const newPath = path.resolve(modsPath, safeModName);
+                const resolvedModsRoot = path.resolve(modsPath);
+                if (path.dirname(newPath) !== resolvedModsRoot) {
+                    throw new Error("Tentative d'écriture de mod hors du dossier mods bloquée.");
+                }
+                const oldPath = path.join(modsPath, path.basename(String(update.oldFile || "")));
+                const dlRes = await window.api.invoke("download-file-stream", {
+                    url: dlUrl,
+                    destPath: newPath,
+                    expectedHash,
+                    hashAlgo
+                });
+                if (!dlRes || !dlRes.success) {
+                    sysLog(`SÉCURITÉ / DL échec MAJ mod ${update.newFileObj.filename} : ${dlRes?.error || "erreur inconnue"}`, true);
+                    window.showToast(t("msg_err_hash", "Fichier corrompu ou modifié !") + ` : ${update.newFileObj.filename}`, "error");
+                    continue;
+                }
                 if (oldPath !== newPath && await window.existsSafe(oldPath)) {
                     await fs.promises.unlink(oldPath);
                 }

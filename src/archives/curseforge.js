@@ -106,14 +106,14 @@ async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir
             const fileName = String(modFile.filename || `${hit.slug || hit.project_id}.jar`)
                 .replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
             const filePath = path.join(modsDir, fileName);
-            const response = await window.fetchWithTimeout(modFile.url, { timeout: 120000 });
-            if (!response.ok) continue;
-            const fileBytes = new Uint8Array(await response.arrayBuffer());
-            if (modFile.hashes?.sha1) {
-                const hash = await window.api.tools.hashBuffer(fileBytes, "sha1");
-                if (hash !== modFile.hashes.sha1) continue;
-            }
-            await fs.promises.writeFile(filePath, fileBytes);
+            const expectedSha1 = modFile.hashes?.sha1 ? String(modFile.hashes.sha1).toLowerCase() : null;
+            const dlRes = await window.api.invoke("download-file-stream", {
+                url: modFile.url,
+                destPath: filePath,
+                expectedHash: expectedSha1,
+                hashAlgo: expectedSha1 ? "sha1" : null
+            });
+            if (!dlRes || !dlRes.success) continue;
             sysLog(`[IMPORT CF] Mod récupéré via Modrinth : ${projectName} -> ${fileName}`);
             return true;
         }
@@ -292,18 +292,16 @@ async function downloadCurseForgeFiles({
             }
 
             const sha1Obj = fileData?.hashes?.find((/** @type {any} */ h) => h.algo === 1);
+            const expectedSha1 = sha1Obj?.value ? String(sha1Obj.value).toLowerCase() : null;
             for (const url of candidateUrls) {
                 try {
-                    const dlRes = await window.api.invoke("download-file-stream", { url, destPath: finalPath });
+                    const dlRes = await window.api.invoke("download-file-stream", {
+                        url,
+                        destPath: finalPath,
+                        expectedHash: expectedSha1,
+                        hashAlgo: expectedSha1 ? "sha1" : null
+                    });
                     if (dlRes?.success) {
-                        if (sha1Obj?.value) {
-                            const hashRes = await window.api.invoke("hash-file", { filePath: finalPath, algo: "sha1" });
-                            if (hashRes?.success && hashRes.hash && hashRes.hash.toLowerCase() !== sha1Obj.value.toLowerCase()) {
-                                sysLog(`[SECURITY] Hash mismatch pour ${safeName}: attendu ${sha1Obj.value}, reçu ${hashRes.hash}`, true);
-                                try { await fs.promises.unlink(finalPath); } catch (_) {}
-                                continue;
-                            }
-                        }
                         downloaded = true;
                         break;
                     }
@@ -361,12 +359,18 @@ export function setup() {
             }
             await fs.promises.mkdir(modsDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
-            const srcOverrides = path.join(tempExtractDir, overridesDir);
+            const resolvedTempExtract = path.resolve(tempExtractDir);
+            const srcOverrides = path.resolve(resolvedTempExtract, overridesDir);
+            if (!srcOverrides.startsWith(resolvedTempExtract + (resolvedTempExtract.endsWith("\\") || resolvedTempExtract.endsWith("/") ? "" : (srcOverrides.includes("/") ? "/" : "\\"))) && srcOverrides !== resolvedTempExtract) {
+                throw new Error("Chemin overrides invalide dans manifest.json (traversée bloquée).");
+            }
             if (await window.existsSafe(srcOverrides)) {
                 const items = await fs.promises.readdir(srcOverrides);
+                const resolvedInstDir = path.resolve(instDir);
                 for (const item of items) {
-                    if (item === "saves" || item === "resourcepacks") continue;
-                    const destPath = path.join(instDir, item);
+                    if (item === "saves" || item === "resourcepacks" || item === "manifest.json" || item === "instance.json") continue;
+                    const destPath = path.resolve(resolvedInstDir, item);
+                    if (!destPath.startsWith(resolvedInstDir + (destPath.includes("/") ? "/" : "\\"))) continue;
                     if (await window.existsSafe(destPath)) {
                         try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
@@ -384,7 +388,7 @@ export function setup() {
                 loaderType: inst.loader,
                 onProgress: (count, tot) => {
                     window.updateLoadingPercent(
-                        Math.round((count / tot) * 100),
+                        tot > 0 ? Math.round((count / tot) * 100) : 0,
                         t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${count}/${tot})...`
                     );
                 }
@@ -450,11 +454,18 @@ export function setup() {
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
             const overridesDir = manifest.overrides || "overrides";
-            const srcOverrides = path.join(tempExtractDir, overridesDir);
+            const resolvedTempExtract = path.resolve(tempExtractDir);
+            const srcOverrides = path.resolve(resolvedTempExtract, overridesDir);
+            if (!srcOverrides.startsWith(resolvedTempExtract + (resolvedTempExtract.endsWith("\\") || resolvedTempExtract.endsWith("/") ? "" : (srcOverrides.includes("/") ? "/" : "\\"))) && srcOverrides !== resolvedTempExtract) {
+                throw new Error("Chemin overrides invalide dans manifest.json (traversée bloquée).");
+            }
             if (await window.existsSafe(srcOverrides)) {
                 const items = await fs.promises.readdir(srcOverrides);
+                const resolvedInstDir = path.resolve(instDir);
                 for (const item of items) {
-                    const destPath = path.join(instDir, item);
+                    if (item === "manifest.json") continue;
+                    const destPath = path.resolve(resolvedInstDir, item);
+                    if (!destPath.startsWith(resolvedInstDir + (destPath.includes("/") ? "/" : "\\"))) continue;
                     if (await window.existsSafe(destPath)) {
                         try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
                     }
@@ -473,7 +484,7 @@ export function setup() {
                 loaderType,
                 onProgress: (count, tot) => {
                     window.updateLoadingPercent(
-                        Math.round((count / tot) * 100),
+                        tot > 0 ? Math.round((count / tot) * 100) : 0,
                         t("msg_dl_mods_pack", "Téléchargement des mods") + ` (${count}/${tot})...`
                     );
                 }
@@ -573,14 +584,13 @@ export function setup() {
                 }
             }
             const instData = {
-                ...rawData,
                 name:          finalName,
                 version:       String(rawData.version  || "1.20.4").substring(0, 32),
                 loader:        detectedLoader,
                 loaderVersion: detectedLoaderVersion,
                 ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),
-                javaPath:      typeof rawData.javaPath === 'string' ? rawData.javaPath : "", 
-                jvmArgs:       typeof rawData.jvmArgs === 'string' ? rawData.jvmArgs : "", 
+                javaPath:      "", 
+                jvmArgs:       "", 
                 jvmProfile:    typeof rawData.jvmProfile === 'string' ? rawData.jvmProfile : "none",
                 notes:         String(rawData.notes || "").substring(0, 1000),
                 icon:          typeof rawData.icon === 'string' ? rawData.icon : "", 
@@ -593,6 +603,7 @@ export function setup() {
                 servers:       Array.isArray(rawData.servers) ? rawData.servers : [],
                 backupMode:    ["none","on_launch","on_close"].includes(rawData.backupMode) ? rawData.backupMode : "none",
                 backupLimit:   Math.max(1, Math.min(50, parseInt(rawData.backupLimit) || 5)),
+                _localConfigUpdatedAt: 0,
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });

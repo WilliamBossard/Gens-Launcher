@@ -428,3 +428,21 @@ test('Handler.parseRule handles arch regex matching (^x86$)', () => {
         assert.strictEqual(handler.parseRule(libX86), true, 'library with allow rule for ^x86$ should be skipped (parseRule returns true) on x64/arm64');
     }
 });
+
+test('safeWriteJSONAsync strips cfApiKey when writing store.settingsFile', async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_audit_cfstrip_'));
+    const { store } = await import('../src/store.js');
+    const origSettingsFile = store.settingsFile;
+    const fakeSettings = path.join(tmpDir, 'settings.json');
+    try {
+        store.settingsFile = fakeSettings;
+        await window.safeWriteJSONAsync(fakeSettings, { lang: 'fr', cfApiKey: 'SECRET_CF_API_KEY' });
+        const raw = JSON.parse(await fs.promises.readFile(fakeSettings, 'utf8'));
+        assert.strictEqual(raw.lang, 'fr');
+        assert.strictEqual('cfApiKey' in raw, false);
+    } finally {
+        store.settingsFile = origSettingsFile;
+        await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+});
+

@@ -50,7 +50,10 @@ module.exports = function setupAuthHandlers(context) {
 
             if (response.msaRefreshToken) {
                 const encryptedToken = await encryptText(response.msaRefreshToken);
-                await fs.promises.writeFile(path.join(cacheDir, sessionLabel + '.json'), JSON.stringify({ refreshToken: encryptedToken }));
+                const destFile = path.join(cacheDir, sessionLabel + '.json');
+                const tmpFile = `${destFile}.tmp.${process.pid}.${Date.now()}`;
+                await fs.promises.writeFile(tmpFile, JSON.stringify({ refreshToken: encryptedToken }), 'utf8');
+                await fs.promises.rename(tmpFile, destFile);
                 response.msaRefreshToken = null;
             }
 
@@ -71,20 +74,38 @@ module.exports = function setupAuthHandlers(context) {
 
     ipcMain.handle("upload-mojang-skin", async (_, { accessToken, skinData, variant }) => {
         try {
-            const fileBlob = new Blob([skinData], { type: "image/png" });
+            const buf = Buffer.isBuffer(skinData) ? skinData : Buffer.from(skinData || []);
+            if (buf.length < 8 || buf.length > 2 * 1024 * 1024) {
+                return { success: false, error: "Taille du fichier skin invalide (max 2 Mo)." };
+            }
+            const PNG_MAGIC = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+            if (!PNG_MAGIC.every((b, i) => buf[i] === b)) {
+                return { success: false, error: "Format invalide : le skin doit être un fichier PNG." };
+            }
+
+            const fileBlob = new Blob([buf], { type: "image/png" });
             const formData = new FormData();
             const VALID_VARIANTS = new Set(["classic", "slim"]);
             const safeVariant = VALID_VARIANTS.has(variant) ? variant : "classic";
             formData.append("variant", safeVariant);
             formData.append("file", fileBlob, "skin.png");
 
-            const res = await fetch("https://api.minecraftservices.com/minecraft/profile/skins", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${accessToken}`
-                },
-                body: formData
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            /** @type {Response} */
+            let res;
+            try {
+                res = await fetch("https://api.minecraftservices.com/minecraft/profile/skins", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`
+                    },
+                    body: formData,
+                    signal: controller.signal
+                });
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
             if (res.ok) {
                 return { success: true };
@@ -124,7 +145,32 @@ module.exports = function setupAuthHandlers(context) {
             
             if (response.msaRefreshToken) {
                 const encryptedToken = await encryptText(response.msaRefreshToken);
-                await fs.promises.writeFile(cacheFile, JSON.stringify({ refreshToken: encryptedToken }));
+                const crypto = require('crypto');
+                const tmpFile = `${cacheFile}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
+                try {
+                    await fs.promises.writeFile(tmpFile, JSON.stringify({ refreshToken: encryptedToken }), 'utf8');
+                    let renamed = false;
+                    let lastRenameErr = null;
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        try {
+                            await fs.promises.rename(tmpFile, cacheFile);
+                            renamed = true;
+                            break;
+                        } catch (renameErr) {
+                            lastRenameErr = renameErr;
+                            const nodeErr = /** @type {any} */ (renameErr);
+                            if (['EBUSY', 'EPERM', 'EACCES'].includes(nodeErr?.code) && attempt < 4) {
+                                await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                    if (!renamed) throw lastRenameErr;
+                } catch (writeErr) {
+                    await fs.promises.rm(tmpFile, { force: true }).catch(() => {});
+                    throw writeErr;
+                }
                 response.msaRefreshToken = null;
             }
             decryptedToken = null;
@@ -140,7 +186,10 @@ module.exports = function setupAuthHandlers(context) {
 
     ipcMain.handle("delete-msa-cache", async (_, sessionLabel) => { // AUDIT-28 : on→handle pour retourner un résultat
         try {
-            if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) { mainLog(`Suppression cache MSA bloquée : label invalide`); return; }
+            if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+                mainLog(`Suppression cache MSA bloquée : label invalide`);
+                return { success: false, error: "Label invalide" };
+            }
             const cacheFile = path.join(safeDataDir, "msa-cache", sessionLabel + '.json');
 
             try {
@@ -159,9 +208,11 @@ module.exports = function setupAuthHandlers(context) {
                     if (anyErr2 && anyErr2.code !== 'ENOENT') console.warn("Ignored error in ipc-auth.js:", err2);
                 }
             }
+            return { success: true };
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             mainLog("Erreur suppression cache MSA : " + msg);
+            return { success: false, error: msg };
         }
     });
 
@@ -172,7 +223,8 @@ module.exports = function setupAuthHandlers(context) {
 
             if (token) {
                 const res = await fetch("https://api.minecraftservices.com/minecraft/profile", {
-                    headers: { "Authorization": `Bearer ${token}` }
+                    headers: { "Authorization": `Bearer ${token}` },
+                    signal: AbortSignal.timeout(15000)
                 });
                 if (res.ok) {
                     const profile = await res.json();
@@ -183,7 +235,9 @@ module.exports = function setupAuthHandlers(context) {
             }
             if (uuid) {
                 if (typeof uuid !== "string" || !/^[0-9a-f-]{32,36}$/i.test(uuid)) throw new Error("UUID invalide");
-                const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(uuid)}`);
+                const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(uuid)}`, {
+                    signal: AbortSignal.timeout(15000)
+                });
                 if (!profileRes.ok) throw new Error("profile not found: " + profileRes.status);
                 const profile = await profileRes.json();
                 const encoded = profile.properties?.find((/** @type {any} */ p) => p.name === "textures")?.value;
@@ -202,14 +256,18 @@ module.exports = function setupAuthHandlers(context) {
         try {
             let activeUuid = uuid;
             if (!activeUuid && name) {
-                const res = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`);
+                const res = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`, {
+                    signal: AbortSignal.timeout(15000)
+                });
                 if (res.ok) {
                     const data = await res.json();
                     activeUuid = data.id;
                 }
             }
             if (!activeUuid || typeof activeUuid !== "string" || !/^[0-9a-f-]{32,36}$/i.test(activeUuid)) throw new Error("No valid UUID found");
-            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(activeUuid)}`);
+            const profileRes = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${encodeURIComponent(activeUuid)}`, {
+                signal: AbortSignal.timeout(15000)
+            });
             if (!profileRes.ok) throw new Error("Profile fetch failed");
             const profile = await profileRes.json();
             const encoded = profile.properties?.find((/** @type {any} */ p) => p.name === "textures")?.value;
@@ -222,7 +280,9 @@ module.exports = function setupAuthHandlers(context) {
             if (safeSkinUrl.protocol !== 'https:' || (!safeSkinUrl.hostname.endsWith('.minecraft.net') && !safeSkinUrl.hostname.endsWith('.mojang.com'))) {
                 throw new Error("Domaine de skin non autorisé");
             }
-            const skinRes = await fetch(safeSkinUrl.toString());
+            const skinRes = await fetch(safeSkinUrl.toString(), {
+                signal: AbortSignal.timeout(15000)
+            });
             if (!skinRes.ok) throw new Error("Failed to download skin image");
             
             const buffer = await skinRes.arrayBuffer();

@@ -38,6 +38,7 @@ export interface MainContext {
   mainResolveInstanceFolder: (nameOrFolder: string) => string;
   assertPathUnderSandbox: (p: string) => string;
   sanitizeShortcutName: (name: string) => string;
+  isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean;
   shell: Shell;
 }
 

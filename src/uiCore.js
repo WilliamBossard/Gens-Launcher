@@ -145,7 +145,15 @@ export function setupUICore() {
             }
         } catch(e) { console.warn('uiCore error:', e); }
     };
-    setInterval(window.checkRealInternet, 5000);
+    setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return;
+        window.checkRealInternet();
+    }, 15000);
+    if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) window.checkRealInternet();
+        });
+    }
     window.checkRealInternet();
 
     window.updateOfflineUIState = () => {

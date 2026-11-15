@@ -15,6 +15,62 @@ const INSTANCE_CONFIG_KEYS = [
 
 const CLOUD_META_SUBPATH = ['gens', 'launcher_config.json'];
 
+const SAFE_CLOUD_JVM_BOOL_FLAGS = new Set([
+    '-server',
+    '-da',
+    '-dsa',
+    '-ea',
+    '-esa'
+]);
+
+const SAFE_CLOUD_JVM_MEM_RE = /^-Xm(?:s|x|n)[1-9]\d*[kmgKMG]?$|^-Xss[1-9]\d*[kmgKMG]?$/;
+const SAFE_CLOUD_JVM_XX_BOOL_RE = /^-XX:[+-][A-Za-z][A-Za-z0-9]{1,63}$/;
+const SAFE_CLOUD_JVM_XX_NUM_RE = /^-XX:[A-Za-z][A-Za-z0-9]{1,63}=\d+[kmgKMG]?$/;
+const SAFE_CLOUD_JVM_D_SAFE_RE = /^-D(?:file\.encoding|fml\.ignoreInvalidMinecraftCertificates|fml\.ignorePatchDiscrepancies|user\.language|user\.country|java\.net\.preferIPv4Stack)=[A-Za-z0-9._-]{1,32}$/;
+
+const BLOCKED_CLOUD_XX_NAMES = new Set([
+    'onoutofmemoryerror', 'onerror', 'compilecommandfile', 'flightrecorderoptions',
+    'logfile', 'errorfile', 'heapdumppath', 'archiveclassesatexit', 'sharedarchivefile',
+    'unlockdiagnosticvmoptions'
+]);
+
+/**
+ * Filtre strictement (allowlist) les arguments JVM importés depuis le Cloud.
+ * Retourne une chaîne filtrée (format attendu par inst.jvmArgs) tout en rejetant
+ * tout flag potentiellement dangereux.
+ * @param {unknown} rawJvmArgs
+ * @returns {string | undefined}
+ */
+function sanitizeSyncedJvmArgs(rawJvmArgs) {
+    if (rawJvmArgs == null) return undefined;
+    const isStr = typeof rawJvmArgs === 'string';
+    const tokens = isStr
+        ? rawJvmArgs.trim().split(/\s+/).filter(Boolean)
+        : (Array.isArray(rawJvmArgs) ? rawJvmArgs.map(v => String(v).trim()).filter(Boolean) : null);
+    if (!tokens) return undefined;
+
+    /** @type {string[]} */
+    const accepted = [];
+    for (const arg of tokens.slice(0, 64)) {
+        if (/[\0\r\n]/.test(arg) || arg.startsWith('@')) continue;
+        if (SAFE_CLOUD_JVM_BOOL_FLAGS.has(arg) ||
+            SAFE_CLOUD_JVM_MEM_RE.test(arg) ||
+            SAFE_CLOUD_JVM_D_SAFE_RE.test(arg)) {
+            accepted.push(arg);
+            continue;
+        }
+        if (SAFE_CLOUD_JVM_XX_BOOL_RE.test(arg) || SAFE_CLOUD_JVM_XX_NUM_RE.test(arg)) {
+            const flagName = arg.slice(4).replace(/^[+-]/, '').split('=')[0].toLowerCase();
+            if (!BLOCKED_CLOUD_XX_NAMES.has(flagName)) {
+                accepted.push(arg);
+                continue;
+            }
+        }
+        sysLog(`[HORIZON] Argument JVM cloud non autorisé ignoré : "${arg}"`, true);
+    }
+    return accepted.join(' ');
+}
+
 /**
  * @param {any} inst
  * @param {{ preserveTimestamp?: boolean }} [opts]
@@ -87,11 +143,36 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                 for (const key of INSTANCE_CONFIG_KEYS) {
                     if (key in cloudConfig && JSON.stringify(cloudConfig[key]) !== JSON.stringify(inst[key])) {
                         if (key === 'javaPath' && cloudConfig.javaPath) {
+                            const normPath = (/** @type {string} */ s) => {
+                                const resolved = path.resolve(s);
+                                return window.api.platform === 'win32' ? resolved.toLowerCase() : resolved;
+                            };
+                            const cand = normPath(cloudConfig.javaPath);
+                            const homedir = window.api?.os?.userInfo?.()?.homedir || '';
+                            const blockedBases = [
+                                store.instancesRoot,
+                                homedir ? path.join(homedir, 'Downloads') : '',
+                                homedir ? path.join(homedir, 'Desktop') : '',
+                            ].filter(Boolean).map(normPath);
+                            const sep = window.api.platform === 'win32' ? '\\' : '/';
+                            if (blockedBases.some(b => cand === b || cand.startsWith(b + sep))) {
+                                sysLog(`[HORIZON] Bloqué javaPath du cloud dans un répertoire non fiable : "${cloudConfig.javaPath}"`, true);
+                                continue;
+                            }
                             const exists = await window.existsSafe(cloudConfig.javaPath);
                             if (!exists) {
                                 sysLog(`[HORIZON] Ignoré javaPath du cloud introuvable sur cette machine : "${cloudConfig.javaPath}"`);
                                 continue;
                             }
+                        }
+                        if (key === 'jvmArgs') {
+                            const safeArgs = sanitizeSyncedJvmArgs(cloudConfig.jvmArgs);
+                            if (safeArgs === undefined) continue;
+                            if (JSON.stringify(safeArgs) === JSON.stringify(inst.jvmArgs)) continue;
+                            inst.jvmArgs = safeArgs;
+                            instChanged = true;
+                            changed = true;
+                            continue;
                         }
                         if (key === 'version' || key === 'loader' || key === 'loaderVersion') {
                             loaderOrVerChanged = true;
@@ -328,7 +409,9 @@ export async function analyzeCrash(instanceName, exitCode = null) {
         const logPath = path.join(instDir, "logs", "latest.log");
         if (await window.existsSafe(logPath)) {
             try {
-                logData = await fs.promises.readFile(logPath, 'utf8');
+                logData = fs.promises.readTail
+                    ? await fs.promises.readTail(logPath, 512 * 1024)
+                    : await fs.promises.readFile(logPath, 'utf8');
                 if (logData.length > 200000) {
                     logData = logData.substring(logData.length - 200000);
                 }

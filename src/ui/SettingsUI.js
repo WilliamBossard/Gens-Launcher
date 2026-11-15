@@ -100,6 +100,7 @@ export function setupSettings() {
         $("global-disable-animations").value = store.globalSettings.disableAnimations ? "true" : "false";
         $("global-disable-transparency").value = store.globalSettings.disableTransparency ? "true" : "false";
         $("global-offline-mode").value = store.globalSettings.offlineMode ? "true" : "false";
+        if ($("global-fast-verify")) $("global-fast-verify").value = store.globalSettings.fastSizeOnly ? "true" : "false";
         const optSelect = $("global-options-source");
         optSelect.innerHTML = `<option value='none'>-- ${t("opt_none_disable", "Aucun (Désactiver)")} --</option>`;
         {
@@ -137,6 +138,20 @@ export function setupSettings() {
         document.querySelectorAll("#modal-settings .settings-content").forEach(el => el.scrollTop = 0);
         $("modal-settings").style.display = "none";
     };
+    const persistSettingsAndCfKey = async () => {
+        if (store.cfApiKeyFile && window.api?.security?.writeJSON) {
+            try {
+                if (store.globalSettings.cfApiKey) {
+                    await window.api.security.writeJSON(store.cfApiKeyFile, { cfApiKey: store.globalSettings.cfApiKey });
+                } else if (await window.existsSafe(store.cfApiKeyFile)) {
+                    await fs.promises.rm(store.cfApiKeyFile, { force: true });
+                }
+            } catch (/** @type {any} */ secErr) {
+                console.warn("Impossible de chiffrer la clé API CurseForge:", secErr?.message || secErr);
+            }
+        }
+        await window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+    };
     window.saveGlobalSettings = async () => {
         let rawRam = parseInt($("global-ram-input").value) || 4096;
         if (rawRam < 128) rawRam = rawRam * 1024;
@@ -152,6 +167,7 @@ export function setupSettings() {
         store.globalSettings.disableAnimations = $("global-disable-animations").value === "true";
         store.globalSettings.disableTransparency = $("global-disable-transparency").value === "true";
         store.globalSettings.offlineMode = $("global-offline-mode").value === "true";
+        if ($("global-fast-verify")) store.globalSettings.fastSizeOnly = $("global-fast-verify").value === "true";
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
         window.api.send("set-offline-mode", store.globalSettings.offlineMode);
         if (window.updateOfflineUIState) window.updateOfflineUIState();
@@ -204,7 +220,7 @@ export function setupSettings() {
             blur:         Math.max(0, Math.min(50,   isNaN(rawBlur) ? 5   : rawBlur)),
             panelOpacity: Math.max(0.1, Math.min(1,  isNaN(rawOp)   ? 0.6 : rawOp)),
         };
-        window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+        await persistSettingsAndCfKey();
         if (window.updateNetworkUI) window.updateNetworkUI();
         if(store.selectedInstanceIdx !== null) window.selectInstance(store.selectedInstanceIdx);
         else if(window.applyTheme) window.applyTheme();
@@ -216,7 +232,7 @@ export function setupSettings() {
             const defaultOpt = path.join(store.dataDir, "default_options.txt");
             if (await fs.promises.exists(defaultOpt)) await fs.promises.unlink(defaultOpt);
             store.globalSettings.defaultOptionsInstance = null;
-            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            await persistSettingsAndCfKey();
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
@@ -226,7 +242,7 @@ export function setupSettings() {
         if (await fs.promises.exists(sourceOpt)) {
             await fs.promises.copyFile(sourceOpt, path.join(store.dataDir, "default_options.txt"));
             store.globalSettings.defaultOptionsInstance = inst.name;
-            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            await persistSettingsAndCfKey();
             window.showToast(t("msg_options_saved", "Options sauvegardées avec succès"), "success");
         } else {
             window.showToast(t("msg_no_options_found", "Aucun options.txt trouvé. Lancez le jeu au moins une fois !"), "error");
@@ -238,7 +254,7 @@ export function setupSettings() {
             const defaultSrv = path.join(store.dataDir, "default_servers.dat");
             if (await fs.promises.exists(defaultSrv)) await fs.promises.unlink(defaultSrv);
             store.globalSettings.defaultServersInstance = null;
-            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            await persistSettingsAndCfKey();
             window.showToast(t("msg_profile_disabled", "Profil par défaut désactivé."), "info");
             return;
         }
@@ -249,7 +265,7 @@ export function setupSettings() {
         if (await fs.promises.exists(sourceDat)) {
             await fs.promises.copyFile(sourceDat, path.join(store.dataDir, "default_servers.dat"));
             store.globalSettings.defaultServersInstance = inst.name;
-            window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+            await persistSettingsAndCfKey();
             window.showToast(t("msg_profile_saved", "Profil sauvegardé !"), "success");
         } else {
             window.showToast(t("msg_no_options_found", "Aucun servers.dat trouvé. Lancez le jeu au moins une fois !"), "error");
@@ -352,7 +368,7 @@ export function setupSettings() {
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
-                    window.safeWriteJSONAsync(store.settingsFile, store.globalSettings);
+                    await persistSettingsAndCfKey();
                 }
                 window.showToast(t("msg_java_deleted", "Java {version} a été supprimé.").replace("{version}", version), "success");
                 window.updateJavaButtonsDisplay();
@@ -388,53 +404,37 @@ export function setupSettings() {
                 if (assetsRes.ok) {
                     const assets = await assetsRes.json();
                     if (Array.isArray(assets) && assets[0]?.binary?.package?.checksum) {
-                        expectedSha256 = assets[0].binary.package.checksum.toLowerCase();
+                        expectedSha256 = String(assets[0].binary.package.checksum).trim().toLowerCase();
                     }
                 }
             } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
-            const res = await window.fetchWithTimeout(url, { timeout: 15000 });
-            if (!res.ok) throw new Error(t("msg_err_java_version", "Version de Java {version} non trouvée pour {platform}").replace("{version}", type.toUpperCase()).replace("{platform}", `${platform}-${arch}`));
-            const contentLength = res.headers.get('content-length');
-            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-            let receivedBytes = 0;
-            const chunks = [];
-            if (!res.body) throw new Error("No response body");
-            const reader = res.body.getReader();
+            if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+                throw new Error(t("msg_err_java_sha256_missing", "Empreinte SHA-256 Adoptium introuvable. Installation Java annulée par sécurité."));
+            }
+            const progressId = `java-${type}-${version}-${Date.now()}`;
             window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                receivedBytes += value.length;
-                if (totalBytes > 0) {
-                    const pct = Math.round((receivedBytes / totalBytes) * 100);
-                    const percentElement = $("loading-percent");
-                    if (percentElement) {
-                        percentElement.innerText = pct + "%";
-                    }
+            const unsubscribeDl = window.api.on("download-progress", (/** @type {any} */ p) => {
+                if (p?.progressId !== progressId) return;
+                const percentElement = $("loading-percent");
+                if (percentElement && p.totalBytes > 0) {
+                    percentElement.innerText = p.percent + "%";
                 }
-            }
-            const fileBytes = new Uint8Array(receivedBytes);
-            let position = 0;
-            for (const chunk of chunks) {
-                fileBytes.set(chunk, position);
-                position += chunk.length;
-            }
-            const percentElement = $("loading-percent");
-            if (percentElement) percentElement.innerText = "";
-            const tmpArchivePath = archivePath + ".tmp";
-            await fs.promises.writeFile(tmpArchivePath, fileBytes);
-            if (expectedSha256) {
-                window.showLoading(t("msg_verify_hash", "Vérification de l'intégrité..."));
-                await yieldUI();
-                const hashRes = await window.api.invoke("hash-file", { filePath: tmpArchivePath, algo: "sha256" });
-                if (!hashRes?.success || !hashRes.hash || hashRes.hash.toLowerCase() !== expectedSha256.toLowerCase()) {
-                    sysLog(`[SECURITY] Hash SHA256 invalide pour le binaire Java ${type}${version}: attendu ${expectedSha256}, reçu ${hashRes?.hash || hashRes?.error || "n/a"}`, true);
-                    try { await fs.promises.unlink(tmpArchivePath); } catch (/** @type {any} */ _) {  }
-                    throw new Error(t("msg_err_java_sha256", "Échec de la vérification SHA256 du binaire Java !"));
+            });
+            try {
+                const dlRes = await window.api.invoke("download-file-stream", {
+                    url,
+                    destPath: archivePath,
+                    expectedSha256,
+                    progressId
+                });
+                if (!dlRes || !dlRes.success) {
+                    throw new Error(dlRes?.error || t("msg_err_java_sha256", "Échec du téléchargement ou vérification SHA256 de Java !"));
                 }
+            } finally {
+                if (unsubscribeDl) unsubscribeDl();
+                const percentElement = $("loading-percent");
+                if (percentElement) percentElement.innerText = "";
             }
-            await fs.promises.rename(tmpArchivePath, archivePath);
             window.showLoading(t("msg_extract_java"));
             await yieldUI();
             const extractDir = path.join(javaDir, `${type}${version}`);
@@ -553,9 +553,27 @@ export function setupSettings() {
 export function setupHorizonSettings() {
 const sanitizeHtmlForCsp = (/** @type {any} */ html) => {
     if (typeof html !== "string") return html;
-    return html
-        .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
-        .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "");
+    try {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        doc.querySelectorAll("script, iframe, object, embed, link[rel='import'], base, form, style, meta").forEach(el => el.remove());
+        doc.querySelectorAll("*").forEach(el => {
+            for (const attr of Array.from(el.attributes)) {
+                const name = attr.name.toLowerCase();
+                const val = attr.value.trim().toLowerCase();
+                if (name.startsWith("on") || name === "srcdoc") {
+                    el.removeAttribute(attr.name);
+                } else if ((name === "href" || name === "src" || name === "action" || name === "formaction") &&
+                    (val.startsWith("javascript:") || val.startsWith("vbscript:") || val.startsWith("data:text/html"))) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        });
+        return doc.body.innerHTML;
+    } catch (_) {
+        return typeof window !== "undefined" && typeof window.escapeHTML === "function"
+            ? window.escapeHTML(html)
+            : String(html).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
+    }
 };
 
 const bindSafeCloudIconFallbacks = (/** @type {any} */ root) => {
@@ -572,23 +590,6 @@ const bindSafeCloudIconFallbacks = (/** @type {any} */ root) => {
 window.refreshHorizonUI = async () => {
         const container = $("horizon-container");
         if (!container) return;
-        if (!window._lastCloudGridHtml) {
-            try {
-                const htmlCachePath = await window.resolveHorizonFilePath('cache', "horizon_cloud_html_cache.txt");
-                if (await window.existsSafe(htmlCachePath)) {
-                    const cachedHtml = await window.api.fs.promises.readFile(htmlCachePath, "utf8");
-                    window._lastCloudGridHtml = sanitizeHtmlForCsp(cachedHtml);
-                }
-            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
-        }
-        if (!window._lastQuotaHtml) {
-            try {
-                const quotaHtmlCachePath = await window.resolveHorizonFilePath('cache', "horizon_quota_html_cache.txt");
-                if (await window.existsSafe(quotaHtmlCachePath)) {
-                    window._lastQuotaHtml = await window.api.fs.promises.readFile(quotaHtmlCachePath, "utf8");
-                }
-            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
-        }
         const status = await window.api.invoke("check-horizon-status");
         if (!status.installed) {
             container.innerHTML = `
@@ -629,12 +630,14 @@ window.refreshHorizonUI = async () => {
         const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
         const statusColor = isOffline ? "#888" : (isEnabled ? "#17B139" : "#f87171");
         const statusText = isOffline ? t("horizon_offline", "Désactivé (Hors-Ligne)") : (isEnabled ? t("horizon_active", "Service Horizon Actif") : t("horizon_inactive", "Service Horizon Inactif"));
+        const safeStatusText = window.escapeHTML(statusText);
+        const safeLocalVer = window.escapeHTML(status.localVersion || "?");
+        const safeLatestVer = window.escapeHTML(status.latestVersion || "");
         const currentProvider = status.provider || "google";
         let linkBtnHTML = "";
         if (status.linked) {
             linkBtnHTML = `
-                <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;"> 
-                    </div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
                     <button id="btn-horizon-disconnect" class="btn-secondary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; color: #f87171; border-color: #f87171; flex-shrink: 0;">
                         ${t("btn_horizon_disconnect", "Déconnecter")}
                     </button>
@@ -694,14 +697,14 @@ window.refreshHorizonUI = async () => {
             }
         };
         const updateBtnHTML = (status.needsUpdate && !status.offline)
-            ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${status.latestVersion})</button>`
+            ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${safeLatestVer})</button>`
             : `<button id="btn-horizon-update" class="btn-secondary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
         let html = `
             <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
                     <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
                         <span style="width: 10px; height: 10px; min-width: 10px; background: ${statusColor}; border-radius: 50%;"></span>
-                        <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${statusText}</strong>
+                        <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeStatusText}</strong>
                     </div>
                     <select id="select-horizon-system-enabled" style="width: 110px; height: 28px; font-size: 0.8rem; flex-shrink: 0; margin-left: auto;">
                         <option value="true" ${isEnabled ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
@@ -710,8 +713,8 @@ window.refreshHorizonUI = async () => {
                 </div>
                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <div style="font-size: 0.75rem; color: #aaa; min-width: 150px;">
-                        ${t("horizon_version", "Version :")} ${status.localVersion}
-                        ${(status.needsUpdate && !status.offline) ? `<span style="color:#f48a21; margin-left:6px; font-weight:bold;">${t("horizon_update_available", "Mise à jour disponible")} : ${status.latestVersion}</span>` : ""}
+                        ${t("horizon_version", "Version :")} ${safeLocalVer}
+                        ${(status.needsUpdate && !status.offline) ? `<span style="color:#f48a21; margin-left:6px; font-weight:bold;">${t("horizon_update_available", "Mise à jour disponible")} : ${safeLatestVer}</span>` : ""}
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: auto;">
                         ${updateBtnHTML}
@@ -744,7 +747,7 @@ window.refreshHorizonUI = async () => {
                         <label style="font-size: 0.85rem; margin-top: 0;">${t("horizon_delta_threshold", "Auto-repack after N deltas")}</label>
                         <div class="ram-help-icon custom-tooltip-trigger"
                             data-i18n-tooltip="horizon_delta_threshold_help"
-                            data-tooltip="${t("horizon_delta_threshold_help", "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10.")}"
+                            data-tooltip="${window.escapeHTML(t("horizon_delta_threshold_help", "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10."))}"
                             style="display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;"
                         >?</div>
                     </div>
@@ -828,7 +831,7 @@ window.refreshHorizonUI = async () => {
             const prettyProvider = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
             if (grid) {
                 const msg = t("msg_cloud_link_req", "Veuillez associer un compte {provider} pour voir vos instances.").replace("{provider}", prettyProvider);
-                grid.innerHTML = `<div style="color:#f87171; font-size:0.85rem; padding: 10px;">${msg}</div>`;
+                grid.innerHTML = `<div style="color:#f87171; font-size:0.85rem; padding: 10px;">${window.escapeHTML(msg)}</div>`;
             }
         }
     };

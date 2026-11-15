@@ -3,6 +3,7 @@ const child = require('child_process')
 const path = require('path')
 const Handler = require('./handler')
 const fs = require('fs')
+const { existsAsync } = require('./zip-archive')
 const EventEmitter = require('events').EventEmitter
 
 class MCLCore extends EventEmitter {
@@ -26,7 +27,9 @@ class MCLCore extends EventEmitter {
       this.options = { ...options }
       this.options.root = path.resolve(this.options.root)
       this.options.overrides = {
-        detached: true,
+        detached: this.options.spawnOptions?.detached !== undefined
+          ? this.options.spawnOptions.detached !== false
+          : true,
         ...this.options.overrides,
         url: {
           meta: 'https://launchermeta.mojang.com',
@@ -75,9 +78,9 @@ class MCLCore extends EventEmitter {
       this.options.mcPath = mcPath
       const nativePath = await this.handler.getNatives()
 
-      if (!fs.existsSync(mcPath)) {
+      if (!(await existsAsync(mcPath))) {
         const vanillaJar = this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.number, `${this.options.version.number}.jar`) : null;
-        if (vanillaJar && fs.existsSync(vanillaJar)) {
+        if (vanillaJar && (await existsAsync(vanillaJar))) {
           this.emit('debug', '[Gens-Core]: Copying vanilla jar to custom version path');
           await fs.promises.mkdir(path.dirname(mcPath), { recursive: true });
           await fs.promises.copyFile(vanillaJar, mcPath);
@@ -116,14 +119,20 @@ class MCLCore extends EventEmitter {
             const xmlUrl = parsedVer.minor >= 12
               ? 'https://launcher.mojang.com/v1/objects/02937d122c86ce73319ef9975b58896fc1b491d1/log4j2_112-116.xml'
               : 'https://launcher.mojang.com/v1/objects/dd2b723346a8dcd48e7f4d245f6bf09e98db9696/log4j2_17-111.xml';
+            const xmlSha1 = parsedVer.minor >= 12
+              ? '02937d122c86ce73319ef9975b58896fc1b491d1'
+              : 'dd2b723346a8dcd48e7f4d245f6bf09e98db9696';
             const fullXmlPath = path.join(configPath, xmlName);
 
-            if (!fs.existsSync(fullXmlPath) && !this.options.offline) {
+            const hasValidXml = (await existsAsync(fullXmlPath)) && await this.handler.checkSum(xmlSha1, fullXmlPath);
+            if (!hasValidXml && !this.options.offline) {
               await this.handler.downloadAsync(xmlUrl, configPath, xmlName, true, 'log4j');
             }
 
-            if (fs.existsSync(fullXmlPath)) {
+            if ((await existsAsync(fullXmlPath)) && await this.handler.checkSum(xmlSha1, fullXmlPath)) {
               jvm.push(`-Dlog4j.configurationFile=${fullXmlPath}`);
+            } else {
+              jvm.push('-Dlog4j2.formatMsgNoLookups=true');
             }
           }
         }
@@ -134,7 +143,7 @@ class MCLCore extends EventEmitter {
       const separator = this.handler.getOS() === 'windows' ? ';' : ':'
       this.emit('debug', `[Gens-Core]: Using ${separator} to separate class paths`)
       const file = modifyJson || versionFile
-      const jar = fs.existsSync(mcPath)
+      const jar = (await existsAsync(mcPath))
         ? `${separator}${mcPath}`
         : `${separator}${path.join(directory, `${this.options.version.number}.jar`)}`
       classPaths.push(`${this.options.forge ? this.options.forge + separator : ''}${classes.join(separator)}${jar}`)
@@ -149,8 +158,18 @@ class MCLCore extends EventEmitter {
       if (this.aborted) throw new Error("Launch aborted by user")
 
       const launchArguments = args.concat(jvm, classPaths, launchOptions)
-      this.emit('arguments', launchArguments)
-      this.emit('debug', `[Gens-Core]: Launching with arguments ${launchArguments.join(' ')}`)
+      const accessToken = this.options.authorization?.access_token;
+      const proxyPass = this.options.proxy?.password;
+      const safeArgs = launchArguments.map((arg, idx, arr) => {
+        const prev = idx > 0 ? arr[idx - 1] : '';
+        if (prev === '--accessToken' || prev === '--session' || prev === '--proxyPass' ||
+            (accessToken && arg === accessToken) || (proxyPass && arg === proxyPass)) {
+          return '***REDACTED***';
+        }
+        return arg;
+      });
+      this.emit('arguments', safeArgs)
+      this.emit('debug', `[Gens-Core]: Launching with arguments ${safeArgs.join(' ')}`)
 
       return this.startMinecraft(launchArguments)
     } catch (e) {
@@ -166,9 +185,9 @@ class MCLCore extends EventEmitter {
 
   async printVersion() {
     const pkgPath = path.join(__dirname, '..', 'package.json')
-    if (fs.existsSync(pkgPath)) {
+    if (await existsAsync(pkgPath)) {
       try {
-        const { version } = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+        const { version } = JSON.parse(await fs.promises.readFile(pkgPath, 'utf-8'))
         this.emit('debug', `[Gens-Core]: MCLC version ${version}`)
       } catch (e) {
         this.emit('debug', '[Gens-Core]: Error reading package.json')
@@ -177,7 +196,7 @@ class MCLCore extends EventEmitter {
   }
 
   async createRootDirectory() {
-    if (!fs.existsSync(this.options.root)) {
+    if (!(await existsAsync(this.options.root))) {
       this.emit('debug', '[Gens-Core]: Attempting to create root folder')
       await fs.promises.mkdir(this.options.root, { recursive: true })
     }
@@ -186,7 +205,7 @@ class MCLCore extends EventEmitter {
   async createGameDirectory() {
     if (this.options.overrides.gameDirectory) {
       this.options.overrides.gameDirectory = path.resolve(this.options.overrides.gameDirectory)
-      if (!fs.existsSync(this.options.overrides.gameDirectory)) {
+      if (!(await existsAsync(this.options.overrides.gameDirectory))) {
         await fs.promises.mkdir(this.options.overrides.gameDirectory, { recursive: true })
       }
     }
@@ -220,9 +239,20 @@ class MCLCore extends EventEmitter {
    * @returns {import('child_process').ChildProcess}
    */
   startMinecraft(launchArguments) {
-    const isDetached = this.options.overrides.detached !== false;
+    const isDetached = this.options.overrides?.detached !== undefined
+      ? this.options.overrides.detached !== false
+      : (this.options.spawnOptions?.detached !== false);
     const minecraft = child.spawn(this.options.javaPath ? this.options.javaPath : 'java', launchArguments,
-      { cwd: this.options.overrides.cwd || this.options.root, detached: isDetached })
+      {
+        cwd: this.options.overrides.cwd || this.options.root,
+        detached: isDetached,
+        shell: false,
+        windowsHide: Boolean(this.options.spawnOptions?.windowsHide)
+      })
+    minecraft.on('error', (err) => {
+      /** @type {any} */ (minecraft)._spawnError = err
+      this.emit('debug', `[Gens-Core]: Failed to spawn Java process: ${err.message}`)
+    })
     minecraft.stdout?.on('data', (data) => this.emit('data', data.toString('utf-8')))
     minecraft.stderr?.on('data', (data) => this.emit('data', data.toString('utf-8')))
     minecraft.on('close', (code) => this.emit('close', code))

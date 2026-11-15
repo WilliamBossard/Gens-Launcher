@@ -13,7 +13,10 @@ module.exports = function (context) {
     ipcMain.handle("delete-desktop-shortcut", async (event, { instanceName }) => {
         try {
             const desktopPath = app.getPath("desktop");
-            const safeName = String(instanceName).replace(/[<>:"/\\|?*\r\n\0'"`;$]/g, "").trim().substring(0, 100);
+            const safeName = sanitizeShortcutName(instanceName);
+            if (!safeName) {
+                return { success: false, error: "Nom d'instance invalide pour la création du raccourci." };
+            }
             const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
             const targetFile = `${safeName}.${ext}`.toLowerCase();
             if (await existsSafe(desktopPath)) {
@@ -37,15 +40,23 @@ module.exports = function (context) {
         try {
             const desktopPath = app.getPath("desktop");
             const safeName = sanitizeShortcutName(instanceName);
+            if (!safeName) {
+                return { success: false, error: "Nom d'instance invalide pour la création du raccourci." };
+            }
             const instancesDir = path.join(app.getPath("appData"), "GensLauncher", "instances");
             const instFolder = path.join(instancesDir, mainSafeDir(instanceName));
             let localIconPath = null;
-            if (iconPath && iconPath.startsWith("file://")) {
+            if (iconPath && typeof iconPath === 'string' && iconPath.startsWith("file://")) {
                 try {
-                    localIconPath = require('url').fileURLToPath(iconPath);
+                    const candidate = require('url').fileURLToPath(iconPath);
+                    const safeCandidate = assertPathUnderSandbox(candidate);
+                    const lst = await fs.promises.lstat(safeCandidate);
+                    if (!lst.isSymbolicLink() && lst.isFile()) {
+                        localIconPath = safeCandidate;
+                    }
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    mainLog("Erreur décodage URL icône : " + msg);
+                    mainLog("Chemin d'icône hors sandbox ou invalide ignoré : " + msg);
                 }
             }
             if (!localIconPath || !(await existsSafe(localIconPath))) {
@@ -113,13 +124,14 @@ module.exports = function (context) {
                 path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app'}`)
             ).then(()=>true).catch(()=>false);
             const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
+            const escapedInstanceName = encodeURIComponent(instanceName);
             if (process.platform === 'win32') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.lnk`);
                 const mode = alreadyExists ? 'update' : 'create';
                 /** @type {Electron.ShortcutDetails} */
                 const options = {
                     target: appExecutable,
-                    args: `--auto-launch="${safeName}"`,
+                    args: `--auto-launch="${escapedInstanceName}"`,
                     appUserModelId: "com.gens.launcher",
                     description: `Lancer ${safeName}`,
                     icon: finalIconPath,
@@ -129,8 +141,8 @@ module.exports = function (context) {
                 return { success: true, updated: alreadyExists };
             } else if (process.platform === 'linux') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
-                const escapedInstanceName = encodeURIComponent(instanceName);
-                const execLine = `"${appExecutable}" "--auto-launch=${escapedInstanceName}"`;
+                const desktopExecArg = `--auto-launch=${escapedInstanceName}`.replace(/%/g, '%%');
+                const execLine = `"${String(appExecutable).replace(/%/g, '%%')}" "${desktopExecArg}"`;
                 const desktopFile = [
                     '[Desktop Entry]',
                     `Name=${safeName}`,
@@ -156,12 +168,13 @@ module.exports = function (context) {
                 return { success: true, updated: alreadyExists };
             } else if (process.platform === 'darwin') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.app`);
-                const escapedInstanceName = encodeURIComponent(instanceName);
-                const script = `do shell script "\\"${appExecutable}\\" \\"--auto-launch=${escapedInstanceName}\\" > /dev/null 2>&1 &"`;
-                
+                const escapedAppExec = String(appExecutable).replace(/[\\"$`]/g, '\\$&');
+                const safeArg = escapedInstanceName.replace(/[\\"$`]/g, '\\$&');
+                const script = `do shell script "\\"${escapedAppExec}\\" \\"--auto-launch=${safeArg}\\" > /dev/null 2>&1 &"`;
+                const { execFile } = require('child_process');
+
                 await new Promise((resolve, reject) => {
-                    const { exec } = require('child_process');
-                    exec(`osacompile -e '${script.replace(/'/g, "'\\''")}' -o "${shortcutPath}"`, (err) => {
+                    execFile('osacompile', ['-e', script, '-o', shortcutPath], (err) => {
                         if (err) reject(err);
                         else resolve(undefined);
                     });
@@ -170,12 +183,10 @@ module.exports = function (context) {
                 if (finalIconPath && finalIconPath.endsWith('.png')) {
                     const appletIcns = path.join(shortcutPath, "Contents", "Resources", "applet.icns");
                     await new Promise((resolve) => {
-                        const { exec } = require('child_process');
-                        exec(`sips -s format icns "${finalIconPath}" --out "${appletIcns}"`, () => resolve(undefined));
+                        execFile('sips', ['-s', 'format', 'icns', finalIconPath, '--out', appletIcns], () => resolve(undefined));
                     });
                     await new Promise((resolve) => {
-                        const { exec } = require('child_process');
-                        exec(`touch "${shortcutPath}"`, () => resolve(undefined));
+                        execFile('touch', [shortcutPath], () => resolve(undefined));
                     });
                 }
                 return { success: true, updated: alreadyExists };
@@ -200,10 +211,18 @@ module.exports = function (context) {
             const tasks = instances.map((/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
                 const safeName = sanitizeShortcutName(inst.name);
                 const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
+                let safeIconPath = appExecutable;
+                if (typeof inst.iconIcoPath === 'string' && inst.iconIcoPath.trim()) {
+                    try {
+                        safeIconPath = assertPathUnderSandbox(inst.iconIcoPath);
+                    } catch (_) {
+                        safeIconPath = appExecutable;
+                    }
+                }
                 return {
                     program: appExecutable,
-                    arguments: `--auto-launch="${safeName}"`,
-                    iconPath: inst.iconIcoPath || appExecutable,
+                    arguments: `--auto-launch="${encodeURIComponent(String(inst.name || safeName))}"`,
+                    iconPath: safeIconPath,
                     iconIndex: 0,
                     title: `Lancer ${safeName}`,
                     description: `Démarrer l'instance ${safeName}`

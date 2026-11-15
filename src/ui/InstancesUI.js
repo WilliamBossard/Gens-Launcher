@@ -2,7 +2,7 @@
 import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
-import { resetLogLineCount } from "../launch/launchUI.js";
+import { resetLogLineCount, clearConsoleLogBuffer } from "../launch/launchUI.js";
 import { writeInstanceMetaForCloud } from "../launch/launchCore.js";
 const fs = window.api.fs;
 const path = window.api.path;
@@ -201,6 +201,7 @@ async function fetchLoaderVersions(loader, mcVer) {
         const appBg = $("app-background");
         const root = document.documentElement;
         const imgPath = await getCachedScreenshot(inst);
+        if (store.selectedInstanceIdx !== i || store.allInstances[i] !== inst) return;
         if (imgPath) {
             const th = store.globalSettings.theme || { dim: 0.5, blur: 5, panelOpacity: 0.6 };
             const disableTransp = store.globalSettings.disableTransparency;
@@ -217,6 +218,7 @@ async function fetchLoaderVersions(loader, mcVer) {
             const logOutput = $("log-output");
             if (logOutput) logOutput.innerHTML = "";
             if (typeof resetLogLineCount === 'function') resetLogLineCount();
+            if (typeof clearConsoleLogBuffer === 'function') clearConsoleLogBuffer();
         }
         document.querySelectorAll('.instance-card').forEach(card => {
             if (parseInt(card.getAttribute('data-index') || '0', 10) === i) card.classList.add('active');
@@ -359,8 +361,9 @@ async function fetchLoaderVersions(loader, mcVer) {
         } catch(e) {
             const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
             const currentLoaderVer = inst ? (inst.loaderVersion || "") : "";
+            const safeLoaderVer = window.escapeHTML(currentLoaderVer);
             const fallbackText = isOffline ? t("msg_offline_short", "Offline") : t("msg_error_short", "Error");
-            loaderVerSelect.innerHTML = `<option value="${currentLoaderVer}">${currentLoaderVer ? currentLoaderVer + " (" + fallbackText + ")" : fallbackText}</option>`;
+            loaderVerSelect.innerHTML = `<option value="${safeLoaderVer}">${safeLoaderVer ? safeLoaderVer + " (" + fallbackText + ")" : fallbackText}</option>`;
         }
     };
     window.toggleEditSnapshots = () => {
@@ -537,40 +540,43 @@ async function fetchLoaderVersions(loader, mcVer) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
                         if (store.horizonActive && safeNewName !== safeOldName) {
-                            await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
-                            
                             await writeInstanceMetaForCloud(inst);
-                            await window.api.invoke("call-horizon", ['--upload', safeNewName]);
+                            const uploadRes = await window.api.invoke("call-horizon", ['--upload', safeNewName]);
+                            if (window.horizonOpFailed && window.horizonOpFailed(uploadRes)) {
+                                window.showToast(t("msg_err_cloud_rename_upload", "Renommage local effectué, mais l'envoi Cloud a échoué : l'ancienne sauvegarde Cloud a été conservée."), "error");
+                            } else {
+                                await window.api.invoke("call-horizon", ['--sync', '--delete', safeOldName]);
 
-                            const syncPath = await window.resolveHorizonFilePath('root', 'last_sync.json');
-                            if (await window.existsSafe(syncPath)) {
-                                try {
-                                    const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
-                                    if (syncState[safeOldName] !== undefined) {
-                                        syncState[safeNewName] = syncState[safeOldName];
-                                        delete syncState[safeOldName];
-                                        window.safeWriteJSONAsync(syncPath, syncState);
-                                    }
-                                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
-                            }
-                            for (const item of [
-                                { cat: /** @type {'metadata'} */ ('metadata'), prefix: 'meta_' },
-                                { cat: /** @type {'manifests'} */ ('manifests'), prefix: 'manifest_' }
-                            ]) {
-                                const oldFile = `${item.prefix}${safeOldName}.json`;
-                                const newFile = `${item.prefix}${safeNewName}.json`;
-                                const oldResolved = await window.resolveHorizonFilePath(item.cat, oldFile);
-                                const newTarget = window.getHorizonWritePath(item.cat, newFile);
-                                try {
-                                    if (await window.existsSafe(oldResolved)) {
-                                        const targetDir = path.dirname(newTarget);
-                                        try { await fs.promises.access(targetDir); } catch { await fs.promises.mkdir(targetDir, { recursive: true }); }
-                                        if (await window.existsSafe(newTarget) && newTarget !== oldResolved) {
-                                            await fs.promises.unlink(newTarget);
+                                const syncPath = await window.resolveHorizonFilePath('root', 'last_sync.json');
+                                if (await window.existsSafe(syncPath)) {
+                                    try {
+                                        const syncState = JSON.parse(await fs.promises.readFile(syncPath, "utf8"));
+                                        if (syncState[safeOldName] !== undefined) {
+                                            syncState[safeNewName] = syncState[safeOldName];
+                                            delete syncState[safeOldName];
+                                            window.safeWriteJSONAsync(syncPath, syncState);
                                         }
-                                        await fs.promises.rename(oldResolved, newTarget);
-                                    }
-                                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                                    } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                                }
+                                for (const item of [
+                                    { cat: /** @type {'metadata'} */ ('metadata'), prefix: 'meta_' },
+                                    { cat: /** @type {'manifests'} */ ('manifests'), prefix: 'manifest_' }
+                                ]) {
+                                    const oldFile = `${item.prefix}${safeOldName}.json`;
+                                    const newFile = `${item.prefix}${safeNewName}.json`;
+                                    const oldResolved = await window.resolveHorizonFilePath(item.cat, oldFile);
+                                    const newTarget = window.getHorizonWritePath(item.cat, newFile);
+                                    try {
+                                        if (await window.existsSafe(oldResolved)) {
+                                            const targetDir = path.dirname(newTarget);
+                                            try { await fs.promises.access(targetDir); } catch { await fs.promises.mkdir(targetDir, { recursive: true }); }
+                                            if (await window.existsSafe(newTarget) && newTarget !== oldResolved) {
+                                                await fs.promises.unlink(newTarget);
+                                            }
+                                            await fs.promises.rename(oldResolved, newTarget);
+                                        }
+                                    } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", _); }
+                                }
                             }
                         }
                     }
@@ -906,14 +912,25 @@ async function fetchLoaderVersions(loader, mcVer) {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => window.renderUI(), 200);
     };
+    /** @param {string} raw */
+    const isSafeIconDataUri = (raw) => {
+        if (typeof raw !== 'string' || raw.length === 0 || raw.length > 3 * 1024 * 1024) return false;
+        if (/["<>]/.test(raw)) return false;
+        if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/.test(raw)) return true;
+        if (/^data:image\/svg\+xml;(?:charset=[A-Za-z0-9-]+,[^"<>]+|base64,[A-Za-z0-9+/=]+)$/.test(raw)) {
+            const lower = raw.toLowerCase();
+            return !lower.includes('%3cscript') && !lower.includes('javascript:') && !/\bon[a-z]+\s*=/.test(lower);
+        }
+        return false;
+    };
+
     window.updateIconCache = async (/** @type {any} */ inst) => {
         if (!store.defaultIcons) return;
         const fallbackIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
         let iconSrc = fallbackIcon;
         const instFolder = window.api.path.join(store.instancesRoot, window.safeDir(inst.name));
 
-        if (inst.icon && inst.icon.startsWith("data:")) {
-            
+        if (inst.icon && isSafeIconDataUri(inst.icon)) {
             iconSrc = inst.icon;
         } else {
             
@@ -1038,8 +1055,10 @@ async function fetchLoaderVersions(loader, mcVer) {
                 const fallbackIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
                 const fallbackSafe = fallbackIcon.replace(/'/g, "\\'");
                 
-                let iconSrc = inst._cachedIconSrc || fallbackIcon;
-                let onErrorStr = `if(this.src!=='${fallbackSafe}') this.src='${fallbackSafe}';`;
+                const rawIconSrc = (inst._cachedIconSrc && isSafeIconDataUri(inst._cachedIconSrc))
+                    ? inst._cachedIconSrc
+                    : ((inst._cachedIconSrc && !inst._cachedIconSrc.startsWith('data:')) ? inst._cachedIconSrc : fallbackIcon);
+                const iconSrc = window.escapeHTML(rawIconSrc);
                 const safeName = window.escapeHTML(inst.name);
                 const safeVersion = window.escapeHTML(inst.version);
                 const safeLoader = window.escapeHTML(inst.loader);
@@ -1201,25 +1220,23 @@ async function fetchLoaderVersions(loader, mcVer) {
         let added = 0;
         for (const file of files) {
             const filePath = window.api.getFilePath(file);
-            const ext = path.extname(filePath).toLowerCase();
+            const rawName = path.basename(String(file.name || filePath || ""));
+            const safeDropName = rawName.replace(/[^a-zA-Z0-9._\-+() ]/g, "_");
+            if (!safeDropName || safeDropName === "." || safeDropName === "..") continue;
+            const ext = path.extname(safeDropName).toLowerCase();
             try {
-                if (ext === ".jar") {
-                    const modsDir = path.join(instFolder, "mods");
-                    if (!(await fs.promises.exists(modsDir))) await fs.promises.mkdir(modsDir, { recursive: true });
-                    await fs.promises.copyFile(filePath, path.join(modsDir, file.name));
-                    added++;
-                } else if (ext === ".zip") {
-                    const nameLower = file.name.toLowerCase();
-                    if (nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus")) {
-                        const shadersDir = path.join(instFolder, "shaderpacks");
-                        if (!(await fs.promises.exists(shadersDir))) await fs.promises.mkdir(shadersDir, { recursive: true });
-                        await fs.promises.copyFile(filePath, path.join(shadersDir, file.name));
-                    } else {
-                        const rpDir = path.join(instFolder, "resourcepacks");
-                        if (!(await fs.promises.exists(rpDir))) await fs.promises.mkdir(rpDir, { recursive: true });
-                        await fs.promises.copyFile(filePath, path.join(rpDir, file.name));
+                if (ext === ".jar" || ext === ".zip") {
+                    const nameLower = safeDropName.toLowerCase();
+                    const subFolder = ext === ".jar"
+                        ? "mods"
+                        : ((nameLower.includes("shader") || nameLower.includes("bsl") || nameLower.includes("complementary") || nameLower.includes("ptgi") || nameLower.includes("iris") || nameLower.includes("seus"))
+                            ? "shaderpacks"
+                            : "resourcepacks");
+                    const relSubDir = path.join("instances", window.safeDir(inst.name), subFolder);
+                    const cpRes = await window.api.copyFileToSandbox(filePath, safeDropName, relSubDir);
+                    if (cpRes && cpRes.success) {
+                        added++;
                     }
-                    added++;
                 }
             } catch(err) {
                 console.error("Erreur d'import : ", err);
@@ -1251,8 +1268,10 @@ async function fetchLoaderVersions(loader, mcVer) {
                     iconEl.src = iconSrc;
                 }
                 const bgEl = $("auto-bg-screenshot");
-                if (bgEl && (inst._cachedIconSrc || inst.icon)) {
-                    bgEl.style.backgroundImage = `url('${inst._cachedIconSrc || inst.icon}')`;
+                const rawBgUrl = String(inst._cachedIconSrc || inst.icon || "");
+                if (bgEl && /^(file:\/\/|data:image\/)/i.test(rawBgUrl)) {
+                    const safeCssUrl = rawBgUrl.replace(/['"\\()\r\n]/g, (ch) => encodeURIComponent(ch));
+                    bgEl.style.backgroundImage = `url('${safeCssUrl}')`;
                     bgEl.style.opacity = "1";
                 }
                 const nameEl = $("auto-inst-name");

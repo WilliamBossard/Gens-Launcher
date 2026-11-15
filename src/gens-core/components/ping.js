@@ -1,6 +1,7 @@
 // @ts-check
 const net = require('net');
 const dns = require('dns');
+const { isPrivateOrLocalHost } = require('./network-utils');
 
 /**
  * Encodes a number into a Minecraft VarInt Buffer.
@@ -73,7 +74,10 @@ function resolveSrv(host) {
             if (err || !addresses || addresses.length === 0) {
                 resolve({ host, port: 25565 });
             } else {
-                resolve({ host: addresses[0].name, port: addresses[0].port });
+                const sorted = [...addresses].sort((a, b) => (a.priority - b.priority) || (b.weight - a.weight));
+                const best = sorted[0];
+                const cleanTarget = String(best.name || host).replace(/\.+$/, '');
+                resolve({ host: cleanTarget, port: best.port });
             }
         });
     });
@@ -86,32 +90,71 @@ function resolveSrv(host) {
  * @returns {Promise<any>} Server status response object
  */
 async function pingServer(address, timeoutMs = 5000) {
-    let host = address;
+    let originalHost = String(address || '');
+    let connectHost = originalHost;
     let port = 25565;
+    let usedSrv = false;
     
     if (typeof address === 'string') {
         const match = address.trim().match(/^(?:\[([a-fA-F0-9:]+)\]|([^:]+))(?::(\d+))?$/);
         if (match) {
-            host = match[1] || match[2] || address;
+            originalHost = (match[1] || match[2] || address).replace(/\.+$/, '');
+            connectHost = originalHost;
             if (match[3]) {
                 const parsedPort = parseInt(match[3], 10);
                 if (!isNaN(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
                     port = parsedPort;
                 }
             } else {
-                const srv = await resolveSrv(host);
-                host = srv.host;
+                const srv = await resolveSrv(originalHost);
+                connectHost = srv.host;
                 port = srv.port;
+                usedSrv = connectHost !== originalHost;
             }
         } else {
-            const srv = await resolveSrv(host);
-            host = srv.host;
+            const srv = await resolveSrv(originalHost);
+            connectHost = srv.host;
             port = srv.port;
+            usedSrv = connectHost !== originalHost;
+        }
+    }
+
+    const cleanConnectHost = connectHost.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+    // Toujours bloquer les plages link-local/IMDS cloud (169.254.0.0/16, fe80::/10, 0.0.0.0)
+    if (
+        /^169\.254\./.test(cleanConnectHost) ||
+        /^fe[89ab][0-9a-f]:/i.test(cleanConnectHost) ||
+        cleanConnectHost === '0.0.0.0' ||
+        cleanConnectHost === '::'
+    ) {
+        throw new Error(`Blocked unsafe ping target: ${connectHost}`);
+    }
+    // Bloquer toute redirection SRV vers un hôte privé/local (anti-SSRF DNS/SRV)
+    if (usedSrv && isPrivateOrLocalHost(cleanConnectHost)) {
+        throw new Error(`Blocked private SRV target: ${connectHost}`);
+    }
+    if (!net.isIP(cleanConnectHost) && !isPrivateOrLocalHost(originalHost)) {
+        try {
+            const records = await dns.promises.lookup(cleanConnectHost, { all: true });
+            for (const rec of records || []) {
+                if (rec?.address && (
+                    /^169\.254\./.test(rec.address) ||
+                    /^fe[89ab][0-9a-f]:/i.test(rec.address) ||
+                    (usedSrv && isPrivateOrLocalHost(rec.address))
+                )) {
+                    throw new Error(`Blocked unsafe DNS target for ${connectHost}: ${rec.address}`);
+                }
+            }
+        } catch (err) {
+            if (err instanceof Error && err.message.startsWith('Blocked ')) throw err;
         }
     }
 
     return new Promise((resolve, reject) => {
         let settled = false;
+        /** @type {NodeJS.Timeout | null} */
+        let overallTimer = null;
+        const client = new net.Socket();
         /**
          * @param {(v: any) => void} fn
          * @param {any} val
@@ -119,57 +162,92 @@ async function pingServer(address, timeoutMs = 5000) {
         const finish = (fn, val) => {
             if (settled) return;
             settled = true;
+            if (overallTimer) {
+                clearTimeout(overallTimer);
+                overallTimer = null;
+            }
             fn(val);
         };
 
-        const client = new net.Socket();
-        client.setTimeout(timeoutMs);
-        
-        client.connect(port, host, () => {
-            const packetId = writeVarInt(0x00);
-            const protocol = writeVarInt(47); // Or use -1 for any
-            const serverAddress = writeString(host);
-            const serverPort = Buffer.alloc(2);
-            serverPort.writeUInt16BE(port, 0);
-            const nextState = writeVarInt(1);
-            
-            const payload = Buffer.concat([packetId, protocol, serverAddress, serverPort, nextState]);
-            const handshake = Buffer.concat([writeVarInt(payload.length), payload]);
-            
-            const reqPayload = writeVarInt(0x00);
-            const request = Buffer.concat([writeVarInt(reqPayload.length), reqPayload]);
-            
-            client.write(Buffer.concat([handshake, request]));
-        });
+        overallTimer = setTimeout(() => {
+            client.destroy();
+            finish(reject, new Error("Timeout"));
+        }, timeoutMs + 500);
 
-        let dataBuffer = Buffer.alloc(0);
+        /** @type {Buffer[]} */
+        const chunks = [];
+        let totalBytes = 0;
+        let expectedTotalBytes = 0;
+        let packetLengthSize = 0;
+        let packetLength = 0;
+        const MAX_PING_BYTES = 2 * 1024 * 1024;
+
+        client.setTimeout(timeoutMs);
+
+        client.on('error', (err) => {
+            client.destroy();
+            finish(reject, err);
+        });
+        client.on('close', () => {
+            finish(reject, new Error("Connection closed prematurely"));
+        });
+        client.on('timeout', () => {
+            client.destroy();
+            finish(reject, new Error("Timeout"));
+        });
 
         client.on('data', (chunk) => {
             try {
                 const bufChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-                dataBuffer = Buffer.concat([dataBuffer, bufChunk]);
-                
-                const pktLenResult = readVarInt(dataBuffer, 0);
-                if (!pktLenResult) return;
-                
-                const packetLength = pktLenResult.value;
-                const packetLengthSize = pktLenResult.length;
-                
-                if (dataBuffer.length >= packetLength + packetLengthSize) {
+                if (totalBytes + bufChunk.length > MAX_PING_BYTES) {
+                    client.destroy();
+                    return finish(reject, new Error("Response too large"));
+                }
+                chunks.push(bufChunk);
+                totalBytes += bufChunk.length;
+
+                if (expectedTotalBytes === 0) {
+                    const headerProbe = chunks.length === 1
+                        ? chunks[0]
+                        : Buffer.concat(chunks, Math.min(totalBytes, 5));
+                    const pktLenResult = readVarInt(headerProbe, 0);
+                    if (!pktLenResult) return;
+
+                    packetLength = pktLenResult.value;
+                    packetLengthSize = pktLenResult.length;
+                    if (packetLength <= 0 || packetLength > MAX_PING_BYTES) {
+                        client.destroy();
+                        return finish(reject, new Error("Invalid packet length"));
+                    }
+                    expectedTotalBytes = packetLength + packetLengthSize;
+                }
+
+                if (totalBytes >= expectedTotalBytes) {
+                    const dataBuffer = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, totalBytes);
                     let offset = packetLengthSize;
                     const idResult = readVarInt(dataBuffer, offset);
-                    if (!idResult) return;
+                    if (!idResult) {
+                        client.destroy();
+                        return finish(reject, new Error("Invalid packet ID header"));
+                    }
                     offset += idResult.length;
-                    
+
                     if (idResult.value !== 0x00) {
                         client.destroy();
                         return finish(reject, new Error("Invalid packet ID"));
                     }
-                    
+
                     const jsonLenResult = readVarInt(dataBuffer, offset);
-                    if (!jsonLenResult) return;
+                    if (!jsonLenResult) {
+                        client.destroy();
+                        return finish(reject, new Error("Invalid JSON string length header"));
+                    }
                     offset += jsonLenResult.length;
-                    
+                    if (jsonLenResult.value < 0 || offset + jsonLenResult.value > expectedTotalBytes) {
+                        client.destroy();
+                        return finish(reject, new Error("Invalid JSON string length"));
+                    }
+
                     const jsonString = dataBuffer.toString('utf8', offset, offset + jsonLenResult.value);
                     client.destroy();
                     finish(resolve, JSON.parse(jsonString));
@@ -180,10 +258,21 @@ async function pingServer(address, timeoutMs = 5000) {
             }
         });
 
-        client.on('error', (err) => finish(reject, err));
-        client.on('timeout', () => {
-            client.destroy();
-            finish(reject, new Error("Timeout"));
+        client.connect(port, cleanConnectHost, () => {
+            const packetId = writeVarInt(0x00);
+            const protocol = writeVarInt(47); // Or use -1 for any
+            const serverAddress = writeString(originalHost);
+            const serverPort = Buffer.alloc(2);
+            serverPort.writeUInt16BE(port, 0);
+            const nextState = writeVarInt(1);
+
+            const payload = Buffer.concat([packetId, protocol, serverAddress, serverPort, nextState]);
+            const handshake = Buffer.concat([writeVarInt(payload.length), payload]);
+
+            const reqPayload = writeVarInt(0x00);
+            const request = Buffer.concat([writeVarInt(reqPayload.length), reqPayload]);
+
+            client.write(Buffer.concat([handshake, request]));
         });
     });
 }

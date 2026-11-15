@@ -736,5 +736,8 @@
   "msg_mod_disabled_success": "Le mod {mod} a été désactivé avec succès !",
   "msg_err_disable_mod": "Erreur lors de la désactivation du mod : ",
   "msg_ram_auto_adjusted": "RAM ajustée à {ram} Mo pour protéger la stabilité de votre système.",
-  "msg_java_version_mismatch_prompt": "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?"
+  "msg_java_version_mismatch_prompt": "Cette version de Minecraft requiert Java {req}, mais votre configuration utilise Java {cur}.\nVoulez-vous installer et utiliser automatiquement Java {req} ?",
+  "lbl_fast_verify": "Vérification rapide des fichiers",
+  "tt_fast_verify": "Vérifie uniquement la taille des fichiers déjà présents au lieu de recalculer leur empreinte SHA-1 à chaque lancement. Accélère le démarrage, mais ne détecte pas une corruption à taille égale.",
+  "msg_err_cloud_rename_upload": "Renommage local effectué, mais l'envoi Cloud a échoué : l'ancienne sauvegarde Cloud a été conservée."
 }

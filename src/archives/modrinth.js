@@ -75,6 +75,7 @@ export function setup() {
         let downloadedCount = 0;
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
         const concurrencyLimit = 10; 
+        let failedCount = 0;
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
             while (queue.length > 0) {
                 const modFile = queue.shift();
@@ -83,33 +84,48 @@ export function setup() {
                 const _resolvedInst = path.resolve(instDir);
                 const _ps = _resolvedInst.includes('/') ? '/' : '\\';
                 if (!_resolvedMod.startsWith(_resolvedInst + _ps) && _resolvedMod !== _resolvedInst) {
+                    failedCount++;
                     downloadedCount++;
                     continue;
                 }
                 const dir = path.dirname(modPath);
                 if (!(await window.existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
-                    const downloadUrl = modFile.downloads[0];
-                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) { downloadedCount++; continue; }
-                    const res = await window.fetchWithTimeout(downloadUrl, { timeout: 120000 });
-                    if (res.ok) {
-                        const fileBytes = new Uint8Array(await res.arrayBuffer());
-                        if (modFile.hashes?.sha1) {
-                            const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
-                            if (dlHash !== modFile.hashes.sha1) {
-                                sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
-                                downloadedCount++;
-                                continue;
-                            }
-                        }
-                        await fs.promises.writeFile(modPath, fileBytes);
+                    const downloadUrl = Array.isArray(modFile.downloads) ? modFile.downloads[0] : null;
+                    const algo = modFile.hashes?.sha512 ? "sha512" : (modFile.hashes?.sha1 ? "sha1" : null);
+                    const expectedHash = algo ? String(modFile.hashes[algo]).toLowerCase() : null;
+                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl) || !algo || !expectedHash) {
+                        sysLog(`SÉCURITÉ : URL HTTPS ou empreinte SHA manquante pour ${modFile.path}`, true);
+                        failedCount++;
+                        downloadedCount++;
+                        continue;
                     }
-                } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
+                    const tmpModPath = modPath + ".tmp";
+                    const dlRes = await window.api.invoke("download-file-stream", {
+                        url: downloadUrl,
+                        destPath: tmpModPath,
+                        expectedHash,
+                        hashAlgo: algo
+                    });
+                    if (!dlRes || !dlRes.success) {
+                        sysLog(`SECURITE / DL échec MAJ mrpack (${modFile.path}) : ${dlRes?.error || "erreur inconnue"}`, true);
+                        failedCount++;
+                        downloadedCount++;
+                        continue;
+                    }
+                    await fs.promises.rename(tmpModPath, modPath);
+                } catch (/** @type {any} */ e) {
+                    failedCount++;
+                    sysLog(`Erreur téléchargement MAJ mrpack (${modFile.path}) : ${e?.message || e}`, true);
+                }
                 downloadedCount++;
                 window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
         await Promise.all(workers);
+        if (failedCount > 0) {
+            throw new Error(`${failedCount} fichier(s) du modpack ont échoué à la vérification ou au téléchargement.`);
+        }
         inst._localConfigUpdatedAt = Date.now();
         try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
         await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -217,23 +233,31 @@ export function setup() {
                 const dir = path.dirname(modPath);
                 if (!(await window.existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
-                    const downloadUrl = modFile.downloads[0];
-                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
+                    const downloadUrl = Array.isArray(modFile.downloads) ? modFile.downloads[0] : null;
+                    const algo = modFile.hashes?.sha512 ? "sha512" : (modFile.hashes?.sha1 ? "sha1" : null);
+                    const expectedHash = algo ? String(modFile.hashes[algo]).toLowerCase() : null;
+                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl) || !algo || !expectedHash) {
+                        sysLog(`SÉCURITÉ : URL HTTPS ou empreinte SHA manquante pour ${modFile.path}`, true);
                         downloadedCount++;
                         continue;
                     }
-                    const res = await window.fetchWithTimeout(downloadUrl, { timeout: 120000 });
-                    if (res.ok) {
-                        const fileBytes = new Uint8Array(await res.arrayBuffer());
-                        if (modFile.hashes?.sha1) {
-                            const dlHash = await window.api.tools.hashBuffer(fileBytes, "sha1");
-                            if (dlHash !== modFile.hashes.sha1) {
-                                sysLog(`SECURITE : SHA1 invalide lors de la MAJ mrpack : ${modFile.path}`, true);
-                                downloadedCount++;
-                                continue;
-                            }
+                    const tmpModPath = modPath + ".tmp";
+                    try {
+                        const dlRes = await window.api.invoke("download-file-stream", {
+                            url: downloadUrl,
+                            destPath: tmpModPath,
+                            expectedHash,
+                            hashAlgo: algo
+                        });
+                        if (dlRes && dlRes.success) {
+                            await fs.promises.rename(tmpModPath, modPath);
+                        } else {
+                            try { if (await window.existsSafe(tmpModPath)) await fs.promises.unlink(tmpModPath); } catch (_) {}
+                            sysLog(`SECURITE / DL échec import mrpack (${modFile.path}) : ${dlRes?.error || "erreur inconnue"}`, true);
                         }
-                        await fs.promises.writeFile(modPath, fileBytes);
+                    } catch (dlErr) {
+                        try { if (await window.existsSafe(tmpModPath)) await fs.promises.unlink(tmpModPath); } catch (_) {}
+                        throw dlErr;
                     }
                 } catch (/** @type {any} */ e) {
                     sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);

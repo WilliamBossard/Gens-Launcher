@@ -30,6 +30,19 @@ function createSandboxValidator(sandboxDir) {
     const isWin = process.platform === 'win32';
     /** @param {string} s */
     const norm = (s) => isWin ? s.toLowerCase() : s;
+    /** @type {string | null} */
+    let cachedRealSandbox = null;
+
+    /** @returns {string} */
+    function getRealSandbox() {
+        if (cachedRealSandbox) return cachedRealSandbox;
+        try {
+            cachedRealSandbox = fs.realpathSync(absSandbox);
+            return cachedRealSandbox;
+        } catch (_) {
+            return absSandbox;
+        }
+    }
 
     return function assertPathUnderSandbox(p) {
         if (typeof p !== 'string' || !p.trim()) {
@@ -44,12 +57,7 @@ function createSandboxValidator(sandboxDir) {
         }
 
         // Vérification anti-symlink sur l'ancêtre existant le plus proche
-        let realSandbox = absSandbox;
-        try {
-            realSandbox = fs.realpathSync(absSandbox);
-        } catch (_) {
-            // Le dossier sandbox n'existe pas encore (ex: environnement de test)
-        }
+        const realSandbox = getRealSandbox();
 
         let cur = absTarget;
         while (true) {
@@ -170,7 +178,7 @@ function parseMotdComponent(comp) {
     if (typeof comp.color === 'string') {
         const c = comp.color.trim();
         if (/^#[0-9a-fA-F]{3,8}$/.test(c)) style += `color: ${c}; `;
-        else if (MC_COLOR_MAP[c]) style += `color: ${MC_COLOR_MAP[c]}; `;
+        else if (Object.hasOwn(MC_COLOR_MAP, c)) style += `color: ${MC_COLOR_MAP[c]}; `;
     }
     if (comp.bold) style += 'font-weight: bold; ';
     if (comp.italic) style += 'font-style: italic; ';

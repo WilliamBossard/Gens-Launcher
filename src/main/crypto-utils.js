@@ -27,24 +27,29 @@ function _getMainProcSecretKey() {
     if (_mainKeyPromise) return _mainKeyPromise;
 
     _mainKeyPromise = (async () => {
-        // 1. Lire ou générer le secret applicatif
+        // 1. Lire ou générer le secret applicatif de manière atomique
         const secretPath = path.join(app.getPath('appData'), 'GensLauncher', '.secret_key');
         let secret = '';
         try {
             if (await existsSafe(secretPath)) {
                 secret = await fs.promises.readFile(secretPath, 'utf8');
+                if (!secret.trim()) throw new Error('Clé .secret_key vide');
             } else {
                 secret = crypto.randomUUID();
                 await fs.promises.mkdir(path.dirname(secretPath), { recursive: true });
-                await fs.promises.writeFile(secretPath, secret, { encoding: 'utf8', mode: 0o600 });
+                const tmpSecret = `${secretPath}.tmp.${process.pid}.${Date.now()}`;
+                await fs.promises.writeFile(tmpSecret, secret, { encoding: 'utf8', mode: 0o600 });
+                await fs.promises.rename(tmpSecret, secretPath);
             }
         } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
-            console.warn(`[Sécurité] AVERTISSEMENT : Création/Lecture de .secret_key échouée (${errMsg}). Utilisation du fallback (hostname).`);
-            secret = os.hostname() + '_' + (os.userInfo().username || 'user');
+            throw new Error(
+                `[crypto-utils] Impossible de lire/créer .secret_key (${errMsg}). ` +
+                `Vérifiez les permissions sur %AppData%/GensLauncher/.`
+            );
         }
 
-        // 2. Générer/lire le salt dédié pour PBKDF2
+        // 2. Générer/lire le salt dédié pour PBKDF2 de manière atomique
         /** @type {Buffer} */
         let salt;
         try {
@@ -52,7 +57,10 @@ function _getMainProcSecretKey() {
                 salt = await fs.promises.readFile(PBKDF2_SALT_FILE);
             } else {
                 salt = crypto.randomBytes(16);
-                await fs.promises.writeFile(PBKDF2_SALT_FILE, salt, { encoding: 'binary', mode: 0o600 });
+                await fs.promises.mkdir(path.dirname(PBKDF2_SALT_FILE), { recursive: true });
+                const tmpSalt = `${PBKDF2_SALT_FILE}.tmp.${process.pid}.${Date.now()}`;
+                await fs.promises.writeFile(tmpSalt, salt, { encoding: 'binary', mode: 0o600 });
+                await fs.promises.rename(tmpSalt, PBKDF2_SALT_FILE);
             }
         } catch (saltErr) {
             // Si le FS est inaccessible, on ne peut pas chiffrer de façon sécurisée.
@@ -118,6 +126,18 @@ async function encryptText(text) {
  * @returns {Promise<string | null>}
  */
 async function decryptText(hexText) {
+    if (typeof hexText !== 'string' || !hexText) return null;
+    if (hexText.startsWith('safeStorage:')) {
+        if (!(await safeStorage.isAsyncEncryptionAvailable())) {
+            return null;
+        }
+        try {
+            const { result } = await safeStorage.decryptStringAsync(Buffer.from(hexText.slice('safeStorage:'.length), 'hex'));
+            return result;
+        } catch (_) {
+            return null;
+        }
+    }
     // Tentative 1 : nouvelle clé PBKDF2
     const key = await _getMainProcSecretKey();
     const result = await _tryDecrypt(hexText, key);
@@ -139,16 +159,20 @@ async function _tryDecrypt(hexText, key) {
         }
         if (hexText.startsWith('aes-gcm:')) {
             const parts = hexText.split(':');
+            if (parts.length !== 4) return null;
             const iv = Buffer.from(parts[1], 'hex');
             const authTag = Buffer.from(parts[2], 'hex');
             const enc = parts[3];
-            const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+            if (iv.length !== 12 || authTag.length !== 16 || !enc) return null;
+            const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
             decipher.setAuthTag(authTag);
             return decipher.update(enc, 'hex', 'utf8') + decipher.final('utf8');
         }
         if (hexText.startsWith('aes:')) {
             const parts = hexText.split(':');
+            if (parts.length < 3) return null;
             const iv = Buffer.from(parts[1], 'hex');
+            if (iv.length !== 16) return null;
             const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
             return decipher.update(parts.slice(2).join(':'), 'hex', 'utf8') + decipher.final('utf8');
         }

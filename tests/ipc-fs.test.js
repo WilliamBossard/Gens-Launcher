@@ -82,6 +82,54 @@ test('ipc-fs service handles file operations within sandbox and rejects out-of-s
     assert.strictEqual(outsideReadRes.ok, false);
     assert.strictEqual(outsideReadRes.error.code, 'EACCES');
 
+    const appendOk = await handlers.get('fs:appendFile')(null, path.join(testSandboxDir, 'append.log'), 'line1\n', 'utf8');
+    assert.strictEqual(appendOk.ok, true);
+
+    const badAppendEnc = await handlers.get('fs:appendFile')(null, path.join(testSandboxDir, 'append.log'), 'line2\n', 'utf32');
+    assert.strictEqual(badAppendEnc.ok, false);
+    assert.ok(badAppendEnc.error.message.includes('Encodage non autorisé'));
+
     await fs.promises.rm(testSandboxDir, { recursive: true, force: true });
+});
+
+test('ipc-fs resolves newly created allowedReadRoots dynamically without caching stale parent realpath', async () => {
+    const tmpBase = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_dyn_roots_'));
+    const lateAppData = path.join(tmpBase, 'late_appdata');
+    const sandboxDir = path.join(tmpBase, 'sandbox');
+    await fs.promises.mkdir(sandboxDir, { recursive: true });
+
+    const handlers = new Map();
+    setupFsHandlers({
+        ipcMain: { handle: (ch, fn) => handlers.set(ch, fn) },
+        safeDataDir: sandboxDir,
+        mainLog: () => {},
+        path,
+        fs,
+        os,
+        app: {
+            getPath: (name) => (name === 'appData' ? lateAppData : tmpBase),
+            getAppPath: () => path.resolve(__dirname, '..')
+        },
+        assertPathUnderSandbox: createSandboxValidator(sandboxDir)
+    });
+
+    try {
+        const lateRoot = path.join(lateAppData, '.minecraft', 'saves');
+        await fs.promises.mkdir(lateRoot, { recursive: true });
+        const lateJson = path.join(lateRoot, 'late.json');
+        await fs.promises.writeFile(lateJson, '{"ok":true}', 'utf8');
+
+        const readLate = await handlers.get('fs:readFile')(null, lateJson, 'utf8');
+        assert.strictEqual(readLate.ok, true, 'La lecture dans une racine créée après init doit être autorisée');
+        assert.strictEqual(readLate.data, '{"ok":true}');
+
+        const outsideFile = path.join(tmpBase, 'secret.json');
+        await fs.promises.writeFile(outsideFile, '{"secret":1}', 'utf8');
+        const readOutside = await handlers.get('fs:readFile')(null, outsideFile, 'utf8');
+        assert.strictEqual(readOutside.ok, false);
+        assert.strictEqual(readOutside.error.code, 'EACCES');
+    } finally {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+    }
 });
 

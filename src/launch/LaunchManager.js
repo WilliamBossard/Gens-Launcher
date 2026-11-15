@@ -30,6 +30,9 @@ async function checkJavaCached(javaPath) {
     return res;
 }
 
+/** @type {Set<string>} */
+const _launchingInstances = new Set();
+
 /**
  * @param {any} inst
  * @param {any} acc
@@ -48,6 +51,13 @@ export async function launchInstance(inst, acc, ui) {
         return;
     }
 
+    if (_launchingInstances.has(inst.name) || (!store.globalSettings.multiInstance && _launchingInstances.size > 0)) {
+        sysLog(`[LAUNCH] Préparation déjà en cours pour "${inst.name}", clic ignoré.`);
+        return;
+    }
+
+    _launchingInstances.add(inst.name);
+    try {
     const instancePath = path.join(store.instancesRoot, window.safeDir(inst.name));
     const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
 
@@ -71,8 +81,15 @@ export async function launchInstance(inst, acc, ui) {
                     ui.setAutoStatusText(window.t("msg_cloud_sync", "Vérification du Cloud..."));
                 }
                 window._isManualHorizon = false;
-                await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
-                sysLog(`[HORIZON] Synchronisation terminée.`);
+                const syncRes = await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+                if (window.horizonOpFailed && window.horizonOpFailed(syncRes)) {
+                    const lastJson = /** @type {any} */ (syncRes?.lastJson);
+                    const errMsg = lastJson?.message || `Code ${syncRes?.exitCode ?? "?"}`;
+                    sysLog(`[HORIZON] Avertissement sync avant lancement : ${errMsg}`, true);
+                    if (ui.showToast) ui.showToast(window.t("msg_warn_cloud_sync", "Synchronisation Cloud incomplète : lancement avec les fichiers locaux."), "warn");
+                } else {
+                    sysLog(`[HORIZON] Synchronisation terminée.`);
+                }
                 const configUpdated = await mergeInstanceConfigFromDisk(window.safeDir(inst.name));
                 if (configUpdated) {
                     const freshInst = store.allInstances.find(i => i.name === inst.name);
@@ -94,7 +111,7 @@ export async function launchInstance(inst, acc, ui) {
     sysLog(`=== LANCEMENT DE L'INSTANCE : ${inst.name} ===`);
     window._gameLogFiles = window._gameLogFiles || {};
     const dateStr = new Date().toISOString().replace(/[:.]/g, "-");
-    window._gameLogFiles[inst.name] = window.api.path.join(store.logsDir, `game_${inst.name}_${dateStr}.log`);
+    window._gameLogFiles[inst.name] = window.api.path.join(store.logsDir, `game_${window.safeDir(inst.name)}_${dateStr}.log`);
     try {
         await window.api.fs.promises.writeFile(window._gameLogFiles[inst.name], `=== Gens Launcher Game Log - ${inst.name} - ${new Date().toLocaleString()} ===\n`);
     } catch (/** @type {any} */ e) {
@@ -135,7 +152,27 @@ export async function launchInstance(inst, acc, ui) {
         }
     }
     let jPath = (validInstanceJava ? instanceJavaPath : "") || store.globalSettings.defaultJavaPath || defaultJavaExe;
-    let customArgs = inst.jvmArgs?.trim() ? (inst.jvmArgs.match(/(?:[^\s"]+|"[^"]*")+/g) || []) : [];
+    const parseJvmArgs = (/** @type {string} */ raw) => {
+        const tokens = [];
+        let cur = "";
+        let quote = null;
+        for (let i = 0; i < raw.length; i++) {
+            const ch = raw[i];
+            if (quote) {
+                if (ch === quote) quote = null;
+                else cur += ch;
+            } else if (ch === '"' || ch === "'") {
+                quote = ch;
+            } else if (/\s/.test(ch)) {
+                if (cur) { tokens.push(cur); cur = ""; }
+            } else {
+                cur += ch;
+            }
+        }
+        if (cur) tokens.push(cur);
+        return tokens;
+    };
+    let customArgs = inst.jvmArgs?.trim() ? parseJvmArgs(inst.jvmArgs.trim()) : [];
 
     const requiredJava = await detectRequiredJavaVersion(inst, instancePath);
     inst.javaVersion = requiredJava;
@@ -196,18 +233,24 @@ export async function launchInstance(inst, acc, ui) {
             try {
                 const scan = await window.api.invoke("scan-java-versions");
                 const candidates = scan?.success && Array.isArray(scan.paths) ? scan.paths : [];
-                for (const candidate of candidates) {
-                    const candidateJava = candidate.toLowerCase().endsWith("javaw.exe")
-                        ? candidate.slice(0, -9) + "java.exe"
-                        : candidate;
-                    const versionResult = await checkJavaCached(candidateJava);
-                    const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
-                    const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
-                    if (!versionMatch) continue;
-                    const major = versionMatch[1] === "1" ? parseInt(versionMatch[2] || "0", 10) : parseInt(versionMatch[1], 10);
-                    if (major === requiredJava) {
-                        jPath = candidate;
-                        sysLog(`Auto-sélection de Java ${requiredJava} détecté sur le système : ${candidate}`);
+                const BATCH_SIZE = 4;
+                for (let b = 0; b < candidates.length; b += BATCH_SIZE) {
+                    const batch = candidates.slice(b, b + BATCH_SIZE);
+                    const batchResults = await Promise.all(batch.map(async (/** @type {string} */ candidate) => {
+                        const candidateJava = candidate.toLowerCase().endsWith("javaw.exe")
+                            ? candidate.slice(0, -9) + "java.exe"
+                            : candidate;
+                        const versionResult = await checkJavaCached(candidateJava);
+                        const versionText = `${versionResult?.stderr || ""} ${versionResult?.stdout || ""}`;
+                        const versionMatch = versionText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+                        if (!versionMatch) return null;
+                        const major = versionMatch[1] === "1" ? parseInt(versionMatch[2] || "0", 10) : parseInt(versionMatch[1], 10);
+                        return major === requiredJava ? candidate : null;
+                    }));
+                    const hit = batchResults.find(Boolean);
+                    if (hit) {
+                        jPath = hit;
+                        sysLog(`Auto-sélection de Java ${requiredJava} détecté sur le système : ${hit}`);
                         break;
                     }
                 }
@@ -259,7 +302,7 @@ export async function launchInstance(inst, acc, ui) {
                 if (ui.abortAutoLaunch) ui.abortAutoLaunch();
                 return;
             }
-        } else if (!javaExists) {
+        } else if (!javaExists || isVersionIncompatible) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
@@ -303,7 +346,11 @@ export async function launchInstance(inst, acc, ui) {
             const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
             if (refreshRes.success && refreshRes.access_token) {
                 acc.mclcAuth.access_token = refreshRes.access_token;
-                window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                try {
+                    await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                } catch (/** @type {any} */ writeErr) {
+                    sysLog("Erreur sauvegarde token rafraîchi: " + (writeErr?.message || writeErr), true);
+                }
                 sessionValid = true;
             }
         } catch (/** @type {any} */ e) { sysLog("Erreur refresh token: " + e.message, true); }
@@ -320,7 +367,11 @@ export async function launchInstance(inst, acc, ui) {
                     acc.mclcAuth = result.auth;
                     acc.name = result.auth.name;
                     acc.uuid = result.auth.uuid;
-                    window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                    try {
+                        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                    } catch (/** @type {any} */ writeErr) {
+                        sysLog("Erreur sauvegarde compte Microsoft: " + (writeErr?.message || writeErr), true);
+                    }
                     if (window.renderAccountManager) window.renderAccountManager();
                     if (window.updateAccountDropdown) window.updateAccountDropdown();
                     if (ui.showToast) ui.showToast(window.t("msg_login_success", "Connexion réussie !"), "success");
@@ -354,9 +405,13 @@ export async function launchInstance(inst, acc, ui) {
     let opts = {
         instanceId: inst.name,
         offline: isOffline,
+        fastSizeOnly: Boolean(store.globalSettings.fastSizeOnly),
         authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
         memory: { max: ramMB + "M", min: "1024M" }, javaPath: jPath, customArgs,
-        window: { width: resW, height: resH }, spawnOptions: { detached: false, shell: false, windowsHide: true },
+        window: { width: resW, height: resH },
+        overrides: { detached: false },
+        spawnOptions: { detached: false, shell: false, windowsHide: true },
+        logFilePath: window._gameLogFiles?.[inst.name] || null,
     };
 
     if (inst.autoConnect) {
@@ -391,7 +446,12 @@ export async function launchInstance(inst, acc, ui) {
                 if (!loaderVer) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     const fbRes = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}`);
-                    loaderVer = (await fbRes.json())[0].loader.version;
+                    if (!fbRes.ok) throw new Error(`HTTP ${fbRes.status}`);
+                    const fbList = await fbRes.json();
+                    if (!Array.isArray(fbList) || !fbList[0]?.loader?.version) {
+                        throw new Error(`Aucune version Fabric disponible pour Minecraft ${inst.version}`);
+                    }
+                    loaderVer = fbList[0].loader.version;
                 }
             }
             if (loaderVer) {
@@ -403,6 +463,7 @@ export async function launchInstance(inst, acc, ui) {
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
                 const hasJsonPath = await window.existsSafe(jsonPath);
                 if (!hasJsonPath) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_fabric", "Téléchargement profil Fabric..."));
                     const response = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}/${loaderVer}/profile/json`);
                     if (!response.ok) throw new Error("Impossible d'obtenir le profil Fabric.");
@@ -428,7 +489,12 @@ export async function launchInstance(inst, acc, ui) {
                 if (!loaderVer) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     const qRes = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
-                    loaderVer = (await qRes.json())[0].loader.version;
+                    if (!qRes.ok) throw new Error(`HTTP ${qRes.status}`);
+                    const qList = await qRes.json();
+                    if (!Array.isArray(qList) || !qList[0]?.loader?.version) {
+                        throw new Error(`Aucune version Quilt disponible pour Minecraft ${inst.version}`);
+                    }
+                    loaderVer = qList[0].loader.version;
                 }
             }
             if (loaderVer) {
@@ -440,6 +506,7 @@ export async function launchInstance(inst, acc, ui) {
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
                 const hasJsonPath2 = await window.existsSafe(jsonPath);
                 if (!hasJsonPath2) {
+                    if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_quilt", "Téléchargement profil Quilt..."));
                     const response = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}/${loaderVer}/profile/json`);
                     if (!response.ok) throw new Error("Impossible d'obtenir le profil Quilt.");
@@ -534,64 +601,37 @@ export async function launchInstance(inst, acc, ui) {
                     if (shaRes.ok) expectedSha1 = (await shaRes.text()).trim().toLowerCase().split(/\s/)[0];
                 } catch (/** @type {any} */ e) { sysLog("Hash SHA1 non disponible : " + e.message, true); }
 
-                sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
-                const dlController = new AbortController();
-                const dlTimeout = setTimeout(() => dlController.abort(), 600000);
+                if (!expectedSha1 || !/^[a-f0-9]{40}$/i.test(expectedSha1)) {
+                    throw new Error(`Empreinte SHA1 officielle indisponible pour ${inst.loader} ${inst.loaderVersion}. Installation annulée par sécurité.`);
+                }
 
-                let res;
+                sysLog(`Téléchargement de l'installeur depuis : ${downloadUrl}`);
+                const progressId = `loader-${inst.loader}-${Date.now()}`;
+                const unsubscribeDl = window.api.on("download-progress", (/** @type {any} */ p) => {
+                    if (p?.progressId !== progressId) return;
+                    if (p.totalBytes > 0) {
+                        const pct = Math.min(100, p.percent || 0);
+                        if (ui.setProgressBar) ui.setProgressBar(pct);
+                        const msg = `${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${pct}%`;
+                        if (ui.setStatusText) ui.setStatusText(msg);
+                        if (ui.setAutoStatusText) ui.setAutoStatusText(msg);
+                    }
+                });
                 try {
-                    res = await fetch(downloadUrl, { signal: dlController.signal });
-                    if (!res.ok && inst.loader === "forge") {
-                        sysLog("Lien officiel échoué, essai du miroir secondaire...");
-                        downloadUrl = `https://bmclapi2.bangbang93.com/forge/download?mcversion=${inst.version}&version=${inst.loaderVersion}&category=installer&format=jar`;
-                        res = await fetch(downloadUrl, { signal: dlController.signal });
+                    const dlRes = await window.api.invoke("download-file-stream", {
+                        url: downloadUrl,
+                        destPath: installerPath,
+                        expectedHash: expectedSha1,
+                        hashAlgo: "sha1",
+                        progressId
+                    });
+                    if (!dlRes || !dlRes.success) {
+                        throw new Error(dlRes?.error || `Impossible de télécharger ou vérifier l'installeur ${inst.loader}.`);
                     }
                 } finally {
-                    clearTimeout(dlTimeout);
+                    if (unsubscribeDl) unsubscribeDl();
                 }
-
-                if (!res.ok) throw new Error(`Impossible de télécharger l'installeur (Code HTTP: ${res.status})`);
-
-                const contentLength = parseInt(res.headers.get("content-length") || "0", 10);
-                let fileBytes;
-                if (res.body && typeof res.body.getReader === 'function') {
-                    const reader = res.body.getReader();
-                    const chunks = [];
-                    let receivedBytes = 0;
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                        receivedBytes += value.length;
-                        if (contentLength > 0) {
-                            const pct = Math.min(100, Math.round((receivedBytes / contentLength) * 100));
-                            if (ui.setProgressBar) ui.setProgressBar(pct);
-                            const msg = `${window.t("msg_dl_loader", "Téléchargement de ")}${inst.loader} : ${pct}%`;
-                            if (ui.setStatusText) ui.setStatusText(msg);
-                            if (ui.setAutoStatusText) ui.setAutoStatusText(msg);
-                        }
-                    }
-                    fileBytes = new Uint8Array(receivedBytes);
-                    let position = 0;
-                    for (const chunk of chunks) {
-                        fileBytes.set(chunk, position);
-                        position += chunk.length;
-                    }
-                } else {
-                    fileBytes = new Uint8Array(await res.arrayBuffer());
-                }
-
-                if (expectedSha1) {
-                    if (ui.setStatusText) ui.setStatusText(window.t("msg_verify_hash", "Vérification de l'intégrité..."));
-                    const actualSha1 = await window.api.tools.hashBuffer(fileBytes, "sha1");
-                    if (actualSha1 !== expectedSha1) {
-                        throw new Error(`Échec SHA1 de l'installeur ${inst.loader} !\nAttendu : ${expectedSha1}\nObtenu : ${actualSha1}`);
-                    }
-                    sysLog(`SHA1 vérifié pour ${inst.loader} ${inst.loaderVersion}.`);
-                } else {
-                    sysLog(`Avertissement : SHA1 non disponible pour ${inst.loader}.`, true);
-                }
-                await fs.promises.writeFile(installerPath, fileBytes);
+                sysLog(`SHA1 vérifié pour ${inst.loader} ${inst.loaderVersion}.`);
                 if (ui.setProgressBar) ui.setProgressBar(100);
                 if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_complete", "Téléchargement terminé !"));
                 if (ui.setProgressBar) ui.setProgressBar(-1);
@@ -650,20 +690,7 @@ export async function launchInstance(inst, acc, ui) {
     store.primaryRpcInstance = inst.name;
     window.setUIState();
     if (window.renderUI) window.renderUI();
-
-    inst._tempSessionStart = Date.now();
-    inst.launchCount = (inst.launchCount || 0) + 1;
-    window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
-    store.sessionStartTime = Date.now();
     updateRPC(inst);
-
-    if (window.checkAchievement) {
-        window.checkAchievement("first_launch");
-        const ramToVerify = inst.ram || store.globalSettings.defaultRam;
-        if (ramToVerify > 8192) window.checkAchievement("war_machine");
-        const hour = new Date().getHours();
-        if (hour >= 0 && hour < 5) window.checkAchievement("night_owl");
-    }
 
     if (isOffline) {
         const libsDir = window.api.path.join(instancePath, "libraries");
@@ -688,4 +715,7 @@ export async function launchInstance(inst, acc, ui) {
 
     sysLog("Démarrage du processus MCLC...");
     window.api.send("launch-game", opts);
+    } finally {
+        _launchingInstances.delete(inst.name);
+    }
 }

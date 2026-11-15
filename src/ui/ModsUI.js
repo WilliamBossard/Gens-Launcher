@@ -112,7 +112,7 @@ function setupMods() {
             if (!data.hits) throw new Error("Réponse API Modrinth invalide");
             resDiv.innerHTML = "";
             if (data.hits.length === 0) {
-              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version} (${loader}).</div>`;
+              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${window.escapeHTML(version)} (${window.escapeHTML(loader)}).</div>`;
               return;
             }
             const frag = document.createDocumentFragment();
@@ -121,7 +121,7 @@ function setupMods() {
               const safeTitle  = window.escapeHTML(mod.title);
               const safeDesc   = window.escapeHTML(mod.description);
               const safeAuthor = window.escapeHTML(mod.author || t("lbl_author", "Auteur"));
-              const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? mod.icon_url : "";
+              const safeIconUrl = (mod.icon_url && /^https:\/\//i.test(mod.icon_url)) ? window.escapeHTML(mod.icon_url) : "";
               const isInstalled = checkInstalled(mod.title, mod.slug, installedItems);
               const card = document.createElement("div");
               card.className = "catalog-card";
@@ -180,7 +180,7 @@ function setupMods() {
                         });
             resDiv.innerHTML = "";
                         if (compatibleResults.length === 0) {
-              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${version}.</div>`;
+              resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color: #aaa;'>${t("msg_no_results_mc", "Aucun résultat trouvé pour Minecraft")} ${window.escapeHTML(version)}.</div>`;
               return;
             }
             const cfFrag = document.createDocumentFragment();
@@ -195,7 +195,7 @@ function setupMods() {
               const card = document.createElement("div");
               card.className = "catalog-card";
               card.innerHTML = `
-                <img src="${safeCfIcon}" style="width:50px;height:50px;border-radius:6px;background:#333;">
+                <img src="${window.escapeHTML(safeCfIcon)}" style="width:50px;height:50px;border-radius:6px;background:#333;">
                 <div style="flex-grow:1;display:flex;flex-direction:column;">
                   <div style="font-weight:bold;color:var(--text-light);font-size:0.95rem;">${safeTitle}</div>
                   <div style="font-size:0.75rem;color:#f48a21;margin-bottom:5px;">${safeAuthor} - ${downloads} (CurseForge)</div>
@@ -223,7 +223,8 @@ function setupMods() {
         }
       } catch (/** @type {any} */ e) {
         if (e.name === "AbortError") return;
-        resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche")} : ${e.message || "Impossible de joindre l'API"}</div>`;
+        const safeErrMsg = window.escapeHTML(e?.message || "Impossible de joindre l'API");
+        resDiv.innerHTML = `<div style='text-align:center; padding: 20px; color:#f87171;'>${t("msg_builder_search_err", "Erreur de recherche")} : ${safeErrMsg}</div>`;
       }
     };
     window.installGlobalMod = async (/** @type {string} */ projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "") => {
@@ -498,7 +499,8 @@ if (!isDependency) {
           if (projType === "mod" && window.renderModsManager) window.renderModsManager();
           if (projType === "shader" && window.renderShadersManager) window.renderShadersManager();
           if (projType === "resourcepack" && window.renderResourcePacksManager) window.renderResourcePacksManager();
-          const activeBtns = document.querySelectorAll(`button[data-project-id="${projectId}"]`);
+          const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(String(projectId)) : String(projectId).replace(/["\\]/g, '\\$&');
+          const activeBtns = document.querySelectorAll(`button[data-project-id="${escapedId}"]`);
           activeBtns.forEach(b => {
               b.outerHTML = `<button class="btn-secondary" style="background:#333;color:#aaa;cursor:not-allowed;" disabled>${t("btn_already_installed", "Installé")}</button>`;
           });
@@ -697,7 +699,8 @@ if (!isDependency) {
                     const btnHtml = isAdded
                         ? `<button class="btn-secondary" style="background:#333; color:#aaa; cursor:not-allowed; font-size:0.75rem; padding: 3px 8px;" disabled>${t("btn_added", "Ajouté")}</button>`
                         : `<button class="btn-primary builder-add-btn" style="font-size:0.75rem; padding: 3px 10px;">${t("btn_add_to_pack", "Ajouter")}</button>`;
-                    const iconUrl = (mod.logo && mod.logo.thumbnailUrl) ? window.escapeHTML(mod.logo.thumbnailUrl) : "";
+                    const rawThumb = (mod.logo && mod.logo.thumbnailUrl) ? String(mod.logo.thumbnailUrl) : "";
+                    const iconUrl = /^https:\/\//i.test(rawThumb) ? window.escapeHTML(rawThumb) : "";
                     const iconHtml = iconUrl
                         ? `<img src="${iconUrl}" alt="" style="width: 40px; height: 40px; border-radius: 4px; background: #222; flex-shrink:0;" loading="lazy">`
                         : `<div style="width:40px;height:40px;border-radius:4px;background:#333;flex-shrink:0;"></div>`;
@@ -889,7 +892,7 @@ const queue = [...modsToDownload];
                         }
                         const apiKey = store.globalSettings.cfApiKey;
                         if (!apiKey) throw new Error("Clé API CurseForge manquante");
-                        let url = `https://api.curseforge.com/v1/mods/${encodeURIComponent(mod.id)}/files?gameVersion=${version}`;
+                        let url = `https://api.curseforge.com/v1/mods/${encodeURIComponent(mod.id)}/files?gameVersion=${encodeURIComponent(version)}`;
                         if (modLoaderType > 0) url += `&modLoaderType=${modLoaderType}`;
                         const res = await window.api.invoke("fetch-curseforge", { url, apiKey });
                         if (!res.success) throw new Error(res.error);
@@ -949,33 +952,23 @@ const queue = [...modsToDownload];
                         done++; continue;
                     }
                     const safeFilename = sanitizeFilename(fileObj.filename);
-                    const dlController = new AbortController();
-                    const dlTimeout = setTimeout(() => dlController.abort(), 30000);
-                    let dlRes;
-                    try {
-                        dlRes = await window.fetchWithTimeout(fileObj.url, { signal: dlController.signal });
-                    } finally {
-                        clearTimeout(dlTimeout);
-                    }
-                    if (!dlRes.ok) throw new Error(`DL HTTP ${dlRes.status}`);
-                    const buffer = await dlRes.arrayBuffer();
-                    if (fileObj.hashes?.sha1) {
-                        const dlHash = await window.api.tools.hashBuffer(new Uint8Array(buffer), "sha1");
-                        if (dlHash !== fileObj.hashes.sha1) {
-                            sysLog(`SÉCURITÉ : hash SHA1 invalide pour ${mod.name} (${fileObj.filename})`, true);
-                            failed.push(mod.name);
-                            done++; continue;
-                        }
-                    }
                     const destPath = path.join(dirs[/** @type {"mod" | "shader" | "resourcepack"} */ (mod.type)], safeFilename);
-                    await fs.promises.writeFile(destPath, new Uint8Array(buffer));
+                    const dlStreamRes = await window.api.invoke("download-file-stream", {
+                        url: fileObj.url,
+                        destPath,
+                        expectedHash: fileObj.hashes?.sha1 || null,
+                        hashAlgo: fileObj.hashes?.sha1 ? "sha1" : null
+                    });
+                    if (!dlStreamRes?.success) {
+                        throw new Error(dlStreamRes?.error || "Échec du téléchargement");
+                    }
                 } catch (/** @type {any} */ e) {
                     sysLog(`Erreur DL ${mod.name}: ` + e, true);
                     failed.push(mod.name);
                 }
                 done++;
                 let pct = Math.round((done / total) * 100);
-                window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${window.escapeHTML(mod.name)}...`);
+                window.updateLoadingPercent(pct, `${t("msg_builder_downloading", "Téléchargement :")} ${mod.name}...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         });
@@ -1020,23 +1013,38 @@ window.updateLoadingPercent(100, t("msg_builder_creating", "Finalisation..."));
                     updateBtn.style.display = "inline-block";
                     updateBtn.style.background = "#f48a21"; 
                     updateBtn.style.color = "#fff";
-                    updateBtn.innerHTML = `Mettre à jour (${latest.version_number})`;
-                    updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId, latest.version_number, store.selectedInstanceIdx);
+                    updateBtn.textContent = `Mettre à jour (${latest.version_number || ""})`;
+                    updateBtn.onclick = () => window.performModpackUpdate(mrpackFile.url, mrpackFile.filename, inst.modrinthId, latest.version_number, store.selectedInstanceIdx, mrpackFile.hashes);
                 }
             }
         } catch (/** @type {any} */ e) {
             sysLog("Erreur vérification MAJ modpack: " + e.message, true);
         }
     };
-    window.performModpackUpdate = async (/** @type {string} */ url, /** @type {string} */ filename, /** @type {string} */ projectId, /** @type {string} */ versionNumber, /** @type {any} */ targetInstIdx) => {
+    window.performModpackUpdate = async (/** @type {string} */ url, /** @type {string} */ filename, /** @type {string} */ projectId, /** @type {string} */ versionNumber, /** @type {any} */ targetInstIdx, /** @type {any} */ hashes = null) => {
         try {
+            if (!url || !/^https:\/\//i.test(url)) {
+                throw new Error(window.t("msg_err_invalid_url", "URL de téléchargement HTTPS invalide."));
+            }
+            const algo = hashes?.sha512 ? "sha512" : (hashes?.sha1 ? "sha1" : null);
+            const expectedHash = algo ? String(hashes[algo]).toLowerCase() : null;
+            if (!algo || !expectedHash) {
+                throw new Error(window.t("msg_err_missing_hash", "Empreinte de sécurité (SHA) manquante pour cette mise à jour .mrpack."));
+            }
             window.showLoading(t("msg_dl_mp", "Téléchargement de la mise à jour..."), 0);
             const safeTempName = sanitizeFilename(filename || "modpack.mrpack");
             const tempPath = path.join(store.dataDir, safeTempName);
+            const tmpWritePath = tempPath + ".tmp";
             const dlRes = await window.fetchWithTimeout(url);
             if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
-            const buffer = await dlRes.arrayBuffer();
-            await fs.promises.writeFile(tempPath, new Uint8Array(buffer));
+            const buffer = new Uint8Array(await dlRes.arrayBuffer());
+            const actualHash = (await window.api.tools.hashBuffer(buffer, algo)).toLowerCase();
+            if (actualHash !== expectedHash) {
+                sysLog(`[SECURITY] Hash ${algo.toUpperCase()} invalide pour .mrpack (${safeTempName}): attendu ${expectedHash}, reçu ${actualHash}`, true);
+                throw new Error(window.t("msg_err_hash", "Fichier corrompu ou modifié !"));
+            }
+            await fs.promises.writeFile(tmpWritePath, buffer);
+            await fs.promises.rename(tmpWritePath, tempPath);
             window.showLoading(t("msg_install_mp", "Installation..."), 0);
             await window.handleMrPackImport(tempPath, projectId, targetInstIdx);
             
