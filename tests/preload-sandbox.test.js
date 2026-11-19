@@ -151,8 +151,8 @@ test('Preload security.writeJSON and readJSONAsync allow cf_api_key.enc and reje
     };
     try {
         require(preloadPath);
-        const cfPath = path.join('C:\\Users\\Test\\AppData', 'GensLauncher', 'cf_api_key.enc');
-        const arbitraryPath = path.join('C:\\Users\\Test\\AppData', 'GensLauncher', 'other_secret.enc');
+        const cfPath = exposedApi.path.join('C:\\Users\\Test\\AppData', 'GensLauncher', 'cf_api_key.enc');
+        const arbitraryPath = exposedApi.path.join('C:\\Users\\Test\\AppData', 'GensLauncher', 'other_secret.enc');
 
         await exposedApi.security.writeJSON(cfPath, { key: 'abc' });
         assert.ok(invoked.some((c) => c.channel === 'encrypt-string'), 'cf_api_key.enc doit passer par encrypt-string');
