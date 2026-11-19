@@ -76,7 +76,7 @@ test('Preload pathShim preserves Windows UNC \\\\server\\share prefixes on join 
     let exposedApi = null;
     const preloadPath = path.resolve(__dirname, '../preload.js');
     delete require.cache[preloadPath];
-    process.argv = ['electron', '--app-data=C:\\Users\\Test\\AppData', '--platform=win32'];
+    process.argv = ['electron', '--app-data=C:\\Users\\Test\\AppData', '--app-platform=win32'];
     Module._load = function (request, parent, isMain) {
         if (request === 'electron') {
             return {
@@ -122,7 +122,7 @@ test('Preload security.writeJSON and readJSONAsync allow cf_api_key.enc and reje
     const invoked = [];
     const preloadPath = path.resolve(__dirname, '../preload.js');
     delete require.cache[preloadPath];
-    process.argv = ['electron', '--app-data=C:\\Users\\Test\\AppData', '--platform=win32'];
+    process.argv = ['electron', '--app-data=C:\\Users\\Test\\AppData', '--app-platform=win32'];
     Module._load = function (request, parent, isMain) {
         if (request === 'electron') {
             return {

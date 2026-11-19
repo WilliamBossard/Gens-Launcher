@@ -1,6 +1,6 @@
 // @ts-check
 
-const APT_KEY_SHA256 = '65770db50f5ecf86c0a2f8d10309540851131846a876682f27b579d82830a9f4';
+const APT_KEY_SHA256 = '9d9f654a0455664fdd3ce1b4fcdccf424fe3bd17614cc9c5ba5133710a7d8cd0';
 
 /**
  * @param {import('../types/main').MainContext} context

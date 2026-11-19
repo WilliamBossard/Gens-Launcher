@@ -126,86 +126,98 @@ test('Handler parseVersion and compareVersion correctly handles 26.x and 27.x', 
 const Handler = require('../src/gens-core/components/handler.js');
 
 test('Handler.parseRule evaluates Mojang single and multi-rule OS/arch conditions accurately', () => {
-    const handler = new Handler({
-        options: { os: 'windows', root: os.tmpdir(), overrides: {} },
-        emit: () => {}
-    });
+    const origArchDesc = Object.getOwnPropertyDescriptor(process, 'arch');
+    Object.defineProperty(process, 'arch', { value: 'x64', configurable: true });
+    try {
+        const handler = new Handler({
+            options: { os: 'windows', root: os.tmpdir(), overrides: {} },
+            emit: () => {}
+        });
 
-    // 1. Single allow rule for windows -> should be allowed (parseRule returns false = not skipped)
-    assert.strictEqual(handler.parseRule({
-        name: 'org.lwjgl:lwjgl-platform:3.3.3:natives-windows',
-        rules: [{ action: 'allow', os: { name: 'windows' } }]
-    }), false);
+        // 1. Single allow rule for windows -> should be allowed (parseRule returns false = not skipped)
+        assert.strictEqual(handler.parseRule({
+            name: 'org.lwjgl:lwjgl-platform:3.3.3:natives-windows',
+            rules: [{ action: 'allow', os: { name: 'windows' } }]
+        }), false);
 
-    // 2. Single allow rule for osx -> should be skipped on windows (parseRule returns true)
-    assert.strictEqual(handler.parseRule({
-        name: 'ca.weblite:java-objc-bridge:1.1',
-        rules: [{ action: 'allow', os: { name: 'osx' } }]
-    }), true);
+        // 2. Single allow rule for osx -> should be skipped on windows (parseRule returns true)
+        assert.strictEqual(handler.parseRule({
+            name: 'ca.weblite:java-objc-bridge:1.1',
+            rules: [{ action: 'allow', os: { name: 'osx' } }]
+        }), true);
 
-    // 3. Single disallow rule for osx -> should be allowed on windows (parseRule returns false)
-    assert.strictEqual(handler.parseRule({
-        name: 'org.lwjgl:lwjgl:3.3.3',
-        rules: [{ action: 'disallow', os: { name: 'osx' } }]
-    }), false);
+        // 3. Single disallow rule for osx -> should be allowed on windows (parseRule returns false)
+        assert.strictEqual(handler.parseRule({
+            name: 'org.lwjgl:lwjgl:3.3.3',
+            rules: [{ action: 'disallow', os: { name: 'osx' } }]
+        }), false);
 
-    // 4. Multi-rule: allow all + disallow windows -> should be skipped on windows (parseRule returns true)
-    assert.strictEqual(handler.parseRule({
-        name: 'some.posix:lib:1.0',
-        rules: [
-            { action: 'allow' },
-            { action: 'disallow', os: { name: 'windows' } }
-        ]
-    }), true);
+        // 4. Multi-rule: allow all + disallow windows -> should be skipped on windows (parseRule returns true)
+        assert.strictEqual(handler.parseRule({
+            name: 'some.posix:lib:1.0',
+            rules: [
+                { action: 'allow' },
+                { action: 'disallow', os: { name: 'windows' } }
+            ]
+        }), true);
 
-    // 5. Multi-rule: allow all + disallow osx -> should be allowed on windows (parseRule returns false)
-    assert.strictEqual(handler.parseRule({
-        name: 'some.nonmac:lib:1.0',
-        rules: [
-            { action: 'allow' },
-            { action: 'disallow', os: { name: 'osx' } }
-        ]
-    }), false);
+        // 5. Multi-rule: allow all + disallow osx -> should be allowed on windows (parseRule returns false)
+        assert.strictEqual(handler.parseRule({
+            name: 'some.nonmac:lib:1.0',
+            rules: [
+                { action: 'allow' },
+                { action: 'disallow', os: { name: 'osx' } }
+            ]
+        }), false);
+    } finally {
+        if (origArchDesc) Object.defineProperty(process, 'arch', origArchDesc);
+    }
 });
 
 test('Handler.getClasses preserves native classifiers while deduplicating overridden loader libraries', async () => {
-    const handler = new Handler({
-        options: { os: 'windows', root: os.tmpdir(), overrides: {} },
-        emit: () => {}
-    });
+    const origArchDesc = Object.getOwnPropertyDescriptor(process, 'arch');
+    Object.defineProperty(process, 'arch', { value: 'x64', configurable: true });
+    try {
+        const handler = new Handler({
+            options: { os: 'windows', root: os.tmpdir(), overrides: {} },
+            emit: () => {}
+        });
 
-    handler.version = {
-        libraries: [
-            {
-                name: 'org.lwjgl:lwjgl:3.3.3',
-                downloads: { artifact: { path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar' } }
-            },
-            {
-                name: 'org.lwjgl:lwjgl:3.3.3:natives-windows',
-                downloads: { artifact: { path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar' } }
-            },
-            {
-                name: 'org.ow2.asm:asm:9.3',
-                downloads: { artifact: { path: 'org/ow2/asm/asm/9.3/asm-9.3.jar' } }
-            }
-        ]
-    };
+        handler.version = {
+            libraries: [
+                {
+                    name: 'org.lwjgl:lwjgl:3.3.3',
+                    downloads: { artifact: { path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar' } }
+                },
+                {
+                    name: 'org.lwjgl:lwjgl:3.3.3:natives-windows',
+                    downloads: { artifact: { path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar' } }
+                },
+                {
+                    name: 'org.ow2.asm:asm:9.3',
+                    downloads: { artifact: { path: 'org/ow2/asm/asm/9.3/asm-9.3.jar' } }
+                }
+            ]
+        };
 
-    // Mock downloadToDirectory to return library names instead of hitting disk/network
-    handler.downloadToDirectory = async (_dir, libs) => libs.map(l => l.name);
+        // Mock downloadToDirectory to return library names instead of hitting disk/network
+        handler.downloadToDirectory = async (_dir, libs) => libs.map(l => l.name);
 
-    const classJson = {
-        libraries: [
-            { name: 'org.lwjgl:lwjgl:3.3.3' },
-            { name: 'org.ow2.asm:asm:9.6' }
-        ]
-    };
+        const classJson = {
+            libraries: [
+                { name: 'org.lwjgl:lwjgl:3.3.3' },
+                { name: 'org.ow2.asm:asm:9.6' }
+            ]
+        };
 
-    const result = await handler.getClasses(classJson);
+        const result = await handler.getClasses(classJson);
 
-    assert.strictEqual(result.includes('org.lwjgl:lwjgl:3.3.3:natives-windows'), true, 'LWJGL natives-windows classifier must be preserved');
-    assert.strictEqual(result.includes('org.ow2.asm:asm:9.6'), true, 'Newer ASM from loader must be included');
-    assert.strictEqual(result.includes('org.ow2.asm:asm:9.3'), false, 'Older ASM from base version must be deduplicated');
+        assert.strictEqual(result.includes('org.lwjgl:lwjgl:3.3.3:natives-windows'), true, 'LWJGL natives-windows classifier must be preserved');
+        assert.strictEqual(result.includes('org.ow2.asm:asm:9.6'), true, 'Newer ASM from loader must be included');
+        assert.strictEqual(result.includes('org.ow2.asm:asm:9.3'), false, 'Older ASM from base version must be deduplicated');
+    } finally {
+        if (origArchDesc) Object.defineProperty(process, 'arch', origArchDesc);
+    }
 });
 
 test('Handler.getAssetIndexName uses version.assetIndex.id instead of custom loader name', () => {
