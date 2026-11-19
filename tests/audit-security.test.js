@@ -567,7 +567,7 @@ test('Handler fastSizeOnly, offline no-network mode, and pure getLaunchOptions r
     });
 
 test('ipc-system copy-file-to-sandbox, duplicate-instance-folder and get-folder-size enforce security and return accurate sizes', async () => {
-        const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_audit_sys_'));
+        const tmpRoot = await fs.promises.mkdtemp(path.join(await fs.promises.realpath(os.tmpdir()), 'gens_audit_sys_'));
         const sandboxDir = path.join(tmpRoot, 'sandbox');
         const externalDir = path.join(tmpRoot, 'external');
         await fs.promises.mkdir(sandboxDir, { recursive: true });
