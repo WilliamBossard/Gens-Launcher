@@ -1,4 +1,5 @@
 name: Build APT Repo from Releases
+
 on:
   push:
     branches:
@@ -12,21 +13,31 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages-apt-repo
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Configurer Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
 
       - name: Compiler la documentation VitePress
         run: |
-          npm --prefix docs install
+          if [ -f docs/package-lock.json ]; then
+            npm --prefix docs ci
+          else
+            npm --prefix docs install
+          fi
           npm run docs:build
 
       - name: Installer les outils APT
@@ -38,12 +49,16 @@ jobs:
       - name: Récupérer le .deb depuis la Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          if [ -z "$TAG" ]; then
+          if [ -z "$RELEASE_TAG" ]; then
             gh release download --pattern "*.deb" --dir apt-workspace || echo "Aucun paquet .deb trouvé"
           else
-            gh release download "$TAG" --pattern "*.deb" --dir apt-workspace
+            if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+              echo "Tag de release invalide : $RELEASE_TAG" >&2
+              exit 1
+            fi
+            gh release download "$RELEASE_TAG" --pattern "*.deb" --dir apt-workspace
           fi
 
       - name: Ajouter la clé publique et le site web
@@ -52,31 +67,32 @@ jobs:
           cp -r website/* apt-workspace/
 
       - name: Importer la clé de sécurité
-        id: import_gpg  # <-- AJOUT : On donne un identifiant à cette étape
-        uses: crazy-max/ghaction-import-gpg@v7
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Générer l'arborescence APT
+        env:
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
         run: |
           cd apt-workspace
           dpkg-scanpackages --multiversion . > Packages
           gzip -k -f Packages
           apt-ftparchive release . > Release
-          
-          # On utilise explicitement l'empreinte (fingerprint) générée par l'étape précédente
-          gpg --default-key "${{ steps.import_gpg.outputs.fingerprint }}" -abs -o Release.gpg Release
-          gpg --default-key "${{ steps.import_gpg.outputs.fingerprint }}" --clearsign -o InRelease Release
+
+          gpg --default-key "$GPG_FINGERPRINT" -abs -o Release.gpg Release
+          gpg --default-key "$GPG_FINGERPRINT" --clearsign -o InRelease Release
 
       - name: Configurer GitHub Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Préparer l'envoi web
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: './apt-workspace'
 
       - name: Mettre en ligne le dépôt
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

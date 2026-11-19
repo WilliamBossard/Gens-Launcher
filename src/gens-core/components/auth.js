@@ -16,6 +16,7 @@ const CLIENT_ID = '00000000441cc96b'; // Nintendo Switch Microsoft App ID
 /**
  * @typedef {Object} AuthExchangeResult
  * @property {string} mcToken
+ * @property {number} [mcExpiresIn]
  * @property {any} profile
  * @property {string | null} msaRefreshToken
  */
@@ -322,11 +323,13 @@ class MicrosoftAuth {
 
         const mcRes = await this.getMinecraftToken(userHash, xstsToken);
         const mcAccessToken = mcRes.access_token;
+        const mcExpiresIn = Number(mcRes.expires_in) > 0 ? Number(mcRes.expires_in) : 86400;
 
         const profile = await this.getMinecraftProfile(mcAccessToken);
 
         return {
             mcToken: mcAccessToken,
+            mcExpiresIn,
             profile: profile,
             msaRefreshToken: newRefreshToken // Might be passed if we did a flowRefresh
         };

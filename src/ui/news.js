@@ -21,11 +21,11 @@ export function setupNews() {
             container.style.display = "block";
             const toggleText = store.currentLangObj?.btn_show || "Afficher";
             container.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
-                <div style="font-weight: bold; color: var(--text-light);">${window.t("lbl_news", "Actualités Minecraft")}</div>
-                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
+            <div class="u-s289">
+                <div class="u-s090">${window.t("lbl_news", "Actualités Minecraft")}</div>
+                <button class="btn-secondary u-s050" id="btn-toggle-news">${toggleText}</button>
             </div>
-            <div id="news-content-wrapper" style="display: none;"></div>`;
+            <div id="news-content-wrapper" class="is-hidden"></div>`;
             container.querySelector('#btn-toggle-news')?.addEventListener('click', () => window.toggleNews());
             return;
         }
@@ -46,11 +46,11 @@ export function setupNews() {
             
             const toggleText = store.globalSettings.newsCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
             let html = `
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 10px;">
-                <div style="font-weight: bold; color: var(--text-light);">${window.t("lbl_news", "Actualités Minecraft")}</div>
-                <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" id="btn-toggle-news">${toggleText}</button>
+            <div class="u-s289">
+                <div class="u-s090">${window.t("lbl_news", "Actualités Minecraft")}</div>
+                <button class="btn-secondary u-s050" id="btn-toggle-news">${toggleText}</button>
             </div>
-            <div id="news-content-wrapper" style="display: ${store.globalSettings.newsCollapsed ? 'none' : 'block'};">`;
+            <div id="news-content-wrapper" class="${store.globalSettings.newsCollapsed ? 'is-hidden' : ''}">`;
             
             data.entries.slice(0, 6).forEach((/** @type {any} */ news) => {
                 const rawImgUrl = news.playPageImage?.url || "";
@@ -65,8 +65,8 @@ export function setupNews() {
                 <div class="news-card" data-link="${safeLink}">
                     <img src="${safeImgUrl}" class="news-img">
                     <div class="news-content">
-                        <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeTitle}</div>
-                        <div style="font-size: 0.7rem; color: var(--accent);">${safeCategory}</div>
+                        <div class="u-s290">${safeTitle}</div>
+                        <div class="u-s291">${safeCategory}</div>
                     </div>
                 </div>`;
             });

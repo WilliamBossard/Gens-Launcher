@@ -18,40 +18,27 @@ export function showJavaTypeModal(version, t = window.t) {
         `;
 
         modal.innerHTML = `
-            <div style="
-                background: var(--bg-panel, rgba(45, 45, 48, 0.85));
-                backdrop-filter: blur(12px);
-                border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
-                border-radius: 12px; padding: 24px; width: 440px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); box-sizing: border-box;
-                transform: scale(0.95); transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            ">
-                <h3 style="margin-top:0; color:var(--text-light, #fff); font-size:1.2rem; margin-bottom:12px;">
+            <div class="u-s252">
+                <h3 class="u-s253">
                     ${t("java_choice_title", "Installation de Java {version}").replace("{version}", String(version))}
                 </h3>
-                <p style="font-size:0.85rem; opacity:0.8; margin-bottom:20px; line-height:1.4;">
+                <p class="u-s254">
                     ${t("java_choice_desc", "Sélectionnez le type d'environnement à installer pour votre jeu :")}
                 </p>
-                <div id="choice-jre" style="
-                    border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius:8px; padding:16px; margin-bottom:12px;
-                    cursor:pointer; transition: all 0.2s ease; box-sizing: border-box; background: rgba(255,255,255,0.02);
-                ">
-                    <strong style="color: var(--accent, #3b82f6); font-size:1rem; display:block; margin-bottom:4px;">JRE (Java Runtime Environment)</strong>
-                    <span style="font-size:0.8rem; opacity:0.75; line-height:1.4; display:block;">
+                <div id="choice-jre" class="u-s255">
+                    <strong class="u-s256">JRE (Java Runtime Environment)</strong>
+                    <span class="u-s257">
                         ${t("java_jre_spec", "Version allégée (env. 40 Mo). Idéale pour le jeu de base (Vanilla) et les modpacks légers. Consomme moins d'espace disque.")}
                     </span>
                 </div>
-                <div id="choice-jdk" style="
-                    border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius:8px; padding:16px; margin-bottom:24px;
-                    cursor:pointer; transition: all 0.2s ease; box-sizing: border-box; background: rgba(255,255,255,0.02);
-                ">
-                    <strong style="color: var(--accent, #3b82f6); font-size:1rem; display:block; margin-bottom:4px;">JDK (Java Development Kit)</strong>
-                    <span style="font-size:0.8rem; opacity:0.75; line-height:1.4; display:block;">
+                <div id="choice-jdk" class="u-s258">
+                    <strong class="u-s256">JDK (Java Development Kit)</strong>
+                    <span class="u-s257">
                         ${t("java_jdk_spec", "Version complète (env. 150 Mo). Recommandée pour les gros modpacks complexes (gros mods, serveurs locaux) et le développement.")}
                     </span>
                 </div>
-                <div style="display:flex; justify-content:flex-end;">
-                    <button id="choice-cancel" class="btn-secondary" style="height:34px; padding:0 24px; font-size:0.85rem; cursor:pointer; border-radius: 6px;">
+                <div class="u-s259">
+                    <button id="choice-cancel" class="btn-secondary u-s260">
                         ${t("btn_cancel", "Annuler")}
                     </button>
                 </div>

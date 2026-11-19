@@ -25,7 +25,7 @@ export function setup() {
         const modal = document.getElementById("modal-import-mc");
         if (modal) modal.style.display = "flex";
         if (!(await window.existsSafe(mcDir))) {
-            listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
+            listDiv.innerHTML = `<div class="u-s230">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
             return;
         }
         const files = await fs.promises.readdir(mcDir);
@@ -36,16 +36,16 @@ export function setup() {
             if (isDir) folders.push(f);
         }
         if (folders.length === 0) {
-            listDiv.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
+            listDiv.innerHTML = `<div class="u-s230">${t("msg_no_mc_worlds", "Aucun monde trouvé dans .minecraft")}</div>`;
             return;
         }
         let html = "";
         folders.forEach(f => {
             const safeF = window.escapeHTML(f);
             html += `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border);">
-                <div style="font-weight: bold; color: var(--text-light);">${safeF}</div>
-                <button class="btn-primary btn-import-world" data-folder="${safeF}" style="padding: 4px 10px; font-size: 0.8rem;">${t("toolbar_import", "Importer")}</button>
+            <div class="u-s231">
+                <div class="u-s090">${safeF}</div>
+                <button class="btn-primary btn-import-world u-s232" data-folder="${safeF}">${t("toolbar_import", "Importer")}</button>
             </div>`;
         });
         listDiv.innerHTML = html;
@@ -85,11 +85,11 @@ export function setup() {
         const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
         const listDiv = document.getElementById("worlds-list");
         if (!listDiv) return;
-        listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_loading", "Chargement...")}</div>`;
+        listDiv.innerHTML = `<div class="u-s233">${t("msg_loading", "Chargement...")}</div>`;
         const modal = document.getElementById("modal-worlds");
         if (modal) modal.style.display = "flex";
         if (!(await window.existsSafe(savesDir))) {
-            listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
+            listDiv.innerHTML = `<div class="u-s233">${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
         }
         const files = await fs.promises.readdir(savesDir);
@@ -112,7 +112,7 @@ export function setup() {
             }
         }
         if (folders.length === 0) {
-            listDiv.innerHTML = `<div style='text-align:center; color:#888;'>${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
+            listDiv.innerHTML = `<div class="u-s233">${t("msg_no_worlds", "Aucun monde trouvé.")}</div>`;
             return;
         }
         /** @type {string[]} */
@@ -137,17 +137,17 @@ export function setup() {
                 const safeWorldName = window.escapeHTML(worldName);
                 const safeF = window.escapeHTML(f);
                 return `
-            <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px; display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <span style="font-weight: bold; color: var(--text-light); font-size: 1rem;">${safeWorldName}</span>
-                    <span style="font-size: 0.75rem; color: #aaa;">${t("lbl_folder", "Dossier : ")}${safeF}</span>
-                    <span style="font-size: 0.75rem; color: #888;">${t("lbl_created", "Créé le : ")}${created} | ${t("lbl_played", "Joué le : ")}${modified}</span>
+            <div class="u-s234">
+                <div class="u-s235">
+                    <span class="u-s236">${safeWorldName}</span>
+                    <span class="u-s036">${t("lbl_folder", "Dossier : ")}${safeF}</span>
+                    <span class="u-s237">${t("lbl_created", "Créé le : ")}${created} | ${t("lbl_played", "Joué le : ")}${modified}</span>
                 </div>
-                <div style="display: flex; gap: 6px;">
-                    <button class="btn-secondary btn-restore-world" data-folder="${safeF}" style="color: #f48a21; border-color: #f48a21; padding: 4px 8px; font-size: 0.75rem;">${t("btn_restore", "Restaurer")}</button>
-                    <button class="btn-secondary btn-backup-world" data-folder="${safeF}" style="padding: 4px 8px; font-size: 0.75rem;">${t("btn_world_backup", "Sauvegarder")}</button>
-                    <button class="btn-secondary btn-copy-world" data-folder="${safeF}" style="padding: 4px 8px; font-size: 0.75rem;">${t("btn_world_copy", "Copier")}</button>
-                    <button class="btn-secondary btn-delete-world" data-folder="${safeF}" style="color: #f87171; border-color: #f87171; padding: 4px 8px; font-size: 0.75rem;">${t("btn_delete", "Supprimer")}</button>
+                <div class="u-s238">
+                    <button class="btn-secondary btn-restore-world u-s239" data-folder="${safeF}">${t("btn_restore", "Restaurer")}</button>
+                    <button class="btn-secondary btn-backup-world u-s121" data-folder="${safeF}">${t("btn_world_backup", "Sauvegarder")}</button>
+                    <button class="btn-secondary btn-copy-world u-s121" data-folder="${safeF}">${t("btn_world_copy", "Copier")}</button>
+                    <button class="btn-secondary btn-delete-world u-s240" data-folder="${safeF}">${t("btn_delete", "Supprimer")}</button>
                 </div>
             </div>`;
             }));
@@ -214,6 +214,13 @@ export function setup() {
     };
 
     window.deleteSingleWorld = async (/** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
+        const instCheck = store.allInstances[store.selectedInstanceIdx];
+        if (!instCheck) return;
+        if (store.activeInstances.has(instCheck.name)) {
+            window.showToast(t("msg_err_world_running", "Impossible de modifier les mondes pendant que l'instance est en cours d'exécution."), "error");
+            return;
+        }
         if (await window.showCustomConfirm(t("msg_delete_world_confirm", "Voulez-vous vraiment supprimer ce monde définitivement ?"), true)) {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
@@ -237,6 +244,10 @@ export function setup() {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
+        if (store.activeInstances.has(inst.name)) {
+            window.showToast(t("msg_err_world_running", "Impossible de sauvegarder un monde pendant que l'instance est en cours d'exécution."), "error");
+            return;
+        }
         const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
         const savesDir = path.join(instDir, "saves");
         const backupDir = path.join(instDir, "backups");
@@ -246,7 +257,8 @@ export function setup() {
         window.showLoading(t("msg_backup", "Création de la sauvegarde..."));
         await yieldUI();
         try {
-            await window.api.invoke("compress-folder", { src, dest: zipPath });
+            const res = await window.api.invoke("compress-folder", { src, dest: zipPath });
+            if (res && !res.success) throw new Error(res.error || "Erreur de compression inconnue");
             window.showToast(t("msg_world_backedup", "Sauvegarde créée dans le dossier 'backups' !"), "success");
         } catch (/** @type {any} */ e) {
             window.showToast(t("msg_err_sys", "Erreur système : ") + e.message, "error");
@@ -266,7 +278,7 @@ export function setup() {
         listDiv.innerHTML = "";
         const modal = document.getElementById("modal-restore");
         if (!(await window.existsSafe(backupDir))) {
-            listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée.")}</div>`;
+            listDiv.innerHTML = `<div class="u-s233">${t("msg_no_backups", "Aucune sauvegarde trouvée.")}</div>`;
             if (modal) modal.style.display = "flex";
             return;
         }
@@ -280,7 +292,7 @@ export function setup() {
         }
         backupsObj.sort((a, b) => b.mtime - a.mtime);
         if (backupsObj.length === 0) {
-            listDiv.innerHTML = `<div style="text-align:center; color:#888;">${t("msg_no_backups", "Aucune sauvegarde trouvée pour ce monde.")}</div>`;
+            listDiv.innerHTML = `<div class="u-s233">${t("msg_no_backups", "Aucune sauvegarde trouvée pour ce monde.")}</div>`;
         } else {
             let backupsHtml = "";
             for (const b of backupsObj) {
@@ -288,12 +300,12 @@ export function setup() {
                 const sizeMB = (b.size / (1024 * 1024)).toFixed(1);
                 const safeB = window.escapeHTML(b.name);
                 backupsHtml += `
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <div class="u-s241">
                     <div>
-                        <div style="font-weight: bold; font-size: 0.85rem; color: var(--text-light);">${safeB}</div>
-                        <div style="font-size: 0.75rem; color: #aaa;">${dateStr} &nbsp;|&nbsp; ${sizeMB} ${t("lbl_mb", "Mo")}</div>
+                        <div class="u-s242">${safeB}</div>
+                        <div class="u-s036">${dateStr} &nbsp;|&nbsp; ${sizeMB} ${t("lbl_mb", "Mo")}</div>
                     </div>
-                    <button class="btn-primary btn-restore-backup" data-zip="${safeB}" data-folder="${window.escapeHTML(folderName)}" style="padding: 4px 10px; font-size: 0.8rem;">${t("btn_restore", "Restaurer")}</button>
+                    <button class="btn-primary btn-restore-backup u-s232" data-zip="${safeB}" data-folder="${window.escapeHTML(folderName)}">${t("btn_restore", "Restaurer")}</button>
                 </div>`;
             }
             listDiv.innerHTML = backupsHtml;
@@ -310,6 +322,13 @@ export function setup() {
     };
 
     window.restoreWorldBackup = async (/** @type {string} */ zipName, /** @type {string} */ folderName) => {
+        if (store.selectedInstanceIdx === null) return;
+        const instCheck = store.allInstances[store.selectedInstanceIdx];
+        if (!instCheck) return;
+        if (store.activeInstances.has(instCheck.name)) {
+            window.showToast(t("msg_err_world_running", "Impossible de restaurer un monde pendant que l'instance est en cours d'exécution."), "error");
+            return;
+        }
         const confirmMsg = t("msg_restore_confirm", "Voulez-vous vraiment restaurer \"{name}\" ?\n\n⚠️ Le monde actuel sera supprimé et remplacé !").replace("{name}", zipName);
         if (await window.showCustomConfirm(confirmMsg, true)) {
             if (store.selectedInstanceIdx === null) return;
@@ -322,9 +341,12 @@ export function setup() {
             const zipPath = path.join(backupDir, zipName);
             window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."));
             await yieldUI();
-            const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + Date.now());
+            const stamp = Date.now();
+            const tmpExtractDir = path.join(savesDir, "_restore_tmp_" + stamp);
+            const oldBackupDir = path.join(savesDir, "_restore_old_" + stamp);
             try {
-                await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
+                const exRes = await window.api.invoke("extract-zip", { zipPath, destDir: tmpExtractDir });
+                if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur d'extraction ZIP");
                 let extractedWorld = path.join(tmpExtractDir, folderName);
                 let isDirect = false;
                 
@@ -349,11 +371,22 @@ export function setup() {
                         throw new Error(t("msg_err_invalid_backup", "L'archive ne contient pas le monde attendu."));
                     }
                 }
-                if (await window.existsSafe(targetWorldDir)) {
-                    await fs.promises.rm(targetWorldDir, { recursive: true, force: true });
+                const hadTarget = await window.existsSafe(targetWorldDir);
+                if (hadTarget) {
+                    await fs.promises.rename(targetWorldDir, oldBackupDir);
                 }
-                await fs.promises.rename(extractedWorld, targetWorldDir);
-                if (!isDirect) {
+                try {
+                    await fs.promises.rename(extractedWorld, targetWorldDir);
+                } catch (swapErr) {
+                    if (hadTarget && (await window.existsSafe(oldBackupDir)) && !(await window.existsSafe(targetWorldDir))) {
+                        try { await fs.promises.rename(oldBackupDir, targetWorldDir); } catch (_) {}
+                    }
+                    throw swapErr;
+                }
+                if (hadTarget && (await window.existsSafe(oldBackupDir))) {
+                    try { await fs.promises.rm(oldBackupDir, { recursive: true, force: true }); } catch (_) {}
+                }
+                if (!isDirect && (await window.existsSafe(tmpExtractDir))) {
                     await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
                 }
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
@@ -362,7 +395,7 @@ export function setup() {
                 window.openWorldsModal(); 
             } catch (/** @type {any} */ e) {
                 if (await window.existsSafe(tmpExtractDir)) {
-                    await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
+                    try { await fs.promises.rm(tmpExtractDir, { recursive: true, force: true }); } catch (_) {}
                 }
                 window.showToast(t("msg_restore_err", "Erreur lors de la restauration : ") + e.message, "error");
             }

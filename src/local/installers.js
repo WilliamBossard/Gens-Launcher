@@ -30,12 +30,17 @@ export function setup() {
         await yieldUI();
         /** @type {Record<string, string>} */
         let hashes = {};
-        await Promise.all(files.map(async (f) => {
-            try {
-                const hash = await window.api.tools.hashFile(path.join(modsPath, f), "sha1");
-                if (hash) hashes[hash] = f;
-            } catch (/** @type {any} */ err) {
-                sysLog(`[MODS] Erreur calcul hash pour ${f} : ${err.message}`, true);
+        const HASH_CONCURRENCY = 8;
+        let hashCursor = 0;
+        await Promise.all(Array.from({ length: Math.min(HASH_CONCURRENCY, files.length) }, async () => {
+            while (hashCursor < files.length) {
+                const f = files[hashCursor++];
+                try {
+                    const hash = await window.api.tools.hashFile(path.join(modsPath, f), "sha1");
+                    if (hash) hashes[hash] = f;
+                } catch (/** @type {any} */ err) {
+                    sysLog(`[MODS] Erreur calcul hash pour ${f} : ${err.message}`, true);
+                }
             }
         }));
         if (Object.keys(hashes).length === 0) {
@@ -77,6 +82,7 @@ export function setup() {
             }
             const data = await res.json();
             pendingUpdates = [];
+            const targetInstanceName = inst.name;
             let listHTML = "";
             if (typeof data === "object" && !Array.isArray(data)) {
                 for (let oldHash in data) {
@@ -87,7 +93,7 @@ export function setup() {
                                 oldFile: hashes[oldHash],
                                 newFileObj: newFileObj
                             });
-                            listHTML += `<div style="margin-bottom: 5px;">- <span style="color:#f87171; text-decoration:line-through;">${window.escapeHTML(hashes[oldHash])}</span> -> <span style="color:#17B139;">${window.escapeHTML(newFileObj.filename)}</span></div>`;
+                            listHTML += `<div class="u-s138">- <span class="u-s222">${window.escapeHTML(hashes[oldHash])}</span> -> <span class="u-s223">${window.escapeHTML(newFileObj.filename)}</span></div>`;
                         }
                     }
                 }
@@ -100,9 +106,10 @@ export function setup() {
                 if (modalUpdates) modalUpdates.style.display = "flex";
                 const btnConfirm = document.getElementById("btn-confirm-updates");
                 if (btnConfirm) {
+                    const snapshotUpdates = pendingUpdates.slice();
                     btnConfirm.onclick = async () => {
                         if (modalUpdates) modalUpdates.style.display = "none";
-                        await executeModUpdates();
+                        await executeModUpdates(targetInstanceName, snapshotUpdates);
                     };
                 }
             } else {
@@ -114,19 +121,31 @@ export function setup() {
             if (e.name === "AbortError") {
                 window.showToast(t("msg_err_timeout", "Délai dépassé. Vérifiez votre connexion."), "error");
             } else {
-                window.showToast(t("msg_no_updates", "Tous vos mods sont à jour !"), "success");
+                sysLog("Erreur vérification MAJ mods : " + (e?.message || e), true);
+                window.showToast(t("msg_err_dl", "Erreur lors de la vérification des mises à jour."), "error");
             }
         }
     };
-    async function executeModUpdates() {
-        if (store.selectedInstanceIdx === null) return;
-        const inst = store.allInstances[store.selectedInstanceIdx];
+    let _modUpdatesRunning = false;
+    /**
+     * @param {string} targetInstanceName
+     * @param {any[]} updatesList
+     */
+    async function executeModUpdates(targetInstanceName, updatesList) {
+        if (_modUpdatesRunning) return;
+        const inst = store.allInstances.find(i => i.name === targetInstanceName);
         if (!inst) return;
+        if (store.activeInstances.has(inst.name)) {
+            window.showToast(t("msg_err_inst_running", "Impossible de mettre à jour les mods d'une instance en cours d'exécution."), "error");
+            return;
+        }
+        _modUpdatesRunning = true;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
         let updatedCount = 0;
-        const total = pendingUpdates.length;
+        const total = updatesList.length;
         window.showLoading(`${t("msg_updating", "Mise à jour...")}`, 0);
-        for (let update of pendingUpdates) {
+        try {
+        for (let update of updatesList) {
             window.updateLoadingPercent(
                 Math.round((updatedCount / total) * 100),
                 `${t("msg_updating", "Mise à jour :")} ${update.newFileObj.filename}...`
@@ -176,8 +195,11 @@ export function setup() {
                 sysLog("Erreur mise à jour mod " + update.oldFile + " : " + e.message, true);
             }
         }
-        window.hideLoading();
         window.showToast(`${updatedCount} ${t("msg_mods_updated", "mod(s) mis à jour !")}`, 'success');
         window.renderModsManager();
+        } finally {
+            _modUpdatesRunning = false;
+            window.hideLoading();
+        }
     }
 }

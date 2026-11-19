@@ -89,13 +89,18 @@ export function setupUICore() {
         const arrow = /** @type {HTMLElement | null} */ (element.querySelector('.cat-arrow')); 
         if (!grid || !arrow) return;
         if (!store.globalSettings.collapsedGroups) store.globalSettings.collapsedGroups = {};
-        if (grid.style.display === 'none') { 
-            grid.style.display = 'grid'; 
+        const isCurrentlyHidden = grid.classList.contains('is-hidden') || grid.style.display === 'none' || getComputedStyle(grid).display === 'none';
+        if (isCurrentlyHidden) {
+            grid.classList.remove('is-hidden');
+            grid.style.display = 'grid';
+            arrow.classList.remove('is-collapsed');
             arrow.style.transform = 'rotate(0deg)';
             store.globalSettings.collapsedGroups[groupName] = false;
-        } else { 
-            grid.style.display = 'none'; 
-            arrow.style.transform = 'rotate(-90deg)'; 
+        } else {
+            grid.classList.add('is-hidden');
+            grid.style.display = 'none';
+            arrow.classList.add('is-collapsed');
+            arrow.style.transform = 'rotate(-90deg)';
             store.globalSettings.collapsedGroups[groupName] = true;
         }
         if (window.safeWriteJSONAsync) {
@@ -128,7 +133,9 @@ export function setupUICore() {
     };
 
     window.isTrulyOnline = navigator.onLine;
+    let _checkingInternet = false;
     window.checkRealInternet = async () => {
+        if (store?.globalSettings?.offlineMode) return;
         if (!navigator.onLine) {
             if (window.isTrulyOnline) {
                 window.isTrulyOnline = false;
@@ -136,16 +143,23 @@ export function setupUICore() {
             }
             return;
         }
+        if (_checkingInternet) return;
+        _checkingInternet = true;
         try {
             const isOnline = await window.api.invoke("check-internet");
+            if (store?.globalSettings?.offlineMode) return;
             if (window.isTrulyOnline !== isOnline) {
                 window.isTrulyOnline = isOnline;
                 window.updateOfflineUIState();
                 if (isOnline && window.checkServerStatus) window.checkServerStatus();
             }
         } catch(e) { console.warn('uiCore error:', e); }
+        finally {
+            _checkingInternet = false;
+        }
     };
     setInterval(() => {
+        if (store?.globalSettings?.offlineMode) return;
         if (typeof document !== "undefined" && document.hidden) return;
         window.checkRealInternet();
     }, 15000);

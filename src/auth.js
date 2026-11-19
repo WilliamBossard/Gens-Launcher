@@ -95,7 +95,7 @@ export function setupAuth() {
     const msModal = document.getElementById("modal-ms-device");
     if (msModal) {
       const codeDisplay = document.getElementById("ms-device-code-display");
-      if (codeDisplay) codeDisplay.innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "⏳ Génération du code...")}</span>`;
+      if (codeDisplay) codeDisplay.innerHTML = `<span class="u-s214">${t("msg_ms_generating_code", "⏳ Génération du code...")}</span>`;
       const statusText = document.getElementById("ms-device-status");
       if (statusText) statusText.innerText = t("msg_conn_ms", "Connexion...");
       msModal.style.display = "flex";

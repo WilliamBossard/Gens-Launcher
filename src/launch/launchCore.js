@@ -360,13 +360,15 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
         const vEntry = store.rawVersions.find((/** @type {any} */ v) => v && v.id === mcVersion && v.url);
         if (vEntry && typeof window !== "undefined" && typeof window.fetchWithTimeout === "function") {
             try {
-                const res = await window.fetchWithTimeout(vEntry.url, {}, 5000);
+                const res = await window.fetchWithTimeout(vEntry.url, { timeout: 5000 });
                 if (res && res.ok) {
                     const body = await res.text();
                     const parsed = JSON.parse(body);
-                    const cacheDir = path.join(instancePath, "cache", "json");
-                    await fs.promises.mkdir(cacheDir, { recursive: true });
-                    await fs.promises.writeFile(path.join(cacheDir, `${mcVersion}.json`), body, "utf8");
+                    if (typeof window.isValidVersionId === "function" && window.isValidVersionId(mcVersion)) {
+                        const cacheDir = path.join(instancePath, "cache", "json");
+                        await fs.promises.mkdir(cacheDir, { recursive: true });
+                        await fs.promises.writeFile(path.join(cacheDir, `${mcVersion}.json`), body, "utf8");
+                    }
                     const major = parsed?.javaVersion?.majorVersion;
                     if (typeof major === "number" && major >= 8 && major <= 99) {
                         return major;

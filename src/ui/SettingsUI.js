@@ -171,6 +171,7 @@ export function setupSettings() {
         window.api.send("set-auto-download", store.globalSettings.autoDownloadUpdates);
         window.api.send("set-offline-mode", store.globalSettings.offlineMode);
         if (window.updateOfflineUIState) window.updateOfflineUIState();
+        if (!store.globalSettings.offlineMode && window.checkRealInternet) window.checkRealInternet();
         if (window.checkServerStatus) window.checkServerStatus();
         
         const newsContainer = $("news-container");
@@ -182,18 +183,25 @@ export function setupSettings() {
             }
         }
 
+        const isManagedBgFile = (/** @type {string} */ candidatePath) => {
+            if (!candidatePath || !window.isPathInsideDir(candidatePath, store.dataDir)) return false;
+            const resolvedCand = path.resolve(candidatePath);
+            const resolvedRoot = path.resolve(store.dataDir);
+            const sameDir = window.api.platform === "win32"
+                ? path.dirname(resolvedCand).toLowerCase() === resolvedRoot.toLowerCase()
+                : path.dirname(resolvedCand) === resolvedRoot;
+            return sameDir && /^background_copy\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(path.basename(resolvedCand));
+        };
+
         let bgPath = $("global-bg-path").value.trim();
         const prevBg = store.globalSettings.theme?.bg || "";
         if (bgPath) {
-            if (bgPath.startsWith(store.dataDir)) {
+            if (window.isPathInsideDir(bgPath, store.dataDir)) {
                 
             } else {
-                
-                
                 const result = await window.api.copyImageToSandbox(bgPath, 'background_copy');
                 if (result.success) {
-                    
-                    if (prevBg && prevBg.startsWith(store.dataDir) && prevBg !== result.destPath) {
+                    if (prevBg && isManagedBgFile(prevBg) && prevBg !== result.destPath) {
                         try { await fs.promises.unlink(prevBg); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
                     }
                     bgPath = result.destPath;
@@ -203,8 +211,7 @@ export function setupSettings() {
                 }
             }
         } else {
-            
-            if (prevBg && prevBg.startsWith(store.dataDir)) {
+            if (prevBg && isManagedBgFile(prevBg)) {
                 try { await fs.promises.unlink(prevBg); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
             }
         }
@@ -312,59 +319,63 @@ export function setupSettings() {
     window.scanJavaVersions = async (targetSelectId = null, silent = false, forceRescan = true, targetValue = null) => {
         if (_javaScanInProgress) return;
         _javaScanInProgress = true;
-        if (!silent) $("status-text").innerText = t("msg_search_java");
-        const selectId = targetSelectId || ($("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
-        const selectEl = $(selectId);
-        const savedValue = targetValue !== null ? targetValue : selectEl.value;
-        if (silent && !forceRescan && _javaScanDone && selectEl.options.length > 1) {
-            selectEl.value = savedValue || selectEl.value;
-            _javaScanInProgress = false;
-            return;
-        }
-        selectEl.innerHTML = (selectId === "global-java") 
-            ? `<option value="javaw">${t("opt_java_sys")}</option>`
-            : `<option value="">${t("opt_java_global")}</option><option value="javaw">${t("opt_java_sys")}</option>`;
-        
-        let found = 0;
         try {
-            const result = await window.api.invoke("scan-java-versions");
-            if (result && result.success && result.paths) {
-                for (const full of result.paths) {
+            if (!silent) $("status-text").innerText = t("msg_search_java");
+            const selectId = targetSelectId || ($("modal-settings").style.display === "flex" ? "global-java" : "edit-javapath");
+            const selectEl = $(selectId);
+            if (!selectEl) return;
+            const savedValue = targetValue !== null ? targetValue : selectEl.value;
+            if (silent && !forceRescan && _javaScanDone && selectEl.options.length > 1) {
+                selectEl.value = savedValue || selectEl.value;
+                return;
+            }
+            selectEl.innerHTML = (selectId === "global-java") 
+                ? `<option value="javaw">${window.et("opt_java_sys")}</option>`
+                : `<option value="">${window.et("opt_java_global")}</option><option value="javaw">${window.et("opt_java_sys")}</option>`;
+            
+            let found = 0;
+            try {
+                const result = await window.api.invoke("scan-java-versions", { forceRefresh: Boolean(forceRescan) });
+                if (result && result.success && result.paths) {
+                    for (const full of result.paths) {
+                        let opt = document.createElement("option");
+                        opt.value = full;
+                        opt.innerText = window.getFriendlyJavaName(full);
+                        selectEl.appendChild(opt);
+                        found++;
+                    }
+                }
+            } catch (/** @type {any} */ e) { console.error("Error scanning java via IPC:", e); }
+            
+            if (savedValue && savedValue !== "javaw" && savedValue !== "") {
+                const exists = Array.from(selectEl.options).some(o => o.value === savedValue);
+                if (!exists) {
                     let opt = document.createElement("option");
-                    opt.value = full;
-                    opt.innerText = window.getFriendlyJavaName(full);
+                    opt.value = savedValue;
+                    opt.innerText = window.getFriendlyJavaName(savedValue) + window.t("lbl_manual", " (Manuel)");
                     selectEl.appendChild(opt);
-                    found++;
                 }
             }
-        } catch (/** @type {any} */ e) { console.error("Error scanning java via IPC:", e); }
-        
-        if (savedValue && savedValue !== "javaw" && savedValue !== "") {
-            const exists = Array.from(selectEl.options).some(o => o.value === savedValue);
-            if (!exists) {
-                let opt = document.createElement("option");
-                opt.value = savedValue;
-                opt.innerText = window.getFriendlyJavaName(savedValue) + window.t("lbl_manual", " (Manuel)");
-                selectEl.appendChild(opt);
-            }
+            
+            selectEl.value = savedValue || selectEl.value;
+            _javaScanDone = true;
+            if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
+            $("status-text").innerText = t("status_ready", "Prêt");
+        } finally {
+            _javaScanInProgress = false;
         }
-        
-        selectEl.value = savedValue || selectEl.value;
-        _javaScanDone = true;
-        _javaScanInProgress = false;
-        if (!silent) window.showToast(`${found} ${t("msg_java_found")}`, "info");
-        $("status-text").innerText = t("status_ready", "Prêt");
     };
+    let _downloadJavaInProgress = false;
     window.deleteJava = async (/** @type {any} */ version) => {
         const confirmMsg = t("msg_delete_java_confirm", "Voulez-vous vraiment supprimer Java {version} de votre PC ?").replace("{version}", version);
         if (await window.showCustomConfirm(confirmMsg, true)) { 
             window.showLoading(t("msg_deleting", "Suppression en cours..."));
             await yieldUI();
             try {
-                const jrePath = path.join(store.dataDir, "java", `jre${version}`);
-                const jdkPath = path.join(store.dataDir, "java", `jdk${version}`);
-                if (await window.existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
-                if (await window.existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+                const delRes = await window.api.invoke("java:delete", { version: Number(version) });
+                if (!delRes || !delRes.success) {
+                    throw new Error(delRes?.error || "Impossible de supprimer Java.");
+                }
                 if (store.globalSettings.defaultJavaPath && 
                    (store.globalSettings.defaultJavaPath.includes(`jre${version}`) || store.globalSettings.defaultJavaPath.includes(`jdk${version}`))) {
                     store.globalSettings.defaultJavaPath = "javaw";
@@ -381,113 +392,52 @@ export function setupSettings() {
         }
     };
     window.downloadJavaAuto = async (version = 21) => {
+        if (_downloadJavaInProgress) {
+            window.showToast(t("msg_java_already_installing", "Une installation Java est déjà en cours."), "info");
+            return null;
+        }
         const type = await window.showJavaTypeModal(version);
-        if (!type) return; 
+        if (!type) return null;
+        _downloadJavaInProgress = true;
         window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
         await yieldUI();
-        const javaDir = path.join(store.dataDir, "java");
-        if (!(await window.existsSafe(javaDir))) {
-            await fs.promises.mkdir(javaDir, { recursive: true });
-        }
+        const progressId = `java-${type}-${version}-${Date.now()}`;
+        const unsubscribeDl = window.api.on("download-progress", (/** @type {any} */ p) => {
+            if (p?.progressId !== progressId) return;
+            const percentElement = $("loading-percent");
+            if (percentElement && p.totalBytes > 0) {
+                percentElement.innerText = p.percent + "%";
+            }
+        });
         try {
-            const platform = window.api.platform === "darwin" ? "mac" : (window.api.platform === "linux" ? "linux" : "windows");
-            const rawArch = window.api.arch || "x64";
-            const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
-            const ext = (platform === "windows") ? ".zip" : ".tar.gz";
-            const archivePath = path.join(javaDir, `${type}${version}${ext}`);
-            const baseParams = `${version}/ga/${platform}/${arch}/${type}/hotspot/normal/eclipse`;
-            const url         = `https://api.adoptium.net/v3/binary/latest/${baseParams}`;
-            const assetsUrl   = `https://api.adoptium.net/v3/assets/latest/${version}/hotspot?architecture=${arch}&image_type=${type}&os=${platform}&vendor=eclipse`;
-            let expectedSha256 = null;
-            try {
-                const assetsRes = await window.fetchWithTimeout(assetsUrl, { timeout: 15000 });
-                if (assetsRes.ok) {
-                    const assets = await assetsRes.json();
-                    if (Array.isArray(assets) && assets[0]?.binary?.package?.checksum) {
-                        expectedSha256 = String(assets[0].binary.package.checksum).trim().toLowerCase();
-                    }
-                }
-            } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", e); }
-            if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
-                throw new Error(t("msg_err_java_sha256_missing", "Empreinte SHA-256 Adoptium introuvable. Installation Java annulée par sécurité."));
-            }
-            const progressId = `java-${type}-${version}-${Date.now()}`;
-            window.showLoading(t("msg_dl_java", "Téléchargement de Java") + ` ${version} (${type.toUpperCase()})...`);
-            const unsubscribeDl = window.api.on("download-progress", (/** @type {any} */ p) => {
-                if (p?.progressId !== progressId) return;
-                const percentElement = $("loading-percent");
-                if (percentElement && p.totalBytes > 0) {
-                    percentElement.innerText = p.percent + "%";
-                }
+            const installRes = await window.api.invoke("java:install-adoptium", {
+                version: Number(version),
+                type,
+                progressId
             });
-            try {
-                const dlRes = await window.api.invoke("download-file-stream", {
-                    url,
-                    destPath: archivePath,
-                    expectedSha256,
-                    progressId
+            if (!installRes || !installRes.success || !installRes.exePath) {
+                throw new Error(installRes?.error || t("msg_err_java_not_found", "Exécutable Java introuvable."));
+            }
+            const exePath = installRes.exePath;
+            window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
+            window.updateJavaButtonsDisplay();
+            if (window.scanJavaVersions) {
+                window.scanJavaVersions("global-java", true, true).then(() => {
+                    const javaSelect = $("global-java");
+                    if (javaSelect) javaSelect.value = exePath;
                 });
-                if (!dlRes || !dlRes.success) {
-                    throw new Error(dlRes?.error || t("msg_err_java_sha256", "Échec du téléchargement ou vérification SHA256 de Java !"));
-                }
-            } finally {
-                if (unsubscribeDl) unsubscribeDl();
-                const percentElement = $("loading-percent");
-                if (percentElement) percentElement.innerText = "";
             }
-            window.showLoading(t("msg_extract_java"));
-            await yieldUI();
-            const extractDir = path.join(javaDir, `${type}${version}`);
-            if (await window.existsSafe(extractDir)) {
-                await fs.promises.rm(extractDir, { recursive: true, force: true });
-            }
-            if (platform === "windows") {
-                const zipRes = await window.api.invoke("extract-zip", { zipPath: archivePath, destDir: extractDir }); 
-                if (!zipRes || !zipRes.success) throw new Error(zipRes?.error || "Erreur extraction ZIP");
-            } else {
-                await fs.promises.mkdir(extractDir, { recursive: true });
-                const extractRes = await window.api.tools.extractTar(archivePath, extractDir);
-                if (!extractRes.success) throw new Error(extractRes.error);
-            }
-            await fs.promises.unlink(archivePath);
-            const javaExe = (platform === "windows") ? "javaw.exe" : "java";
-            /**
-             * @param {string} dir
-             * @param {number} [depth]
-             * @returns {Promise<string | null>}
-             */
-            async function findExe(dir, depth = 0) {
-                if (depth > 8) return null; 
-                try {
-                    const entries = await fs.promises.readdir(dir);
-                    for (let f of entries) {
-                        const full = path.join(dir, f);
-                        const stat = await fs.promises.stat(full);
-                        const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : stat.isDirectory;
-                        if (isDir) { const r = /** @type {string | null} */ (await findExe(full, depth + 1)); if (r) return r; }
-                        else if (f.toLowerCase() === javaExe) return full;
-                    }
-                } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
-                return null;
-            }
-            const exePath = await findExe(extractDir);
-            if (exePath) {
-                if (platform !== "windows") await fs.promises.chmod(exePath, 0o755);
-                window.showToast(t("msg_java_installed_success", "Java installé avec succès !"), "success");
-                window.updateJavaButtonsDisplay();
-                if (window.scanJavaVersions) {
-                    window.scanJavaVersions("global-java", true, true).then(() => {
-                        const javaSelect = $("global-java");
-                        if (javaSelect) javaSelect.value = exePath;
-                    });
-                }
-                return exePath;
-            }
-            throw new Error(t("msg_err_java_not_found", "Exécutable Java introuvable."));
+            return exePath;
         } catch (/** @type {any} */ e) {
             window.showToast(t("msg_err_java", "Erreur Java") + " : " + e.message, "error");
             return null;
-        } finally { window.hideLoading(); }
+        } finally {
+            if (unsubscribeDl) unsubscribeDl();
+            const percentElement = $("loading-percent");
+            if (percentElement) percentElement.innerText = "";
+            _downloadJavaInProgress = false;
+            window.hideLoading();
+        }
     };
     window.checkLauncherUpdates = async () => {
         const statusDiv = $("update-status");
@@ -531,9 +481,12 @@ export function setupSettings() {
                 if (result && result.success) {
                     if (statusDiv) statusDiv.innerText = t("msg_update_apt_done", "Mise à jour installée ! Relancement...");
                     setTimeout(() => {
-                        window.api.send("confirm-update");
-                        window.api.send("restart_app");
+                        window.api.send("relaunch-app");
                     }, 1000);
+                } else if (result && result.errorCode === "NOT_DEB") {
+                    if (btn) btn.disabled = false;
+                    if (statusDiv) statusDiv.innerText = t("msg_update_manual_linux", "Téléchargement manuel requis sur cette distribution Linux.");
+                    window.api.shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
                 } else {
                     const errMsg = (result && result.error) ? result.error : "Erreur inconnue";
                     if (statusDiv) statusDiv.innerText = t("msg_update_apt_error", "Erreur APT : ") + errMsg;
@@ -559,11 +512,11 @@ const sanitizeHtmlForCsp = (/** @type {any} */ html) => {
         doc.querySelectorAll("*").forEach(el => {
             for (const attr of Array.from(el.attributes)) {
                 const name = attr.name.toLowerCase();
-                const val = attr.value.trim().toLowerCase();
-                if (name.startsWith("on") || name === "srcdoc") {
+                const val = attr.value.replace(/[\x00-\x20]/g, "").toLowerCase();
+                if (name.startsWith("on") || name === "srcdoc" || name === "xlink:href" || name === "style") {
                     el.removeAttribute(attr.name);
                 } else if ((name === "href" || name === "src" || name === "action" || name === "formaction") &&
-                    (val.startsWith("javascript:") || val.startsWith("vbscript:") || val.startsWith("data:text/html"))) {
+                    (val.startsWith("javascript:") || val.startsWith("vbscript:") || val.startsWith("data:text/html") || val.startsWith("data:image/svg"))) {
                     el.removeAttribute(attr.name);
                 }
             }
@@ -587,21 +540,26 @@ const bindSafeCloudIconFallbacks = (/** @type {any} */ root) => {
     });
 };
 
+let _horizonUiSeq = 0;
+
 window.refreshHorizonUI = async () => {
         const container = $("horizon-container");
         if (!container) return;
+        const seq = ++_horizonUiSeq;
         const status = await window.api.invoke("check-horizon-status");
+        if (seq !== _horizonUiSeq) return;
         if (!status.installed) {
             container.innerHTML = `
-                <div style="text-align: center; padding: 40px 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;">
-                    <h2 style="color: var(--text-light); margin-bottom: 10px;">${t("horizon_not_installed", "Module Cloud non détecté")}</h2>
-                    <p style="opacity: 0.7; margin-bottom: 30px; font-size: 0.9rem;">${t("horizon_install_desc", "Installez Gens Horizon pour sauvegarder automatiquement vos mondes.")}</p>
-                    <button id="btn-horizon-install-cta" class="btn-primary" style="padding: 10px 25px;">${t("btn_install_horizon", "Installer Horizon")}</button>
+                <div class="u-s300">
+                    <h2 class="u-s301">${t("horizon_not_installed", "Module Cloud non détecté")}</h2>
+                    <p class="u-s302">${t("horizon_install_desc", "Installez Gens Horizon pour sauvegarder automatiquement vos mondes.")}</p>
+                    <button id="btn-horizon-install-cta" class="btn-primary u-s303">${t("btn_install_horizon", "Installer Horizon")}</button>
                 </div>`;
             container.querySelector('#btn-horizon-install-cta')?.addEventListener('click', () => window.handleHorizonInstall());
             return;
         }
         let hSettings = await window.api.invoke("get-horizon-settings");
+        if (seq !== _horizonUiSeq) return;
         window.saveHorizonConfig = async (/** @type {string} */ key, /** @type {any} */ value) => {
             let val = value;
             if (value === "true") val = true;
@@ -637,15 +595,15 @@ window.refreshHorizonUI = async () => {
         let linkBtnHTML = "";
         if (status.linked) {
             linkBtnHTML = `
-                <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
-                    <button id="btn-horizon-disconnect" class="btn-secondary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; color: #f87171; border-color: #f87171; flex-shrink: 0;">
+                <div class="u-s304">
+                    <button id="btn-horizon-disconnect" class="btn-secondary u-s305">
                         ${t("btn_horizon_disconnect", "Déconnecter")}
                     </button>
                 </div>
             `;
         } else {
             linkBtnHTML = `
-                <button id="btn-horizon-link" class="btn-primary" style="height: 28px; padding: 0 15px; font-size: 0.8rem; flex-shrink: 0; white-space: nowrap; box-sizing: border-box; margin-left: auto;">
+                <button id="btn-horizon-link" class="btn-primary u-s306">
                     ${t("btn_horizon_link", "Associer un compte")}
                 </button>
             `;
@@ -655,40 +613,13 @@ window.refreshHorizonUI = async () => {
             if (await window.showCustomConfirm(confirmMsg, true)) {
                 try {
                     const provider = currentProvider || "google";
-                    const tokenFiles = [`token_${provider}.json`];
-                    if (provider === "google") tokenFiles.push("token.json");
-                    for (const tf of tokenFiles) {
-                        const candidates = [
-                            window.getHorizonWritePath('auth', tf),
-                            window.api.path.join(store.dataDir, "Horizon", tf),
-                            window.api.path.join(store.dataDir, "bin", tf)
-                        ];
-                        for (const cp of candidates) {
-                            if (await window.existsSafe(cp)) {
-                                try { await window.api.fs.promises.unlink(cp); } catch (/** @type {any} */ _) {}
-                            }
-                        }
+                    const res = await window.api.invoke("horizon:disconnect", { provider });
+                    if (!res || !res.success) {
+                        throw new Error(res?.error || "Échec de la déconnexion Horizon.");
                     }
-                    
-                    const cacheFiles = [
-                        "horizon_cloud_cache.json",
-                        "horizon_cloud_html_cache.txt",
-                        "horizon_quota_cache.json",
-                        "horizon_quota_html_cache.txt"
-                    ];
-                    for (const f of cacheFiles) {
-                        const candidates = [
-                            window.getHorizonWritePath('cache', f),
-                            window.api.path.join(store.dataDir, "Horizon", f),
-                            window.api.path.join(store.dataDir, "bin", f)
-                        ];
-                        for (const cp of candidates) {
-                            if (await window.existsSafe(cp)) {
-                                try { await window.api.fs.promises.unlink(cp); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in SettingsUI.js:", _); }
-                            }
-                        }
-                    }
-
+                    window._lastQuotaHtml = "";
+                    window._lastCloudGridHtml = "";
+                    window._cloudRichData = [];
                     window.showToast(t("horizon_disconnected_success", "Compte Cloud déconnecté avec succès."), "success");
                     await window.refreshHorizonUI();
                 } catch (/** @type {any} */ e) {
@@ -697,34 +628,34 @@ window.refreshHorizonUI = async () => {
             }
         };
         const updateBtnHTML = (status.needsUpdate && !status.offline)
-            ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; background: #f48a21; border-color: #f48a21; flex-shrink: 0;">${t("btn_horizon_update", "Mettre à jour")} (${safeLatestVer})</button>`
-            : `<button id="btn-horizon-update" class="btn-secondary ${isOffline ? 'offline-disabled' : ''}" style="height: 28px; padding: 0 10px; font-size: 0.8rem; flex-shrink: 0;">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+            ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''} u-s307">${t("btn_horizon_update", "Mettre à jour")} (${safeLatestVer})</button>`
+            : `<button id="btn-horizon-update" class="btn-secondary ${isOffline ? 'offline-disabled' : ''} u-s308">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
         let html = `
-            <div style="background: var(--bg-panel); padding: 15px; border-radius: 4px; border: 1px solid var(--border); margin-bottom: 15px;">
-                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
-                    <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                        <span style="width: 10px; height: 10px; min-width: 10px; background: ${statusColor}; border-radius: 50%;"></span>
-                        <strong style="color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeStatusText}</strong>
+            <div class="u-s309">
+                <div class="u-s310">
+                    <div class="horizon-status-row">
+                        <span class="horizon-status-dot ${isEnabled && !status.offline ? 'is-online' : 'is-offline'}"></span>
+                        <strong class="horizon-status-label">${safeStatusText}</strong>
                     </div>
-                    <select id="select-horizon-system-enabled" style="width: 110px; height: 28px; font-size: 0.8rem; flex-shrink: 0; margin-left: auto;">
+                    <select id="select-horizon-system-enabled" class="u-s311">
                         <option value="true" ${isEnabled ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                         <option value="false" ${!isEnabled ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                     </select>
                 </div>
-                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
-                    <div style="font-size: 0.75rem; color: #aaa; min-width: 150px;">
+                <div class="u-s312">
+                    <div class="u-s313">
                         ${t("horizon_version", "Version :")} ${safeLocalVer}
-                        ${(status.needsUpdate && !status.offline) ? `<span style="color:#f48a21; margin-left:6px; font-weight:bold;">${t("horizon_update_available", "Mise à jour disponible")} : ${safeLatestVer}</span>` : ""}
+                        ${(status.needsUpdate && !status.offline) ? `<span class="u-s314">${t("horizon_update_available", "Mise à jour disponible")} : ${safeLatestVer}</span>` : ""}
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: auto;">
+                    <div class="u-s315">
                         ${updateBtnHTML}
                     </div>
                 </div>
                 ${isEnabled ? `
-                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                        <span style="font-size: 0.85rem; color: var(--text-light); font-weight: bold;">${t("lbl_active_cloud", "Cloud Actif :")}</span>
-                        <select id="horizon-provider-select" style="width: 130px; height: 28px; font-size: 0.8rem;">
+                <div class="u-s316">
+                    <div class="u-s317">
+                        <span class="u-s318">${t("lbl_active_cloud", "Cloud Actif :")}</span>
+                        <select id="horizon-provider-select" class="u-s319">
                             <option value="google" ${currentProvider === "google" ? "selected" : ""}>Google Drive</option>
                             <option value="dropbox" ${currentProvider === "dropbox" ? "selected" : ""}>Dropbox</option>
                             <option value="onedrive" ${currentProvider === "onedrive" ? "selected" : ""}>OneDrive</option>
@@ -735,61 +666,58 @@ window.refreshHorizonUI = async () => {
             </div>`;
         if (isEnabled) {
             html += `
-            <div style="background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 15px;">
-                <div style="font-weight: bold; color: var(--text-light); margin-bottom: 15px; font-size: 0.95rem;">${t("horizon_settings_title", "Paramètres du Cloud")}</div>
-                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
-                <select id="select-horizon-sync-mode" style="width: 100%; margin-bottom: 12px;">
+            <div class="u-s320">
+                <div class="u-s321">${t("horizon_settings_title", "Paramètres du Cloud")}</div>
+                <label class="u-s322">${t("horizon_sync_mode", "Mode de sauvegarde")}</label>
+                <select id="select-horizon-sync-mode" class="u-s323">
                     <option value="SMART" ${hSettings.syncMode === "SMART" ? "selected" : ""}>${t("horizon_mode_smart", "Smart (Incrémentiel - Recommandé)")}</option>
                     <option value="FULL" ${hSettings.syncMode === "FULL" ? "selected" : ""}>${t("horizon_mode_full", "Classique (Archive complète)")}</option>
                 </select>
-                <div id="delta-threshold-row" style="display: ${hSettings.syncMode !== 'FULL' ? 'block' : 'none'}; margin-bottom: 12px;">
-                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                        <label style="font-size: 0.85rem; margin-top: 0;">${t("horizon_delta_threshold", "Auto-repack after N deltas")}</label>
-                        <div class="ram-help-icon custom-tooltip-trigger"
+                <div id="delta-threshold-row" class="horizon-delta-threshold-row${hSettings.syncMode === 'FULL' ? ' is-hidden' : ''}">
+                    <div class="u-s324">
+                        <label class="u-s325">${t("horizon_delta_threshold", "Auto-repack after N deltas")}</label>
+                        <div class="ram-help-icon custom-tooltip-trigger u-s326"
                             data-i18n-tooltip="horizon_delta_threshold_help"
                             data-tooltip="${window.escapeHTML(t("horizon_delta_threshold_help", "In incremental mode, each change creates a delta file. When the delta count reaches this threshold, Horizon automatically creates a new full backup and removes old deltas. This prevents unlimited accumulation and keeps restores fast. Recommended value: 10."))}"
-                            style="display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;"
                         >?</div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <div class="u-s016">
                         <input
                             type="number"
                             id="horizon-delta-threshold"
                             min="3" max="50"
                             value="${hSettings.deltaCleanupThreshold || 10}"
-                            style="width: 70px;"
-                        >
-                        <span style="font-size: 0.8rem; color: #888;">${t("horizon_delta_threshold_unit", "deltas → full repack")}</span>
+                         class="u-s327">
+                        <span class="u-s328">${t("horizon_delta_threshold_unit", "deltas → full repack")}</span>
                     </div>
-                    <div style="font-size: 0.72rem; color: #666; margin-top: 4px;">${t("horizon_delta_threshold_hint", "Min: 3 · Max: 50 · Recommended: 10")}</div>
+                    <div class="u-s329">${t("horizon_delta_threshold_hint", "Min: 3 · Max: 50 · Recommended: 10")}</div>
                 </div>
-                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
-                <select id="select-horizon-auto-sync" style="width: 100%; margin-bottom: 12px;">
+                <label class="u-s322">${t("horizon_auto_sync", "Téléchargement auto. (Sync)")}</label>
+                <select id="select-horizon-auto-sync" class="u-s323">
                     <option value="true" ${hSettings.autoSync === true || hSettings.autoSync === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                     <option value="false" ${hSettings.autoSync === false || hSettings.autoSync === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                 </select>
-                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_auto_upload", "Envoi auto. (Upload)")}</label>
-                <select id="select-horizon-auto-upload" style="width: 100%; margin-bottom: 12px;">
+                <label class="u-s322">${t("horizon_auto_upload", "Envoi auto. (Upload)")}</label>
+                <select id="select-horizon-auto-upload" class="u-s323">
                     <option value="true" ${hSettings.autoUpload === true || hSettings.autoUpload === "true" ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
                     <option value="false" ${hSettings.autoUpload === false || hSettings.autoUpload === "false" ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
                 </select>
-                <label style="font-size: 0.85rem; margin-top: 5px;">${t("horizon_retry_attempts", "Tentatives en cas d'erreur réseau")}</label>
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom: 4px;">
+                <label class="u-s322">${t("horizon_retry_attempts", "Tentatives en cas d'erreur réseau")}</label>
+                <div class="u-s330">
                     <input type="number" id="horizon-max-retries"
                         min="0" max="10" step="1"
-                        value="${hSettings.maxRetries ?? 3}"
-                        style="width:70px; height:28px; text-align:center; font-size:0.85rem;">
-                    <span style="font-size: 0.8rem; color: #888;">${t("horizon_retry_unit", "retry(s) max")}</span>
+                        value="${hSettings.maxRetries ?? 3}" class="u-s331">
+                    <span class="u-s328">${t("horizon_retry_unit", "retry(s) max")}</span>
                 </div>
-                <div style="font-size: 0.72rem; color: #666; margin-bottom:12px;">${t("horizon_retry_hint", "0 = pas de retry · Recommandé : 3")}</div>
+                <div class="u-s332">${t("horizon_retry_hint", "0 = pas de retry · Recommandé : 3")}</div>
             </div>
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <div id="horizon-quota-zone" style="padding: 6px 0 12px 0;">
-                    ${window._lastQuotaHtml || `<div style="color:#888; font-size:0.82rem;">${t("msg_loading", "Chargement...")}</div>`}
+            <div class="u-s333">
+                <div id="horizon-quota-zone" class="u-s334">
+                    ${window._lastQuotaHtml || `<div class="u-s335">${t("msg_loading", "Chargement...")}</div>`}
                 </div>
-                <div style="margin-top: 6px;">
-                    <button id="btn-horizon-clean-cloud" class="btn-secondary" style="height: 28px; padding: 0 14px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                <div class="u-s336">
+                    <button id="btn-horizon-clean-cloud" class="btn-secondary u-s337">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="u-s338">
                             <path d="m14 11 4.5-4.5a2.121 2.121 0 0 0-3-3L11 8"></path>
                             <path d="m11 8-6.5 6.5A3 3 0 0 0 3.5 17L2 22l5-1.5a3 3 0 0 0 2.5-1L16 13"></path>
                         </svg>
@@ -797,10 +725,10 @@ window.refreshHorizonUI = async () => {
                     </button>
                 </div>
             </div>
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <div style="font-weight: bold; color: var(--text-light); margin-bottom: 10px;">${t("horizon_cloud_instances", "Vos Instances Cloud")}</div>
+            <div class="u-s333">
+                <div class="u-s339">${t("horizon_cloud_instances", "Vos Instances Cloud")}</div>
                 <div id="horizon-cloud-grid" class="instances-grid">
-                    ${window._lastCloudGridHtml ? window._lastCloudGridHtml : `<div style="color: #aaa; font-size: 0.85rem;">${t("msg_loading", "Chargement...")}</div>`}
+                    ${window._lastCloudGridHtml ? window._lastCloudGridHtml : `<div class="u-s040">${t("msg_loading", "Chargement...")}</div>`}
                 </div>
             </div>`;
         }
@@ -831,7 +759,7 @@ window.refreshHorizonUI = async () => {
             const prettyProvider = currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1);
             if (grid) {
                 const msg = t("msg_cloud_link_req", "Veuillez associer un compte {provider} pour voir vos instances.").replace("{provider}", prettyProvider);
-                grid.innerHTML = `<div style="color:#f87171; font-size:0.85rem; padding: 10px;">${window.escapeHTML(msg)}</div>`;
+                grid.innerHTML = `<div class="u-s340">${window.escapeHTML(msg)}</div>`;
             }
         }
     };
@@ -871,7 +799,7 @@ window.runHorizonLogin = async (/** @type {string} */ provider) => {
         await window.refreshHorizonUI();
     };
     window.runHorizon = async (/** @type {string} */ action) => {
-        const ALLOWED_HORIZON_ACTIONS = ['sync', 'upload', 'list', 'quota', 'rollback'];
+        const ALLOWED_HORIZON_ACTIONS = ['sync', 'upload', 'quota', 'rollback'];
         if (!ALLOWED_HORIZON_ACTIONS.includes(action)) {
             console.error(`[Horizon] Action non autorisee : ${action}`);
             return;

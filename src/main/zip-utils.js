@@ -398,8 +398,33 @@ async function openZip(zipPath) {
 
                     let runningCrc = 0;
                     let actualUncompressed = 0;
-                    let finished = false;
-                    const verifiedOut = new PassThrough();
+                    let pipeStarted = false;
+                    const { Transform } = require('stream');
+
+                    // Flux Transform strictement paresseux : le pipe ne démarre qu'au premier _read() du consommateur,
+                    // empêchant toute émission d'événement 'error' avant que l'appelant n'ait attaché ses listeners.
+                    const verifiedOut = new Transform({
+                        transform(chunk, _enc, cb) {
+                            actualUncompressed += chunk.length;
+                            if (actualUncompressed > entryObj.uncompressedSize) {
+                                cb(new Error(`Taille décompressée supérieure à la taille déclarée pour ${filename}`));
+                                return;
+                            }
+                            runningCrc = zlib.crc32(chunk, runningCrc);
+                            cb(null, chunk);
+                        },
+                        flush(cb) {
+                            if ((runningCrc >>> 0) !== (entryObj.crc32 >>> 0)) {
+                                cb(new Error(`CRC-32 invalide pour ${filename} (attendu 0x${entryObj.crc32.toString(16)}, reçu 0x${(runningCrc >>> 0).toString(16)})`));
+                                return;
+                            }
+                            if (actualUncompressed !== entryObj.uncompressedSize) {
+                                cb(new Error(`Taille décompressée incohérente pour ${filename}`));
+                                return;
+                            }
+                            cb();
+                        }
+                    });
 
                     const cleanupStreams = () => {
                         rawSlice.destroy();
@@ -409,57 +434,25 @@ async function openZip(zipPath) {
                     };
 
                     /** @param {any} err */
-                    const abortWithError = (err) => {
-                        if (finished) return;
-                        finished = true;
+                    const forwardErr = (err) => {
                         cleanupStreams();
                         verifiedOut.destroy(err);
                     };
 
-                    rawSlice.on('error', abortWithError);
+                    rawSlice.on('error', forwardErr);
                     if (decompressedStream !== rawSlice) {
-                        decompressedStream.on('error', abortWithError);
+                        decompressedStream.on('error', forwardErr);
                     }
-                    verifiedOut.once('close', () => {
-                        if (!finished) {
-                            finished = true;
-                            cleanupStreams();
-                        }
-                    });
+                    verifiedOut.once('close', cleanupStreams);
 
-                    decompressedStream.on('data', (/** @type {Buffer} */ chunk) => {
-                        if (finished) return;
-                        actualUncompressed += chunk.length;
-                        if (actualUncompressed > entryObj.uncompressedSize) {
-                            abortWithError(new Error(`Taille décompressée supérieure à la taille déclarée pour ${filename}`));
-                            return;
+                    const origRead = verifiedOut._read.bind(verifiedOut);
+                    verifiedOut._read = (size) => {
+                        if (!pipeStarted) {
+                            pipeStarted = true;
+                            decompressedStream.pipe(verifiedOut);
                         }
-                        runningCrc = zlib.crc32(chunk, runningCrc);
-                        if (!verifiedOut.write(chunk)) {
-                            decompressedStream.pause();
-                        }
-                    });
-
-                    verifiedOut.on('drain', () => {
-                        if (!finished && typeof decompressedStream.resume === 'function') {
-                            decompressedStream.resume();
-                        }
-                    });
-
-                    decompressedStream.on('end', () => {
-                        if (finished) return;
-                        if ((runningCrc >>> 0) !== (entryObj.crc32 >>> 0)) {
-                            abortWithError(new Error(`CRC-32 invalide pour ${filename} (attendu 0x${entryObj.crc32.toString(16)}, reçu 0x${(runningCrc >>> 0).toString(16)})`));
-                            return;
-                        }
-                        if (actualUncompressed !== entryObj.uncompressedSize) {
-                            abortWithError(new Error(`Taille décompressée incohérente pour ${filename}`));
-                            return;
-                        }
-                        finished = true;
-                        verifiedOut.end();
-                    });
-
+                        origRead(size);
+                    };
                     return verifiedOut;
                 }
             };
@@ -494,7 +487,9 @@ async function writeZipFromFiles(destPath, files, options = {}) {
     const onProgress = options.onProgress;
     const onWarning = options.onWarning;
 
-    const fh = await fs.promises.open(destPath, 'w');
+    const { renameWithRetry } = require('./fs-utils');
+    const tmpDestPath = `${destPath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    const fh = await fs.promises.open(tmpDestPath, 'w');
     let closed = false;
     /** @param {boolean} unlinkDest */
     const closeAndCleanup = async (unlinkDest) => {
@@ -503,7 +498,7 @@ async function writeZipFromFiles(destPath, files, options = {}) {
             await fh.close().catch(() => {});
         }
         if (unlinkDest) {
-            try { await fs.promises.unlink(destPath); } catch (_) {}
+            try { await fs.promises.unlink(tmpDestPath); } catch (_) {}
         }
     };
 
@@ -550,7 +545,9 @@ async function writeZipFromFiles(destPath, files, options = {}) {
             // Bit 11 = UTF-8 ; Bit 3 = Data Descriptor (tailles/CRC après les données)
             const flags = 0x0800 | 0x0008;
             const localHeaderOffset = offset;
-            const expectZip64Lfh = stat.size >= 0xffffffff;
+            // Marge de sécurité ZIP64 (seuil 3.9 Go) pour éviter une divergence LFH vs Data Descriptor
+            // si un fichier proche de 4 Go grossit légèrement sous Deflate ou grandit pendant la lecture.
+            const expectZip64Lfh = stat.size >= 0xf0000000;
             const lfhExtraLen = expectZip64Lfh ? 20 : 0;
 
             const lfh = Buffer.allocUnsafe(30 + nameBuf.length + lfhExtraLen);
@@ -641,7 +638,10 @@ async function writeZipFromFiles(destPath, files, options = {}) {
             });
 
             const unsignedCrc = crc32 >>> 0;
-            const needZip64Entry = compressedSize >= 0xffffffff || uncompressedSize >= 0xffffffff;
+            const needZip64Entry = expectZip64Lfh || compressedSize >= 0xffffffff || uncompressedSize >= 0xffffffff;
+            if (!expectZip64Lfh && (compressedSize >= 0xffffffff || uncompressedSize >= 0xffffffff)) {
+                throw new Error(`L'entrée '${zipName}' a dépassé 4 Gio en cours d'archivage (LFH non-ZIP64 incompatible).`);
+            }
 
             if (needZip64Entry) {
                 const dd64 = Buffer.allocUnsafe(24);
@@ -772,6 +772,7 @@ async function writeZipFromFiles(destPath, files, options = {}) {
         await writeAll(eocd);
 
         await closeAndCleanup(false);
+        await renameWithRetry(tmpDestPath, destPath);
     } catch (err) {
         await closeAndCleanup(true);
         throw err;

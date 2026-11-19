@@ -65,6 +65,25 @@ class Zip {
     /** @param {string} dir */
     const ensureDir = async (dir) => {
       if (createdDirs.has(dir)) return;
+      // Vérifie le plus proche ancêtre existant AVANT mkdir pour empêcher la création hors cible via symlink
+      let cur = path.resolve(dir);
+      while (true) {
+        try {
+          const realCur = await fs.promises.realpath(cur);
+          const relTail = path.relative(cur, path.resolve(dir));
+          const projected = relTail ? path.join(realCur, relTail) : realCur;
+          const normProjected = isWin ? projected.toLowerCase() : projected;
+          if (!normProjected.startsWith(normTarget + path.sep) && normProjected !== normTarget) {
+            throw new Error(`Zip symlink escape detected before mkdir: ${dir}`);
+          }
+          break;
+        } catch (err) {
+          if (err instanceof Error && err.message.startsWith('Zip symlink escape')) throw err;
+          const parent = path.dirname(cur);
+          if (parent === cur) break;
+          cur = parent;
+        }
+      }
       await fs.promises.mkdir(dir, { recursive: true });
       const realDir = await fs.promises.realpath(dir);
       const normDir = isWin ? realDir.toLowerCase() : realDir;

@@ -108,7 +108,8 @@ export function setupStorage() {
         }
         if (store.globalSettings.disableAnimations === undefined) store.globalSettings.disableAnimations = false;
         if (store.globalSettings.disableTransparency === undefined) store.globalSettings.disableTransparency = false;
-        if (!store.globalSettings.language) store.globalSettings.language = "fr";
+        const hasSettingsFile = await window.existsSafe(store.settingsFile);
+        if (!store.globalSettings.language && hasSettingsFile) store.globalSettings.language = "fr";
 
         if (store.globalSettings.defaultRam > store.maxSafeRam) {
             store.globalSettings.defaultRam = store.maxSafeRam;

@@ -1,14 +1,5 @@
 // @ts-check
 import { store } from "../store.js";
-/** @type {any} */
-let _accountSaveTimer = null;
-function scheduleSaveAccounts() {
-    if (_accountSaveTimer) clearTimeout(_accountSaveTimer);
-    _accountSaveTimer = setTimeout(async () => {
-        _accountSaveTimer = null;
-        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
-    }, 300);
-}
 export function setupAccountUI() {
     const skinCacheFile = window.api.path.join(window.api.appData, 'GensLauncher', 'skin-cache.json');
     /** @type {Record<string, string> | null} */
@@ -143,7 +134,7 @@ export function setupAccountUI() {
         const btnDel = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-del-acc"));
         const btnSkin = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-skin-acc"));
         if (store.allAccounts.length === 0) {
-            list.innerHTML = `<div style="padding: 20px; color: #aaa; text-align: center;">${t("msg_no_acc", "Aucun profil")}</div>`;
+            list.innerHTML = `<div class="u-s243">${t("msg_no_acc", "Aucun profil")}</div>`;
             if (btnUse) btnUse.disabled = true;
             if (btnDel) btnDel.disabled = true;
             if (btnSkin) btnSkin.disabled = true;
@@ -181,9 +172,12 @@ export function setupAccountUI() {
                     }
                 });
             }
+            const safeImgSrc = (typeof imgSrc === "string" && /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(imgSrc))
+                ? imgSrc
+                : (typeof store.defaultIcons?.vanilla === "string" ? store.defaultIcons.vanilla : "");
             rowsHtml += `
             <div class="mmc-account-item ${isSelected ? 'selected' : ''}" data-acc-index="${i}">
-                <img id="acc-img-${i}" src="${imgSrc}" alt="${safeName}">
+                <img id="acc-img-${i}" src="${window.escapeHTML(safeImgSrc)}" alt="${safeName}">
                 <div class="mmc-info">
                     <div class="mmc-name">${safeName}</div>
                     <div class="mmc-type">${typeText}</div>
@@ -201,7 +195,14 @@ export function setupAccountUI() {
     };
     window.selectAccountRow = async (/** @type {number} */ index) => {
         store.uiSelectedAccRow = index;
-        window.renderAccountManager();
+        const list = document.getElementById("account-list");
+        if (list) {
+            list.querySelectorAll('.mmc-account-item').forEach((/** @type {Element} */ el) => {
+                const htmlEl = /** @type {HTMLElement} */ (el);
+                const idx = parseInt(htmlEl.dataset.accIndex || "-1", 10);
+                htmlEl.classList.toggle('selected', idx === index);
+            });
+        }
     };
     window.useSelectedRow = async () => {
         if (store.uiSelectedAccRow !== null) {
@@ -238,8 +239,10 @@ export function setupAccountUI() {
     window.toggleOfflineInput = () => {
         const container = document.getElementById("offline-input-container");
         if (!container) return;
-        container.style.display = container.style.display === "none" ? "flex" : "none";
-        if (container.style.display === "flex") {
+        const isHidden = container.classList.contains("is-hidden") || container.style.display === "none" || getComputedStyle(container).display === "none";
+        container.classList.toggle("is-hidden", !isHidden);
+        container.style.display = isHidden ? "flex" : "none";
+        if (isHidden) {
             const accName = document.getElementById("acc-name");
             if (accName) accName.focus();
         }
@@ -555,6 +558,9 @@ export function setupAccountUI() {
                 acc.mclcAuth.access_token = refreshRes.access_token;
                 await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
             }
+            if (file.size > 2 * 1024 * 1024) {
+                throw new Error(window.t("msg_err_skin_size", "Fichier skin trop volumineux (max 2 Mo)."));
+            }
             const skinData = await file.arrayBuffer();
             const res = await window.api.invoke("upload-mojang-skin", {
                 accessToken: acc.mclcAuth.access_token,
@@ -585,6 +591,7 @@ export function setupAccountUI() {
                         fullSkin = e.target?.result;
                         img.src = fullSkin; 
                     };
+                    reader.onerror = () => resolve({ faceB64: null, fullSkinB64: null });
                     reader.readAsDataURL(file);
                 });
                 

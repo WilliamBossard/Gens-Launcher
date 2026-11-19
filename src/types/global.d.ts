@@ -43,6 +43,11 @@ declare global {
     safeDir: (name: string, ...args: any[]) => string;
     sameFolderSlug: (a: string, b: string) => boolean;
     sameFsPath: (a: string, b: string) => boolean;
+    et: (key: string, fallback?: string) => string;
+    isValidVersionId: (val: unknown) => boolean;
+    cancelAutoLaunch: () => void;
+    isSafeIconDataUri: (raw: string) => boolean;
+    isPathInsideDir: (targetPath: string, parentDir: string) => boolean;
     resolveInstanceFolder: (name: string) => string;
     resolveInstanceName: (name: string) => string;
     existsSafe: (p: string) => Promise<boolean>;
@@ -187,7 +192,7 @@ declare global {
     buildModpack: () => Promise<void>;
     handleImport: (target: any) => Promise<void>;
     handleCurseForgeImport: (...args: any[]) => Promise<void>;
-    handleMrPackImport: (...args: any[]) => Promise<void>;
+    handleMrPackImport: (...args: any[]) => Promise<any>;
     handleZipImport: (f: any) => Promise<void>;
     doExport: (type?: any) => Promise<void>;
 

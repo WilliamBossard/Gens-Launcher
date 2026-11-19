@@ -1,6 +1,6 @@
 // @ts-check
 
-const { existsSafe, parseMotdComponent } = require('./fs-utils');
+const { existsSafe, parseMotdComponent, createRendererPathGuard } = require('./fs-utils');
 const { Worker } = require('worker_threads');
 
 /**
@@ -12,11 +12,11 @@ module.exports = function setupSystemHandlers(context) {
         assertPathUnderSandbox, sanitizeShortcutName, shell, app, safeDataDir
     } = context;
 
+    const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
     const WORKER_TIMEOUT_MS = 15 * 60 * 1000;
-    const BLOCKED_OPEN_EXTS = new Set([
-        '.exe', '.bat', '.cmd', '.ps1', '.vbs', '.vbe', '.js', '.jse',
-        '.wsf', '.wsh', '.msi', '.msp', '.scr', '.com', '.pif', '.hta',
-        '.cpl', '.reg', '.sh', '.bash', '.zsh', '.appimage', '.run', '.command'
+    const ALLOWED_OPEN_EXTS = new Set([
+        '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
+        '.log', '.txt', '.json', '.toml', '.cfg', '.properties', '.mcmeta'
     ]);
 
     ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
@@ -78,6 +78,8 @@ module.exports = function setupSystemHandlers(context) {
         try {
             archivePath = assertPathUnderSandbox(archivePath);
             destDir = assertPathUnderSandbox(destDir);
+            assertRendererPathAllowed(archivePath, 'read');
+            assertRendererPathAllowed(destDir, 'write');
         } catch (e) {
             return { success: false, error: e instanceof Error ? e.message : String(e) };
         }
@@ -148,6 +150,8 @@ module.exports = function setupSystemHandlers(context) {
             mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
             zipPath = assertPathUnderSandbox(zipPath); // AUDIT-15 : défense en profondeur — re-validation côté Main
             destDir = assertPathUnderSandbox(destDir);
+            assertRendererPathAllowed(zipPath, 'read');
+            assertRendererPathAllowed(destDir, 'write');
 
             return await new Promise((resolveRaw) => {
                 let settled = false;
@@ -219,11 +223,20 @@ module.exports = function setupSystemHandlers(context) {
             let motdHtml = '';
             if (data.description) motdHtml = parseMotdComponent(data.description);
 
+            /** @param {unknown} v */
+            const safeNonNegInt = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
+            };
+
             const mappedData = {
                 online: true,
-                icon: data.favicon || "",
+                icon: typeof data.favicon === 'string' ? data.favicon : "",
                 motd: { html: motdHtml },
-                players: { online: data.players ? data.players.online : 0, max: data.players ? data.players.max : 0 }
+                players: {
+                    online: safeNonNegInt(data.players ? data.players.online : 0),
+                    max: safeNonNegInt(data.players ? data.players.max : 0)
+                }
             };
 
             return { success: true, data: mappedData };
@@ -278,9 +291,11 @@ module.exports = function setupSystemHandlers(context) {
             let targetDir = safeDataDir;
             if (subDir) {
                 targetDir = assertPathUnderSandbox(path.join(safeDataDir, String(subDir)));
+                assertRendererPathAllowed(targetDir, 'write');
                 await fs.promises.mkdir(targetDir, { recursive: true });
             }
             destPath = assertPathUnderSandbox(path.join(targetDir, safeName));
+            assertRendererPathAllowed(destPath, 'write');
             await fs.promises.copyFile(realSrcPath, destPath);
             return { success: true, destPath };
         } catch (e) {
@@ -297,9 +312,10 @@ module.exports = function setupSystemHandlers(context) {
     let _javaScanCache = null;
     let _javaScanCacheTime = 0;
 
-    ipcMain.handle("scan-java-versions", async (event) => {
+    ipcMain.handle("scan-java-versions", async (_event, options = {}) => {
         try {
-            if (_javaScanCache && (Date.now() - _javaScanCacheTime < 30000)) {
+            const forceRefresh = Boolean(options && typeof options === 'object' && options.forceRefresh);
+            if (!forceRefresh && _javaScanCache && (Date.now() - _javaScanCacheTime < 30000)) {
                 return { success: true, paths: _javaScanCache };
             }
             const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
@@ -391,6 +407,8 @@ module.exports = function setupSystemHandlers(context) {
         try {
             srcPath = assertPathUnderSandbox(srcPath);
             destPath = assertPathUnderSandbox(destPath);
+            assertRendererPathAllowed(srcPath, 'read');
+            assertRendererPathAllowed(destPath, 'write');
             await fs.promises.cp(srcPath, destPath, {
                 recursive: true,
                 dereference: false,
@@ -416,9 +434,13 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("get-folder-size", async (_, dirPath) => {
         try {
             const rootDir = assertPathUnderSandbox(dirPath);
+            const isWin = process.platform === 'win32';
+            const norm = (/** @type {string} */ p) => isWin ? p.toLowerCase() : p;
+            const realRoot = await fs.promises.realpath(rootDir);
+            const normRealRoot = norm(realRoot);
             let totalBytes = 0;
             /** @type {Set<string>} */
-            const visited = new Set([rootDir]);
+            const visited = new Set([normRealRoot]);
             /** @type {string[]} */
             const stack = [rootDir];
             while (stack.length > 0) {
@@ -438,10 +460,19 @@ module.exports = function setupSystemHandlers(context) {
                         if (entry.isSymbolicLink()) return;
                         const full = path.join(current, entry.name);
                         if (entry.isDirectory()) {
-                            if (!visited.has(full)) {
-                                visited.add(full);
-                                stack.push(full);
-                            }
+                            try {
+                                const lst = await fs.promises.lstat(full);
+                                if (lst.isSymbolicLink()) return;
+                                const realFull = await fs.promises.realpath(full);
+                                const normRealFull = norm(realFull);
+                                if (normRealFull !== normRealRoot && !normRealFull.startsWith(normRealRoot + path.sep)) {
+                                    return;
+                                }
+                                if (!visited.has(normRealFull)) {
+                                    visited.add(normRealFull);
+                                    stack.push(full);
+                                }
+                            } catch (_) {}
                         } else if (entry.isFile()) {
                             try {
                                 const st = await fs.promises.lstat(full);
@@ -478,9 +509,20 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("system:open-path", async (_, p) => {
         try {
             const safe = assertPathUnderSandbox(p);
-            const ext = path.extname(safe).toLowerCase();
-            if (BLOCKED_OPEN_EXTS.has(ext)) {
-                return { success: false, error: `Ouverture directe bloquée pour le type de fichier exécutable (${ext}).` };
+            assertRendererPathAllowed(safe, 'read');
+            const lstat = await fs.promises.lstat(safe);
+            if (lstat.isSymbolicLink()) {
+                return { success: false, error: "Ouverture directe de lien symbolique bloquée." };
+            }
+            if (!lstat.isDirectory()) {
+                const base = path.basename(safe);
+                if (base.includes(':') || /[. ]$/.test(base)) {
+                    return { success: false, error: "Nom de fichier non autorisé pour l'ouverture directe." };
+                }
+                const ext = path.extname(base).toLowerCase();
+                if (!lstat.isFile() || !ALLOWED_OPEN_EXTS.has(ext)) {
+                    return { success: false, error: `Ouverture directe bloquée : seul l'accès aux dossiers et fichiers passifs autorisés est permis (${ext || 'sans extension'}).` };
+                }
             }
             const res = await shell.openPath(safe);
             return { success: !res, error: res || null };
@@ -493,6 +535,7 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("system:show-item-in-folder", async (_, p) => {
         try {
             const safe = assertPathUnderSandbox(p);
+            assertRendererPathAllowed(safe, 'read');
             shell.showItemInFolder(safe);
             return { success: true };
         } catch (e) {
@@ -503,8 +546,13 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("system:clipboard-write-text", async (_, text) => {
         try {
+            const str = String(text || '');
+            const MAX_CLIPBOARD_CHARS = 1024 * 1024;
+            if (str.length > MAX_CLIPBOARD_CHARS) {
+                return { success: false, error: "Contenu presse-papiers trop volumineux (> 1 Mo)." };
+            }
             const { clipboard } = require("electron");
-            clipboard.writeText(String(text || ''));
+            clipboard.writeText(str);
             return { success: true };
         } catch (e) {
             const error = e instanceof Error ? e.message : String(e);
@@ -512,16 +560,34 @@ module.exports = function setupSystemHandlers(context) {
         }
     });
 
+    /**
+     * Calcule de façon sûre la taille en octets d'une charge IPC avant toute allocation Buffer.
+     * @param {any} input
+     * @returns {number}
+     */
+    const getByteLengthBeforeCopy = (input) => {
+        if (input == null) return 0;
+        if (typeof input === 'string') return Buffer.byteLength(input, 'utf8');
+        if (ArrayBuffer.isView(input) || input instanceof ArrayBuffer) return input.byteLength;
+        if (Array.isArray(input)) return input.length;
+        return Infinity;
+    };
+
     ipcMain.handle("hash-buffer", async (_, { buffer, algo }) => {
         try {
             const cryptoModule = context.crypto || require('crypto');
             const ALLOWED_ALGOS = ["sha1", "sha256", "sha512", "md5"];
             if (!ALLOWED_ALGOS.includes(algo)) throw new Error(`Algorithme non autorisé : ${algo}`);
-            const rawBuf = Buffer.from(buffer);
             const MAX_HASH_BUFFER_BYTES = 32 * 1024 * 1024;
-            if (rawBuf.length > MAX_HASH_BUFFER_BYTES) {
+            const incomingBytes = getByteLengthBeforeCopy(buffer);
+            if (!Number.isFinite(incomingBytes) || incomingBytes > MAX_HASH_BUFFER_BYTES) {
                 throw new Error(`Buffer trop volumineux (> 32 Mo). Utilisez hash-file.`);
             }
+            const rawBuf = Buffer.isBuffer(buffer)
+                ? buffer
+                : (ArrayBuffer.isView(buffer)
+                    ? Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+                    : Buffer.from(buffer));
             const hash = cryptoModule.createHash(algo).update(rawBuf).digest("hex");
             return { success: true, hash };
         } catch (e) {
@@ -533,8 +599,17 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("nbt:parse", async (_, arr) => {
         try {
             const nbt = require('../gens-core/components/nbt.js');
-            if (arr && arr.length > 5 * 1024 * 1024) throw new Error("Fichier NBT trop volumineux (> 5Mo).");
-            const parsed = await nbt.parse(Buffer.from(arr));
+            const MAX_NBT_INPUT_BYTES = 5 * 1024 * 1024;
+            const incomingBytes = getByteLengthBeforeCopy(arr);
+            if (!Number.isFinite(incomingBytes) || incomingBytes > MAX_NBT_INPUT_BYTES) {
+                throw new Error("Fichier NBT trop volumineux (> 5Mo).");
+            }
+            const buf = Buffer.isBuffer(arr)
+                ? arr
+                : (ArrayBuffer.isView(arr)
+                    ? Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength)
+                    : Buffer.from(arr));
+            const parsed = await nbt.parse(buf);
             return { success: true, data: parsed };
         } catch (e) {
             const error = e instanceof Error ? e.message : String(e);

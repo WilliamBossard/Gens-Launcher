@@ -410,15 +410,15 @@ function safeExternalUrl(url) {
 
 const validSendChannels = [
     "set-auto-download", "set-offline-mode", "download-update", "hide-window",
-    "minimize-window", "show-window", "restore-main-window", "restart_app",
+    "minimize-window", "show-window", "restore-main-window", "restart_app", "relaunch-app",
     "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft",
     "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"
 ];
 
 const validInvokeChannels = [
     "ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings",
-    "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon",
-    "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile",
+    "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "horizon:disconnect",
+    "check-java", "scan-java-versions", "java:install-adoptium", "java:delete", "fetch-curseforge", "fetch-mojang-profile",
     "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game",
     "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut",
     "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip",
@@ -518,25 +518,28 @@ contextBridge.exposeInMainWorld("api", {
 
         const _writeJSONAsync = async (/** @type {string} */ filePath, /** @type {any} */ data) => {
             const safePath = enforceSandbox(filePath);
-            if (!_allowedEncryptedWritePaths.has(_normPath(safePath))) {
+            const writeKey = _normPath(safePath);
+            if (!_allowedEncryptedWritePaths.has(writeKey)) {
                 throw new Error("Accès refusé : security.writeJSON est réservé aux fichiers sécurisés autorisés (accounts.json, cf_api_key.enc).");
             }
             const jsonString = JSON.stringify(data, null, 2);
-            const encrypted = await ipcRenderer.invoke('encrypt-string', jsonString);
 
-            let previousWrite = _pendingWrites.get(safePath) || Promise.resolve();
+            // Sérialise AVANT encrypt-string (et avec clé normalisée en minuscules sous Windows)
+            // afin qu'une écriture ancienne ne puisse jamais écraser une écriture plus récente.
+            let previousWrite = _pendingWrites.get(writeKey) || Promise.resolve();
             const currentWrite = previousWrite.catch(() => {}).then(async () => {
+                const encrypted = await ipcRenderer.invoke('encrypt-string', jsonString);
                 // fs:writeFile (ipc-fs.js) écrit déjà atomiquement via .tmp + retries de rename
                 await _fsIpcCall('fs:writeFile', safePath, encrypted, 'utf8');
             });
 
             const tailWrite = currentWrite.catch(() => {});
-            _pendingWrites.set(safePath, tailWrite);
+            _pendingWrites.set(writeKey, tailWrite);
             try {
                 return await currentWrite;
             } finally {
-                if (_pendingWrites.get(safePath) === tailWrite) {
-                    _pendingWrites.delete(safePath);
+                if (_pendingWrites.get(writeKey) === tailWrite) {
+                    _pendingWrites.delete(writeKey);
                 }
             }
         };

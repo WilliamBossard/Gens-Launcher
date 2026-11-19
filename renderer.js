@@ -125,13 +125,20 @@ ipcRenderer.on("update-downloaded", async () => {
         }
     }
 });
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _consoleFilterTimer = null;
 $("console-filter")?.addEventListener("input", (/** @type {any} */ e) => {
-    const filter = e.target.value.toLowerCase();
-    const lines = document.querySelectorAll(".log-line");
-    lines.forEach((/** @type {any} */ line) => {
-        const text = line.innerText.toLowerCase();
-        line.style.display = text.includes(filter) ? "block" : "none";
-    });
+    const rawValue = String(e.target?.value || "");
+    if (_consoleFilterTimer) clearTimeout(_consoleFilterTimer);
+    _consoleFilterTimer = setTimeout(() => {
+        _consoleFilterTimer = null;
+        const filter = rawValue.toLowerCase();
+        const lines = document.querySelectorAll(".log-line");
+        lines.forEach((line) => {
+            const text = (line.textContent || "").toLowerCase();
+            line.classList.toggle("log-hidden", Boolean(filter && !text.includes(filter)));
+        });
+    }, 150);
 });
 
 window.copyCrashLog = async () => {
@@ -259,19 +266,123 @@ window.ctxUploadCloud = async () => {
         }
     }
 };
-window.api.on("horizon-status", async (data) => {
-    const getRealName = async (/** @type {string} */ safeName) => {
-        if (!safeName) return "";
-        const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
-        if (localInst) return localInst.name;
+/** @type {Map<string, string>} */
+const _realNameCache = new Map();
+/** @type {string} */
+let _lastHorizonProgressStep = "";
+/** @type {{ val: number, step: string, instName: string, realName: string } | null} */
+let _pendingHorizonProgress = null;
+let _lastHorizonProgressTs = 0;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _horizonProgressTimer = null;
+const getRealName = async (/** @type {string} */ safeName) => {
+    if (!safeName) return "";
+    const localInst = store.allInstances.find(i => window.safeDir(i.name) === safeName || i.name === safeName);
+    if (localInst) {
+        _realNameCache.set(safeName, localInst.name);
+        return localInst.name;
+    }
+    if (_realNameCache.has(safeName)) return _realNameCache.get(safeName) || safeName;
+    try {
+        const metaPath = await window.resolveHorizonFilePath('metadata', `meta_${safeName}.json`);
+        await window.api.fs.promises.access(metaPath);
+        const meta = JSON.parse(await window.api.fs.promises.readFile(metaPath, "utf8"));
+        if (meta.realName) {
+            _realNameCache.set(safeName, meta.realName);
+            return meta.realName;
+        }
+    } catch (/** @type {any} */ e) { }
+    _realNameCache.set(safeName, safeName);
+    return safeName;
+};
+
+/**
+ * Rend le panneau Quota Horizon et sauvegarde optionnellement le cache JSON sur disque.
+ * @param {HTMLElement} el
+ * @param {any} data
+ * @param {boolean} persistCache
+ */
+async function renderHorizonQuotaPanel(el, data, persistCache = true) {
+    /** @param {any} b */
+    function fmtBytes(b) {
+        if (!b || b === 0) return "0 Mo";
+        if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " Go";
+        return (b / 1048576).toFixed(1) + " Mo";
+    }
+    const horizonBytes = Number(data.horizonBytes ?? data.horizonUsed ?? 0) || 0;
+    const usedPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.usedBytes / data.totalBytes) * 100)) : 0;
+    const horizPct = data.totalBytes > 0 ? Math.min(100, Math.round((horizonBytes / data.totalBytes) * 100)) : 0;
+    const barLevelClass = usedPct >= 90 ? "quota-lvl-crit" : usedPct >= 70 ? "quota-lvl-warn" : "quota-lvl-ok";
+    const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
+    const rawProvider = String(data.provider || "google");
+    const providerLabel = rawProvider.charAt(0).toUpperCase() + rawProvider.slice(1);
+    const instances = (data.instances || []).slice().sort((/** @type {any} */ a, /** @type {any} */ b) => b.bytes - a.bytes);
+    let instRows = "";
+    for (const inst of instances.slice(0, 8)) {
+        const rowDisplayName = await getRealName(inst.name);
+        const pct = horizonBytes > 0 ? Math.round((inst.bytes / horizonBytes) * 100) : 0;
+        const safeInstDeltaCount = Number(inst.deltaCount) || 0;
+        const deltaInfo = safeInstDeltaCount > 0 ? ` · ${safeInstDeltaCount} delta(s)` : "";
+        instRows += `
+            <div class="horizon-quota-inst-row">
+                <span class="horizon-quota-inst-name" title="${window.escapeHTML(rowDisplayName)}">${window.escapeHTML(rowDisplayName)}</span>
+                <span class="horizon-quota-inst-meta">${fmtBytes(inst.bytes)}${deltaInfo}</span>
+                <div class="horizon-quota-inst-track">
+                    <div class="horizon-quota-inst-fill" data-pct="${pct}"></div>
+                </div>
+            </div>`;
+    }
+    if (instances.length > 8) {
+        instRows += `<div class="horizon-quota-more">+ ${instances.length - 8} ${t("horizon_quota_more", "autre(s)")}...</div>`;
+    }
+    el.innerHTML = `
+        <div class="horizon-quota-title">
+            ${t("horizon_quota_title", "Espace Cloud")}
+            <span class="horizon-quota-provider">${window.escapeHTML(providerLabel)}</span>
+        </div>
+        ${data.totalBytes > 0 ? `
+        <div class="horizon-quota-summary">
+            <span>${t("horizon_quota_used", "Utilisé")} : <strong class="${barLevelClass}">${fmtBytes(data.usedBytes)}</strong></span>
+            <span>${t("horizon_quota_total", "Total")} : ${totalText}</span>
+        </div>
+        <div class="horizon-quota-bar-track">
+            <div class="horizon-quota-bar-fill ${barLevelClass}" data-pct="${usedPct}"></div>
+        </div>
+        <div class="horizon-quota-share">${t("horizon_quota_horizon_share", "Dont Horizon")} : ${fmtBytes(horizonBytes)} (${horizPct}%)</div>
+        ` : `
+        <div class="horizon-quota-unlimited">
+            ${t("horizon_quota_unlimited", "Espace illimité")} · ${t("horizon_quota_used_by_horizon", "Horizon utilise")} <strong class="text-accent">${fmtBytes(horizonBytes)}</strong>
+        </div>`}
+        ${instances.length > 0 ? `
+        <div class="horizon-quota-subtitle">${t("horizon_quota_per_instance", "Détail par instance")}</div>
+        ${instRows}
+        ` : `<div class="horizon-quota-empty">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`}
+        <button id="btn-refresh-quota" class="btn-secondary horizon-quota-refresh-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-shrink-0">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                <path d="M16 16h5v5"></path>
+            </svg>
+            <span>${t("horizon_quota_refresh", "Actualiser")}</span>
+        </button>`;
+    el.querySelectorAll('[data-pct]').forEach((bar) => {
+        const htmlBar = /** @type {HTMLElement} */ (bar);
+        htmlBar.style.width = `${htmlBar.dataset.pct || 0}%`;
+    });
+    window._lastQuotaHtml = el.innerHTML;
+    el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
+    if (persistCache) {
         try {
-            const metaPath = await window.resolveHorizonFilePath('metadata', `meta_${safeName}.json`);
-            await window.api.fs.promises.access(metaPath);
-            const meta = JSON.parse(await window.api.fs.promises.readFile(metaPath, "utf8"));
-            if (meta.realName) return meta.realName;
+            const quotaCachePath = window.getHorizonWritePath('cache', "horizon_quota_cache.json");
+            const cacheDir = window.api.path.dirname(quotaCachePath);
+            try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
+            await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
         } catch (/** @type {any} */ e) { }
-        return safeName;
-    };
+    }
+}
+
+window.api.on("horizon-status", async (data) => {
     if (data.type === "CHECK_RESULT") {
         if (data.status === "UPDATE_AVAILABLE") {
             window.showToast(t("horizon_cloud_check", "Des sauvegardes plus récentes sont disponibles sur le Cloud !"), "info");
@@ -279,12 +390,13 @@ window.api.on("horizon-status", async (data) => {
         return;
     }
     if (data.type === "CLOUD_LIST") {
+        _realNameCache.clear();
         window._cloudInstances = data.data || [];
         window._cloudRichData = data.richData || [];
         const grid = $("horizon-cloud-grid");
         if (!grid) return;
         if (!data.data || data.data.length === 0) {
-            grid.innerHTML = `<div style='color: #aaa; font-size: 0.85rem; padding: 10px;'>${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`;
+            grid.innerHTML = `<div class="u-s208">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`;
             return;
         }
         const richIndex = /** @type {Record<string, any>} */ ({});
@@ -296,7 +408,7 @@ window.api.on("horizon-status", async (data) => {
             const isLocal = !!localInst;
             const rich = richIndex[instName];
             const displayName = isLocal ? localInst.name : (rich?.realName || instName);
-            const statusColor = isLocal ? "#17B139" : "#aaa";
+            const statusClass = isLocal ? "cloud-status-local" : "cloud-status-remote";
             const statusText = isLocal ? t("horizon_cloud_local", "Sur le PC") : t("horizon_cloud_only", "Cloud Uniquement");
             let metaLine = "";
             if (rich) {
@@ -304,8 +416,8 @@ window.api.on("horizon-status", async (data) => {
                 const safeRichDeltaCount = parseInt(rich.deltaCount, 10) || 0;
                 const deltas = safeRichDeltaCount > 0 ? `${safeRichDeltaCount} delta(s)` : t("horizon_no_deltas", "Backup complet");
                 const dateStr = rich.lastBackup ? new Date(rich.lastBackup).toLocaleDateString() : "";
-                const deltaColor = safeRichDeltaCount >= 8 ? "#f48a21" : "#666";
-                metaLine = `<div style="font-size:0.65rem; color:${deltaColor}; margin-top:2px;">${deltas}${sizeMB ? " · " + sizeMB : ""}${dateStr ? " · " + dateStr : ""}</div>`;
+                const deltaClass = safeRichDeltaCount >= 8 ? "cloud-delta-warn" : "cloud-delta-muted";
+                metaLine = `<div class="cloud-meta-line ${deltaClass}">${deltas}${sizeMB ? " · " + sizeMB : ""}${dateStr ? " · " + dateStr : ""}</div>`;
             }
             let iconSrc = store.defaultIcons.vanilla;
             if (isLocal) {
@@ -324,10 +436,7 @@ window.api.on("horizon-status", async (data) => {
                         else if (hasJpg) targetPath = jpgPath;
                     }
                     if (targetPath && await fileExists(targetPath)) {
-                        try {
-                            const mime = targetPath.toLowerCase().endsWith('.jpg') ? 'image/jpeg' : 'image/png';
-                            iconSrc = `data:${mime};base64,${await window.api.fs.promises.readFile(targetPath, 'base64')}`;
-                        } catch (/** @type {any} */ e) { iconSrc = customIcon || window.pathToFileUrl(pngPath.replace(/\\/g, "/")); }
+                        iconSrc = `${window.pathToFileUrl(targetPath.replace(/\\/g, "/"))}?t=${localInst._iconCacheBuster}`;
                     } else if (customIcon) {
                         iconSrc = customIcon;
                     } else {
@@ -362,10 +471,10 @@ window.api.on("horizon-status", async (data) => {
             }
             const safeIconSrc = window.escapeHTML(iconSrc);
             const fallbackSafeIcon = window.escapeHTML(store.defaultIcons.vanilla);
-            return `<div class="instance-card" style="position: relative; cursor: context-menu;" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
+            return `<div class="instance-card cloud-instance-card" data-is-local="${isLocal}" data-name="${window.escapeHTML(displayName)}" data-slug="${window.escapeHTML(instName)}">
                 <img class="instance-icon" src="${safeIconSrc}" data-fallback-icon="${fallbackSafeIcon}">
                 <div class="instance-name">${window.escapeHTML(displayName)}</div>
-                <div class="instance-version" style="color: ${statusColor}; font-size: 0.7rem; margin-top: 4px; font-weight: bold;">${statusText}</div>
+                <div class="instance-version cloud-card-status ${statusClass}">${statusText}</div>
                 ${metaLine}
             </div>`;
         };
@@ -405,112 +514,54 @@ window.api.on("horizon-status", async (data) => {
     }
     if (data.type === "LOG") {
         if ($("log-output")) {
-            const color = data.level === "ERROR" ? "#f87171" : "#aaa";
-            window.appendLog(`<div class="log-line" style="color:${color}">[HORIZON] ${window.escapeHTML(data.message)}</div>`);
+            const logClass = data.level === "ERROR" ? "log-error" : "log-muted";
+            window.appendLog(`<div class="log-line ${logClass}">[HORIZON] ${window.escapeHTML(data.message)}</div>`);
         }
         return;
     }
-        if (data.type === "QUOTA") {
+    if (data.type === "QUOTA") {
         const el = $("horizon-quota-zone");
-        if (!el) return;
-        function fmtBytes(/** @type {any} */ b) {
-            if (!b || b === 0) return "0 Mo";
-            if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " Go";
-            return (b / 1048576).toFixed(1) + " Mo";
-        }
-        const usedPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.usedBytes / data.totalBytes) * 100)) : 0;
-        const horizPct = data.totalBytes > 0 ? Math.min(100, Math.round((data.horizonBytes / data.totalBytes) * 100)) : 0;
-        const barColor = usedPct >= 90 ? "#f87171" : usedPct >= 70 ? "#f48a21" : "var(--accent)";
-        const totalText = data.totalBytes > 0 ? fmtBytes(data.totalBytes) : t("horizon_quota_unlimited", "Illimité");
-        const rawProvider = String(data.provider || "google");
-        const providerLabel = rawProvider.charAt(0).toUpperCase() + rawProvider.slice(1);
-        const instances = (data.instances || []).sort((/** @type {any} */ a, /** @type {any} */ b) => b.bytes - a.bytes);
-        let instRows = "";
-        for (const inst of instances.slice(0, 8)) {
-            const rowDisplayName = await getRealName(inst.name);
-            const pct = data.horizonBytes > 0 ? Math.round((inst.bytes / data.horizonBytes) * 100) : 0;
-            const safeInstDeltaCount = Number(inst.deltaCount) || 0;
-            const deltaInfo = safeInstDeltaCount > 0 ? ` · ${safeInstDeltaCount} delta(s)` : "";
-            instRows += `
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
-                    <span style="flex:1; font-size:0.78rem; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHTML(rowDisplayName)}">${window.escapeHTML(rowDisplayName)}</span>
-                    <span style="font-size:0.72rem; color:#888; white-space:nowrap;">${fmtBytes(inst.bytes)}${deltaInfo}</span>
-                    <div style="width:60px; height:6px; background:var(--border); border-radius:3px; flex-shrink:0;">
-                        <div style="width:${pct}%; height:100%; background:var(--accent); border-radius:3px;"></div>
-                    </div>
-                </div>`;
-        }
-        if (instances.length > 8) {
-            instRows += `<div style="font-size:0.72rem; color:#666; margin-top:4px;">+ ${instances.length - 8} ${t("horizon_quota_more", "autre(s)")}...</div>`;
-        }
-        el.innerHTML = `
-            <div style="margin-bottom:8px; font-weight:bold; font-size:0.88rem; color:var(--text-light);">
-                ${t("horizon_quota_title", "Espace Cloud")}
-                <span style="font-size:0.75rem; color:#888; font-weight:normal; margin-left:6px;">${window.escapeHTML(providerLabel)}</span>
-            </div>
-            ${data.totalBytes > 0 ? `
-            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#aaa; margin-bottom:4px;">
-                <span>${t("horizon_quota_used", "Utilisé")} : <strong style="color:${barColor}">${fmtBytes(data.usedBytes)}</strong></span>
-                <span>${t("horizon_quota_total", "Total")} : ${totalText}</span>
-            </div>
-            <div style="height:10px; background:var(--border); border-radius:5px; overflow:hidden; margin-bottom:4px;">
-                <div style="width:${usedPct}%; height:100%; background:${barColor}; border-radius:5px; transition:width 0.4s;"></div>
-            </div>
-            <div style="font-size:0.7rem; color:#666; margin-bottom:10px;">${t("horizon_quota_horizon_share", "Dont Horizon")} : ${fmtBytes(data.horizonBytes)} (${horizPct}%)</div>
-            ` : `
-            <div style="font-size:0.78rem; color:#aaa; margin-bottom:10px;">
-                ${t("horizon_quota_unlimited", "Espace illimité")} · ${t("horizon_quota_used_by_horizon", "Horizon utilise")} <strong style="color:var(--accent)">${fmtBytes(data.horizonBytes)}</strong>
-            </div>`}
-            ${instances.length > 0 ? `
-            <div style="font-size:0.78rem; color:#888; margin-bottom:6px;">${t("horizon_quota_per_instance", "Détail par instance")}</div>
-            ${instRows}
-            ` : `<div style="font-size:0.78rem; color:#555;">${t("horizon_cloud_empty", "Aucune sauvegarde sur le Cloud.")}</div>`}
-            <button id="btn-refresh-quota" class="btn-secondary" style="margin-top:10px; height:26px; font-size:0.76rem; padding:0 12px; display:inline-flex; align-items:center; gap:6px;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                    <path d="M3 3v5h5"></path>
-                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
-                    <path d="M16 16h5v5"></path>
-                </svg>
-                <span>${t("horizon_quota_refresh", "Actualiser")}</span>
-            </button>`;
-        window._lastQuotaHtml = el.innerHTML;
-        el.querySelector('#btn-refresh-quota')?.addEventListener('click', () => window.refreshHorizonQuota());
-        try {
-            const quotaCachePath = window.getHorizonWritePath('cache', "horizon_quota_cache.json");
-            const cacheDir = window.api.path.dirname(quotaCachePath);
-            try { await window.api.fs.promises.access(cacheDir); } catch (/** @type {any} */ e) { await window.api.fs.promises.mkdir(cacheDir, { recursive: true }); }
-            await window.api.fs.promises.writeFile(quotaCachePath, JSON.stringify(data), "utf8");
-        } catch (/** @type {any} */ e) { }
+        if (el) await renderHorizonQuotaPanel(el, data, true);
         return;
     }
     if (data.type === "ROLLBACK_LIST") {
         const el = $("horizon-rollback-list");
         if (!el) return;
         if (!data.data || data.data.length === 0) {
-            el.innerHTML = `<span style="color:#aaa; font-size:0.82rem;">${t("horizon_no_rollback", "Aucun rollback disponible.")}</span>`;
+            el.innerHTML = `<span class="u-s209">${t("horizon_no_rollback", "Aucun rollback disponible.")}</span>`;
             return;
         }
         el.innerHTML = data.data.map((/** @type {any} */ r) =>
-            `<div style="font-size:0.8rem; color:var(--text-light); margin-bottom:4px;">
+            `<div class="u-s210">
                 <strong>${window.escapeHTML(r.instance)}</strong>
-                <span style="color:#888; margin-left:6px;">${r.timestamp ? new Date(r.timestamp).toLocaleString() : "?"}</span>
+                <span class="u-s211">${r.timestamp ? new Date(r.timestamp).toLocaleString() : "?"}</span>
             </div>`
         ).join('');
         return;
     }
-    const cards = document.querySelectorAll('.instance-card');
-    /** @type {any[]} */
-    let targetCards = [];
-    cards.forEach((/** @type {any} */ c) => {
-        const nameEl = c.querySelector('.instance-name');
-        const instName = 'instance' in data ? data.instance : null;
-        if (nameEl && instName && (nameEl.innerText.trim() === instName.trim() || window.safeDir(nameEl.innerText.trim()) === instName.trim())) {
-            targetCards.push(c);
-        }
-    });
+    const instName = 'instance' in data && data.instance ? String(data.instance).trim() : "";
+    const instSlug = instName ? window.safeDir(instName) : "";
+    const findTargetCards = () => {
+        if (!instName) return /** @type {HTMLElement[]} */ ([]);
+        /** @type {HTMLElement[]} */
+        const matched = [];
+        document.querySelectorAll('.instance-card').forEach((c) => {
+            const el = /** @type {HTMLElement} */ (c);
+            const cardSlug = el.dataset.slug || "";
+            if (cardSlug && (cardSlug === instName || cardSlug === instSlug)) {
+                matched.push(el);
+                return;
+            }
+            const nameEl = el.querySelector('.instance-name');
+            const nameText = (nameEl?.textContent || "").trim();
+            if (nameText && (nameText === instName || window.safeDir(nameText) === instName || window.safeDir(nameText) === instSlug)) {
+                matched.push(el);
+            }
+        });
+        return matched;
+    };
     if (data.type === "PROGRESS") {
-        const realName = await getRealName(data.instance || "");
+        const realName = await getRealName(instName);
         if (data.step === "EXTRACTING" && data.value === 0) {
             window.showToast(`${t("msg_extract", "Extraction...")} ${realName}`, "info");
         } else if (data.step === "APPLYING_DELTA" && data.value === 0) {
@@ -520,65 +571,91 @@ window.api.on("horizon-status", async (data) => {
         } else if (data.step === "UPLOADING" && data.value === 0) {
             window.showToast(`${t("msg_cloud_up", "Sauvegarde sur le Cloud...")} ${realName}`, "info");
         }
-    }
-    if (data.type === "PROGRESS") {
         const val = Math.round(data.value);
-        targetCards.forEach((/** @type {any} */ targetCard) => {
-            const circleContainer = targetCard.querySelector('.progress-circle-container');
-            const textInfo = targetCard.querySelector('.progress-text');
-            if (circleContainer && textInfo) {
-                circleContainer.style.display = "flex";
-                if (data.step === "CHECKING") {
-                    textInfo.innerText = "...";
-                    textInfo.style.fontSize = "0.7rem";
-                } else {
-                    textInfo.innerText = val + "%";
-                    textInfo.style.fontSize = "0.65rem";
+        const now = Date.now();
+        const isTerminalTick = val === 0 || val >= 100 || data.step !== _lastHorizonProgressStep;
+        _pendingHorizonProgress = { val, step: data.step, instName, realName };
+        const flushHorizonProgress = () => {
+            const p = _pendingHorizonProgress;
+            if (!p) return;
+            _pendingHorizonProgress = null;
+            _lastHorizonProgressTs = Date.now();
+            _lastHorizonProgressStep = p.step;
+            const targetCards = findTargetCards();
+            targetCards.forEach((targetCard) => {
+                const circleContainer = /** @type {HTMLElement | null} */ (targetCard.querySelector('.progress-circle-container'));
+                const textInfo = /** @type {HTMLElement | null} */ (targetCard.querySelector('.progress-text'));
+                if (circleContainer && textInfo) {
+                    circleContainer.style.display = "flex";
+                    if (p.step === "CHECKING") {
+                        textInfo.textContent = "...";
+                        textInfo.style.fontSize = "0.7rem";
+                    } else {
+                        textInfo.textContent = p.val + "%";
+                        textInfo.style.fontSize = "0.65rem";
+                    }
+                }
+            });
+            if (window._isAutoLaunch) {
+                const autoBar = $("auto-progress-bar");
+                if (autoBar) autoBar.style.width = p.val + "%";
+                const autoStatus = $("auto-status-text");
+                if (autoStatus) {
+                    let stepText = t("msg_loading", "Traitement...");
+                    if (p.step === "COMPRESSING") stepText = t("msg_compress", "Compression...");
+                    else if (p.step === "EXTRACTING") stepText = t("msg_extract", "Extraction...");
+                    else if (p.step === "DOWNLOADING") stepText = t("msg_dl", "Téléchargement...");
+                    else if (p.step === "UPLOADING") stepText = "Upload...";
+                    autoStatus.textContent = `${stepText} (${p.val}%)`;
                 }
             }
-        });
-        if (window._isAutoLaunch) {
-            const autoBar = $("auto-progress-bar");
-            if (autoBar) autoBar.style.width = val + "%";
-            const autoStatus = $("auto-status-text");
-            if (autoStatus) {
-                let stepText = t("msg_loading", "Traitement...");
-                if (data.step === "COMPRESSING") stepText = t("msg_compress", "Compression...");
-                else if (data.step === "EXTRACTING") stepText = t("msg_extract", "Extraction...");
-                else if (data.step === "DOWNLOADING") stepText = t("msg_dl", "Téléchargement...");
-                else if (data.step === "UPLOADING") stepText = "Upload...";
-                autoStatus.innerText = `${stepText} (${val}%)`;
+            const globalBar = $("horizon-bar");
+            const globalStep = $("horizon-step");
+            const globalPerc = $("horizon-perc");
+            if (globalBar) globalBar.style.width = p.val + "%";
+            if (globalPerc) globalPerc.textContent = p.val + "%";
+            if (globalStep) {
+                if (p.step === "COMPRESSING") globalStep.textContent = `${t("msg_compress", "Compression")} ${p.realName}...`;
+                else if (p.step === "EXTRACTING") globalStep.textContent = `${t("msg_extract", "Extraction")} ${p.realName}...`;
+                else if (p.step === "DOWNLOADING") globalStep.textContent = `${t("msg_dl", "Téléchargement")} ${p.realName}...`;
+                else if (p.step === "UPLOADING") globalStep.textContent = `Upload ${p.realName}...`;
+                else globalStep.textContent = `${t("msg_loading", "Traitement...")}...`;
             }
-        }
-        const globalBar = $("horizon-bar");
-        const globalStep = $("horizon-step");
-        const globalPerc = $("horizon-perc");
-        if (globalBar) globalBar.style.width = val + "%";
-        if (globalPerc) globalPerc.innerText = val + "%";
-        if (globalStep) {
-            const realName = await getRealName(data.instance || "");
-            if (data.step === "COMPRESSING") globalStep.innerText = `${t("msg_compress", "Compression")} ${realName}...`;
-            else if (data.step === "EXTRACTING") globalStep.innerText = `${t("msg_extract", "Extraction")} ${realName}...`;
-            else if (data.step === "DOWNLOADING") globalStep.innerText = `${t("msg_dl", "Téléchargement")} ${realName}...`;
-            else if (data.step === "UPLOADING") globalStep.innerText = `Upload ${realName}...`;
-            else globalStep.innerText = `${t("msg_loading", "Traitement...")}...`;
+        };
+        if (isTerminalTick || !_lastHorizonProgressTs || (now - _lastHorizonProgressTs) >= 100) {
+            if (_horizonProgressTimer) {
+                clearTimeout(_horizonProgressTimer);
+                _horizonProgressTimer = null;
+            }
+            flushHorizonProgress();
+        } else if (!_horizonProgressTimer) {
+            _horizonProgressTimer = setTimeout(() => {
+                _horizonProgressTimer = null;
+                flushHorizonProgress();
+            }, 100 - (now - _lastHorizonProgressTs));
         }
     }
     else if (data.type === "SUCCESS" || data.type === "ERROR" || data.type === "INFO") {
+        if (_horizonProgressTimer) {
+            clearTimeout(_horizonProgressTimer);
+            _horizonProgressTimer = null;
+        }
+        _pendingHorizonProgress = null;
+        const targetCards = findTargetCards();
         if (data.type === "ERROR" && data.hasRollback) {
             setTimeout(async () => {
                 const msg = t("horizon_rollback_prompt", "La mise à jour a échoué.\n\nVoulez-vous restaurer instantanément la version précédente de cette instance ?\n\n⚠️ Cette action remplacera les fichiers actuels par la sauvegarde automatique.");
                 const wantsRollback = await window.showCustomConfirm(msg, true);
                 if (wantsRollback) {
                     window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."), 0);
-                    if (data.instance) await window.api.invoke("call-horizon", ['--rollback', data.instance]);
+                    if (data.instance) await window.api.invoke("call-horizon", ['--rollback', window.safeDir(data.instance)]);
                     window.hideLoading();
                     if (window.renderUI) window.renderUI();
                 }
             }, 500);
         }
         targetCards.forEach(targetCard => {
-            const circleContainer = targetCard.querySelector('.progress-circle-container');
+            const circleContainer = /** @type {HTMLElement | null} */ (targetCard.querySelector('.progress-circle-container'));
             if (circleContainer) circleContainer.style.display = "none";
         });
         let finalMsg = data.message || "";
@@ -943,14 +1020,14 @@ window.refreshHorizonQuota = async () => {
                 await window.api.fs.promises.access(quotaCachePath);
                 const cached = JSON.parse(await window.api.fs.promises.readFile(quotaCachePath, "utf8"));
                 if (cached && cached.type === "QUOTA") {
-                    setTimeout(() => { window.dispatchEvent(new CustomEvent("_quota-cache", { detail: cached })); }, 0);
+                    await renderHorizonQuotaPanel(el, cached, false);
                 }
             } catch (/** @type {any} */ e) { }
         } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.error('[renderer.js] Erreur silencieuse interceptée:', _.message || _); }
     }
     if (!window._lastQuotaHtml) {
-        el.innerHTML = `<div style="color:#888; font-size:0.82rem; padding:8px 0; display:inline-flex; align-items:center; gap:6px;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; animation:spin 1s linear infinite; flex-shrink:0;">
+        el.innerHTML = `<div class="u-s212">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="u-s213">
                 <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                 <path d="M3 3v5h5"></path>
                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>

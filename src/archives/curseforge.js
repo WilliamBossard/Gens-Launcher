@@ -241,16 +241,24 @@ async function downloadCurseForgeFiles({
                 continue;
             }
 
-            let fileData = fileMetadataMap.get(fileInfo.fileID);
+            const safeProjId = Number(fileInfo?.projectID);
+            const safeFileId = Number(fileInfo?.fileID);
+            if (!Number.isInteger(safeProjId) || safeProjId <= 0 || !Number.isInteger(safeFileId) || safeFileId <= 0) {
+                downloadedCount++;
+                if (onProgress) onProgress(downloadedCount, total);
+                continue;
+            }
+
+            let fileData = fileMetadataMap.get(safeFileId);
             if (!fileData) {
                 try {
                     const singleRes = await window.api.invoke("fetch-curseforge", {
-                        url: `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}`,
+                        url: `https://api.curseforge.com/v1/mods/${safeProjId}/files/${safeFileId}`,
                         apiKey
                     });
                     if (singleRes?.success && singleRes.data?.data) {
                         fileData = singleRes.data.data;
-                        fileMetadataMap.set(fileInfo.fileID, fileData);
+                        fileMetadataMap.set(safeFileId, fileData);
                     }
                 } catch (_) {}
             }
@@ -258,9 +266,9 @@ async function downloadCurseForgeFiles({
             const rawName = fileData?.fileName || "";
             const safeName = rawName
                 ? rawName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200)
-                : `file_${fileInfo.fileID}.jar`;
+                : `file_${safeFileId}.jar`;
 
-            const projectClassId = projectClassMap.get(fileInfo.projectID);
+            const projectClassId = projectClassMap.get(safeProjId);
             const targetFolder = determineTargetFolder(safeName, projectClassId);
             const targetDir = targetFolder === "shaderpacks" ? shadersDir : (targetFolder === "resourcepacks" ? resourceDir : modsDir);
             const finalPath = path.join(targetDir, safeName);
@@ -273,7 +281,7 @@ async function downloadCurseForgeFiles({
                 candidateUrls.push(fileData.downloadUrl);
             }
             if (rawName) {
-                const cdnUrls = getCurseForgeCdnUrls(fileInfo.fileID, rawName);
+                const cdnUrls = getCurseForgeCdnUrls(safeFileId, rawName);
                 for (const u of cdnUrls) {
                     if (!candidateUrls.includes(u)) candidateUrls.push(u);
                 }
@@ -282,7 +290,7 @@ async function downloadCurseForgeFiles({
             if (candidateUrls.length === 0) {
                 try {
                     const dlUrlRes = await window.api.invoke("fetch-curseforge", {
-                        url: `https://api.curseforge.com/v1/mods/${fileInfo.projectID}/files/${fileInfo.fileID}/download-url`,
+                        url: `https://api.curseforge.com/v1/mods/${safeProjId}/files/${safeFileId}/download-url`,
                         apiKey
                     });
                     if (dlUrlRes?.success && /^https:\/\//i.test(dlUrlRes.data?.data || "")) {
@@ -345,36 +353,49 @@ export function setup() {
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
             const manifestText = await fs.promises.readFile(path.join(tempExtractDir, "manifest.json"), "utf8");
             const manifest = JSON.parse(manifestText);
-            inst.version = manifest.minecraft.version;
-            if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
-                const loaderString = manifest.minecraft.modLoaders[0].id;
-                if (loaderString.startsWith("forge-")) { inst.loader = "forge"; inst.loaderVersion = loaderString.replace("forge-", ""); } 
-                else if (loaderString.startsWith("fabric-")) { inst.loader = "fabric"; inst.loaderVersion = loaderString.replace("fabric-", ""); } 
-                else if (loaderString.startsWith("neoforge-")) { inst.loader = "neoforge"; inst.loaderVersion = loaderString.replace("neoforge-", ""); }
-                else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
+            const cfMcVer = String(manifest?.minecraft?.version || "").trim();
+            if (!window.isValidVersionId(cfMcVer)) {
+                throw new Error(t("msg_err_import_invalid", "Version Minecraft invalide dans manifest.json."));
             }
+            let cfLoader = "vanilla", cfLoaderVer = "";
+            if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
+                const loaderString = String(manifest.minecraft.modLoaders[0].id || "").trim();
+                if (loaderString.startsWith("forge-")) { cfLoader = "forge"; cfLoaderVer = loaderString.replace("forge-", ""); } 
+                else if (loaderString.startsWith("fabric-")) { cfLoader = "fabric"; cfLoaderVer = loaderString.replace("fabric-", ""); } 
+                else if (loaderString.startsWith("neoforge-")) { cfLoader = "neoforge"; cfLoaderVer = loaderString.replace("neoforge-", ""); }
+                else if (loaderString.startsWith("quilt-")) { cfLoader = "quilt"; cfLoaderVer = loaderString.replace("quilt-", ""); }
+            }
+            if (cfLoaderVer && !window.isValidVersionId(cfLoaderVer)) {
+                throw new Error(t("msg_err_import_invalid", "Version de loader invalide dans manifest.json."));
+            }
+            const prevCfVer = inst.version, prevCfLoader = inst.loader, prevCfLoaderVer = inst.loaderVersion;
+            inst.version = cfMcVer;
+            inst.loader = cfLoader;
+            inst.loaderVersion = cfLoaderVer;
             const modsDir = path.join(instDir, "mods");
+            const modsBackupDir = path.join(instDir, `.mods_backup_${Date.now()}`);
+            let hasModsBackup = false;
             if (await window.existsSafe(modsDir)) {
-                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
+                await fs.promises.rename(modsDir, modsBackupDir);
+                hasModsBackup = true;
             }
             await fs.promises.mkdir(modsDir, { recursive: true });
+            const BLOCKED_CF_OVERRIDES = new Set(["saves", "resourcepacks", "manifest.json", "instance.json", "instance.lock", "gens"]);
+            try {
             const overridesDir = manifest.overrides || "overrides";
             const resolvedTempExtract = path.resolve(tempExtractDir);
             const srcOverrides = path.resolve(resolvedTempExtract, overridesDir);
-            if (!srcOverrides.startsWith(resolvedTempExtract + (resolvedTempExtract.endsWith("\\") || resolvedTempExtract.endsWith("/") ? "" : (srcOverrides.includes("/") ? "/" : "\\"))) && srcOverrides !== resolvedTempExtract) {
+            if (!window.isPathInsideDir(srcOverrides, resolvedTempExtract)) {
                 throw new Error("Chemin overrides invalide dans manifest.json (traversée bloquée).");
             }
             if (await window.existsSafe(srcOverrides)) {
                 const items = await fs.promises.readdir(srcOverrides);
                 const resolvedInstDir = path.resolve(instDir);
                 for (const item of items) {
-                    if (item === "saves" || item === "resourcepacks" || item === "manifest.json" || item === "instance.json") continue;
+                    if (BLOCKED_CF_OVERRIDES.has(item.toLowerCase())) continue;
                     const destPath = path.resolve(resolvedInstDir, item);
-                    if (!destPath.startsWith(resolvedInstDir + (destPath.includes("/") ? "/" : "\\"))) continue;
-                    if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
-                    }
-                    await fs.promises.rename(path.join(srcOverrides, item), destPath);
+                    if (!window.isPathInsideDir(destPath, resolvedInstDir)) continue;
+                    await fs.promises.cp(path.join(srcOverrides, item), destPath, { recursive: true, force: true });
                 }
             }
             const filesToDownload = manifest.files;
@@ -393,6 +414,19 @@ export function setup() {
                     );
                 }
             });
+            if (hasModsBackup) {
+                await fs.promises.rm(modsBackupDir, { recursive: true, force: true }).catch(() => {});
+            }
+            } catch (cfUpdErr) {
+                inst.version = prevCfVer;
+                inst.loader = prevCfLoader;
+                inst.loaderVersion = prevCfLoaderVer;
+                if (hasModsBackup && (await window.existsSafe(modsBackupDir))) {
+                    await fs.promises.rm(modsDir, { recursive: true, force: true }).catch(() => {});
+                    await fs.promises.rename(modsBackupDir, modsDir).catch(() => {});
+                }
+                throw cfUpdErr;
+            }
             inst._localConfigUpdatedAt = Date.now();
             try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", e); }
             await window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
@@ -439,15 +473,21 @@ export function setup() {
                 manifest = JSON.parse(text);
             }
             if (!manifest || !manifest.minecraft) throw new Error(t("msg_err_import_invalid", "manifest.json invalide ou corrompu."));
-            const mcVersion = manifest.minecraft.version;
+            const mcVersion = String(manifest.minecraft.version || "").trim();
+            if (!window.isValidVersionId(mcVersion)) {
+                throw new Error(t("msg_err_import_invalid", "Version Minecraft invalide dans manifest.json."));
+            }
             let loaderType = "vanilla";
             let loaderVersion = "";
             if (manifest.minecraft.modLoaders && manifest.minecraft.modLoaders.length > 0) {
-                const loaderStr = manifest.minecraft.modLoaders[0].id || "";
+                const loaderStr = String(manifest.minecraft.modLoaders[0].id || "").trim();
                 if (loaderStr.startsWith("forge-")) { loaderType = "forge"; loaderVersion = loaderStr.replace("forge-", ""); }
                 else if (loaderStr.startsWith("fabric-")) { loaderType = "fabric"; loaderVersion = loaderStr.replace("fabric-", ""); }
                 else if (loaderStr.startsWith("neoforge-")) { loaderType = "neoforge"; loaderVersion = loaderStr.replace("neoforge-", ""); }
                 else if (loaderStr.startsWith("quilt-")) { loaderType = "quilt"; loaderVersion = loaderStr.replace("quilt-", ""); }
+            }
+            if (loaderVersion && !window.isValidVersionId(loaderVersion)) {
+                throw new Error(t("msg_err_import_invalid", "Version de loader invalide dans manifest.json."));
             }
             const packName = String(manifest.name || t("lbl_modpack_imported", "Modpack Importé")).substring(0, 128);
             let finalName = window.nextAvailableInstanceName(packName);
@@ -456,20 +496,18 @@ export function setup() {
             const overridesDir = manifest.overrides || "overrides";
             const resolvedTempExtract = path.resolve(tempExtractDir);
             const srcOverrides = path.resolve(resolvedTempExtract, overridesDir);
-            if (!srcOverrides.startsWith(resolvedTempExtract + (resolvedTempExtract.endsWith("\\") || resolvedTempExtract.endsWith("/") ? "" : (srcOverrides.includes("/") ? "/" : "\\"))) && srcOverrides !== resolvedTempExtract) {
+            if (!window.isPathInsideDir(srcOverrides, resolvedTempExtract)) {
                 throw new Error("Chemin overrides invalide dans manifest.json (traversée bloquée).");
             }
+            const BLOCKED_CF_IMPORT_OVERRIDES = new Set(["manifest.json", "instance.json", "instance.lock", "gens"]);
             if (await window.existsSafe(srcOverrides)) {
                 const items = await fs.promises.readdir(srcOverrides);
                 const resolvedInstDir = path.resolve(instDir);
                 for (const item of items) {
-                    if (item === "manifest.json") continue;
+                    if (BLOCKED_CF_IMPORT_OVERRIDES.has(item.toLowerCase())) continue;
                     const destPath = path.resolve(resolvedInstDir, item);
-                    if (!destPath.startsWith(resolvedInstDir + (destPath.includes("/") ? "/" : "\\"))) continue;
-                    if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in curseforge.js:", _); }
-                    }
-                    await fs.promises.rename(path.join(srcOverrides, item), destPath);
+                    if (!window.isPathInsideDir(destPath, resolvedInstDir)) continue;
+                    await fs.promises.cp(path.join(srcOverrides, item), destPath, { recursive: true, force: true });
                 }
             }
             const filesToDownload = Array.isArray(manifest.files) ? manifest.files : [];
@@ -538,6 +576,16 @@ export function setup() {
         const tempExtractDir = path.join(store.dataDir, "temp_import_" + Date.now());
         try {
             ({ sandboxPath: sandboxZip, wasCopied } = await ensureZipInSandbox(zipPath));
+            // Inspection rapide sans extraction pour détecter un modpack CurseForge et éviter une double extraction complète
+            const probe = await window.api.invoke("read-zip-text", {
+                zipPath: sandboxZip,
+                entryNames: ["instance.json", "manifest.json"]
+            }).catch(() => null);
+            if (probe && probe.success && probe.file === "manifest.json" && typeof probe.text === "string") {
+                sysLog(`[IMPORT] Modpack CurseForge détecté avant extraction — redirection directe.`);
+                window.hideLoading();
+                return await window.handleCurseForgeImport(sandboxZip, probe.text);
+            }
             const exRes = await window.api.invoke("extract-zip", { zipPath: sandboxZip, destDir: tempExtractDir });
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
 
@@ -593,7 +641,7 @@ export function setup() {
                 jvmArgs:       "", 
                 jvmProfile:    typeof rawData.jvmProfile === 'string' ? rawData.jvmProfile : "none",
                 notes:         String(rawData.notes || "").substring(0, 1000),
-                icon:          typeof rawData.icon === 'string' ? rawData.icon : "", 
+                icon:          (typeof rawData.icon === 'string' && typeof window.isSafeIconDataUri === 'function' && window.isSafeIconDataUri(rawData.icon)) ? rawData.icon : "", 
                 resW:          String(rawData.resW || "").replace(/[^0-9]/g, ""), 
                 resH:          String(rawData.resH || "").replace(/[^0-9]/g, ""),
                 group:         String(rawData.group || "").substring(0, 64),

@@ -18,19 +18,18 @@ export function setup() {
             if (file.endsWith(".zip") || file.endsWith(".zip.disabled")) {
                 const isEnabled = !file.endsWith(".disabled");
                 const displayName = window.escapeHTML(file.replace(".zip.disabled", ".zip"));
-                const color = isEnabled ? "var(--text-light)" : "#666";
-                const decoration = isEnabled ? "none" : "line-through";
+                const stateClass = isEnabled ? "item-enabled" : "item-disabled";
                 shadersHtml += `
                 <div class="mod-item" data-shader-file="${window.escapeHTML(file)}" data-enabled="${isEnabled ? '1' : '0'}">
-                    <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
-                    <div style="display:flex; gap:8px; align-items: center;">
+                    <span class="item-name-col ${stateClass}">${displayName}</span>
+                    <div class="mod-item-actions">
                         <input type="checkbox" ${isEnabled ? "checked" : ""} title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
-                        <button class="btn-secondary shader-delete-btn" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                        <button class="btn-secondary shader-delete-btn item-delete-btn" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                     </div>
                 </div>`;
             }
         });
-        listDiv.innerHTML = shadersHtml || `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
+        listDiv.innerHTML = shadersHtml || `<div class="u-s224">${t("msg_no_shaders", "Aucun shader installé.")}</div>`;
         listDiv.querySelectorAll('.mod-item[data-shader-file]').forEach(item => {
             const htmlItem = /** @type {HTMLElement} */ (item);
             const filename = htmlItem.dataset.shaderFile;

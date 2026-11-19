@@ -151,10 +151,20 @@ async function baseRequest(url, cb) {
 async function fetchText(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
+  const MAX_TEXT_BYTES = 32 * 1024 * 1024;
   try {
     const res = await fetchWithSafeRedirects(url, { signal: controller.signal });
     if (!res.ok) throw new Error(res.statusText);
-    return await res.text();
+    const cl = parseInt(res.headers?.get?.('content-length') || '0', 10) || 0;
+    if (cl > MAX_TEXT_BYTES) {
+      try { await res.body?.cancel(); } catch (_) {}
+      throw new Error(`Response too large (${cl} bytes > ${MAX_TEXT_BYTES})`);
+    }
+    const text = await res.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
+      throw new Error(`Response body exceeds ${MAX_TEXT_BYTES} bytes`);
+    }
+    return text;
   } finally {
     clearTimeout(timer);
   }

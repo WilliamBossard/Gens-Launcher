@@ -1,6 +1,6 @@
 // @ts-check
 
-const { existsSafe } = require('./fs-utils');
+const { existsSafe, renameWithRetry } = require('./fs-utils');
 const { app, safeStorage } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -38,8 +38,12 @@ function _getMainProcSecretKey() {
                 secret = crypto.randomUUID();
                 await fs.promises.mkdir(path.dirname(secretPath), { recursive: true });
                 const tmpSecret = `${secretPath}.tmp.${process.pid}.${Date.now()}`;
-                await fs.promises.writeFile(tmpSecret, secret, { encoding: 'utf8', mode: 0o600 });
-                await fs.promises.rename(tmpSecret, secretPath);
+                try {
+                    await fs.promises.writeFile(tmpSecret, secret, { encoding: 'utf8', mode: 0o600 });
+                    await renameWithRetry(tmpSecret, secretPath);
+                } finally {
+                    try { await fs.promises.unlink(tmpSecret); } catch (_) {}
+                }
             }
         } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
@@ -59,8 +63,12 @@ function _getMainProcSecretKey() {
                 salt = crypto.randomBytes(16);
                 await fs.promises.mkdir(path.dirname(PBKDF2_SALT_FILE), { recursive: true });
                 const tmpSalt = `${PBKDF2_SALT_FILE}.tmp.${process.pid}.${Date.now()}`;
-                await fs.promises.writeFile(tmpSalt, salt, { encoding: 'binary', mode: 0o600 });
-                await fs.promises.rename(tmpSalt, PBKDF2_SALT_FILE);
+                try {
+                    await fs.promises.writeFile(tmpSalt, salt, { encoding: 'binary', mode: 0o600 });
+                    await renameWithRetry(tmpSalt, PBKDF2_SALT_FILE);
+                } finally {
+                    try { await fs.promises.unlink(tmpSalt); } catch (_) {}
+                }
             }
         } catch (saltErr) {
             // Si le FS est inaccessible, on ne peut pas chiffrer de façon sécurisée.

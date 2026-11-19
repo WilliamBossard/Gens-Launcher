@@ -39,6 +39,9 @@ export interface MainContext {
   assertPathUnderSandbox: (p: string) => string;
   sanitizeShortcutName: (name: string) => string;
   isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean;
+  horizonMigrationPromise?: Promise<void>;
+  shutdownHorizon?: (graceMs?: number) => Promise<void> | void;
+  downloadFile?: (url: string, dest: string, options?: any) => Promise<{ success: true }>;
   shell: Shell;
 }
 

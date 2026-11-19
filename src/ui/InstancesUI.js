@@ -539,6 +539,21 @@ async function fetchLoaderVersions(loader, mcVer) {
                         if (inst.icon && inst.icon.includes(safeOldName)) {
                             inst.icon = inst.icon.replace(`/${safeOldName}/`, `/${safeNewName}/`);
                         }
+                        // Met à jour inst.name et les champs édités AVANT writeInstanceMetaForCloud pour écrire dans le NOUVEAU dossier
+                        inst.name = newName;
+                        {
+                            let preRam = parseInt($("edit-ram-input").value) || 4096;
+                            if (preRam < 128) preRam = preRam * 1024;
+                            inst.ram = String(Math.max(1024, preRam));
+                            inst.group = $("edit-group").value.trim();
+                            inst.javaPath = $("edit-javapath").value;
+                            inst.jvmArgs = $("edit-jvmargs").value;
+                            inst.jvmProfile = $("edit-jvm-profile").value;
+                            inst.notes = $("edit-notes").value;
+                            inst.backupMode = $("edit-backup-mode").value;
+                            inst.backupLimit = parseInt($("edit-backup-limit").value) || 5;
+                            if ($("edit-disable-horizon")) inst.disableHorizon = $("edit-disable-horizon").checked;
+                        }
                         if (store.horizonActive && safeNewName !== safeOldName) {
                             await writeInstanceMetaForCloud(inst);
                             const uploadRes = await window.api.invoke("call-horizon", ['--upload', safeNewName]);
@@ -868,7 +883,6 @@ async function fetchLoaderVersions(loader, mcVer) {
         e.dataTransfer.setData("instIdx", idx);
         window._isInternalDrag = true;
     };
-    document.addEventListener("dragend", () => { window._isInternalDrag = false; });
     window.dropInstanceOnGroup = (/** @type {any} */ e, /** @type {string} */ targetGroup) => {
         e.preventDefault();
         e.stopPropagation();
@@ -913,16 +927,7 @@ async function fetchLoaderVersions(loader, mcVer) {
         searchTimer = setTimeout(() => window.renderUI(), 200);
     };
     /** @param {string} raw */
-    const isSafeIconDataUri = (raw) => {
-        if (typeof raw !== 'string' || raw.length === 0 || raw.length > 3 * 1024 * 1024) return false;
-        if (/["<>]/.test(raw)) return false;
-        if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/.test(raw)) return true;
-        if (/^data:image\/svg\+xml;(?:charset=[A-Za-z0-9-]+,[^"<>]+|base64,[A-Za-z0-9+/=]+)$/.test(raw)) {
-            const lower = raw.toLowerCase();
-            return !lower.includes('%3cscript') && !lower.includes('javascript:') && !/\bon[a-z]+\s*=/.test(lower);
-        }
-        return false;
-    };
+    const isSafeIconDataUri = (raw) => typeof window.isSafeIconDataUri === 'function' ? window.isSafeIconDataUri(raw) : false;
 
     window.updateIconCache = async (/** @type {any} */ inst) => {
         if (!store.defaultIcons) return;
@@ -945,20 +950,12 @@ async function fetchLoaderVersions(loader, mcVer) {
             }
 
             if (foundIconPath) {
-                
-                const ext = window.api.path.extname(foundIconPath).toLowerCase();
-                /** @type {Record<string, string>} */
-                const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
-                const mime = mimeMap[ext] || 'image/png';
                 const stat = await window.api.fs.promises.stat(foundIconPath).catch(() => null);
                 const mtime = stat ? Math.floor(stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : Date.now())) : Date.now();
                 const expectedUrl = window.pathToFileUrl(foundIconPath);
-                
-                iconSrc = inst._iconCacheBuster
-                    ? `data:${mime};base64,${await window.api.fs.promises.readFile(foundIconPath, 'base64')}`
-                    : `${expectedUrl}?t=${mtime}`;
+                const cacheToken = inst._iconCacheBuster || mtime;
+                iconSrc = `${expectedUrl}?t=${cacheToken}`;
 
-                
                 if ((!inst.icon) || (inst.icon !== iconSrc && inst.icon !== expectedUrl && !inst.icon.startsWith(expectedUrl))) {
                     inst.icon = expectedUrl;
                 }
@@ -973,21 +970,78 @@ async function fetchLoaderVersions(loader, mcVer) {
         inst._cachedIconSrc = iconSrc;
     };
 
+    let _instancesContainerBound = false;
+    /** @param {HTMLElement} container */
+    function bindInstancesContainerEvents(container) {
+        if (_instancesContainerBound || !container) return;
+        _instancesContainerBound = true;
+        container.addEventListener('click', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            const card = /** @type {HTMLElement | null} */ (target?.closest('.instance-card'));
+            if (card) {
+                const idx = parseInt(card.dataset.index || "0", 10);
+                window.selectInstance(idx);
+                return;
+            }
+            const header = /** @type {HTMLElement | null} */ (target?.closest('.category-header'));
+            if (header) {
+                window.toggleCategory(header, header.dataset.group || "");
+            }
+        });
+        container.addEventListener('dblclick', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            const card = /** @type {HTMLElement | null} */ (target?.closest('.instance-card'));
+            if (card) {
+                const idx = parseInt(card.dataset.index || "0", 10);
+                window.handleInstanceDoubleClick(idx);
+            }
+        });
+        container.addEventListener('contextmenu', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            const card = /** @type {HTMLElement | null} */ (target?.closest('.instance-card'));
+            if (card) {
+                const idx = parseInt(card.dataset.index || "0", 10);
+                window.openContextMenu(e, idx);
+            }
+        });
+        container.addEventListener('dragstart', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            const card = /** @type {HTMLElement | null} */ (target?.closest('.instance-card'));
+            if (card) {
+                const idx = parseInt(card.dataset.index || "0", 10);
+                window.dragInstanceStart(e, idx);
+            }
+        });
+        container.addEventListener('dragover', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            if (target?.closest('.category-header')) e.preventDefault();
+        });
+        container.addEventListener('drop', (/** @type {any} */ e) => {
+            const target = /** @type {HTMLElement | null} */ (e.target);
+            const header = /** @type {HTMLElement | null} */ (target?.closest('.category-header'));
+            if (header) {
+                window.dropInstanceOnGroup(e, header.dataset.group || "");
+            }
+        });
+    }
+
+    let _lastJumpListKey = "";
     window.renderUI = () => {
         const container = $("instances-container");
         if (!container) return;
+        bindInstancesContainerEvents(container);
         container.innerHTML = "";
         if (store.allInstances.length === 0) {
             container.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa; gap:15px;">
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                <div style="font-size: 1.3rem; font-weight:bold; color:var(--text-light); text-align:center;" data-i18n="msg_welcome_title">
+            <div class="u-s244">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="u-s245"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                <div data-i18n="msg_welcome_title" class="u-s246">
                     ${t("msg_welcome_title", "Bienvenue sur Gens Launcher !")}
                 </div>
-                <div style="font-size: 0.9rem; text-align:center; max-width: 400px;" data-i18n="msg_welcome_desc">
+                <div data-i18n="msg_welcome_desc" class="u-s247">
                     ${t("msg_welcome_desc", "Vous n'avez pas encore d'instance. Créez-en une nouvelle ou téléchargez un Modpack pour commencer à jouer.")}
                 </div>
-                <button id="btn-welcome-add-instance" class="btn-primary" style="padding: 10px 20px; font-size: 1rem; margin-top: 10px; box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);" data-i18n="toolbar_add">
+                <button id="btn-welcome-add-instance" class="btn-primary u-s248" data-i18n="toolbar_add">
                     ${t("toolbar_add", "Ajouter une instance")}
                 </button>
             </div>`;
@@ -1033,16 +1087,13 @@ async function fetchLoaderVersions(loader, mcVer) {
             const safeGroup = (g === defaultGroup) ? "" : g;
             const escapedGroupAttr = window.escapeHTML(safeGroup);
             const isCollapsed = store.globalSettings.collapsedGroups && store.globalSettings.collapsedGroups[g];
-            const displayStyle = isCollapsed ? 'none' : 'grid';
-            const arrowRot = isCollapsed ? '-90deg' : '0deg';
-            let html = `<div class="category-header"
+            let html = `<div class="category-header category-header-flex"
                 data-group="${escapedGroupAttr}"
-                style="display: flex; align-items: center; gap: 8px;"
             >
                 <span>${window.escapeHTML(g)} (${groups[g].length})</span>
-                <span class="cat-arrow" style="transition: transform 0.2s ease; font-size: 0.8rem; transform: rotate(${arrowRot});">▼</span>
+                <span class="cat-arrow${isCollapsed ? ' is-collapsed' : ''}">▼</span>
             </div>`;
-            html += `<div class="instances-grid" style="display: ${displayStyle};">`;
+            html += `<div class="instances-grid${isCollapsed ? ' is-hidden' : ''}">`;
             groups[g].forEach(inst => {
                 const isActive   = store.selectedInstanceIdx === inst.originalIndex ? "active" : "";
                 const instFolder = path.join(store.instancesRoot, window.safeDir(inst.name));
@@ -1053,7 +1104,6 @@ async function fetchLoaderVersions(loader, mcVer) {
                 const isLockedByMulti = isAnyRunning && !isRunning && !store.globalSettings.multiInstance;
                 const lockedClass = isLockedByMulti ? "is-locked" : "";
                 const fallbackIcon = (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
-                const fallbackSafe = fallbackIcon.replace(/'/g, "\\'");
                 
                 const rawIconSrc = (inst._cachedIconSrc && isSafeIconDataUri(inst._cachedIconSrc))
                     ? inst._cachedIconSrc
@@ -1063,28 +1113,28 @@ async function fetchLoaderVersions(loader, mcVer) {
                 const safeVersion = window.escapeHTML(inst.version);
                 const safeLoader = window.escapeHTML(inst.loader);
                 const runningBadge = isRunning 
-                    ? `<div style="position: absolute; top: -6px; right: -6px; background: #17B139; color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 10;">${t("lbl_running", "En cours")}</div>` 
+                    ? `<div class="u-s249">${t("lbl_running", "En cours")}</div>` 
                     : "";
                 const shortcutBadge = inst._hasDesktopShortcut
-                    ? `<div class="shortcut-badge" title="Raccourci bureau créé" style="position:absolute;bottom:-5px;right:-5px;background:var(--accent);color:#fff;padding:4px;border-radius:6px;box-shadow:0 2px 4px rgba(0,0,0,0.5);z-index:10;display:flex;align-items:center;justify-content:center;">
+                    ? `<div class="shortcut-badge u-s250" title="Raccourci bureau créé">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
                        </div>`
                     : "";
                 html += `
-                <div class="instance-card ${isActive} ${phantomClass} ${lockedClass}"
+                <div class="instance-card instance-card-rel ${isActive} ${phantomClass} ${lockedClass}"
                     data-index="${inst.originalIndex}"
-                    style="position: relative;${isLockedByMulti ? ' opacity: 0.4; pointer-events: none;' : ''}"
+                    data-slug="${window.escapeHTML(window.safeDir(inst.name))}"
                     draggable="${isLockedByMulti ? 'false' : 'true'}"
                 >
-                    <div class="progress-circle-container" style="position: absolute; top: 5px; right: 5px; width: 34px; height: 34px; display: ${isPhantom ? 'flex' : 'none'}; z-index: 10; background: rgba(0,0,0,0.6); border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); align-items: center; justify-content: center;">
-                        <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; position: absolute;"></div>
-                        <div class="progress-text" style="font-size: 0.65rem; font-weight: bold; color: white; position: absolute; z-index: 11;">0%</div>
+                    <div class="progress-circle-container${isPhantom ? ' is-visible' : ''}">
+                        <div class="spinner progress-circle-spinner"></div>
+                        <div class="progress-text progress-circle-text">0%</div>
                     </div>
                     ${runningBadge}
                     ${shortcutBadge}
-                    <img src="${iconSrc}" class="instance-icon" data-fallback="${window.escapeHTML(fallbackSafe)}">
+                    <img src="${iconSrc}" class="instance-icon" data-fallback="${window.escapeHTML(fallbackIcon)}">
                     <div class="instance-name">${safeName}</div>
-                    <div class="instance-version" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center;">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
+                    <div class="instance-version u-s251">${isPhantom ? t("lbl_restoring", "Restauration...") : safeVersion + " (" + safeLoader + ")"}</div>
                 </div>`;
             });
             html += `</div>`;
@@ -1094,28 +1144,21 @@ async function fetchLoaderVersions(loader, mcVer) {
         
         container.querySelectorAll('.instance-icon[data-fallback]').forEach((/** @type {any} */ img) => {
             img.addEventListener('error', () => {
+                if (img.dataset.fallbackApplied === '1') return;
+                img.dataset.fallbackApplied = '1';
                 const fb = img.dataset.fallback;
                 if (fb && img.src !== fb) img.src = fb;
             });
-        });
-        
-        container.querySelectorAll('.instance-card').forEach((/** @type {any} */ card) => {
-            const idx = parseInt((/** @type {HTMLElement} */ (card)).dataset.index || "0", 10);
-            card.addEventListener('click', () => window.selectInstance(idx));
-            card.addEventListener('dblclick', () => window.handleInstanceDoubleClick(idx));
-            card.addEventListener('contextmenu', (/** @type {any} */ e) => window.openContextMenu(e, idx));
-            card.addEventListener('dragstart', (/** @type {any} */ e) => window.dragInstanceStart(e, idx));
-        });
-        container.querySelectorAll(".category-header").forEach((/** @type {any} */ header) => {
-            header.addEventListener("click", () => window.toggleCategory(header, (/** @type {HTMLElement} */ (header)).dataset.group || ""));
-            header.addEventListener("dragover", (/** @type {any} */ e) => e.preventDefault());
-            header.addEventListener("drop", (/** @type {any} */ e) => window.dropInstanceOnGroup(e, (/** @type {HTMLElement} */ (header)).dataset.group || ""));
         });
         if (store.allInstances.length > 0 && window.api) {
             const recent = [...store.allInstances]
                 .sort((a,b) => (Number(b.lastPlayed) || 0) - (Number(a.lastPlayed) || 0))
                 .slice(0, 3);
-            window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
+            const jumpKey = recent.map(i => i.name).join('\0');
+            if (jumpKey !== _lastJumpListKey) {
+                _lastJumpListKey = jumpKey;
+                window.api.send("update-jump-list", recent.map(i => ({ name: i.name })));
+            }
         }
     };
     window.switchTab = (/** @type {string} */ tabId) => {
@@ -1314,7 +1357,7 @@ async function fetchLoaderVersions(loader, mcVer) {
                 const autoStatus = $("auto-status-text");
                 if (autoStatus) autoStatus.innerText = "Erreur ! Redémarrage...";
                 setTimeout(() => {
-                    if (window.api && window.api.send) window.api.send("restart_app");
+                    if (window.api && window.api.send) window.api.send("relaunch-app");
                 }, 3000);
             }
         };
@@ -1414,10 +1457,27 @@ document.addEventListener("click", () => {
         if (await window.api.fs.promises.exists(pngPath)) {
             return "file:///" + encodeURI(pngPath.replace(/\\/g, "/"));
         }
-        if (inst.icon && !inst.icon.startsWith("data:image/svg+xml")) {
-            return inst.icon; 
+        const rawIcon = typeof inst.icon === "string" ? inst.icon : "";
+        let safeCustomIcon = null;
+        if (rawIcon) {
+            if (isSafeIconDataUri(rawIcon)) {
+                if (!rawIcon.startsWith("data:image/svg+xml")) {
+                    return rawIcon;
+                }
+                safeCustomIcon = rawIcon;
+            } else if (rawIcon.startsWith("file:///")) {
+                try {
+                    let decodedPath = decodeURIComponent(rawIcon.slice("file:///".length));
+                    if (!/^[A-Za-z]:/.test(decodedPath) && !decodedPath.startsWith('/')) {
+                        decodedPath = '/' + decodedPath;
+                    }
+                    if (store.dataDir && window.isPathInsideDir(decodedPath, store.dataDir)) {
+                        return rawIcon;
+                    }
+                } catch (_) {}
+            }
         }
-        const svgData = inst.icon || (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
+        const svgData = safeCustomIcon || (/** @type {any} */ (store.defaultIcons))[inst.loader] || store.defaultIcons.vanilla;
         return new Promise((resolve) => {
             const img = new Image();
             img.onload = async () => {
@@ -1438,19 +1498,6 @@ document.addEventListener("click", () => {
             img.src = svgData;
         });
     }
-    window.ctxUpdateShortcut = async () => {
-        const inst = store.allInstances[window.ctxTargetIdx];
-        if (!inst) return;
-        $("custom-context-menu").style.display = "none";
-        const iconPath = await getOrGenerateIconPath(inst);
-        const res = await window.api.invoke("create-desktop-shortcut", { instanceName: inst.name, iconPath: iconPath });
-        if (res?.success) {
-            inst._hasDesktopShortcut = true;
-            window.showToast(t("msg_shortcut_updated", "Raccourci mis à jour sur le bureau !"), "success");
-        } else {
-            window.showToast(t("msg_shortcut_err", "Erreur lors de la mise à jour du raccourci."), "error");
-        }
-    };
     window.ctxShortcut = async () => {
         const inst = store.allInstances[window.ctxTargetIdx];
         if (!inst) return;

@@ -11,6 +11,13 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     name: Verify on ${{ matrix.os }} (Node ${{ matrix.node-version }})
@@ -24,10 +31,12 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -41,6 +50,9 @@ jobs:
       - name: Run Tests
         run: npm test
 
-      - name: Security Audit (Dependencies)
+      - name: Security Audit (Critical Vulnerabilities)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Security Audit (High Advisory)
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high

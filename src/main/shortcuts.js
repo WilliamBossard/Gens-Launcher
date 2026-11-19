@@ -19,17 +19,28 @@ module.exports = function (context) {
             }
             const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
             const targetFile = `${safeName}.${ext}`.toLowerCase();
+            let removed = false;
             if (await existsSafe(desktopPath)) {
                 const files = await fs.promises.readdir(desktopPath);
                 for (let file of files) {
                     if (file.toLowerCase() === targetFile) {
                         const fullPath = path.join(desktopPath, file);
                         await shell.trashItem(fullPath);
-                        return { success: true };
+                        removed = true;
+                        break;
                     }
                 }
             }
-            return { success: false, reason: 'not_found' };
+            if (process.platform === 'linux') {
+                const appsPath = path.join(app.getPath("home"), ".local", "share", "applications", `genslauncher-${safeName}.desktop`);
+                if (await existsSafe(appsPath)) {
+                    try {
+                        await fs.promises.unlink(appsPath);
+                        removed = true;
+                    } catch (_) {}
+                }
+            }
+            return removed ? { success: true } : { success: false, reason: 'not_found' };
         } catch (e) {
             const reason = e instanceof Error ? e.message : String(e);
             return { success: false, reason };
@@ -137,19 +148,23 @@ module.exports = function (context) {
                     icon: finalIconPath,
                     iconIndex: 0
                 };
-                shell.writeShortcutLink(shortcutPath, mode, options);
+                const written = shell.writeShortcutLink(shortcutPath, mode, options);
+                if (!written) {
+                    return { success: false, error: "Impossible de créer ou mettre à jour le raccourci Windows." };
+                }
                 return { success: true, updated: alreadyExists };
             } else if (process.platform === 'linux') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.desktop`);
                 const desktopExecArg = `--auto-launch=${escapedInstanceName}`.replace(/%/g, '%%');
-                const execLine = `"${String(appExecutable).replace(/%/g, '%%')}" "${desktopExecArg}"`;
+                const execLine = `"${String(appExecutable).replace(/[\r\n]/g, '').replace(/%/g, '%%')}" "${desktopExecArg}"`;
+                const safeDesktopIcon = String(finalIconPath).replace(/[\r\n\0]/g, '');
                 const desktopFile = [
                     '[Desktop Entry]',
                     `Name=${safeName}`,
                     `Exec=${execLine}`,
                     'Terminal=false',
                     'Type=Application',
-                    `Icon=${finalIconPath}`,
+                    `Icon=${safeDesktopIcon}`,
                     'Categories=Game;',
                     ''
                 ].join('\n');
@@ -202,6 +217,7 @@ module.exports = function (context) {
         const desktopPath = app.getPath("desktop");
         const ext = process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app';
         const safe = sanitizeShortcutName(safeName);
+        if (!safe) return false;
         const shortcutPath = path.join(desktopPath, `${safe}.${ext}`);
         return await existsSafe(shortcutPath);
     });

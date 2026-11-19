@@ -10,17 +10,40 @@ function setupUpdater(context) {
 
     let userConfirmedUpdate = false;
     let isManualUpdateCheck = false;
+    let debAlreadyInstalled = false;
+
+    const fs = require('fs');
+
+    function isDebPackageInstallation() {
+        if (process.platform !== 'linux' || process.env.APPIMAGE || process.env.FLATPAK_ID || process.env.SNAP) {
+            return false;
+        }
+        if (!app.isPackaged) return false;
+        const debMarkers = [
+            '/var/lib/dpkg/info/gens-launcher.list',
+            '/var/lib/dpkg/info/gens-launcher:amd64.list',
+            '/var/lib/dpkg/info/gens-launcher:arm64.list',
+            '/usr/share/doc/gens-launcher',
+            '/etc/apt/sources.list.d/gens-launcher.list'
+        ];
+        for (const marker of debMarkers) {
+            try {
+                if (fs.existsSync(marker)) return true;
+            } catch (_) {}
+        }
+        return false;
+    }
 
     ipcMain.handle("do-deb-update", async () => {
-        const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-        if (!isLinuxDeb) return { success: false, error: 'Not a .deb installation' };
+        if (!isDebPackageInstallation()) {
+            return { success: false, errorCode: 'NOT_DEB', error: 'Not a .deb installation' };
+        }
         mainLog('[deb-update] Démarrage...');
         const keyPath = '/usr/share/keyrings/gens-launcher-keyring.gpg';
         const sourcesPath = '/etc/apt/sources.list.d/gens-launcher.list';
         const keyUrl = 'https://williambossard.github.io/Gens-Launcher/public.key';
         const repoLine = `deb [signed-by=${keyPath}] https://williambossard.github.io/Gens-Launcher ./`;
 
-        const fs = require('fs');
         const os = require('os');
         const path = require('path');
         const crypto = require('crypto');
@@ -31,6 +54,8 @@ function setupUpdater(context) {
         try { await fs.promises.access(sourcesPath); hasSources = true; } catch (_) { if (_ && typeof _ === 'object' && 'code' in _ && _.code !== 'ENOENT') console.error('[updater.js] Erreur silencieuse interceptée:', _); }
         mainLog(`[deb-update] hasKey=${hasKey}, hasSources=${hasSources}`);
 
+        /** @type {string | null} */
+        let tmpKeyDir = null;
         /** @type {string | null} */
         let tmpKeyFile = null;
         try {
@@ -56,7 +81,8 @@ function setupUpdater(context) {
                     if (actualSha !== APT_KEY_SHA256) {
                         throw new Error(`Empreinte SHA-256 invalide pour public.key (${actualSha})`);
                     }
-                    tmpKeyFile = path.join(os.tmpdir(), `gens-apt-pubkey-${process.pid}-${Date.now()}.asc`);
+                    tmpKeyDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens-apt-'));
+                    tmpKeyFile = path.join(tmpKeyDir, 'public.key');
                     await fs.promises.writeFile(tmpKeyFile, keyBuf, { mode: 0o600 });
                     setupParts.push('gpg --batch --yes --dearmor -o "$1" "$2"');
                 }
@@ -65,8 +91,8 @@ function setupUpdater(context) {
                 setupParts.push('apt-get install -y gens-launcher');
                 pkexecArgs = ['sh', '-c', setupParts.join(' && '), '_', keyPath, tmpKeyFile || '', repoLine, sourcesPath];
             } else {
-                mainLog('[deb-update] Dépôt configuré, lancement apt-get install...');
-                pkexecArgs = ['apt-get', 'install', '-y', 'gens-launcher'];
+                mainLog('[deb-update] Dépôt configuré, lancement apt-get update && apt-get install...');
+                pkexecArgs = ['sh', '-c', 'apt-get update -qq && apt-get install -y gens-launcher'];
             }
             mainLog('[deb-update] Commande : pkexec ' + pkexecArgs.join(' '));
             getMainWindow()?.webContents.send('update-msg', { key: 'msg_apt_installing', text: 'Installation en cours (cela peut prendre quelques secondes)...', type: 'info' });
@@ -74,6 +100,7 @@ function setupUpdater(context) {
                 execFile('pkexec', pkexecArgs, { timeout: 180000 }, (err, stdout, stderr) => {
                     if (!err) {
                         mainLog('[deb-update] Succès.');
+                        debAlreadyInstalled = true;
                         resolve({ success: true });
                     } else {
                         mainLog('[deb-update] Erreur : ' + (stderr || err.message));
@@ -86,7 +113,9 @@ function setupUpdater(context) {
             mainLog('[deb-update] Erreur préparation clé/dépôt : ' + msg);
             return { success: false, error: msg };
         } finally {
-            if (tmpKeyFile) {
+            if (tmpKeyDir) {
+                try { await fs.promises.rm(tmpKeyDir, { recursive: true, force: true }); } catch (_) {}
+            } else if (tmpKeyFile) {
                 try { await fs.promises.unlink(tmpKeyFile); } catch (_) {}
             }
         }
@@ -98,15 +127,22 @@ function setupUpdater(context) {
             mainLog("[Sécurité] restart_app rejeté : l'utilisateur n'a pas confirmé la mise à jour.");
             return;
         }
-        userConfirmedUpdate = false; 
+        userConfirmedUpdate = false;
         if (process.platform === 'linux') {
             if (process.env.APPIMAGE) {
                 autoUpdater.quitAndInstall();
                 return;
             }
-            mainLog("MAJ Linux .deb : lancement via pkexec apt-get...");
+            if (debAlreadyInstalled || !isDebPackageInstallation()) {
+                debAlreadyInstalled = false;
+                mainLog("Relancement Linux post-mise à jour...");
+                app.relaunch();
+                app.exit(0);
+                return;
+            }
+            mainLog("MAJ Linux .deb : lancement via pkexec apt-get update && install...");
             const { execFile } = require('child_process');
-            execFile('pkexec', ['apt-get', 'install', '-y', 'gens-launcher'], (err, stdout, stderr) => {
+            execFile('pkexec', ['sh', '-c', 'apt-get update -qq && apt-get install -y gens-launcher'], (err, stdout, stderr) => {
                 if (!err) {
                     mainLog("Mise à jour APT réussie. Relancement...");
                     app.relaunch();
@@ -144,8 +180,7 @@ function setupUpdater(context) {
 
     ipcMain.handle("check-for-updates", async () => {
         isManualUpdateCheck = true;
-        const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-        if (isLinuxDeb) {
+        if (isDebPackageInstallation()) {
             try {
                 const { net } = require('electron');
                 return await new Promise((resolve) => {
@@ -216,12 +251,15 @@ function setupUpdater(context) {
 
     ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
     ipcMain.on("download-update", () => {
-        const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-        if (isLinuxDeb) {
+        if (isDebPackageInstallation()) {
             mainLog("[deb] Téléchargement ignoré (géré par APT).");
             return;
         }
-        autoUpdater.downloadUpdate();
+        autoUpdater.downloadUpdate().catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            mainLog(`[AutoUpdater] Échec downloadUpdate : ${msg}`);
+            getMainWindow()?.webContents.send("update-msg", { key: "msg_update_dl_error", text: `Erreur téléchargement mise à jour : ${msg}`, type: "error" });
+        });
     });
 
     autoUpdater.on("update-available", (info) => { getMainWindow()?.webContents.send("update-available-prompt", info); });
@@ -238,8 +276,7 @@ function setupUpdater(context) {
         }
     });
     autoUpdater.on("update-downloaded", (info) => {
-        const isLinuxDeb = process.platform === 'linux' && !process.env.APPIMAGE;
-        if (isLinuxDeb) {
+        if (isDebPackageInstallation()) {
             mainLog("[deb] update-downloaded ignoré.");
             return;
         }

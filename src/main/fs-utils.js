@@ -84,6 +84,155 @@ function createSandboxValidator(sandboxDir) {
 }
 
 /**
+ * Variante asynchrone de createSandboxValidator utilisant fs.promises.realpath
+ * afin de ne pas bloquer la boucle d'événements du Main Process sur les handlers IPC.
+ * @param {string} sandboxDir
+ * @returns {(p: string) => Promise<string>}
+ */
+function createSandboxValidatorAsync(sandboxDir) {
+    const absSandbox = path.resolve(sandboxDir);
+    const isWin = process.platform === 'win32';
+    /** @param {string} s */
+    const norm = (s) => isWin ? s.toLowerCase() : s;
+    /** @type {string | null} */
+    let cachedRealSandbox = null;
+
+    async function getRealSandbox() {
+        if (cachedRealSandbox) return cachedRealSandbox;
+        try {
+            cachedRealSandbox = await fs.promises.realpath(absSandbox);
+            return cachedRealSandbox;
+        } catch (_) {
+            return absSandbox;
+        }
+    }
+
+    return async function assertPathUnderSandboxAsync(p) {
+        if (typeof p !== 'string' || !p.trim()) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
+        const trimmed = p.trim();
+        if (/^[/\\]{2}/.test(trimmed)) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
+        const absTarget = path.resolve(trimmed);
+        if (isWin && absTarget.startsWith('\\\\')) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
+        const normTarget = norm(absTarget);
+        const normSandbox = norm(absSandbox);
+
+        if (!normTarget.startsWith(normSandbox + path.sep) && normTarget !== normSandbox) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
+
+        const realSandbox = await getRealSandbox();
+        const normRealSandbox = norm(realSandbox);
+
+        let cur = absTarget;
+        while (true) {
+            try {
+                const realCur = await fs.promises.realpath(cur);
+                const relTail = path.relative(cur, absTarget);
+                const realTarget = relTail ? path.join(realCur, relTail) : realCur;
+                const normRealTarget = norm(realTarget);
+                if (!normRealTarget.startsWith(normRealSandbox + path.sep) && normRealTarget !== normRealSandbox) {
+                    throw new Error('Chemin hors du sandbox GensLauncher');
+                }
+                break;
+            } catch (err) {
+                if (err instanceof Error && err.message === 'Chemin hors du sandbox GensLauncher') throw err;
+                const parent = path.dirname(cur);
+                if (parent === cur) break;
+                cur = parent;
+            }
+        }
+
+        return absTarget;
+    };
+}
+
+/**
+ * Crée un garde d'accès pour empêcher le Renderer Process de lire les secrets du Main Process
+ * ou d'écrire dans les dossiers d'exécutables (`java/`, `runtime/`, binaires Horizon).
+ * @param {string} safeDataDir
+ * @returns {(resolvedPath: string, mode: 'read' | 'write') => void}
+ */
+function createRendererPathGuard(safeDataDir) {
+    const absRoot = path.resolve(safeDataDir);
+    const isWin = process.platform === 'win32';
+    /** @param {string} s */
+    const norm = (s) => isWin ? s.toLowerCase() : s;
+    const normRoot = norm(absRoot);
+
+    const BLOCKED_BOTH_FILES = new Set([
+        '.secret_key',
+        '.key_salt',
+        'horizon_seal.key'
+    ]);
+    const BLOCKED_BOTH_SUBDIRS = [
+        'msa-cache',
+        path.join('horizon', 'auth')
+    ];
+    const BLOCKED_WRITE_SUBDIRS = [
+        'java',
+        'runtime'
+    ];
+    const HORIZON_BIN_PREFIXES = [
+        path.join('horizon', 'horizon'),
+        path.join('bin', 'horizon')
+    ];
+
+    /**
+     * @param {string} resolvedPath
+     * @param {'read' | 'write'} mode
+     */
+    return function assertRendererPathAllowed(resolvedPath, mode) {
+        if (!resolvedPath || !safeDataDir) return;
+        const normTarget = norm(path.resolve(resolvedPath));
+        if (!normTarget.startsWith(normRoot + path.sep)) return;
+
+        const rel = normTarget.slice(normRoot.length + 1);
+        const relLower = rel.toLowerCase();
+        const parts = relLower.split(path.sep).filter(Boolean);
+        if (parts.length === 0) return;
+
+        const deny = (/** @type {string} */ reason) => {
+            /** @type {Error & { code?: string }} */
+            const err = new Error(`Accès refusé par la politique de sécurité du Launcher (${reason}).`);
+            err.code = 'EACCES';
+            throw err;
+        };
+
+        // 1. Secrets strictement réservés au Main Process (lecture + écriture interdites)
+        if (parts.length === 1 && BLOCKED_BOTH_FILES.has(parts[0])) {
+            deny('fichier secret réservé au Main Process');
+        }
+        for (const sub of BLOCKED_BOTH_SUBDIRS) {
+            if (relLower === sub || relLower.startsWith(sub + path.sep)) {
+                deny('dossier de secrets réservé au Main Process');
+            }
+        }
+        // Binaires Horizon (Horizon, Horizon.exe, Horizon-linux, Horizon-macos, etc.)
+        const joinedTop2 = parts.length >= 2 ? parts[0] + path.sep + parts[1] : '';
+        for (const pref of HORIZON_BIN_PREFIXES) {
+            if (parts.length === 2 && joinedTop2.startsWith(pref) && !joinedTop2.endsWith('.json')) {
+                deny('binaire Horizon réservé au Main Process');
+            }
+        }
+
+        // 2. Dossiers d'exécutables Java/runtime (écriture/suppression/chmod interdites au Renderer)
+        if (mode === 'write') {
+            for (const sub of BLOCKED_WRITE_SUBDIRS) {
+                if (relLower === sub || relLower.startsWith(sub + path.sep)) {
+                    deny('dossier runtime/java géré exclusivement par le Main Process');
+                }
+            }
+        }
+    };
+}
+
+/**
  * @param {unknown} str
  * @returns {string}
  */
@@ -105,11 +254,11 @@ const MC_COLOR_MAP = {
 };
 
 /** @type {Record<string, string>} */
-const LEGACY_COLOR_MAP = {
-    '0': '#000', '1': '#00a', '2': '#0a0', '3': '#0aa',
-    '4': '#a00', '5': '#a0a', '6': '#fa0', '7': '#aaa',
-    '8': '#555', '9': '#55f', 'a': '#5f5', 'b': '#5ff',
-    'c': '#f55', 'd': '#f5f', 'e': '#ff5', 'f': '#fff'
+const LEGACY_CLASS_MAP = {
+    '0': 'mc-c-black', '1': 'mc-c-dark_blue', '2': 'mc-c-dark_green', '3': 'mc-c-dark_aqua',
+    '4': 'mc-c-dark_red', '5': 'mc-c-dark_purple', '6': 'mc-c-gold', '7': 'mc-c-gray',
+    '8': 'mc-c-dark_gray', '9': 'mc-c-blue', 'a': 'mc-c-green', 'b': 'mc-c-aqua',
+    'c': 'mc-c-red', 'd': 'mc-c-light_purple', 'e': 'mc-c-yellow', 'f': 'mc-c-white'
 };
 
 /**
@@ -127,22 +276,22 @@ function parseMotdLegacy(raw) {
         if (part.length === 0) continue;
         const code = part[0].toLowerCase();
         const text = escapeHtmlText(part.substring(1));
-        if (LEGACY_COLOR_MAP[code]) {
+        if (Object.hasOwn(LEGACY_CLASS_MAP, code)) {
             html += '</span>'.repeat(spanCount);
             spanCount = 0;
-            html += `<span style="color: ${LEGACY_COLOR_MAP[code]};">`;
+            html += `<span class="${LEGACY_CLASS_MAP[code]}">`;
             spanCount++;
         } else if (code === 'l') {
-            html += `<span style="font-weight: bold;">`;
+            html += `<span class="mc-bold">`;
             spanCount++;
         } else if (code === 'o') {
-            html += `<span style="font-style: italic;">`;
+            html += `<span class="mc-italic">`;
             spanCount++;
         } else if (code === 'n') {
-            html += `<span style="text-decoration: underline;">`;
+            html += `<span class="mc-underlined">`;
             spanCount++;
         } else if (code === 'm') {
-            html += `<span style="text-decoration: line-through;">`;
+            html += `<span class="mc-strikethrough">`;
             spanCount++;
         } else if (code === 'r') {
             html += '</span>'.repeat(spanCount);
@@ -174,30 +323,66 @@ function parseMotdComponent(comp) {
     if (!comp) return '';
     if (Array.isArray(comp)) return comp.map(parseMotdComponent).join('');
 
-    let style = '';
+    /** @type {string[]} */
+    const classes = [];
+    let rgbAttr = '';
     if (typeof comp.color === 'string') {
         const c = comp.color.trim();
-        if (/^#[0-9a-fA-F]{3,8}$/.test(c)) style += `color: ${c}; `;
-        else if (Object.hasOwn(MC_COLOR_MAP, c)) style += `color: ${MC_COLOR_MAP[c]}; `;
+        if (/^#[0-9a-fA-F]{3,8}$/.test(c)) rgbAttr = ` data-mc-rgb="${c}"`;
+        else if (Object.hasOwn(MC_COLOR_MAP, c)) classes.push(`mc-c-${c}`);
     }
-    if (comp.bold) style += 'font-weight: bold; ';
-    if (comp.italic) style += 'font-style: italic; ';
-    if (comp.underlined) style += 'font-decoration: underline; '.replace('font-decoration', 'text-decoration');
-    if (comp.strikethrough) style += 'text-decoration: line-through; ';
+    if (comp.bold) classes.push('mc-bold');
+    if (comp.italic) classes.push('mc-italic');
+    if (comp.underlined) classes.push('mc-underlined');
+    if (comp.strikethrough) classes.push('mc-strikethrough');
 
+    const hasSpan = classes.length > 0 || rgbAttr !== '';
     let html = '';
-    if (style) html += `<span style="${style}">`;
+    if (hasSpan) {
+        const classAttr = classes.length > 0 ? ` class="${classes.join(' ')}"` : '';
+        html += `<span${classAttr}${rgbAttr}>`;
+    }
     html += parseMotdLegacy(comp.text || '');
     if (Array.isArray(comp.extra)) {
         for (const child of comp.extra) html += parseMotdComponent(child);
     }
-    if (style) html += '</span>';
+    if (hasSpan) html += '</span>';
     return html;
+}
+
+/**
+ * Renomme un fichier avec retry contre les verrous antivirus/Windows transitoires.
+ * @param {string} src
+ * @param {string} dest
+ * @param {number} [maxAttempts=5]
+ * @returns {Promise<void>}
+ */
+async function renameWithRetry(src, dest, maxAttempts = 5) {
+    let lastErr = null;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            await fs.promises.rename(src, dest);
+            return;
+        } catch (err) {
+            lastErr = err;
+            /** @type {any} */
+            const nodeErr = err;
+            if (['EBUSY', 'EPERM', 'EACCES'].includes(nodeErr?.code) && attempt < maxAttempts - 1) {
+                await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
+                continue;
+            }
+            break;
+        }
+    }
+    throw lastErr;
 }
 
 module.exports = {
     existsSafe,
     createSandboxValidator,
+    createSandboxValidatorAsync,
+    createRendererPathGuard,
+    renameWithRetry,
     escapeHtmlText,
     parseMotdLegacy,
     parseMotdComponent

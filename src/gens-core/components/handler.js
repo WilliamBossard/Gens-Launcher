@@ -1,6 +1,7 @@
 // @ts-check
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 
 const { Zip, existsAsync } = require('./zip-archive');
 const {
@@ -183,6 +184,12 @@ class Handler {
         const desiredVersion = Object.values(parsed.versions).find((/** @type {any} */ version) => version.id === this.options.version.number);
         if (desiredVersion) {
           const versionBody = await this.fetchText(desiredVersion.url);
+          if (desiredVersion.sha1) {
+            const actualVerSha1 = crypto.createHash('sha1').update(versionBody, 'utf8').digest('hex').toLowerCase();
+            if (actualVerSha1 !== String(desiredVersion.sha1).trim().toLowerCase()) {
+              throw new Error(`SHA-1 mismatch for version metadata ${this.options.version.number}`);
+            }
+          }
           await fs.promises.writeFile(path.join(cache, `${this.options.version.number}.json`), versionBody);
           this.version = JSON.parse(versionBody);
           return resolve(this.version);
@@ -216,7 +223,14 @@ class Handler {
         await fs.promises.mkdir(this.options.directory, { recursive: true });
         await fs.promises.copyFile(vanillaJar, jarPath);
       } else if (this.version?.downloads?.client?.url) {
-        await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
+        const dlRes = await this.downloadAsync(this.version.downloads.client.url, this.options.directory, `${this.options.version.custom ? this.options.version.custom : this.options.version.number}.jar`, true, 'version-jar');
+        if (dlRes && dlRes.failed) {
+          throw new Error(`Failed to download client jar (${dlRes.asset?.url || this.version.downloads.client.url})`);
+        }
+        if (clientSha1 && !(await this.checkSum(clientSha1, jarPath))) {
+          try { await fs.promises.unlink(jarPath); } catch (_) {}
+          throw new Error(`Client jar SHA-1 verification failed for ${this.options.version.number}`);
+        }
       }
     }
     await fs.promises.mkdir(this.options.directory, { recursive: true });
@@ -228,7 +242,13 @@ class Handler {
    * @returns {string}
    */
   getAssetIndexName() {
-    if (this.options.overrides && this.options.overrides.assetIndex) return this.options.overrides.assetIndex;
+    if (this.options.overrides && typeof this.options.overrides.assetIndex === 'string' && this.options.overrides.assetIndex.trim()) {
+      const overrideIdx = this.options.overrides.assetIndex.trim();
+      if (overrideIdx === '.' || overrideIdx.includes('..') || /[/\\:\x00-\x1f]/.test(overrideIdx)) {
+        throw new Error(`Invalid overrides.assetIndex: ${overrideIdx}`);
+      }
+      return overrideIdx;
+    }
     const assetDirectory = path.resolve((this.options.overrides && this.options.overrides.assetRoot) || path.join(this.options.root, 'assets'));
     const defaultId = (this.version && this.version.assetIndex && this.version.assetIndex.id) || this.options.version.number;
     const customId = this.options.version && this.options.version.custom;
@@ -241,7 +261,13 @@ class Handler {
    * @returns {Promise<string>}
    */
   async getAssetIndexNameAsync() {
-    if (this.options.overrides && this.options.overrides.assetIndex) return this.options.overrides.assetIndex;
+    if (this.options.overrides && typeof this.options.overrides.assetIndex === 'string' && this.options.overrides.assetIndex.trim()) {
+      const overrideIdx = this.options.overrides.assetIndex.trim();
+      if (overrideIdx === '.' || overrideIdx.includes('..') || /[/\\:\x00-\x1f]/.test(overrideIdx)) {
+        throw new Error(`Invalid overrides.assetIndex: ${overrideIdx}`);
+      }
+      return overrideIdx;
+    }
     const assetDirectory = path.resolve((this.options.overrides && this.options.overrides.assetRoot) || path.join(this.options.root, 'assets'));
     const defaultId = (this.version && this.version.assetIndex && this.version.assetIndex.id) || this.options.version.number;
     const customId = this.options.version && this.options.version.custom;
@@ -259,7 +285,15 @@ class Handler {
         this.client.emit('debug', `[Gens-Core]: Asset index ${assetId}.json absent en mode hors-ligne, téléchargement ignoré.`)
         return
       }
-      await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
+      const dlIdxRes = await this.downloadAsync(this.version.assetIndex.url, path.join(assetDirectory, 'indexes'), `${assetId}.json`, true, 'asset-json')
+      if (dlIdxRes && dlIdxRes.failed) {
+        throw new Error(`Failed to download asset index ${assetId}.json`)
+      }
+      const expectedIdxSha1 = this.version?.assetIndex?.sha1
+      if (expectedIdxSha1 && !(await this.checkSum(expectedIdxSha1, indexJsonPath))) {
+        try { await fs.promises.unlink(indexJsonPath) } catch (_) {}
+        throw new Error(`Asset index SHA-1 verification failed for ${assetId}.json`)
+      }
     }
 
     if (!(await existsAsync(indexJsonPath))) return
@@ -821,13 +855,13 @@ class Handler {
    * @param {any} [modification]
    * @returns {Promise<string[]>}
    */
-  getLaunchOptions(modification) {
+  async getLaunchOptions(modification) {
     return jvmUtils.buildLaunchOptions({
       version: this.version,
       options: this.options,
       client: this.client,
       isLegacy: this.isLegacy(),
-      assetIndexName: this.getAssetIndexName(),
+      assetIndexName: await this.getAssetIndexNameAsync(),
       quickPlayArgs: this.options.quickPlay ? this.formatQuickPlay() : null,
       modification
     });

@@ -1,10 +1,14 @@
 name: "Build and Release Gens Launcher"
 
-on: 
+on:
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-gens-launcher
+  cancel-in-progress: false
 
 jobs:
   tag:
@@ -14,40 +18,51 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v7
-        
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Get version from package.json
         id: get_version
-        run: echo "version=v$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-      
+        run: |
+          VERSION="v$(node -p "require('./package.json').version")"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "Version invalide : $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Create and push tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git ls-remote --tags origin | grep -q "${{ steps.get_version.outputs.version }}"; then
-            git tag "${{ steps.get_version.outputs.version }}"
-            git push origin "${{ steps.get_version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "Version invalide : $VERSION" >&2
+            exit 1
+          fi
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            git tag "${VERSION}"
+            git push origin "refs/tags/${VERSION}"
           fi
 
   build:
     needs: tag
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-tags: true
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: 'npm'
@@ -64,4 +79,4 @@ jobs:
       - name: Build and Publish Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish always
+        run: npm exec --no -- electron-builder --publish always

@@ -125,7 +125,7 @@ export function setupLauncher() {
             if (perc % 10 === 0 && perc !== lastLogPerc) {
                 lastLogPerc = perc;
                 if (document.getElementById("log-output")) {
-                    window.appendLog(`<div class="log-line" style="color:#aaa;">[SYSTEM] ${t("msg_dl", "Téléchargement :")} ${perc}%</div>`);
+                    window.appendLog(`<div class="log-line u-s215">[SYSTEM] ${t("msg_dl", "Téléchargement :")} ${perc}%</div>`);
                 }
             }
         }
@@ -181,13 +181,21 @@ export function setupLauncher() {
         if (store.selectedInstanceIdx !== null) {
             const selectedInst = store.allInstances[store.selectedInstanceIdx];
             if (selectedInst && selectedInst.name === instanceId) {
-                let color = "#d4d4d4";
-                if (dStr.includes("WARN")) color = "#ffaa00";
-                if (dStr.includes("ERROR") || dStr.includes("FATAL") || dStr.includes("Exception")) color = "#f87171";
                 const filterInput = /** @type {HTMLInputElement | null} */ (document.getElementById("console-filter"));
                 const filter = filterInput?.value.toLowerCase() ?? "";
-                const isHidden = filter && !dStr.toLowerCase().includes(filter) ? 'style="display:none;"' : '';
-                logBuffer.push(`<div class="log-line" style="color:${color}" ${isHidden}>[GAME] ${window.escapeHTML(dStr)}</div>`);
+                const lines = dStr.split(/\r?\n/);
+                for (const rawLine of lines) {
+                    const line = rawLine.trim();
+                    if (!line) continue;
+                    let colorClass = "";
+                    if (line.includes("ERROR") || line.includes("FATAL") || line.includes("Exception")) colorClass = " log-error";
+                    else if (line.includes("WARN")) colorClass = " log-warn";
+                    const hiddenClass = filter && !line.toLowerCase().includes(filter) ? " log-hidden" : "";
+                    if (logBuffer.length >= 500) {
+                        logBuffer.splice(0, logBuffer.length - 499);
+                    }
+                    logBuffer.push(`<div class="log-line${colorClass}${hiddenClass}">[GAME] ${window.escapeHTML(line)}</div>`);
+                }
                 if (!logTimer) {
                     logTimer = setTimeout(() => {
                         if (logBuffer.length > 0) {
@@ -209,27 +217,32 @@ export function setupLauncher() {
             if (instanceId !== store.primaryRpcInstance) return;
             const targetInstData = store.allInstances.find(i => i.name === instanceId);
             if (!targetInstData) return;
-            if (dStr.includes("Started") && dStr.includes("worker threads")) { if (menuTimers[instanceId]) { clearTimeout(menuTimers[instanceId]); menuTimers[instanceId] = null; } }
-            if (dStr.includes("Connecting to")) {
-                const parts = dStr.split("Connecting to ");
-                if (parts[1]) {
-                    const ip = parts[1].split(",")[0].trim();
-                    if (!ip.includes("127.0.0.1") && !ip.includes("localhost") && !ip.includes("0.0.0.0")) {
-                        currentServerIPs[instanceId] = ip;
-                        updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
-                    }
+            for (const rpcLine of dStr.split(/\r?\n/)) {
+                if (rpcLine.includes("Started") && rpcLine.includes("worker threads")) {
+                    if (menuTimers[instanceId]) { clearTimeout(menuTimers[instanceId]); menuTimers[instanceId] = null; }
                 }
-            } else if (
-                dStr.includes("Saving and pausing game...") || dStr.includes("lost connection") ||
-                dStr.includes("Stopping singleplayer server") || dStr.includes("Stopping server") ||
-                dStr.includes("Disconnecting from server") || dStr.includes("Clearing local world") || dStr.includes("Quitting")
-            ) {
-                currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus"));
-            } else if (dStr.includes("Stopping worker threads")) {
-                menuTimers[instanceId] = setTimeout(() => { currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus")); }, 1500);
-            } else if (dStr.includes("logged in with entity id") || dStr.includes("Starting integrated minecraft server")) {
-                if (currentServerIPs[instanceId]) updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
-                else updateRPC(targetInstData, t("discord_playing_solo", "En survie Solo"));
+                if (rpcLine.includes("Connecting to")) {
+                    const parts = rpcLine.split("Connecting to ");
+                    if (parts[1]) {
+                        const ip = parts[1].split(",")[0].trim();
+                        if (ip && !ip.includes("127.0.0.1") && !ip.includes("localhost") && !ip.includes("0.0.0.0")) {
+                            currentServerIPs[instanceId] = ip;
+                            updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                        }
+                    }
+                } else if (
+                    rpcLine.includes("Saving and pausing game...") || rpcLine.includes("lost connection") ||
+                    rpcLine.includes("Stopping singleplayer server") || rpcLine.includes("Stopping server") ||
+                    rpcLine.includes("Disconnecting from server") || rpcLine.includes("Clearing local world") || rpcLine.includes("Quitting")
+                ) {
+                    currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus"));
+                } else if (rpcLine.includes("Stopping worker threads")) {
+                    if (menuTimers[instanceId]) clearTimeout(menuTimers[instanceId]);
+                    menuTimers[instanceId] = setTimeout(() => { currentServerIPs[instanceId] = ""; updateRPC(targetInstData, t("discord_in_menu", "Dans les menus")); }, 1500);
+                } else if (rpcLine.includes("logged in with entity id") || rpcLine.includes("Starting integrated minecraft server")) {
+                    if (currentServerIPs[instanceId]) updateRPC(targetInstData, `${t("discord_playing_on", "Sur un serveur")} (${currentServerIPs[instanceId]})`);
+                    else updateRPC(targetInstData, t("discord_playing_solo", "En survie Solo"));
+                }
             }
         } catch (e) { console.error("Erreur détection RPC:", e); }
     });
@@ -254,6 +267,7 @@ export function setupLauncher() {
         let closedInstIndex = store.allInstances.findIndex(i => i.name === instanceId);
         /** @type {import('../types/models').MinecraftInstance | null} */
         let closedInst = null;
+        let hadStartedSession = false;
         if (instanceId === store.primaryRpcInstance) {
             store.primaryRpcInstance = null;
             if (store.activeInstances.size > 0) {
@@ -268,8 +282,8 @@ export function setupLauncher() {
         if (closedInstIndex !== -1) {
             closedInst = store.allInstances[closedInstIndex];
             const tempSessionStart = closedInst._tempSessionStart;
-            const hadStartedSession = typeof tempSessionStart === "number" && tempSessionStart > 0;
-            const sessionDuration = hadStartedSession ? Math.max(0, Date.now() - tempSessionStart) : 0;
+            hadStartedSession = typeof tempSessionStart === "number" && tempSessionStart > 0;
+            const sessionDuration = (typeof tempSessionStart === "number" && tempSessionStart > 0) ? Math.max(0, Date.now() - tempSessionStart) : 0;
             closedInst._tempSessionStart = null;
             if (hadStartedSession) {
                 closedInst.playTime = (closedInst.playTime || 0) + sessionDuration;
@@ -299,7 +313,8 @@ export function setupLauncher() {
             }
             if (!isAutoClose && store.selectedInstanceIdx === closedInstIndex) {
                 if (document.getElementById("log-output")) {
-                    window.appendLog(`<br><div class="log-line" style="color:${code === 0 ? "#17B139" : "red"}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
+                    const exitClass = code === 0 ? "log-success" : "log-error";
+                    window.appendLog(`<br><div class="log-line ${exitClass}">[SYSTEM] ${t("msg_game_stop", "Le jeu s'est arrêté")} (Code: ${code})</div><br>`);
                 }
                 const statusEl = document.getElementById("status-text");
                 if (statusEl) statusEl.innerText = t("status_ready", "Prêt");
@@ -364,8 +379,8 @@ export function setupLauncher() {
                         const safeModLabel = window.escapeHTML(analysis.mod);
                         const safeDisableLabel = window.escapeHTML(t("btn_crash_disable_mod", "Désactiver le mod {mod}")).replace("{mod}", safeModLabel);
                         const safeOpenModsLabel = window.escapeHTML(t("btn_open_mods", "Ouvrir le gestionnaire de mods"));
-                        actionHtml += `<br><button id="btn-crash-disable-mod" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px; background: #e11d48; border-color: #e11d48; margin-right: 8px;">${safeDisableLabel}</button>`;
-                        actionHtml += `<button id="btn-crash-open-mods" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${safeOpenModsLabel}</button>`;
+                        actionHtml += `<br><button id="btn-crash-disable-mod" class="btn-primary u-s216">${safeDisableLabel}</button>`;
+                        actionHtml += `<button id="btn-crash-open-mods" class="btn-primary u-s217">${safeOpenModsLabel}</button>`;
                     }
                     /** @type {string | null} */
                     let existingJavaPath = null;
@@ -390,12 +405,12 @@ export function setupLauncher() {
 
                         if (existingJavaPath) {
                             const btnText = window.escapeHTML(t("btn_auto_use_java", "Utiliser automatiquement Java {0}").replace("{0}", targetVerStr || ""));
-                            actionHtml += `<br><button id="btn-crash-use-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${btnText}</button>`;
+                            actionHtml += `<br><button id="btn-crash-use-java" class="btn-primary u-s217">${btnText}</button>`;
                         } else {
                             const btnText = window.escapeHTML(analysis.javaNeeded === "auto"
                                 ? t("btn_auto_install_java_generic", "Installer la bonne version de Java automatiquement")
                                 : t("btn_auto_install_java", "Installer automatiquement Java {0}").replace("{0}", analysis.javaNeeded || ""));
-                            actionHtml += `<br><button id="btn-crash-download-java" class="btn-primary" style="margin-top: 10px; font-size: 0.8rem; padding: 4px 8px;">${btnText}</button>`;
+                            actionHtml += `<br><button id="btn-crash-download-java" class="btn-primary u-s217">${btnText}</button>`;
                         }
                     }
                     const crashAction = document.getElementById("crash-action");
@@ -409,12 +424,15 @@ export function setupLauncher() {
                                     const files = await fs.promises.readdir(modsDir);
                                     const targetMod = analysis.mod.toLowerCase().replace(/[^a-z0-9]/g, "");
                                     let disabledCount = 0;
-                                    for (const f of files) {
-                                        if (!f.endsWith(".jar")) continue;
-                                        const cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, "");
-                                        if (cleanF.includes(targetMod) || (targetMod.length > 3 && targetMod.includes(cleanF.replace("jar", "")))) {
-                                            await fs.promises.rename(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
-                                            disabledCount++;
+                                    if (targetMod.length >= 3) {
+                                        for (const f of files) {
+                                            if (!f.endsWith(".jar")) continue;
+                                            const baseNoJar = f.slice(0, -4).toLowerCase().replace(/[^a-z0-9]/g, "");
+                                            if (!baseNoJar || baseNoJar.length < 3) continue;
+                                            if (baseNoJar === targetMod || baseNoJar.includes(targetMod) || (baseNoJar.length >= 4 && targetMod.includes(baseNoJar))) {
+                                                await fs.promises.rename(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
+                                                disabledCount++;
+                                            }
                                         }
                                     }
                                     const crashModal = document.getElementById('modal-crash');
@@ -477,7 +495,7 @@ export function setupLauncher() {
             }
         }
         try {
-            if (closedInst) {
+            if (closedInst && hadStartedSession) {
                 await performAutoBackup(closedInst, "on_close", { showLoading: window.showLoading, hideLoading: window.hideLoading });
                 const horizonStatus = await window.api.invoke("check-horizon-status");
                 const cloudPrefs = await getCloudSettings();
@@ -525,7 +543,6 @@ export function setupLauncher() {
         } finally {
             if (store.busyInstances) store.busyInstances.delete(instanceId);
             window.setUIState();
-            if (window.renderUI) window.renderUI();
         }
         if (shouldAutoClose) {
             setAutoStatus(t("msg_auto_closing", "Fermeture..."));
@@ -579,7 +596,7 @@ export function setupLauncher() {
                 const msModal = document.getElementById("modal-ms-device");
                 if (msModal) {
                     const disp = document.getElementById("ms-device-code-display");
-                    if (disp) disp.innerHTML = `<span style="color: #aaa; font-size: 1rem; letter-spacing: normal; font-weight: normal;">${t("msg_ms_generating_code", "Génération du code...")}</span>`;
+                    if (disp) disp.innerHTML = `<span class="u-s214">${t("msg_ms_generating_code", "Génération du code...")}</span>`;
                     const stat = document.getElementById("ms-device-status");
                     if (stat) stat.innerText = t("msg_conn_ms", "Connexion...");
                     msModal.style.display = "flex";
@@ -595,16 +612,32 @@ export function setupLauncher() {
                 if (window.abortAutoLaunch) window.abortAutoLaunch();
             },
             prepareConsole: () => {
+                clearConsoleLogBuffer();
                 const cc = document.getElementById("console-container");
                 if (cc) cc.style.display = "block";
                 if (logOutput) logOutput.innerHTML = "";
                 resetLogLineCount();
             },
             addSystemLog: (/** @type {string} */ htmlMsg) => {
-                window.appendLog(`<div class="log-line" style="color:#007acc">[SYSTEM] ${htmlMsg}</div>`);
+                window.appendLog(`<div class="log-line log-sys">[SYSTEM] ${htmlMsg}</div>`);
             }
         };
 
         await launchInstance(inst, acc, uiCallbacks);
     });
+
+    window.cancelAutoLaunch = () => {
+        if (window.abortAutoLaunch) window.abortAutoLaunch();
+        window._isAutoLaunch = false;
+        const overlay = document.getElementById("auto-launch-overlay");
+        if (overlay) overlay.style.display = "none";
+        window.api.send("restore-main-window");
+    };
+
+    window.openLastCrashReport = () => {
+        const crashModal = document.getElementById("modal-crash");
+        if (crashModal) {
+            crashModal.style.display = "flex";
+        }
+    };
 }

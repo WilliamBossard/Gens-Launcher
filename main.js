@@ -1,6 +1,6 @@
 // @ts-check
 const { pipeStreams } = require('./src/main/zip-utils');
-const { existsSafe, createSandboxValidator } = require('./src/main/fs-utils');
+const { existsSafe, createSandboxValidator, createRendererPathGuard } = require('./src/main/fs-utils');
 const { createDownloadFile } = require('./src/main/download-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
@@ -15,11 +15,15 @@ app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 /** @param {string} name */
 function sanitizeShortcutName(name) {
-    return String(name)
+    const cleaned = String(name)
         .replace(/[<>:"/\\|?*\r\n\0]/g, "")
         .replace(/['"`;$]/g, "")
         .trim()
+        .replace(/[. ]+$/g, "")
         .substring(0, 100);
+    if (!cleaned || cleaned === "." || cleaned === "..") return "";
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(cleaned)) return "";
+    return cleaned;
 }
 
 /** @param {string[]} argv */
@@ -86,7 +90,7 @@ function isHorizonVersionAtLeast(versionStr, minVersion = "1.4.2") {
 let _logStream = null;
 let _logStreamBytes = 0;
 
-const mainInitPromise = (async () => {
+const mainCoreInitPromise = (async () => {
     await fs.promises.mkdir(safeDataDir, { recursive: true });
     await fs.promises.mkdir(logsDir, { recursive: true });
     await fs.promises.mkdir(horizonDir, { recursive: true });
@@ -102,6 +106,32 @@ const mainInitPromise = (async () => {
     });
 
     _logStreamBytes = 0;
+
+    try {
+        const userDataPath = app.getPath('userData');
+        const versionSentinelPath = path.join(userDataPath, '.launcher-version');
+        const currentVersion = app.getVersion();
+        let lastVersion = null;
+        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) {
+            const err = /** @type {any} */ (_);
+            if (err && err.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', err.message || err);
+        }
+        if (lastVersion !== currentVersion) {
+            const cacheDirs = ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'blob_storage'];
+            for (const dir of cacheDirs) {
+                const dirPath = path.join(userDataPath, dir);
+                await safeRm(dirPath);
+            }
+            await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
+        }
+    } catch (err) {
+        const e = /** @type {any} */ (err);
+        if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${e.message}`);
+    }
+})();
+
+const horizonMigrationPromise = (async () => {
+    await mainCoreInitPromise;
 
     // Détection de la version installée de Horizon
     let installedHorizonVersion = null;
@@ -206,27 +236,6 @@ const mainInitPromise = (async () => {
     } catch (err) {
         const e = /** @type {any} */ (err);
         if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage logs: ${e.message}`);
-    }
-    try {
-        const userDataPath = app.getPath('userData');
-        const versionSentinelPath = path.join(userDataPath, '.launcher-version');
-        const currentVersion = app.getVersion();
-        let lastVersion = null;
-        try { lastVersion = await fs.promises.readFile(versionSentinelPath, 'utf8'); } catch (_) {
-            const err = /** @type {any} */ (_);
-            if (err && err.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', err.message || err);
-        }
-        if (lastVersion !== currentVersion) {
-            const cacheDirs = ['Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'blob_storage'];
-            for (const dir of cacheDirs) {
-                const dirPath = path.join(userDataPath, dir);
-                await safeRm(dirPath);
-            }
-            await fs.promises.writeFile(versionSentinelPath, currentVersion, 'utf8');
-        }
-    } catch (err) {
-        const e = /** @type {any} */ (err);
-        if (e.code !== 'ENOENT') mainLog(`[Init] Erreur nettoyage cache Electron: ${e.message}`);
     }
 })();
 
@@ -355,7 +364,7 @@ const context = {
     horizonBinDir, horizonExePath, horizonVersionPath,
     horizonDir, horizonLegacyBinDir, horizonAuthDir, horizonMetaDir, horizonManifestsDir, horizonCacheDir,
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
-    assertPathUnderSandbox, sanitizeShortcutName, isApprovedCopySource, shell
+    assertPathUnderSandbox, sanitizeShortcutName, isApprovedCopySource, horizonMigrationPromise, shell
 };
 
 process.on('uncaughtException', (err) => {
@@ -366,8 +375,13 @@ process.on('uncaughtException', (err) => {
             dialog.showErrorBox("Erreur critique — Gens Launcher", err?.message || msg);
         }
     } catch (_) {}
-    if (_logStream && _logStream.writable) _logStream.end(() => app.exit(1));
-    else app.exit(1);
+    if (_logStream && _logStream.writable) {
+        const failSafe = setTimeout(() => app.exit(1), 2000);
+        if (typeof failSafe.unref === 'function') failSafe.unref();
+        _logStream.end(() => app.exit(1));
+    } else {
+        app.exit(1);
+    }
 });
 process.on('unhandledRejection', (reason) => {
     const r = /** @type {any} */ (reason);
@@ -448,15 +462,34 @@ function createWindow() {
         "https://release-assets.githubusercontent.com",
         "https://mc-heads.net",
         "https://crafatar.com",
-        "https://minotar.net"
+        "https://minotar.net",
+        "https://mineatar.io"
+    ].join(" ");
+    const IMG_ALLOWLIST = [
+        "'self'",
+        "data:",
+        "https://*.modrinth.com",
+        "https://*.forgecdn.net",
+        "https://*.cursecdn.net",
+        "https://*.minecraft.net",
+        "https://*.mojang.com",
+        "https://*.githubusercontent.com",
+        "https://mc-heads.net",
+        "https://crafatar.com",
+        "https://minotar.net",
+        "https://mineatar.io"
     ].join(" ");
     const rendererCSP = [
         "default-src 'self'",
         "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: https://*",
+        "style-src 'self'",
+        `img-src ${IMG_ALLOWLIST}`,
         `connect-src ${CONNECT_ALLOWLIST}`,
         "font-src 'self' data:",
+        "frame-src 'none'",
+        "child-src 'none'",
+        "worker-src 'self'",
+        "frame-ancestors 'none'",
         "base-uri 'none'",
         "form-action 'none'",
         "object-src 'none'",
@@ -507,7 +540,7 @@ if (!gotTheLock) {
     });
 }
 app.whenReady().then(async () => {
-    await mainInitPromise;
+    await mainCoreInitPromise;
     app.setAppUserModelId("com.gens.launcher");
     
     let dynamicChromeUA = session.defaultSession.getUserAgent();
@@ -533,14 +566,25 @@ app.whenReady().then(async () => {
         callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
     createWindow();
+    let _rendererShownOnce = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let _safetyShowTimer = null;
+    ipcMain.once("show-window", () => {
+        _rendererShownOnce = true;
+        if (_safetyShowTimer) {
+            clearTimeout(_safetyShowTimer);
+            _safetyShowTimer = null;
+        }
+    });
     mainWindow?.once('ready-to-show', () => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        setTimeout(() => {
-            if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-                if (parseAutoLaunchArg(process.argv)) return;
-                console.log('[Main] Safety show (renderer timeout)');
-                mainWindow.show();
-            }
+        if (!mainWindow || mainWindow.isDestroyed() || _rendererShownOnce) return;
+        _safetyShowTimer = setTimeout(() => {
+            _safetyShowTimer = null;
+            if (_rendererShownOnce || !mainWindow || mainWindow.isDestroyed()) return;
+            if (mainWindow.isVisible() || mainWindow.isMinimized()) return;
+            if (parseAutoLaunchArg(process.argv)) return;
+            console.log('[Main] Safety show (renderer timeout)');
+            mainWindow.show();
         }, 3000);
     });
     mainWindow?.webContents.on('did-finish-load', () => {
@@ -642,12 +686,22 @@ app.whenReady().then(async () => {
                 }, 10000);
                 req.on("response", (res) => {
                     let data = "";
+                    let overflowed = false;
                     res.on("data", (chunk) => {
-                        if (data.length < 512 * 1024) data += chunk;
+                        if (data.length + chunk.length > 512 * 1024) {
+                            overflowed = true;
+                            try { req.abort(); } catch (_) {}
+                            return;
+                        }
+                        data += chunk;
+                    });
+                    res.on("error", (e) => {
+                        clearTimeout(reqTimeout);
+                        mainLog("Erreur flux check MAJ Linux: " + e.message);
                     });
                     res.on("end", () => {
                         clearTimeout(reqTimeout);
-                        if (aborted || res.statusCode !== 200) {
+                        if (aborted || overflowed || res.statusCode !== 200) {
                             mainLog(`Check MAJ Linux ignoré (HTTP ${res.statusCode})`);
                             return;
                         }
@@ -691,9 +745,12 @@ const downloadFile = createDownloadFile({
     safeUnlink
 });
 
+const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
+
 ipcMain.handle("download-file-stream", async (event, { url, destPath, expectedSha256, expectedHash, hashAlgo, progressId }) => {
     try {
         const safeDest = assertPathUnderSandbox(destPath);
+        assertRendererPathAllowed(safeDest, 'write');
         await downloadFile(url, safeDest, {
             expectedSha256: typeof expectedSha256 === 'string' ? expectedSha256 : null,
             expectedHash: typeof expectedHash === 'string' ? expectedHash : null,
@@ -735,6 +792,15 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
             return { success: false, error: "Le chemin spécifié n'est pas un fichier régulier." };
         }
         const realSrcPath = await fs.promises.realpath(srcPath);
+        const normalizeComparable = (/** @type {string} */ p) => {
+            const resolved = path.resolve(p);
+            if (process.platform === 'win32') return resolved.toLowerCase();
+            if (process.platform === 'darwin') return resolved.replace(/^\/private(\/(?:tmp|var|etc)(?:\/|$))/, '$1');
+            return resolved;
+        };
+        if (normalizeComparable(realSrcPath) !== normalizeComparable(srcPath)) {
+            return { success: false, error: "Lien symbolique ou jonction détecté dans le chemin source." };
+        }
         const realStat = await fs.promises.lstat(realSrcPath);
         if (realStat.isSymbolicLink() || !realStat.isFile()) {
             return { success: false, error: "Le chemin résolu n'est pas un fichier régulier." };
@@ -768,12 +834,14 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         let destDir = safeDataDir;
         if (subDir) {
             const candidate = path.join(safeDataDir, subDir);
-            assertPathUnderSandbox(candidate); 
+            assertPathUnderSandbox(candidate);
+            assertRendererPathAllowed(candidate, 'write');
             destDir = candidate;
         }
         await fs.promises.mkdir(destDir, { recursive: true });
         const destPath = path.join(destDir, safeName + ext);
-        assertPathUnderSandbox(destPath); 
+        assertPathUnderSandbox(destPath);
+        assertRendererPathAllowed(destPath, 'write');
         await fs.promises.copyFile(realSrcPath, destPath);
 
         return { success: true, destPath };
@@ -802,6 +870,11 @@ ipcMain.on("minimize-window", () => {
     }
 });
 ipcMain.on("quit-app", () => { app.quit(); });
+ipcMain.on("relaunch-app", () => {
+    mainLog("[Main] Redémarrage demandé (relaunch-app).");
+    app.relaunch();
+    app.exit(0);
+});
 ipcMain.on("show-window", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
         if (process.platform === 'linux') mainWindow.setSkipTaskbar(false);
@@ -928,7 +1001,33 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
     }
 });
 
-app.on('before-quit', () => {
+let _quitCleanupDone = false;
+app.on('before-quit', (event) => {
+    try {
+        if (rpc && typeof rpc.disconnect === 'function') rpc.disconnect();
+    } catch (_) {}
+    if (!_quitCleanupDone && typeof context.shutdownHorizon === 'function') {
+        try {
+            const shutdownPromise = context.shutdownHorizon();
+            if (shutdownPromise && typeof shutdownPromise.then === 'function') {
+                _quitCleanupDone = true;
+                event.preventDefault();
+                Promise.race([
+                    shutdownPromise,
+                    new Promise((resolve) => setTimeout(resolve, 3800))
+                ]).catch(() => {}).finally(() => {
+                    try {
+                        if (_logStream) _logStream.end();
+                    } catch (_e) {
+                        const _ = /** @type {any} */ (_e);
+                        if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _);
+                    }
+                    app.quit();
+                });
+                return;
+            }
+        } catch (_) {}
+    }
     try {
         if (_logStream) _logStream.end();
     } catch (_e) {

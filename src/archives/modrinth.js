@@ -43,34 +43,49 @@ export function setup() {
         const indexPath = path.join(tempExtractDir, "modrinth.index.json");
         if (!(await window.existsSafe(indexPath))) throw new Error(t("msg_err_mrpack_invalid", "Ce n'est pas un fichier .mrpack valide."));
         const index = JSON.parse(await fs.promises.readFile(indexPath, "utf8"));
-        inst.version = index.dependencies.minecraft;
-        if (index.dependencies["fabric-loader"]) { inst.loader = "fabric"; inst.loaderVersion = index.dependencies["fabric-loader"]; } 
-        else if (index.dependencies["quilt-loader"]) { inst.loader = "quilt"; inst.loaderVersion = index.dependencies["quilt-loader"]; } 
-        else if (index.dependencies.forge) { inst.loader = "forge"; inst.loaderVersion = index.dependencies.forge; } 
-        else if (index.dependencies.neoforge) { inst.loader = "neoforge"; inst.loaderVersion = index.dependencies.neoforge; }
-        else { inst.loader = "vanilla"; inst.loaderVersion = ""; }
+        const rawMcVer = String(index?.dependencies?.minecraft || "").trim();
+        if (!window.isValidVersionId(rawMcVer)) {
+            throw new Error(t("msg_err_mrpack_invalid", "Version Minecraft invalide dans modrinth.index.json."));
+        }
+        const prevVersion = inst.version, prevLoader = inst.loader, prevLoaderVer = inst.loaderVersion;
+        let nextLoader = "vanilla", nextLoaderVer = "";
+        if (index.dependencies["fabric-loader"]) { nextLoader = "fabric"; nextLoaderVer = String(index.dependencies["fabric-loader"]).trim(); }
+        else if (index.dependencies["quilt-loader"]) { nextLoader = "quilt"; nextLoaderVer = String(index.dependencies["quilt-loader"]).trim(); }
+        else if (index.dependencies.forge) { nextLoader = "forge"; nextLoaderVer = String(index.dependencies.forge).trim(); }
+        else if (index.dependencies.neoforge) { nextLoader = "neoforge"; nextLoaderVer = String(index.dependencies.neoforge).trim(); }
+        if (nextLoaderVer && !window.isValidVersionId(nextLoaderVer)) {
+            throw new Error(t("msg_err_mrpack_invalid", "Version de loader invalide dans modrinth.index.json."));
+        }
+        inst.version = rawMcVer;
+        inst.loader = nextLoader;
+        inst.loaderVersion = nextLoaderVer;
+
         const modsDir = path.join(instDir, "mods");
+        const modsBackupDir = path.join(instDir, `.mods_backup_${Date.now()}`);
+        let hasModsBackup = false;
         if (await window.existsSafe(modsDir)) {
-            try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
+            await fs.promises.rename(modsDir, modsBackupDir);
+            hasModsBackup = true;
         }
         await fs.promises.mkdir(modsDir, { recursive: true });
+        const BLOCKED_OVERRIDE_ROOTS = new Set(["saves", "resourcepacks", "gens", "instance.json", "instance.lock"]);
         const processOverrides = async (/** @type {string} */ folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
             if (await window.existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
                 for (const item of items) {
-                    if (item === "saves" || item === "resourcepacks") continue;
+                    if (BLOCKED_OVERRIDE_ROOTS.has(item.toLowerCase())) continue;
+                    const srcItem = path.join(srcDir, item);
                     const destPath = path.join(instDir, item);
-                    if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
-                    }
-                    await fs.promises.rename(path.join(srcDir, item), destPath);
+                    if (!window.isPathInsideDir(destPath, instDir)) continue;
+                    await fs.promises.cp(srcItem, destPath, { recursive: true, force: true });
                 }
             }
         };
+        try {
         await processOverrides("overrides");
         await processOverrides("client-overrides");
-        const queue = index.files.filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
+        const queue = (Array.isArray(index.files) ? index.files : []).filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
         const totalToDownload = queue.length;
         let downloadedCount = 0;
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
@@ -79,11 +94,12 @@ export function setup() {
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
             while (queue.length > 0) {
                 const modFile = queue.shift();
-                const modPath = path.join(instDir, modFile.path);
+                const relModPath = String(modFile?.path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+                const topSeg = relModPath.split("/")[0]?.toLowerCase() || "";
+                const modPath = path.join(instDir, relModPath);
                 const _resolvedMod = path.resolve(modPath);
                 const _resolvedInst = path.resolve(instDir);
-                const _ps = _resolvedInst.includes('/') ? '/' : '\\';
-                if (!_resolvedMod.startsWith(_resolvedInst + _ps) && _resolvedMod !== _resolvedInst) {
+                if (!relModPath || BLOCKED_OVERRIDE_ROOTS.has(topSeg) || !window.isPathInsideDir(_resolvedMod, _resolvedInst) || _resolvedMod.toLowerCase() === _resolvedInst.toLowerCase()) {
                     failedCount++;
                     downloadedCount++;
                     continue;
@@ -91,29 +107,36 @@ export function setup() {
                 const dir = path.dirname(modPath);
                 if (!(await window.existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
-                    const downloadUrl = Array.isArray(modFile.downloads) ? modFile.downloads[0] : null;
+                    const urls = Array.isArray(modFile.downloads) ? modFile.downloads.filter((/** @type {any} */ u) => typeof u === "string" && /^https:\/\//i.test(u)) : [];
                     const algo = modFile.hashes?.sha512 ? "sha512" : (modFile.hashes?.sha1 ? "sha1" : null);
                     const expectedHash = algo ? String(modFile.hashes[algo]).toLowerCase() : null;
-                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl) || !algo || !expectedHash) {
+                    if (urls.length === 0 || !algo || !expectedHash) {
                         sysLog(`SÉCURITÉ : URL HTTPS ou empreinte SHA manquante pour ${modFile.path}`, true);
                         failedCount++;
                         downloadedCount++;
                         continue;
                     }
-                    const tmpModPath = modPath + ".tmp";
-                    const dlRes = await window.api.invoke("download-file-stream", {
-                        url: downloadUrl,
-                        destPath: tmpModPath,
-                        expectedHash,
-                        hashAlgo: algo
-                    });
-                    if (!dlRes || !dlRes.success) {
-                        sysLog(`SECURITE / DL échec MAJ mrpack (${modFile.path}) : ${dlRes?.error || "erreur inconnue"}`, true);
+                    let dlOk = false;
+                    let lastErr = "erreur inconnue";
+                    for (const candidateUrl of urls) {
+                        const dlRes = await window.api.invoke("download-file-stream", {
+                            url: candidateUrl,
+                            destPath: modPath,
+                            expectedHash,
+                            hashAlgo: algo
+                        });
+                        if (dlRes && dlRes.success) {
+                            dlOk = true;
+                            break;
+                        }
+                        lastErr = dlRes?.error || lastErr;
+                    }
+                    if (!dlOk) {
+                        sysLog(`SECURITE / DL échec MAJ mrpack (${modFile.path}) : ${lastErr}`, true);
                         failedCount++;
                         downloadedCount++;
                         continue;
                     }
-                    await fs.promises.rename(tmpModPath, modPath);
                 } catch (/** @type {any} */ e) {
                     failedCount++;
                     sysLog(`Erreur téléchargement MAJ mrpack (${modFile.path}) : ${e?.message || e}`, true);
@@ -125,6 +148,19 @@ export function setup() {
         await Promise.all(workers);
         if (failedCount > 0) {
             throw new Error(`${failedCount} fichier(s) du modpack ont échoué à la vérification ou au téléchargement.`);
+        }
+        if (hasModsBackup) {
+            await fs.promises.rm(modsBackupDir, { recursive: true, force: true }).catch(() => {});
+        }
+        } catch (updateErr) {
+            inst.version = prevVersion;
+            inst.loader = prevLoader;
+            inst.loaderVersion = prevLoaderVer;
+            if (hasModsBackup && (await window.existsSafe(modsBackupDir))) {
+                await fs.promises.rm(modsDir, { recursive: true, force: true }).catch(() => {});
+                await fs.promises.rename(modsBackupDir, modsDir).catch(() => {});
+            }
+            throw updateErr;
         }
         inst._localConfigUpdatedAt = Date.now();
         try { await fs.promises.writeFile(path.join(instDir, "instance.json"), JSON.stringify(inst, null, 2)); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", e); }
@@ -159,20 +195,28 @@ export function setup() {
         }
         const index = JSON.parse(await fs.promises.readFile(indexPath, "utf8"));
         const packName = index.name || t("lbl_modpack_imported", "Modpack Importé");
-        const mcVer = index.dependencies.minecraft;
+        const mcVer = String(index?.dependencies?.minecraft || "").trim();
+        if (!window.isValidVersionId(mcVer)) {
+            throw new Error(t("msg_err_mrpack_invalid", "Version Minecraft invalide dans modrinth.index.json."));
+        }
         let loaderType = "vanilla";
         let loaderVer = "";
-        if (index.dependencies["fabric-loader"]) { loaderType = "fabric"; loaderVer = index.dependencies["fabric-loader"]; } 
-        else if (index.dependencies["quilt-loader"]) { loaderType = "quilt"; loaderVer = index.dependencies["quilt-loader"]; } 
-        else if (index.dependencies.forge) { loaderType = "forge"; loaderVer = index.dependencies.forge; } 
-        else if (index.dependencies.neoforge) { loaderType = "neoforge"; loaderVer = index.dependencies.neoforge; }
+        if (index.dependencies["fabric-loader"]) { loaderType = "fabric"; loaderVer = String(index.dependencies["fabric-loader"]).trim(); } 
+        else if (index.dependencies["quilt-loader"]) { loaderType = "quilt"; loaderVer = String(index.dependencies["quilt-loader"]).trim(); } 
+        else if (index.dependencies.forge) { loaderType = "forge"; loaderVer = String(index.dependencies.forge).trim(); } 
+        else if (index.dependencies.neoforge) { loaderType = "neoforge"; loaderVer = String(index.dependencies.neoforge).trim(); }
+        if (loaderVer && !window.isValidVersionId(loaderVer)) {
+            throw new Error(t("msg_err_mrpack_invalid", "Version de loader invalide dans modrinth.index.json."));
+        }
         let finalName = packName;
+        let modsBackupDir = null;
         if (updateTargetInstIdx !== null) {
             finalName = store.allInstances[updateTargetInstIdx].name;
             const targetDir = path.join(store.instancesRoot, window.safeDir(finalName));
             const modsDir = path.join(targetDir, "mods");
             if (await window.existsSafe(modsDir)) {
-                try { await fs.promises.rm(modsDir, { recursive: true, force: true }); } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
+                modsBackupDir = path.join(targetDir, `.mods_backup_${Date.now()}`);
+                await fs.promises.rename(modsDir, modsBackupDir);
             }
         } else {
             finalName = window.nextAvailableInstanceName(packName);
@@ -197,69 +241,75 @@ export function setup() {
         if (versionNumber) newInst.modpackVersion = versionNumber;
         const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
         if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
+        const BLOCKED_OVERRIDE_ROOTS = new Set(["saves", "resourcepacks", "gens", "instance.json", "instance.lock"]);
         const processOverrides = async (/** @type {string} */ folderName) => {
             const srcDir = path.join(tempExtractDir, folderName);
             if (await window.existsSafe(srcDir)) {
                 const items = await fs.promises.readdir(srcDir);
                 for (const item of items) {
-                    if (item === "saves" || item === "resourcepacks") continue;
+                    if (BLOCKED_OVERRIDE_ROOTS.has(item.toLowerCase())) continue;
+                    const srcItem = path.join(srcDir, item);
                     const destPath = path.join(instDir, item);
-                    if (await window.existsSafe(destPath)) {
-                        try { await fs.promises.rm(destPath, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
-                    }
-                    await fs.promises.rename(path.join(srcDir, item), destPath);
+                    if (!window.isPathInsideDir(destPath, instDir)) continue;
+                    await fs.promises.cp(srcItem, destPath, { recursive: true, force: true });
                 }
             }
         };
         await processOverrides("overrides");
         await processOverrides("client-overrides");
-        const queue = index.files.filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
+        const queue = (Array.isArray(index.files) ? index.files : []).filter((/** @type {any} */ f) => !(f.env && f.env.client === "unsupported"));
         const totalToDownload = queue.length;
         let downloadedCount = 0;
+        let failedCount = 0;
         window.showLoading(`${t("msg_dl_mods_pack", "Téléchargement des mods")} (0/${totalToDownload})...`, 0);
         const concurrencyLimit = 10; 
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
             while (queue.length > 0) {
                 const modFile = queue.shift();
-                const modPath = path.join(instDir, modFile.path);
+                const relModPath = String(modFile?.path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+                const topSeg = relModPath.split("/")[0]?.toLowerCase() || "";
+                const modPath = path.join(instDir, relModPath);
                 const _resolvedMod = path.resolve(modPath);
                 const _resolvedInst = path.resolve(instDir);
-                const _ps = _resolvedInst.includes('/') ? '/' : '\\';
-                if (!_resolvedMod.startsWith(_resolvedInst + _ps) && _resolvedMod !== _resolvedInst) {
+                if (!relModPath || BLOCKED_OVERRIDE_ROOTS.has(topSeg) || !window.isPathInsideDir(_resolvedMod, _resolvedInst) || _resolvedMod.toLowerCase() === _resolvedInst.toLowerCase()) {
                     sysLog(`SECURITE : Path traversal bloque dans mrpack : ${modFile.path}`, true);
+                    failedCount++;
                     downloadedCount++;
                     continue;
                 }
                 const dir = path.dirname(modPath);
                 if (!(await window.existsSafe(dir))) await fs.promises.mkdir(dir, { recursive: true });
                 try {
-                    const downloadUrl = Array.isArray(modFile.downloads) ? modFile.downloads[0] : null;
+                    const urls = Array.isArray(modFile.downloads) ? modFile.downloads.filter((/** @type {any} */ u) => typeof u === "string" && /^https:\/\//i.test(u)) : [];
                     const algo = modFile.hashes?.sha512 ? "sha512" : (modFile.hashes?.sha1 ? "sha1" : null);
                     const expectedHash = algo ? String(modFile.hashes[algo]).toLowerCase() : null;
-                    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl) || !algo || !expectedHash) {
+                    if (urls.length === 0 || !algo || !expectedHash) {
                         sysLog(`SÉCURITÉ : URL HTTPS ou empreinte SHA manquante pour ${modFile.path}`, true);
+                        failedCount++;
                         downloadedCount++;
                         continue;
                     }
-                    const tmpModPath = modPath + ".tmp";
-                    try {
+                    let dlOk = false;
+                    let lastErr = "erreur inconnue";
+                    for (const candidateUrl of urls) {
                         const dlRes = await window.api.invoke("download-file-stream", {
-                            url: downloadUrl,
-                            destPath: tmpModPath,
+                            url: candidateUrl,
+                            destPath: modPath,
                             expectedHash,
                             hashAlgo: algo
                         });
                         if (dlRes && dlRes.success) {
-                            await fs.promises.rename(tmpModPath, modPath);
-                        } else {
-                            try { if (await window.existsSafe(tmpModPath)) await fs.promises.unlink(tmpModPath); } catch (_) {}
-                            sysLog(`SECURITE / DL échec import mrpack (${modFile.path}) : ${dlRes?.error || "erreur inconnue"}`, true);
+                            dlOk = true;
+                            break;
                         }
-                    } catch (dlErr) {
-                        try { if (await window.existsSafe(tmpModPath)) await fs.promises.unlink(tmpModPath); } catch (_) {}
-                        throw dlErr;
+                        lastErr = dlRes?.error || lastErr;
+                    }
+                    if (!dlOk) {
+                        failedCount++;
+                        sysLog(`SECURITE / DL échec import mrpack (${modFile.path}) : ${lastErr}`, true);
                     }
                 } catch (/** @type {any} */ e) {
+                    failedCount++;
                     sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);
                 }
                 downloadedCount++;
@@ -267,6 +317,15 @@ export function setup() {
             }
         });
         await Promise.all(workers);
+        if (failedCount > 0 && updateTargetInstIdx !== null && modsBackupDir && (await window.existsSafe(modsBackupDir))) {
+            const modsDir = path.join(instDir, "mods");
+            await fs.promises.rm(modsDir, { recursive: true, force: true }).catch(() => {});
+            await fs.promises.rename(modsBackupDir, modsDir).catch(() => {});
+            throw new Error(`${failedCount} fichier(s) du modpack ont échoué au téléchargement.`);
+        }
+        if (modsBackupDir && (await window.existsSafe(modsBackupDir))) {
+            await fs.promises.rm(modsBackupDir, { recursive: true, force: true }).catch(() => {});
+        }
         const defaultOpt = path.join(store.dataDir, "default_options.txt");
         const instOpt = path.join(instDir, "options.txt");
         if (await window.existsSafe(defaultOpt) && !(await window.existsSafe(instOpt))) {
@@ -286,9 +345,11 @@ export function setup() {
             window.showToast(t("msg_mrpack_success", "Modpack installé avec succès !"), "success");
         }
         if (window.checkAchievement) window.checkAchievement("modder");
+        return { success: failedCount === 0, failedCount };
       } catch (/** @type {any} */ err) {
         window.showToast(t("msg_err_mrpack", "Erreur Modpack : ") + err.message, "error");
         console.error(err);
+        return { success: false, error: err?.message || String(err) };
       } finally {
         try { if (await window.existsSafe(tempExtractDir)) await fs.promises.rm(tempExtractDir, { recursive: true, force: true }); } catch (/** @type {any} */ _) { if (_ && _.code !== 'ENOENT') console.warn("Ignored error in modrinth.js:", _); }
         window.hideLoading();

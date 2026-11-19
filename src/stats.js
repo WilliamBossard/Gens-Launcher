@@ -67,7 +67,15 @@ export function setupStats() {
         return { files: filesToDelete, size: totalSize };
     }
 
+    /** @type {{ data: { kills: number, walkCm: number, jumps: number }, ts: number, instCount: number } | null} */
+    let _inGameStatsCache = null;
+    const IN_GAME_STATS_CACHE_TTL_MS = 60000;
+
     async function getInGameStatsAsync() {
+        const now = Date.now();
+        if (_inGameStatsCache && (now - _inGameStatsCache.ts) < IN_GAME_STATS_CACHE_TTL_MS && _inGameStatsCache.instCount === store.allInstances.length) {
+            return _inGameStatsCache.data;
+        }
         let totalKills = 0, totalWalkCm = 0, totalJumps = 0;
         for (const inst of store.allInstances) {
             try {
@@ -109,7 +117,9 @@ export function setupStats() {
                 }
             } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in stats.js:", e); }
         }
-        return { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
+        const result = { kills: totalKills, walkCm: totalWalkCm, jumps: totalJumps };
+        _inGameStatsCache = { data: result, ts: Date.now(), instCount: store.allInstances.length };
+        return result;
     }
 
     /**
@@ -162,11 +172,11 @@ export function setupStats() {
                     const safeName = t(adv.nameKey, "???");
                     const safeDesc = t(adv.descKey, "???");
                     advHtml += `
-                    <div class="adv-card ${isUnlocked ? '' : 'locked'}" style="border-color: ${isUnlocked ? 'var(--accent)' : 'var(--border)'}; margin-bottom: 5px;">
-                        <img src="${adv.icon}" style="width: 32px; height: 32px; image-rendering: pixelated; flex-shrink: 0; filter: ${isUnlocked ? 'none' : 'grayscale(100%) opacity(0.5)'};">
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="font-weight: bold; color: ${isUnlocked ? '#FFFF55' : '#888'}; font-size: 0.9rem;">${safeName}</span>
-                            <span style="font-size: 0.75rem; color: ${isUnlocked ? '#aaa' : '#555'};">${safeDesc}</span>
+                    <div class="adv-card ${isUnlocked ? 'unlocked' : 'locked'}">
+                        <img src="${adv.icon}" class="adv-icon">
+                        <div class="adv-body">
+                            <span class="adv-title">${safeName}</span>
+                            <span class="adv-desc">${safeDesc}</span>
                         </div>
                     </div>`;
                 });
@@ -174,6 +184,7 @@ export function setupStats() {
             }
         };
 
+        renderAchievements();
         const diskEl = document.getElementById("dashboard-disk");
         const cacheEl = document.getElementById("dashboard-cache-size");
         const DISK_CACHE_TTL = 5 * 60 * 1000;
@@ -251,51 +262,63 @@ export function setupStats() {
                     const ms = totals[d]; const perc = Math.round((ms / maxMs) * 100);
                     const label = displayDays[index]; const hh = Math.floor(ms / 3600000); const mm = Math.floor((ms % 3600000) / 60000);
                     const title = ms > 0 ? `${hh}h ${mm}m` : "0m";
-                    return `<div title="${label} : ${title}" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; cursor:default; height:100%;">
-                        <div style="width:100%; background:var(--accent); border-radius:3px 3px 0 0; opacity:${ms > 0 ? 0.85 : 0.15}; height:${Math.max(perc, ms > 0 ? 4 : 2)}%; transition:height 0.3s;"></div>
-                        <div style="font-size:0.6rem; color:#aaa; white-space:nowrap;">${label}</div>
+                    const barHeight = Math.max(perc, ms > 0 ? 4 : 2);
+                    return `<div title="${label} : ${title}" class="stats-bar-col">
+                        <div class="stats-bar-fill ${ms > 0 ? 'is-active' : 'is-empty'}" data-bar-height="${barHeight}"></div>
+                        <div class="stats-bar-label">${label}</div>
                     </div>`;
                 }).join("");
+                graphDiv.querySelectorAll('[data-bar-height]').forEach((bar) => {
+                    const htmlBar = /** @type {HTMLElement} */ (bar);
+                    htmlBar.style.height = `${htmlBar.dataset.barHeight || 2}%`;
+                });
             }
         } catch(e) { console.error(e); }
         let igStats = { kills: 0, walkCm: 0, jumps: 0 };
-        try {
-            igStats = await getInGameStatsAsync();
+        const cacheStale = !store._diskSizeCache || (Date.now() - store._diskSizeCache.ts) >= DISK_CACHE_TTL;
+        const [igRes, cacheRes, diskRes] = await Promise.allSettled([
+            getInGameStatsAsync(),
+            getCacheInfoAsync(),
+            cacheStale
+                ? (async () => {
+                    const folderRes = await window.api.invoke("get-folder-size", store.dataDir).catch(() => null);
+                    if (folderRes && folderRes.success && typeof folderRes.bytes === "number") {
+                        return folderRes.bytes;
+                    }
+                    return await getFolderSizeAsync(store.dataDir);
+                })()
+                : Promise.resolve(null)
+        ]);
+        if (igRes.status === "fulfilled" && igRes.value) {
+            igStats = igRes.value;
             const statMobs = document.getElementById("stat-mobs");
             if (statMobs) statMobs.innerText = igStats.kills.toLocaleString();
             const statWalk = document.getElementById("stat-walk");
-            if (statWalk) statWalk.innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km"); 
+            if (statWalk) statWalk.innerText = (igStats.walkCm / 100000).toFixed(1) + " " + t("lbl_km", "km");
             const statJumps = document.getElementById("stat-jumps");
             if (statJumps) statJumps.innerText = igStats.jumps.toLocaleString();
-        } catch (e) { console.error(e); }
-        try {
-            const cacheInfo = await getCacheInfoAsync();
-            const cacheMB = (cacheInfo.size / (1024 ** 2)).toFixed(1);
+        } else if (igRes.status === "rejected") {
+            console.error(igRes.reason);
+        }
+        if (cacheRes.status === "fulfilled" && cacheRes.value) {
+            const cacheMB = (cacheRes.value.size / (1024 ** 2)).toFixed(1);
             if (cacheEl) cacheEl.innerText = `${cacheMB} Mo`;
-        } catch (e) { 
-            console.error(e); 
+        } else if (cacheRes.status === "rejected") {
+            console.error(cacheRes.reason);
             if (cacheEl) cacheEl.innerText = t("msg_err_ping", "Erreur");
         }
-        try {
-            const cacheStale = !store._diskSizeCache || (Date.now() - store._diskSizeCache.ts) >= DISK_CACHE_TTL;
-            if (cacheStale) {
-                let totalBytes = 0;
-                const folderRes = await window.api.invoke("get-folder-size", store.dataDir).catch(() => null);
-                if (folderRes && folderRes.success && typeof folderRes.bytes === "number") {
-                    totalBytes = folderRes.bytes;
-                } else {
-                    totalBytes = await getFolderSizeAsync(store.dataDir);
-                }
-                const totalGB = (totalBytes / (1024 ** 3)).toFixed(2);
+        if (cacheStale) {
+            if (diskRes.status === "fulfilled" && typeof diskRes.value === "number") {
+                const totalGB = (diskRes.value / (1024 ** 3)).toFixed(2);
                 store._diskSizeCache = { value: totalGB, ts: Date.now() };
                 const modal = document.getElementById("modal-stats");
                 if (diskEl && modal && modal.style.display === "flex") {
                     diskEl.innerText = `${totalGB} ${t("lbl_gb", "Go")}`;
                 }
+            } else if (diskRes.status === "rejected") {
+                console.error(diskRes.reason);
+                if (diskEl) diskEl.innerText = t("msg_err_ping", "Erreur");
             }
-        } catch (e) { 
-            console.error(e); 
-            if (diskEl) diskEl.innerText = t("msg_err_ping", "Erreur");
         }
         if (window.checkAchievement) {
             if (totalTimeMs >= 360000000) window.checkAchievement("veteran");

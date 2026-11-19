@@ -56,24 +56,28 @@ export function setup() {
 
         /** @type {{ f: string, fullPath: string, fileKey: string }[]} */
         const pendingZipReads = [];
-        for (const f of files) {
-            try {
-                const fullPath = path.join(modsPath, f);
-                const stat = await window.api.fs.promises.stat(fullPath);
-                const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
-                if (isDir) continue;
+        const STAT_BATCH_SIZE = 16;
+        for (let i = 0; i < files.length; i += STAT_BATCH_SIZE) {
+            const statChunk = files.slice(i, i + STAT_BATCH_SIZE);
+            await Promise.all(statChunk.map(async (f) => {
+                try {
+                    const fullPath = path.join(modsPath, f);
+                    const stat = await window.api.fs.promises.stat(fullPath);
+                    const isDir = typeof stat.isDirectory === 'function' ? stat.isDirectory() : Boolean(stat.isDirectory);
+                    if (isDir) return;
 
-                const time = stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : 0);
-                const fileKey = "v2_" + f + "_" + stat.size + "_" + time;
+                    const time = stat.mtimeMs || (stat.mtime ? new Date(stat.mtime).getTime() : 0);
+                    const fileKey = "v2_" + f + "_" + stat.size + "_" + time;
 
-                if (modCacheObj && modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
-                    const cached = modCacheObj[fullPath];
-                    if (cached.provided) cached.provided.forEach((/** @type {string} */ p) => provided.add(String(p).toLowerCase()));
-                    if (cached.reqs) reqs[f] = cached.reqs;
-                    continue;
-                }
-                pendingZipReads.push({ f, fullPath, fileKey });
-            } catch (e) {}
+                    if (modCacheObj && modCacheObj[fullPath] && modCacheObj[fullPath].key === fileKey) {
+                        const cached = modCacheObj[fullPath];
+                        if (cached.provided) cached.provided.forEach((/** @type {string} */ p) => provided.add(String(p).toLowerCase()));
+                        if (cached.reqs) reqs[f] = cached.reqs;
+                        return;
+                    }
+                    pendingZipReads.push({ f, fullPath, fileKey });
+                } catch (e) {}
+            }));
         }
 
         const BATCH_SIZE = 8;
@@ -163,18 +167,18 @@ export function setup() {
                 const isEnabled = !f.endsWith(".disabled");
                 const displayName = window.escapeHTML(f.replace(".disabled", ""));
                 const color = isEnabled ? "var(--text-light)" : "#666";
-                const decoration = isEnabled ? "none" : "line-through";
+                const stateClass = isEnabled ? "item-enabled" : "item-disabled";
                 let warningHtml = "";
                 if (warnings[f] && isEnabled) {
-                    warningHtml = `<div style="font-size:0.7rem; color:#f48a21; margin-top:2px;">⚠ ${t("msg_warn_deps", "Dépendance manquante potentielle : ")} ${window.escapeHTML(warnings[f].join(", "))}</div>`;
+                    warningHtml = `<div class="mod-dep-warning">⚠ ${t("msg_warn_deps", "Dépendance manquante potentielle : ")} ${window.escapeHTML(warnings[f].join(", "))}</div>`;
                 }
                 htmlBuilder += `
-                <div class="mod-item" data-mod-file="${window.escapeHTML(f)}" data-search-text="${window.escapeHTML(f.toLowerCase())}" style="flex-direction: column; align-items: flex-start;">
-                    <div style="display:flex; width: 100%; justify-content: space-between; align-items: center;">
-                        <span style="color: ${color}; text-decoration: ${decoration}; flex-grow:1; word-break: break-all; padding-right: 10px;">${displayName}</span>
-                        <div style="display:flex; gap:8px; align-items: center;">
+                <div class="mod-item mod-item-col" data-mod-file="${window.escapeHTML(f)}" data-search-text="${window.escapeHTML(f.toLowerCase())}">
+                    <div class="mod-item-row">
+                        <span class="item-name-col ${stateClass}">${displayName}</span>
+                        <div class="mod-item-actions">
                             <input type="checkbox" ${isEnabled ? "checked" : ""} title="${t("lbl_toggle_enable", "Activer/Désactiver")}">
-                            <button class="btn-secondary mod-delete-btn" style="color:#f87171; border-color:#f87171; padding:2px 6px; font-size: 0.7rem;" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
+                            <button class="btn-secondary mod-delete-btn item-delete-btn" title="${t("lbl_delete_permanent", "Supprimer définitivement")}">X</button>
                         </div>
                     </div>
                     ${warningHtml}
@@ -196,7 +200,7 @@ export function setup() {
                 }
                 if (window.filterLocalMods) window.filterLocalMods();
             } else {
-                if (modsListDiv) modsListDiv.innerHTML = `<div style='padding:15px; color:#888; text-align:center;'>${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
+                if (modsListDiv) modsListDiv.innerHTML = `<div class="u-s224">${t("msg_no_mods", "Aucun mod local installé.")}</div>`;
             }
             if (modsListDiv) modsListDiv.scrollTop = savedScroll;
         }

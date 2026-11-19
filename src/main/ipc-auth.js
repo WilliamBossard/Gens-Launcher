@@ -1,6 +1,6 @@
 // @ts-check
 
-const { existsSafe } = require('./fs-utils');
+const { existsSafe, renameWithRetry } = require('./fs-utils');
 
 /**
  * @param {import('../types/main').MainContext} context
@@ -52,13 +52,19 @@ module.exports = function setupAuthHandlers(context) {
                 const encryptedToken = await encryptText(response.msaRefreshToken);
                 const destFile = path.join(cacheDir, sessionLabel + '.json');
                 const tmpFile = `${destFile}.tmp.${process.pid}.${Date.now()}`;
-                await fs.promises.writeFile(tmpFile, JSON.stringify({ refreshToken: encryptedToken }), 'utf8');
-                await fs.promises.rename(tmpFile, destFile);
+                try {
+                    await fs.promises.writeFile(tmpFile, JSON.stringify({ refreshToken: encryptedToken }), 'utf8');
+                    await renameWithRetry(tmpFile, destFile);
+                } finally {
+                    try { await fs.promises.unlink(tmpFile); } catch (_) {}
+                }
                 response.msaRefreshToken = null;
             }
 
+            const expiresInSec = Number(/** @type {any} */ (response).mcExpiresIn) > 0 ? Number(/** @type {any} */ (response).mcExpiresIn) : 86400;
+            const expiresAt = Date.now() + expiresInSec * 1000;
             mainLog(`Authentification réussie : ${profile.name}`);
-            return { success: true, auth: { access_token: response.mcToken, client_token: crypto.randomUUID(), uuid: profile.id, name: profile.name, user_properties: {}, meta: { type: "msa", demo: false, msaCacheKey: sessionLabel } } };
+            return { success: true, auth: { access_token: response.mcToken, client_token: crypto.randomUUID(), uuid: profile.id, name: profile.name, user_properties: {}, meta: { type: "msa", demo: false, msaCacheKey: sessionLabel, expiresAt } } };
         } catch (err) {
             /** @type {any} */
             const anyErr = err;
@@ -92,10 +98,8 @@ module.exports = function setupAuthHandlers(context) {
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 20000);
-            /** @type {Response} */
-            let res;
             try {
-                res = await fetch("https://api.minecraftservices.com/minecraft/profile/skins", {
+                const res = await fetch("https://api.minecraftservices.com/minecraft/profile/skins", {
                     method: "POST",
                     headers: {
                         "Authorization": `Bearer ${accessToken}`
@@ -103,15 +107,14 @@ module.exports = function setupAuthHandlers(context) {
                     body: formData,
                     signal: controller.signal
                 });
+                if (res.ok) {
+                    return { success: true };
+                } else {
+                    const errText = await res.text();
+                    return { success: false, error: `Erreur HTTP ${res.status}: ${errText}` };
+                }
             } finally {
                 clearTimeout(timeoutId);
-            }
-
-            if (res.ok) {
-                return { success: true };
-            } else {
-                const errText = await res.text();
-                return { success: false, error: `Erreur HTTP ${res.status}: ${errText}` };
             }
         } catch (e) {
             const error = e instanceof Error ? e.message : String(e);
@@ -175,8 +178,10 @@ module.exports = function setupAuthHandlers(context) {
             }
             decryptedToken = null;
 
+            const expiresInSec = Number(/** @type {any} */ (response).mcExpiresIn) > 0 ? Number(/** @type {any} */ (response).mcExpiresIn) : 86400;
+            const expiresAt = Date.now() + expiresInSec * 1000;
             mainLog(`Token Microsoft rafraîchi pour : ${sessionLabel}`);
-            return { success: true, access_token: response.mcToken };
+            return { success: true, access_token: response.mcToken, expiresAt };
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             mainLog("Erreur refresh token (Reconnexion requise) : " + msg);
@@ -284,9 +289,31 @@ module.exports = function setupAuthHandlers(context) {
                 signal: AbortSignal.timeout(15000)
             });
             if (!skinRes.ok) throw new Error("Failed to download skin image");
-            
-            const buffer = await skinRes.arrayBuffer();
-            return { success: true, data: Buffer.from(buffer).toString('base64') };
+            const MAX_SKIN_BYTES = 2 * 1024 * 1024;
+            const contentLen = parseInt(skinRes.headers.get('content-length') || '0', 10);
+            if (contentLen > MAX_SKIN_BYTES) {
+                throw new Error("Image skin trop volumineuse (max 2 Mo)");
+            }
+            if (!skinRes.body) {
+                throw new Error("Réponse skin vide");
+            }
+            const reader = skinRes.body.getReader();
+            /** @type {Uint8Array[]} */
+            const chunks = [];
+            let received = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value) {
+                    received += value.byteLength;
+                    if (received > MAX_SKIN_BYTES) {
+                        try { await reader.cancel(); } catch (_) {}
+                        throw new Error("Image skin trop volumineuse (max 2 Mo)");
+                    }
+                    chunks.push(value);
+                }
+            }
+            return { success: true, data: Buffer.concat(chunks, received).toString('base64') };
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             return { success: false, error };

@@ -112,7 +112,7 @@ class MCLCore extends EventEmitter {
       if (parsedVer.major === 1 && parsedVer.minor === 18 && parsedVer.patch === 0) jvm.push('-Dlog4j2.formatMsgNoLookups=true')
       if (parsedVer.major === 1 && parsedVer.minor === 17) jvm.push('-Dlog4j2.formatMsgNoLookups=true')
       if (parsedVer.major === 1 && parsedVer.minor < 17) {
-        if (!jvm.find(arg => arg.includes('Dlog4j.configurationFile'))) {
+        if (!this.options.overrides.logj4ConfigurationFile) {
           const configPath = path.resolve(this.options.overrides.cwd || this.options.root)
           const xmlName = parsedVer.minor >= 12 ? 'log4j2_112-116.xml' : (parsedVer.minor >= 7 ? 'log4j2_17-111.xml' : null);
           if (xmlName) {
@@ -239,6 +239,7 @@ class MCLCore extends EventEmitter {
    * @returns {import('child_process').ChildProcess}
    */
   startMinecraft(launchArguments) {
+    if (this.aborted) throw new Error("Launch aborted by user");
     const isDetached = this.options.overrides?.detached !== undefined
       ? this.options.overrides.detached !== false
       : (this.options.spawnOptions?.detached !== false);
@@ -253,9 +254,24 @@ class MCLCore extends EventEmitter {
       /** @type {any} */ (minecraft)._spawnError = err
       this.emit('debug', `[Gens-Core]: Failed to spawn Java process: ${err.message}`)
     })
-    minecraft.stdout?.on('data', (data) => this.emit('data', data.toString('utf-8')))
-    minecraft.stderr?.on('data', (data) => this.emit('data', data.toString('utf-8')))
-    minecraft.on('close', (code) => this.emit('close', code))
+    const { StringDecoder } = require('string_decoder');
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    minecraft.stdout?.on('data', (data) => {
+      const chunk = stdoutDecoder.write(data);
+      if (chunk) this.emit('data', chunk);
+    });
+    minecraft.stderr?.on('data', (data) => {
+      const chunk = stderrDecoder.write(data);
+      if (chunk) this.emit('data', chunk);
+    });
+    minecraft.on('close', (code) => {
+      const remOut = stdoutDecoder.end();
+      if (remOut) this.emit('data', remOut);
+      const remErr = stderrDecoder.end();
+      if (remErr) this.emit('data', remErr);
+      this.emit('close', code);
+    });
     if (isDetached) minecraft.unref();
     return minecraft
   }

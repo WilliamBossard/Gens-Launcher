@@ -78,7 +78,8 @@ export async function setupLang() {
 
     window.loadLanguage = async (/** @type {string} */ code) => {
         await syncReadyPromise;
-        const p = path.join(store.langDir, `${code}.json`);
+        const safeCode = typeof code === "string" && /^[a-zA-Z0-9_-]{1,32}$/.test(code.trim()) ? code.trim() : "fr";
+        const p = path.join(store.langDir, `${safeCode}.json`);
         if (await window.existsSafe(p)) {
             try {
                 const content = await fs.promises.readFile(p, "utf8");

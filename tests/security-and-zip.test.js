@@ -112,7 +112,8 @@ test('parseMotdComponent - échappement XSS et validation des couleurs', () => {
 
     assert.ok(html1.includes('&lt;3'), 'Les chevrons littéraux (<3) doivent être préservés par échappement');
 
-    assert.ok(html1.includes('<span style="color: #5f5;">'), 'Les codes couleur § doivent toujours fonctionner');
+    assert.ok(html1.includes('<span class="mc-c-green">'), 'Les codes couleur § doivent utiliser des classes CSS strictes sans style inline');
+    assert.ok(!html1.includes('style='), 'Aucun attribut style inline ne doit être émis (CSP strict)');
 
     const maliciousComp = {
 
@@ -138,9 +139,11 @@ test('parseMotdComponent - échappement XSS et validation des couleurs', () => {
 
     assert.ok(!html2.includes('<script>'), 'Les balises <script> dans extra doivent être échappées');
 
-    assert.ok(html2.includes('color: #FFAA00;'), 'Les couleurs nommées Minecraft valides doivent être appliquées');
+    assert.ok(!html2.includes('style='), 'Aucun attribut style inline ne doit être émis (CSP strict)');
 
-    assert.ok(html2.includes('color: #12abef;'), 'Les couleurs hex valides doivent être appliquées');
+    assert.ok(html2.includes('class="mc-c-gold"'), 'Les couleurs nommées Minecraft valides doivent utiliser une classe mc-c-*');
+
+    assert.ok(html2.includes('data-mc-rgb="#12abef"'), 'Les couleurs hex valides doivent utiliser data-mc-rgb');
 
 });
 

@@ -880,5 +880,157 @@ test('ipc-game blocks -jar, -p, --module-path, flight recording and version trav
     }
 });
 
+test('Audit Phase 1-4: ipc-fs renderer denylist blocks secrets & java/ writes, plus mixed-slash UNC', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens-ipc-deny-'));
+    try {
+        const gensDataDir = path.join(tmpRoot, 'GensLauncher');
+        const authDir = path.join(gensDataDir, 'Horizon', 'auth');
+        const javaDir = path.join(gensDataDir, 'java', 'jdk-21', 'bin');
+        await fs.promises.mkdir(authDir, { recursive: true });
+        await fs.promises.mkdir(javaDir, { recursive: true });
+        const secretKey = path.join(gensDataDir, '.secret_key');
+        const tokenFile = path.join(authDir, 'token_google.json');
+        const javaBin = path.join(javaDir, 'java.exe');
+        await fs.promises.writeFile(secretKey, 'supersecret', 'utf8');
+        await fs.promises.writeFile(tokenFile, '{"access_token":"x"}', 'utf8');
+        await fs.promises.writeFile(javaBin, 'MZ', 'utf8');
+
+        const { createSandboxValidator, createSandboxValidatorAsync, createRendererPathGuard } = require('../src/main/fs-utils');
+        const registerFsIpc = require('../src/main/ipc-fs');
+        const allowedRoots = () => [gensDataDir];
+        const handlers = new Map();
+        const ipcMainMock = { handle: (ch, fn) => handlers.set(ch, fn) };
+        registerFsIpc({
+            ipcMain: ipcMainMock,
+            safeDataDir: gensDataDir,
+            app: { getPath: () => tmpRoot, getAppPath: () => tmpRoot },
+            fs,
+            path,
+            os,
+            assertPathUnderSandbox: createSandboxValidator(gensDataDir),
+        });
+
+        const readSecretRes = await handlers.get('fs:readFile')({}, secretKey, 'utf8');
+        assert.strictEqual(readSecretRes.ok, false);
+        assert.match(String(readSecretRes.error?.message || ''), /refusé|interdit/i);
+
+        const readTokenRes = await handlers.get('fs:readFile')({}, tokenFile, 'utf8');
+        assert.strictEqual(readTokenRes.ok, false);
+        assert.match(String(readTokenRes.error?.message || ''), /refusé|interdit/i);
+
+        const writeJavaRes = await handlers.get('fs:writeFile')({}, javaBin, 'evil');
+        assert.strictEqual(writeJavaRes.ok, false);
+        assert.match(String(writeJavaRes.error?.message || ''), /refusé|interdit/i);
+
+        const rmJavaRes = await handlers.get('fs:rm')({}, javaDir, { recursive: true });
+        assert.strictEqual(rmJavaRes.ok, false);
+        assert.match(String(rmJavaRes.error?.message || ''), /refusé|interdit/i);
+
+        const uncReadRes = await handlers.get('fs:readFile')({}, '\\/attacker-smb/share/file.txt', 'utf8');
+        assert.strictEqual(uncReadRes.ok, false);
+        assert.match(String(uncReadRes.error?.message || ''), /UNC|refusé|interdit/i);
+
+        // Reading/statting java.exe remains allowed for detection
+        const existsJavaRes = await handlers.get('fs:exists')({}, javaBin);
+        assert.strictEqual(existsJavaRes.ok, true);
+        assert.strictEqual(existsJavaRes.data, true);
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+test('Audit Phase 1-4: download-utils blocks multi-tenant CDNs and requires hash on GitHub/GitLab', async () => {
+    const { isAllowedDomain, createDownloadFile } = require('../src/main/download-utils');
+    assert.strictEqual(isAllowedDomain('bucket.s3.amazonaws.com'), false);
+    assert.strictEqual(isAllowedDomain('d1234.cloudfront.net'), false);
+    assert.strictEqual(isAllowedDomain('storage.googleapis.com'), false);
+    assert.strictEqual(isAllowedDomain('github.com'), true);
+    assert.strictEqual(isAllowedDomain('gitlab.com'), true);
+
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens-dl-hash-'));
+    try {
+        const downloadFile = createDownloadFile({
+            safeUnlink: async (p) => { try { await fs.promises.unlink(p); } catch (_) {} },
+            renameWithRetry: async (a, b) => fs.promises.rename(a, b),
+            mainLog: () => {},
+            getMainWindow: () => null,
+        });
+        const tmpFile = path.join(tmpDir, 'a.jar');
+        await assert.rejects(
+            () => downloadFile('https://github.com/org/repo/releases/download/v1/a.jar', tmpFile, null, null),
+            /empreinte|hash/i
+        );
+    } finally {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+});
+
+test('Audit Phase 1-4: jvm-utils supports legacy --server/--port for MC < 1.20', async () => {
+    const jvmUtils = require('../src/gens-core/components/jvm-utils');
+    const args = await jvmUtils.buildLaunchOptions({
+        version: { id: '1.19.4', arguments: { game: ['--username', '${auth_player_name}'] } },
+        modification: null,
+        options: {
+            authorization: { name: 'Steve', uuid: '0', access_token: 'tok', meta: { type: 'msa' } },
+            version: { number: '1.19.4', type: 'release' },
+            root: '/tmp/mc',
+            server: { host: 'play.example.org', port: 25570 },
+            overrides: { gameDirectory: '/tmp/mc', assetRoot: '/tmp/mc/assets' },
+        },
+        client: { emit: () => {} },
+        isLegacy: false,
+        assetIndexName: '1.19',
+        quickPlayArgs: null,
+    });
+    const serverIdx = args.indexOf('--server');
+    const portIdx = args.indexOf('--port');
+    assert.ok(serverIdx >= 0 && args[serverIdx + 1] === 'play.example.org');
+    assert.ok(portIdx >= 0 && args[portIdx + 1] === '25570');
+});
+
+test('Audit Phase 4: Strict CSP without unsafe-inline and zero inline style attributes across UI', () => {
+    const rootDir = path.resolve(__dirname, '..');
+    const indexHtml = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf8');
+    const mainJs = fs.readFileSync(path.join(rootDir, 'main.js'), 'utf8');
+
+    assert.ok(!indexHtml.includes("'unsafe-inline'"), "index.html CSP ne doit plus contenir 'unsafe-inline'");
+    assert.ok(!mainJs.includes("'unsafe-inline'"), "main.js CSP ne doit plus contenir 'unsafe-inline'");
+    assert.ok(indexHtml.includes("style-src 'self'"), "index.html doit imposer style-src 'self'");
+    assert.ok(indexHtml.includes("frame-src 'none'"), "index.html doit imposer frame-src 'none'");
+    assert.ok(indexHtml.includes("child-src 'none'"), "index.html doit imposer child-src 'none'");
+    assert.ok(indexHtml.includes("worker-src 'self'"), "index.html doit imposer worker-src 'self'");
+    assert.ok(mainJs.includes("frame-ancestors 'none'"), "main.js doit imposer frame-ancestors 'none'");
+    assert.ok(indexHtml.includes('src/css/utilities.css'), 'index.html doit charger src/css/utilities.css');
+    const utilCssPath = path.join(rootDir, 'src', 'css', 'utilities.css');
+    assert.ok(fs.existsSync(utilCssPath), 'src/css/utilities.css doit exister');
+    const utilCss = fs.readFileSync(utilCssPath, 'utf8');
+    assert.ok(!/^\.\.\s*\{/m.test(utilCss), 'utilities.css ne doit contenir aucun sélecteur invalide .. {');
+    assert.ok(utilCss.includes('.u-s067.u-s067 {'), 'utilities.css doit définir les sélecteurs .u-sNNN.u-sNNN');
+
+    const walk = (dir) => {
+        const out = [];
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, e.name);
+            if (e.isDirectory() && !['node_modules', '.git', 'docs', 'website', 'tests', 'build'].includes(e.name)) {
+                out.push(...walk(p));
+            } else if (e.isFile() && (p.endsWith('.js') || p.endsWith('index.html'))) {
+                out.push(p);
+            }
+        }
+        return out;
+    };
+    const offenders = [];
+    for (const file of walk(rootDir)) {
+        const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+        lines.forEach((line, idx) => {
+            if (/<[a-zA-Z][^>]*\sstyle\s*=/i.test(line) || /<style\b/i.test(line)) {
+                offenders.push(`${path.relative(rootDir, file)}:${idx + 1}`);
+            }
+        });
+    }
+    assert.deepStrictEqual(offenders, [], `Inline style= ou <style> détecté(s) : ${offenders.join(', ')}`);
+});
+
+
 
 

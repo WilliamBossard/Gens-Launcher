@@ -11,6 +11,8 @@
  * ==============================================================================
  */
 
+const { renameWithRetry, createSandboxValidatorAsync, createRendererPathGuard } = require('./fs-utils');
+
 /**
  * @param {any} err
  * @returns {{ message: string; code?: string }}
@@ -45,33 +47,35 @@ module.exports = function setupFsHandlers(context) {
     const appPath = (app && typeof app.getAppPath === 'function') ? app.getAppPath() : __dirname;
 
     const allowedReadRoots = [safeDataDir, ...KNOWN_MC_PATHS, tempDir, appPath].filter(Boolean);
-    function getRealAllowedReadRoots() {
-        return allowedReadRoots.map((root) => resolveNearestRealPath(path.resolve(root)));
-    }
+    const assertSandboxWriteAsync = createSandboxValidatorAsync(safeDataDir);
+    const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
+    const ROOT_REALPATH_TTL_MS = 2000;
+    /** @type {Map<string, { realPath: string; existed: boolean; checkedAt: number }>} */
+    const realRootCache = new Map();
 
     /**
-     * Renomme un fichier avec retry contre les verrous antivirus/Windows transitoires.
-     * @param {string} src
-     * @param {string} dest
+     * Résout et met en cache de façon asynchrone les chemins réels des racines autorisées.
+     * Les racines qui n'existaient pas encore lors d'un appel précédent sont toujours réévaluées.
+     * @returns {Promise<string[]>}
      */
-    async function renameWithRetry(src, dest) {
-        let lastErr = null;
-        for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-                await fs.promises.rename(src, dest);
-                return;
-            } catch (err) {
-                lastErr = err;
-                /** @type {any} */
-                const nodeErr = err;
-                if (['EBUSY', 'EPERM', 'EACCES'].includes(nodeErr?.code) && attempt < 4) {
-                    await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
-                    continue;
-                }
-                break;
+    async function getRealAllowedReadRoots() {
+        const now = Date.now();
+        return Promise.all(allowedReadRoots.map(async (root) => {
+            const absRoot = path.resolve(root);
+            const cached = realRootCache.get(absRoot);
+            if (cached && cached.existed && (now - cached.checkedAt) < ROOT_REALPATH_TTL_MS) {
+                return cached.realPath;
             }
-        }
-        throw lastErr;
+            try {
+                const realExact = await fs.promises.realpath(absRoot);
+                realRootCache.set(absRoot, { realPath: realExact, existed: true, checkedAt: now });
+                return realExact;
+            } catch (_) {
+                const nearest = await resolveNearestRealPath(absRoot);
+                realRootCache.set(absRoot, { realPath: nearest, existed: false, checkedAt: now });
+                return nearest;
+            }
+        }));
     }
 
     /**
@@ -104,16 +108,16 @@ module.exports = function setupFsHandlers(context) {
     }
 
     /**
-     * Résout le chemin réel de l'ancêtre existant le plus proche afin de bloquer
-     * les symlinks/junctions pointant hors d'un répertoire autorisé.
+     * Résout de manière asynchrone le chemin réel de l'ancêtre existant le plus proche afin de bloquer
+     * les symlinks/junctions pointant hors d'un répertoire autorisé sans bloquer la boucle d'événements.
      * @param {string} absTarget
-     * @returns {string}
+     * @returns {Promise<string>}
      */
-    function resolveNearestRealPath(absTarget) {
+    async function resolveNearestRealPath(absTarget) {
         let cur = absTarget;
         while (true) {
             try {
-                const realCur = fs.realpathSync(cur);
+                const realCur = await fs.promises.realpath(cur);
                 const relTail = path.relative(cur, absTarget);
                 return relTail ? path.join(realCur, relTail) : realCur;
             } catch (_) {
@@ -125,17 +129,32 @@ module.exports = function setupFsHandlers(context) {
     }
 
     /**
+     * Valide un chemin en écriture/suppression/modification dans le sandbox
+     * tout en appliquant la liste d'exclusion Renderer (secrets + java/ + runtime/).
+     * @param {unknown} p
+     * @returns {Promise<string>}
+     */
+    async function assertWritePath(p) {
+        if (typeof p !== 'string' || !p.trim()) {
+            throw new Error("Chemin invalide (type non supporté).");
+        }
+        const safePath = await assertSandboxWriteAsync(p);
+        assertRendererPathAllowed(safePath, 'write');
+        return safePath;
+    }
+
+    /**
      * @param {unknown} p
      * @param {boolean} [silent=false]
      * @param {boolean} [allowJavaExe=false]
-     * @returns {string}
+     * @returns {Promise<string>}
      */
-    function assertReadPath(p, silent = false, allowJavaExe = false) {
+    async function assertReadPath(p, silent = false, allowJavaExe = false) {
         if (typeof p !== 'string' || !p.trim()) {
             throw new Error("Chemin invalide (type non supporté).");
         }
         const trimmed = p.trim();
-        if (trimmed.startsWith('\\\\') || trimmed.startsWith('//')) {
+        if (/^[/\\]{2}/.test(trimmed)) {
             if (!silent && typeof mainLog === 'function') mainLog(`[ipc-fs] SÉCURITÉ : Chemin UNC bloqué vers ${trimmed}`);
             /** @type {Error & { code?: string }} */
             const uncErr = new Error("Accès aux partages réseau UNC refusé par le système de sécurité du Launcher.");
@@ -143,19 +162,35 @@ module.exports = function setupFsHandlers(context) {
             throw uncErr;
         }
         const resolved = path.resolve(trimmed);
+        if (isWin && resolved.startsWith('\\\\')) {
+            if (!silent && typeof mainLog === 'function') mainLog(`[ipc-fs] SÉCURITÉ : Chemin UNC résolu bloqué vers ${resolved}`);
+            /** @type {Error & { code?: string }} */
+            const uncErr = new Error("Accès aux partages réseau UNC refusé par le système de sécurité du Launcher.");
+            uncErr.code = 'EACCES';
+            throw uncErr;
+        }
 
         const isLexicallyAllowed = allowedReadRoots.some(root => isUnderDir(resolved, root));
 
         if (isLexicallyAllowed) {
-            const realTarget = resolveNearestRealPath(resolved);
-            const isRealAllowed = getRealAllowedReadRoots().some(realRoot => isUnderDir(realTarget, realRoot));
-            if (isRealAllowed) return resolved;
+            const [realTarget, realRoots] = await Promise.all([
+                resolveNearestRealPath(resolved),
+                getRealAllowedReadRoots()
+            ]);
+            const isRealAllowed = realRoots.some(realRoot => isUnderDir(realTarget, realRoot));
+            if (isRealAllowed) {
+                assertRendererPathAllowed(resolved, 'read');
+                assertRendererPathAllowed(realTarget, 'read');
+                return resolved;
+            }
         }
 
         if (allowJavaExe && VALID_JAVA_BASENAMES.has(path.basename(resolved).toLowerCase())) {
-            const realJava = resolveNearestRealPath(resolved);
+            const realJava = await resolveNearestRealPath(resolved);
             const realBase = path.basename(realJava).toLowerCase();
             if (!resolved.startsWith('\\\\') && !realJava.startsWith('\\\\') && VALID_JAVA_BASENAMES.has(realBase)) {
+                assertRendererPathAllowed(resolved, 'read');
+                assertRendererPathAllowed(realJava, 'read');
                 return resolved;
             }
         }
@@ -171,7 +206,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:readFile', async (_, p, enc) => {
         try {
-            const safePath = assertReadPath(p);
+            const safePath = await assertReadPath(p);
             const safeEnc = validateEncoding(enc);
             const stat = await fs.promises.stat(safePath);
             if (stat.isFile() && stat.size > MAX_IPC_READ_BYTES) {
@@ -188,7 +223,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:readTail', async (_, p, maxBytes = 512 * 1024) => {
         try {
-            const safePath = assertReadPath(p);
+            const safePath = await assertReadPath(p);
             const limit = Math.min(2 * 1024 * 1024, Math.max(1024, Number(maxBytes) || 512 * 1024));
             const stat = await fs.promises.stat(safePath);
             if (!stat.isFile()) return { ok: true, data: '' };
@@ -210,7 +245,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:writeFile', async (_, p, data, enc) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             const safeEnc = validateEncoding(enc);
             await fs.promises.mkdir(path.dirname(safePath), { recursive: true });
             const tempPath = safePath + '.tmp.' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -233,7 +268,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:readdir', async (_, p) => {
         try {
-            const safePath = assertReadPath(p);
+            const safePath = await assertReadPath(p);
             const list = await fs.promises.readdir(safePath);
             return { ok: true, data: list };
         } catch (err) {
@@ -243,7 +278,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:stat', async (_, p) => {
         try {
-            const safePath = assertReadPath(p, false, true);
+            const safePath = await assertReadPath(p, false, true);
             const s = await fs.promises.stat(safePath);
             return {
                 ok: true,
@@ -263,7 +298,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:mkdir', async (_, p, opts) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             const safeOpts = opts && typeof opts === 'object' ? { recursive: Boolean(opts.recursive) } : undefined;
             await fs.promises.mkdir(safePath, safeOpts);
             return { ok: true };
@@ -274,7 +309,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:rm', async (_, p, opts) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             const safeOpts = opts && typeof opts === 'object'
                 ? { recursive: Boolean(opts.recursive), force: Boolean(opts.force) }
                 : undefined;
@@ -287,7 +322,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:unlink', async (_, p) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             await fs.promises.unlink(safePath);
             return { ok: true };
         } catch (err) {
@@ -297,8 +332,8 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:rename', async (_, oldP, newP) => {
         try {
-            const safeOld = assertPathUnderSandbox(oldP);
-            const safeNew = assertPathUnderSandbox(newP);
+            const safeOld = await assertWritePath(oldP);
+            const safeNew = await assertWritePath(newP);
             await renameWithRetry(safeOld, safeNew);
             return { ok: true };
         } catch (err) {
@@ -308,8 +343,8 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:cp', async (_, s, d, o) => {
         try {
-            const safeSrc = assertReadPath(s);
-            const safeDest = assertPathUnderSandbox(d);
+            const safeSrc = await assertReadPath(s);
+            const safeDest = await assertWritePath(d);
             const rawOpts = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
             /** @type {import('fs').CopyOptions} */
             const safeOpts = {
@@ -336,8 +371,8 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:copyFile', async (_, src, dest) => {
         try {
-            const safeSrc = assertReadPath(src);
-            const safeDest = assertPathUnderSandbox(dest);
+            const safeSrc = await assertReadPath(src);
+            const safeDest = await assertWritePath(dest);
             await fs.promises.copyFile(safeSrc, safeDest);
             return { ok: true };
         } catch (err) {
@@ -347,7 +382,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:chmod', async (_, p, mode) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
                 throw new Error(`Mode POSIX invalide bloqué (${String(mode)}).`);
             }
@@ -360,7 +395,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:appendFile', async (_, p, d, enc) => {
         try {
-            const safePath = assertPathUnderSandbox(p);
+            const safePath = await assertWritePath(p);
             const safeEnc = validateEncoding(enc);
             if (safeEnc) {
                 await fs.promises.appendFile(safePath, d, safeEnc);
@@ -375,7 +410,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:access', async (_, p, mode) => {
         try {
-            const safePath = assertReadPath(p, false, true);
+            const safePath = await assertReadPath(p, false, true);
             await fs.promises.access(safePath, mode);
             return { ok: true };
         } catch (err) {
@@ -385,7 +420,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:exists', async (_, p) => {
         try {
-            const safePath = assertReadPath(p, true, true);
+            const safePath = await assertReadPath(p, true, true);
             await fs.promises.access(safePath);
             return { ok: true, data: true };
         } catch (_) {

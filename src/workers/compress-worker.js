@@ -5,9 +5,9 @@ const path = require('path');
 const { writeZipFromFiles } = require('../main/zip-utils');
 
 /**
- * @param {{ src: string; dest: string; exclude?: string[] }} param0
+ * @param {{ src: string; dest: string; exclude?: string[]; level?: number }} param0
  */
-async function compressFolder({ src, dest, exclude }) {
+async function compressFolder({ src, dest, exclude, level = 1 }) {
     if (!parentPort) return;
     const port = parentPort;
     const excludeSet = new Set(exclude || []);
@@ -49,7 +49,7 @@ async function compressFolder({ src, dest, exclude }) {
 
     let lastPct = -1;
     await writeZipFromFiles(dest, filesToArchive, {
-        level: 6,
+        level,
         onWarning: (err) => {
             port.postMessage({ type: 'log', message: `Warning: ${err.message}` });
         },

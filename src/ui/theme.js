@@ -23,7 +23,7 @@ export function setupTheme() {
             const safeDataDir = window.api.appData
                 ? window.api.path.join(window.api.appData, 'GensLauncher')
                 : null;
-            const isSandboxed = th.bg && safeDataDir && th.bg.startsWith(safeDataDir);
+            const isSandboxed = !!(th.bg && safeDataDir && window.isPathInsideDir(th.bg, safeDataDir));
             if (isSandboxed && await window.existsSafe(th.bg)) {
                 const dim  = Math.max(0, Math.min(0.95, isNaN(parseFloat(String(th.dim)))  ? 0.5 : parseFloat(String(th.dim))));
                 const blur = Math.max(0, Math.min(50,   isNaN(parseInt(String(th.blur)))   ? 5   : parseInt(String(th.blur))));

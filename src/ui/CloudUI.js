@@ -23,28 +23,57 @@ async function readJsonObject(filePath) {
     return (parsed && typeof parsed === 'object') ? /** @type {Record<string, unknown>} */ (parsed) : {};
 }
 
+/**
+ * @param {"auth" | "cache" | "manifests" | "metadata" | "root"} root
+ * @param {string} file
+ * @returns {Promise<{exists: boolean, data: Record<string, unknown>}>}
+ */
+async function readSettingsDirect(root, file) {
+    try {
+        const setPath = await window.resolveHorizonFilePath(root, file);
+        await window.api.fs.promises.access(setPath);
+        return { exists: true, data: await readJsonObject(setPath) };
+    } catch (_) {
+        return { exists: false, data: {} };
+    }
+}
+
 export function setupCloud() {
+    /** @type {Promise<any> | null} */
+    let _sharedStatusPromise = null;
+    /** @type {Promise<{exists: boolean, data: Record<string, unknown>}> | null} */
+    let _sharedSettingsPromise = null;
+
+    const getCoalescedHorizonStatus = () => {
+        if (!_sharedStatusPromise) {
+            _sharedStatusPromise = window.api.invoke("check-horizon-status").finally(() => {
+                setTimeout(() => { _sharedStatusPromise = null; }, 2000);
+            });
+        }
+        return _sharedStatusPromise;
+    };
+
+    const getCoalescedHorizonSettings = () => {
+        if (!_sharedSettingsPromise) {
+            _sharedSettingsPromise = readSettingsDirect('root', "horizon_settings.json").finally(() => {
+                setTimeout(() => { _sharedSettingsPromise = null; }, 2000);
+            });
+        }
+        return _sharedSettingsPromise;
+    };
+
     window.checkCloudAtStartup = async () => {
         const gs = /** @type {{offlineMode?: boolean}} */ (store.globalSettings);
         if (gs.offlineMode || !window.isTrulyOnline) return;
         try {
-            const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
-            let systemEnabled = false;
-            let autoSyncEnabled = false; 
-            
-            try {
-                await window.api.fs.promises.access(setPath);
-                const parsed = await readJsonObject(setPath);
-                systemEnabled = asBool(parsed.systemEnabled);
-                autoSyncEnabled = asBool(parsed.autoSync);
-            } catch(e) {
-                return;
-            }
-            
-            if (!systemEnabled) return; 
-            if (!autoSyncEnabled) return;
-            
-            const status = await window.api.invoke("check-horizon-status");
+            const { exists, data: parsed } = await getCoalescedHorizonSettings();
+            if (!exists) return;
+            const systemEnabled = asBool(parsed.systemEnabled);
+            const autoSyncEnabled = asBool(parsed.autoSync);
+
+            if (!systemEnabled || !autoSyncEnabled) return;
+
+            const status = await getCoalescedHorizonStatus();
             if (status.installed && status.linked && !status.offline) {
                 window.api.invoke("call-horizon", ["--check"]).catch(() => {});
             }
@@ -58,44 +87,16 @@ export function setupCloud() {
             return;
         }
         try {
+            const [status, settingsRes] = await Promise.all([
+                getCoalescedHorizonStatus(),
+                getCoalescedHorizonSettings()
+            ]);
+            const isInstalled = !!status?.installed;
+            const systemEnabled = settingsRes.exists ? asBool(settingsRes.data.systemEnabled) : false;
+            store.horizonActive = isInstalled && !status.offline && systemEnabled;
             const isWin = window.api.platform === 'win32';
-            const exeName = isWin ? "Horizon.exe" : "Horizon";
-            const exePath = await window.resolveHorizonFilePath('root', exeName);
-            const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
-            
-            let isInstalled = false;
-            try {
-                await window.api.fs.promises.access(exePath);
-                isInstalled = true;
-            } catch(e) { console.warn('CloudUI exe detection error:', e); }
-            
-            let systemEnabled = false;
-            if (isInstalled) {
-                try {
-                    await window.api.fs.promises.access(setPath);
-                    const parsed = await readJsonObject(setPath);
-                    systemEnabled = asBool(parsed.systemEnabled);
-                } catch (e) { console.warn('CloudUI settings read error:', e); }
-            }
-            
-            store.horizonActive = isInstalled && systemEnabled;
             console.log(`[Horizon] Détection OK : Installé=${isInstalled}, Activé=${systemEnabled}, OS=${isWin ? "Windows" : "Linux/Mac"}`);
-        } catch (e) {
-            console.error("[Horizon] Erreur fatale de détection :", e);
-            store.horizonActive = false;
-        }
-        
-        try {
-            const status = await window.api.invoke("check-horizon-status");
-            const isActive = status.installed && !status.offline;
-            if (isActive) {
-                try {
-                    const setPath = await window.resolveHorizonFilePath('root', "horizon_settings.json");
-                    await window.api.fs.promises.access(setPath);
-                    const parsed = await readJsonObject(setPath);
-                    store.horizonActive = asBool(parsed.systemEnabled);
-                } catch (e) { console.warn('CloudUI status check error:', e); }
-            }
+
             if (!status.installed || status.offline || !status.needsUpdate) return;
             const horizonBadge = document.getElementById("horizon-update-badge");
             if (horizonBadge) horizonBadge.style.display = "block";

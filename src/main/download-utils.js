@@ -2,13 +2,19 @@
 const { Readable, Transform } = require('stream');
 
 const ALLOWED_DOMAINS = [
-    'github.com', 'githubusercontent.com', 'modrinth.com',
+    'github.com', 'githubusercontent.com', 'gitlab.com', 'modrinth.com',
     'curseforge.com', 'curseforge.net', 'cursecdn.com', 'forgecdn.net',
-    'mojang.com', 'minecraft.net', 'edgecastcdn.net',
-    'googleapis.com', 'cloudfront.net', 'amazonaws.com',
+    'mojang.com', 'minecraft.net',
     'fabricmc.net', 'quiltmc.org', 'minecraftforge.net', 'neoforged.net',
     'maven.org', 'bangbang93.com', 'adoptium.net'
 ];
+
+// Hôtes multi-locataires : téléchargement autorisé uniquement si une empreinte cryptographique est vérifiée.
+const MULTI_TENANT_DOMAINS = [
+    'github.com', 'githubusercontent.com', 'gitlab.com'
+];
+
+const DEFAULT_MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 Gio max par défaut
 
 /**
  * Vérifie qu'un nom d'hôte correspond exactement à un domaine autorisé ou à l'un de ses sous-domaines.
@@ -43,6 +49,7 @@ function isAllowedDomain(hostname, allowedList = ALLOWED_DOMAINS) {
  * @property {string | null} [expectedSha256]
  * @property {string | null} [expectedHash]
  * @property {'sha1' | 'sha256' | 'sha512' | null} [hashAlgo]
+ * @property {number} [maxBytes]
  * @property {(p: { receivedBytes: number, totalBytes: number, percent: number }) => void} [onProgress]
  */
 
@@ -94,6 +101,15 @@ function createDownloadFile(deps) {
             throw new Error(`Seul HTTPS est autorisé pour les téléchargements. URL reçue : ${url}`);
         }
 
+        const effectiveExpectedHash = options?.expectedHash || options?.expectedSha256 || null;
+        if (isAllowedDomain(parsedUrl.hostname, MULTI_TENANT_DOMAINS) && !effectiveExpectedHash) {
+            throw new Error(`Empreinte cryptographique requise pour les téléchargements depuis un hôte multi-locataire (${parsedUrl.hostname}).`);
+        }
+
+        const maxBytes = (typeof options?.maxBytes === 'number' && options.maxBytes > 0)
+            ? options.maxBytes
+            : DEFAULT_MAX_DOWNLOAD_BYTES;
+
         const controller = new AbortController();
         /** @type {NodeJS.Timeout} */
         let timeout = setTimeout(() => controller.abort(), inactivityTimeoutMs);
@@ -127,9 +143,12 @@ function createDownloadFile(deps) {
 
             await fs.promises.mkdir(path.dirname(dest), { recursive: true });
             const totalBytes = parseInt(res.headers.get('content-length') || '0', 10) || 0;
+            if (totalBytes > maxBytes) {
+                if (res.body) { try { await res.body.cancel(); } catch (_) {} }
+                throw new Error(`Fichier trop volumineux (${totalBytes} octets > limite ${maxBytes} octets).`);
+            }
             let receivedBytes = 0;
             let lastEmitAt = 0;
-            const effectiveExpectedHash = options?.expectedHash || options?.expectedSha256 || null;
             const ALLOWED_STREAM_ALGOS = new Set(['sha1', 'sha256', 'sha512']);
             const requestedAlgo = options?.hashAlgo && ALLOWED_STREAM_ALGOS.has(options.hashAlgo) ? options.hashAlgo : 'sha256';
             const hash = effectiveExpectedHash ? crypto.createHash(requestedAlgo) : null;
@@ -138,6 +157,10 @@ function createDownloadFile(deps) {
                 transform(chunk, _enc, cb) {
                     resetInactivityTimeout();
                     receivedBytes += chunk.length;
+                    if (receivedBytes > maxBytes) {
+                        cb(new Error(`Téléchargement interrompu : taille maximale dépassée (> ${maxBytes} octets).`));
+                        return;
+                    }
                     if (hash) hash.update(chunk);
                     if (options?.onProgress) {
                         const now = Date.now();
@@ -152,6 +175,10 @@ function createDownloadFile(deps) {
             });
 
             await pipeStreams(Readable.fromWeb(/** @type {any} */ (res.body)), tracker, fs.createWriteStream(tmpDest));
+
+            if (totalBytes > 0 && receivedBytes !== totalBytes) {
+                throw new Error(`Téléchargement incomplet (${receivedBytes}/${totalBytes} octets reçus).`);
+            }
 
             if (hash && effectiveExpectedHash) {
                 const actual = hash.digest('hex').toLowerCase();

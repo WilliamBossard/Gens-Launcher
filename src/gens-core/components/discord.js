@@ -30,9 +30,9 @@ class DiscordRPC {
     /**
      * Gets the IPC pipe path for Discord on the current OS.
      * @param {number} id
-     * @returns {string}
+     * @returns {Promise<string>}
      */
-    getIpcPath(id) {
+    async getIpcPath(id) {
         if (process.platform === 'win32') {
             return `\\\\?\\pipe\\discord-ipc-${id}`;
         }
@@ -48,8 +48,9 @@ class DiscordRPC {
         ].filter(Boolean);
         for (const p of candidates) {
             try {
-                if (fs.existsSync(p)) return p;
-            } catch (_) {}
+                await fs.promises.access(p);
+                return p;
+            } catch (_) { }
         }
         const prefix = xdg || tmp;
         return path.join(prefix, `discord-ipc-${id}`);
@@ -67,13 +68,15 @@ class DiscordRPC {
             /**
              * @param {number} id
              */
-            const tryConnect = (id) => {
+            const tryConnect = async (id) => {
+                if (this.manualDisconnect) return resolve(false);
                 if (id > 9) {
                     if (!this.manualDisconnect) this.scheduleReconnect();
                     return resolve(false);
                 }
 
-                const ipcPath = this.getIpcPath(id);
+                const ipcPath = await this.getIpcPath(id);
+                if (this.manualDisconnect) return resolve(false);
                 const socket = net.createConnection(ipcPath);
 
                 let resolved = false;
@@ -111,8 +114,15 @@ class DiscordRPC {
                     this.handshake(socket);
                 });
 
-                socket.once('error', () => {
-                    finishConnect(false);
+                socket.on('error', () => {
+                    if (!resolved) {
+                        finishConnect(false);
+                        return;
+                    }
+                    this.connected = false;
+                    try { socket.destroy(); } catch (_) {}
+                    if (this.socket === socket) this.socket = null;
+                    this._rxBuffer = Buffer.alloc(0);
                 });
 
                 socket.on('close', () => {
@@ -162,15 +172,15 @@ class DiscordRPC {
     send(opcode, payload, targetSocket = null) {
         const sock = targetSocket || this.socket;
         if (!sock || sock.destroyed) return;
-        
+
         const data = JSON.stringify(payload);
         const len = Buffer.byteLength(data);
         const packet = Buffer.alloc(8 + len);
-        
+
         packet.writeInt32LE(opcode, 0);
         packet.writeInt32LE(len, 4);
         packet.write(data, 8, len);
-        
+
         try {
             sock.write(packet);
         } catch (e) {
@@ -221,7 +231,7 @@ class DiscordRPC {
             if (opcode === 3) {
                 // PING -> répondre PONG (opcode 4)
                 let parsed = {};
-                try { parsed = JSON.parse(payloadBuf.toString('utf8')); } catch (_) {}
+                try { parsed = JSON.parse(payloadBuf.toString('utf8')); } catch (_) { }
                 this.send(4, parsed);
             } else if (opcode === 2) {
                 // CLOSE -> fermer proprement la socket Discord

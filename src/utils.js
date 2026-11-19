@@ -28,12 +28,28 @@ window.escapeHTML = (str) => {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 };
+window.et = (/** @type {string} */ key, /** @type {string} */ fallback = "") => {
+    const raw = typeof window.t === "function" ? window.t(key, fallback) : (fallback || key);
+    return window.escapeHTML(raw);
+};
+window.isValidVersionId = (/** @type {unknown} */ val) => {
+    if (typeof val !== "string") return false;
+    const trimmed = val.trim();
+    return /^[A-Za-z0-9._+-]{1,64}$/.test(trimmed) && !trimmed.includes("..") && trimmed !== ".";
+};
 window.openSystemPath = (/** @type {string} */ p) => {
-    if (typeof p === "string" && p.startsWith("http")) {
-        shell.openExternal(p);
-    } else {
-        shell.openPath(p);
+    if (typeof p !== "string" || !p.trim()) return;
+    const trimmed = p.trim();
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+        try {
+            const parsed = new URL(trimmed);
+            if (parsed.protocol === "https:" && !parsed.username && !parsed.password) {
+                shell.openExternal(parsed.href);
+            }
+        } catch (_) {}
+        return;
     }
+    shell.openPath(trimmed);
 };
 
 window.getHorizonDir = () => path.join(store.dataDir, "Horizon");
@@ -124,6 +140,8 @@ window.safeRm = async (targetPath, options = { recursive: true, force: true }) =
 
 /** @type {ReturnType<typeof setTimeout> | null} */
 let _logFlushTimer = null;
+let _logFlushFailCount = 0;
+const MAX_LOG_FLUSH_RETRIES = 5;
 
 async function flushLogQueue() {
     if (_logFlushTimer) {
@@ -138,10 +156,19 @@ async function flushLogQueue() {
     try {
         await _logsDirReady;
         await fs.promises.appendFile(currentLogFile, toWrite);
+        _logFlushFailCount = 0;
     } catch (e) {
         writeFailed = true;
+        _logFlushFailCount++;
         if (logQueue.length < 65536) {
             logQueue = toWrite + logQueue;
+        }
+        if (_logFlushFailCount <= MAX_LOG_FLUSH_RETRIES && !_logFlushTimer) {
+            const backoffMs = Math.min(60000, 1000 * Math.pow(2, _logFlushFailCount - 1));
+            _logFlushTimer = setTimeout(() => {
+                _logFlushTimer = null;
+                flushLogQueue();
+            }, backoffMs);
         }
     } finally {
         isWriting = false;
@@ -181,15 +208,23 @@ const originalLog = console.log;
 const originalWarn = console.warn;
 const originalError = console.error;
 
-const SENSITIVE_LOG_KEY_RE = /^(access_?token|refresh_?token|xsts_?token|mc_?token|password|secret|api_?key|cfApiKey|authorization|cookie)$/i;
+const SENSITIVE_LOG_KEY_RE = /^(access_?token|refresh_?token|xsts_?token|mc_?token|password|secret|api_?key|cfApiKey|authorization|cookie|proxyPass)$/i;
+/** @param {string} text */
+function redactSensitiveString(text) {
+    return text
+        .replace(/(Bearer\s+)[A-Za-z0-9._\-+/=]+/gi, '$1[REDACTED]')
+        .replace(/(--(?:accessToken|proxyPass|xuid|clientId)\s+)(\S+)/gi, '$1[REDACTED]')
+        .replace(/((?:access_?token|refresh_?token|xsts_?token|mc_?token|password|cfApiKey|api_?key|secret)\s*[:=]\s*["']?)([^\s,"'&;]+)/gi, '$1[REDACTED]');
+}
 /** @param {any} val */
 function sanitizeLogArg(val) {
+    if (typeof val === "string") return redactSensitiveString(val);
     if (typeof val !== "object" || val === null) return val;
-    if (val instanceof Error) return val.stack || val.message || String(val);
+    if (val instanceof Error) return redactSensitiveString(val.stack || val.message || String(val));
     try {
-        return JSON.stringify(val, (k, v) => (k && SENSITIVE_LOG_KEY_RE.test(k) ? "[REDACTED]" : v));
+        return redactSensitiveString(JSON.stringify(val, (k, v) => (k && SENSITIVE_LOG_KEY_RE.test(k) ? "[REDACTED]" : v)));
     } catch {
-        return String(val);
+        return redactSensitiveString(String(val));
     }
 }
 
@@ -212,7 +247,11 @@ window.appendLog = (/** @type {string} */ html) => {
     while (logOutput.childElementCount > 500 && logOutput.firstChild) {
         logOutput.removeChild(logOutput.firstChild);
     }
-    logOutput.scrollTop = logOutput.scrollHeight;
+    const consoleContainer = document.getElementById("console-container");
+    const isConsoleVisible = !consoleContainer || (consoleContainer.style.display !== "none" && getComputedStyle(consoleContainer).display !== "none");
+    if (isConsoleVisible) {
+        logOutput.scrollTop = logOutput.scrollHeight;
+    }
 };
 
 window.copyToClipboard = async (text) => {
@@ -300,25 +339,31 @@ window.safeWriteJSONAsync = (filePath, data) => {
     }
 
     // ipc-fs (fs:writeFile) assure déjà l'écriture atomique via .tmp + retries de rename côté Main.
-    _writeQueues[filePath] = _writeQueues[filePath].then(async () => {
+    const next = _writeQueues[filePath].then(async () => {
         try {
             const parentDir = window.api?.path ? window.api.path.dirname(filePath) : (typeof path !== 'undefined' ? path.dirname(filePath) : null);
             if (parentDir) await fs.promises.mkdir(parentDir, { recursive: true });
             let payload = data;
-            if (store?.settingsFile && filePath === store.settingsFile && data && typeof data === 'object' && 'cfApiKey' in data) {
+            if (typeof store !== 'undefined' && store?.settingsFile && filePath === store.settingsFile && data && typeof data === 'object' && 'cfApiKey' in data) {
                 const clean = { ...data };
                 delete clean.cfApiKey;
                 payload = clean;
             }
             await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2));
+            return { ok: true };
         } catch (/** @type {any} */ e) {
             if (typeof sysLog !== 'undefined') sysLog("safeWriteJSONAsync ERREUR sur " + filePath + " : " + e.message, true);
+            return { ok: false, error: e };
         }
     }).catch((/** @type {any} */ err) => {
         if (typeof sysLog !== 'undefined') sysLog("Erreur inattendue queue d'écriture " + filePath + " : " + err.message, true);
+        return { ok: false, error: err };
+    }).finally(() => {
+        if (_writeQueues[filePath] === next) delete _writeQueues[filePath];
     });
 
-    return _writeQueues[filePath];
+    _writeQueues[filePath] = next;
+    return next;
 };
 let _lastToastMsg = "";
 let _lastToastTime = 0;
@@ -347,8 +392,10 @@ window.showToast = (msg, type = "info") => {
         setTimeout(() => toast.remove(), 300);
     }, 4000);
 };
+/** @type {Promise<any>} */
+let _confirmQueue = Promise.resolve();
 window.showCustomConfirm = (msg, isDestructive = false) => {
-    return new Promise((resolve) => {
+    const runConfirm = () => new Promise((resolve) => {
         const modal = document.getElementById("modal-confirm");
         const msgEl = document.getElementById("confirm-message");
         const yesBtn = document.getElementById("confirm-yes");
@@ -365,9 +412,12 @@ window.showCustomConfirm = (msg, isDestructive = false) => {
         const newNo = noBtn.cloneNode(true);
         yesBtn.parentNode.replaceChild(newYes, yesBtn);
         noBtn.parentNode.replaceChild(newNo, noBtn);
-        newYes.addEventListener("click", () => { modal.style.display = "none"; resolve(true); });
-        newNo.addEventListener("click", () => { modal.style.display = "none"; resolve(false); });
+        newYes.addEventListener("click", () => { modal.style.display = "none"; resolve(true); }, { once: true });
+        newNo.addEventListener("click", () => { modal.style.display = "none"; resolve(false); }, { once: true });
     });
+    const next = _confirmQueue.then(runConfirm, runConfirm);
+    _confirmQueue = next.then(() => undefined, () => undefined);
+    return next;
 };
 window.showLoading = (text = "", percent = null) => {
     const txtEl = document.getElementById("loading-text");
@@ -499,4 +549,48 @@ window.reconnectDiscord = async () => {
     } catch(/** @type {any} */ e) {
         window.showToast(t("msg_rpc_error", "Erreur RPC : " + e.message), "error");
     }
+};
+
+const BUILTIN_GALLERY_SVGS = new Set([
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 2h12v12H2z' fill='%238b8b8b'/%3E%3Cpath d='M4 4h8v8H4z' fill='%23555'/%3E%3C/svg%3E",
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2l6 6-6 6-6-6z' fill='%2355ffff'/%3E%3C/svg%3E",
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff5555'/%3E%3Cpath d='M8 2v4' stroke='%2300aa00' stroke-width='2'/%3E%3C/svg%3E",
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 4h14v8H1z' fill='%238b5a2b'/%3E%3Crect x='7' y='6' width='2' height='3' fill='%23ccc'/%3E%3C/svg%3E",
+    "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300aaaa'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23aaffff'/%3E%3C/svg%3E"
+]);
+
+/**
+ * Valide qu'une URI data:image est sûre : formats matriciels base64 uniquement,
+ * ou correspondance exacte avec l'une des icônes SVG statiques intégrées du launcher.
+ * @param {string} raw
+ * @returns {boolean}
+ */
+window.isSafeIconDataUri = (raw) => {
+    if (typeof raw !== 'string' || raw.length === 0 || raw.length > 3 * 1024 * 1024) return false;
+    if (/["<>]/.test(raw)) return false;
+    if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/.test(raw)) return true;
+    if (BUILTIN_GALLERY_SVGS.has(raw)) return true;
+    if (store.defaultIcons && Object.values(store.defaultIcons).includes(raw)) return true;
+    return false;
+};
+
+/**
+ * Vérifie de manière sûre (frontière de séparateur + normalisation) qu'un chemin cible se trouve sous parentDir.
+ * @param {string} targetPath
+ * @param {string} parentDir
+ * @returns {boolean}
+ */
+window.isPathInsideDir = (targetPath, parentDir) => {
+    if (typeof targetPath !== 'string' || typeof parentDir !== 'string' || !targetPath || !parentDir) return false;
+    const resolveFn = window.api?.path?.resolve;
+    let resolvedTarget = resolveFn ? resolveFn(targetPath) : targetPath;
+    let resolvedParent = resolveFn ? resolveFn(parentDir) : parentDir;
+    resolvedTarget = resolvedTarget.replace(/\\/g, '/').replace(/\/+$/, '');
+    resolvedParent = resolvedParent.replace(/\\/g, '/').replace(/\/+$/, '');
+    const isWin = window.api?.platform === 'win32' || /^[A-Za-z]:\//.test(resolvedParent);
+    if (isWin) {
+        resolvedTarget = resolvedTarget.toLowerCase();
+        resolvedParent = resolvedParent.toLowerCase();
+    }
+    return resolvedTarget === resolvedParent || resolvedTarget.startsWith(resolvedParent + '/');
 };

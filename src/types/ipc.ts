@@ -1,15 +1,15 @@
 // Keep these channel lists in sync with preload.js (vérifié par tests/ipc-channels.test.js).
 export const SEND_CHANNELS = [
   "set-auto-download", "set-offline-mode", "download-update", "hide-window",
-  "minimize-window", "show-window", "restore-main-window", "restart_app",
+  "minimize-window", "show-window", "restore-main-window", "restart_app", "relaunch-app",
   "update-jump-list", "launch-game", "update-discord", "cancel-login-microsoft",
   "set-taskbar-progress", "overlay-ready", "quit-app", "confirm-update"
 ] as const;
 
 export const INVOKE_CHANNELS = [
   "ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings",
-  "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon",
-  "check-java", "scan-java-versions", "fetch-curseforge", "fetch-mojang-profile",
+  "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "horizon:disconnect",
+  "check-java", "scan-java-versions", "java:install-adoptium", "java:delete", "fetch-curseforge", "fetch-mojang-profile",
   "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game",
   "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut",
   "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip",
@@ -182,11 +182,12 @@ export interface HorizonQuotaInstance {
 
 export interface HorizonQuotaMessage {
   type: "QUOTA";
-  provider: string;
+  provider?: string;
   /** 0 = illimité / inconnu. */
   totalBytes: number;
   usedBytes: number;
-  horizonBytes: number;
+  horizonBytes?: number;
+  horizonUsed?: number;
   instances: HorizonQuotaInstance[];
 }
 

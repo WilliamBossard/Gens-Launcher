@@ -40,7 +40,6 @@ const _launchingInstances = new Set();
  */
 export async function launchInstance(inst, acc, ui) {
     if (!inst || !acc) return;
-    delete inst._backupRunning;
 
     if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
         try {
@@ -56,6 +55,7 @@ export async function launchInstance(inst, acc, ui) {
         return;
     }
 
+    delete inst._backupRunning;
     _launchingInstances.add(inst.name);
     try {
     const instancePath = path.join(store.instancesRoot, window.safeDir(inst.name));
@@ -128,7 +128,8 @@ export async function launchInstance(inst, acc, ui) {
         try { await fs.promises.copyFile(defaultOpt, destOpt); sysLog("Injection du profil options.txt par défaut."); } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in LaunchManager.js:", e); }
     }
 
-    let ramMB = inst.ram ? parseInt(inst.ram) : store.globalSettings.defaultRam;
+    let ramMB = inst.ram ? parseInt(String(inst.ram), 10) : Number(store.globalSettings.defaultRam);
+    if (!Number.isFinite(ramMB) || ramMB <= 0) ramMB = Number(store.globalSettings.defaultRam) || 4096;
     if (ramMB > 0 && ramMB < 8) ramMB = ramMB * 1024;
     ramMB = Math.max(1024, ramMB);
 
@@ -184,9 +185,14 @@ export async function launchInstance(inst, acc, ui) {
     if (inst.jvmProfile === "aikar") {
         customArgs.push("-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4", "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5", "-Dsun.rmi.dgc.server.gcInterval=2592000000", "-Dsun.rmi.dgc.client.gcInterval=2592000000");
     } else if (inst.jvmProfile === "zgc") {
-        customArgs.push("-XX:+UseZGC");
-        if (requiredJava >= 21) {
-            customArgs.push("-XX:+ZGenerational");
+        if (requiredJava < 15) {
+            customArgs.push("-XX:+UseG1GC");
+        } else {
+            customArgs.push("-XX:+UseZGC");
+            // ZGenerational est introduit en Java 21 et déprécié/supprimé à partir de Java 24+ (JEP 490)
+            if (requiredJava >= 21 && requiredJava < 24) {
+                customArgs.push("-XX:+ZGenerational");
+            }
         }
     }
 
@@ -283,7 +289,8 @@ export async function launchInstance(inst, acc, ui) {
 
     const isVersionIncompatible = detectedMajor !== null && (
         (requiredJava >= 17 && detectedMajor < requiredJava) ||
-        (requiredJava === 8 && detectedMajor > 8)
+        (requiredJava === 8 && detectedMajor > 8) ||
+        (requiredJava === 17 && (inst.loader === "forge" || inst.loader === "neoforge") && detectedMajor >= 24)
     );
 
     if (!javaExists || isVersionIncompatible) {
@@ -331,9 +338,7 @@ export async function launchInstance(inst, acc, ui) {
                 }
             }
             if (changed) {
-                const tmpPath = datPath + ".tmp";
-                await fs.promises.writeFile(tmpPath, window.api.nbt.write(parsed));
-                await fs.promises.rename(tmpPath, datPath);
+                await fs.promises.writeFile(datPath, window.api.nbt.write(parsed));
             }
         } catch (e) { sysLog("Erreur de sync serveur: " + e, true); }
     }
@@ -341,19 +346,27 @@ export async function launchInstance(inst, acc, ui) {
     let authObj = { access_token: "0", client_token: "0", uuid: acc.uuid || "0", name: acc.name, user_properties: "{}", user_type: "legacy", meta: { type: "legacy" } };
     if (acc.type === "microsoft" && acc.mclcAuth && !isOffline) {
         if (ui.setStatusText) ui.setStatusText(window.t("msg_check_ms_session", "Vérification de la session Microsoft..."));
-        let sessionValid = false;
-        try {
-            const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
-            if (refreshRes.success && refreshRes.access_token) {
-                acc.mclcAuth.access_token = refreshRes.access_token;
-                try {
-                    await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
-                } catch (/** @type {any} */ writeErr) {
-                    sysLog("Erreur sauvegarde token rafraîchi: " + (writeErr?.message || writeErr), true);
+        const tokenExpiresAt = Number(acc.mclcAuth.meta?.expiresAt || 0);
+        const tokenIsFresh = Boolean(acc.mclcAuth.access_token) && tokenExpiresAt > (Date.now() + 10 * 60 * 1000);
+        let sessionValid = tokenIsFresh;
+        if (!sessionValid) {
+            try {
+                const refreshRes = await ipcRenderer.invoke("refresh-microsoft", acc.mclcAuth.meta.msaCacheKey);
+                if (refreshRes.success && refreshRes.access_token) {
+                    acc.mclcAuth.access_token = refreshRes.access_token;
+                    if (!acc.mclcAuth.meta) acc.mclcAuth.meta = {};
+                    if (typeof refreshRes.expiresAt === "number") acc.mclcAuth.meta.expiresAt = refreshRes.expiresAt;
+                    try {
+                        await window.api.security.writeJSON(store.accountFile, { list: store.allAccounts, lastUsed: store.selectedAccountIdx });
+                    } catch (/** @type {any} */ writeErr) {
+                        sysLog("Erreur sauvegarde token rafraîchi: " + (writeErr?.message || writeErr), true);
+                    }
+                    sessionValid = true;
                 }
-                sessionValid = true;
-            }
-        } catch (/** @type {any} */ e) { sysLog("Erreur refresh token: " + e.message, true); }
+            } catch (/** @type {any} */ e) { sysLog("Erreur refresh token: " + e.message, true); }
+        } else {
+            sysLog(`[AUTH] Session Microsoft encore valide (${Math.round((tokenExpiresAt - Date.now()) / 60000)} min restantes), rafraîchissement évité.`);
+        }
 
         if (!sessionValid) {
             if (ui.showToast) ui.showToast(window.t("msg_session_expired", "Session expirée. Reconnexion requise..."), "info");
@@ -424,10 +437,13 @@ export async function launchInstance(inst, acc, ui) {
             const srvHost = parts[0];
             const srvPort = parts[1] ? parseInt(parts[1], 10) : 25565;
             if (srvHost && srvPort >= 1 && srvPort <= 65535) {
-                opts.server = { host: srvHost, port: srvPort };
                 const vParts = (inst.version || "").split('.');
                 const isModernVer = vParts[0] === '1' ? ((parseInt(vParts[1], 10) || 0) >= 20) : ((parseInt(vParts[0], 10) || 0) >= 20);
-                if (isModernVer) opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+                if (isModernVer) {
+                    opts.quickPlay = { type: "multiplayer", identifier: `${srvHost}:${srvPort}` };
+                } else {
+                    opts.server = { host: srvHost, port: srvPort };
+                }
             }
         }
     }
@@ -436,6 +452,12 @@ export async function launchInstance(inst, acc, ui) {
         try {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_fabric", "Installation de Fabric..."));
             let loaderVer = inst.loaderVersion;
+            if (!window.isValidVersionId(inst.version)) {
+                throw new Error(`Version Minecraft invalide (${inst.version}).`);
+            }
+            if (loaderVer && !window.isValidVersionId(loaderVer)) {
+                throw new Error(`Version Fabric invalide (${loaderVer}).`);
+            }
             if (!loaderVer) {
                 const hasVersions = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
@@ -445,7 +467,7 @@ export async function launchInstance(inst, acc, ui) {
                 }
                 if (!loaderVer) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
-                    const fbRes = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}`);
+                    const fbRes = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(inst.version)}`);
                     if (!fbRes.ok) throw new Error(`HTTP ${fbRes.status}`);
                     const fbList = await fbRes.json();
                     if (!Array.isArray(fbList) || !fbList[0]?.loader?.version) {
@@ -455,9 +477,15 @@ export async function launchInstance(inst, acc, ui) {
                 }
             }
             if (loaderVer) {
+                if (!window.isValidVersionId(loaderVer)) {
+                    throw new Error(`Version Fabric invalide (${loaderVer}).`);
+                }
                 const customVerName = `fabric-loader-${loaderVer}-${inst.version}`;
                 opts.version.custom = customVerName;
                 const vPath = path.join(instancePath, "versions", customVerName);
+                if (!window.isPathInsideDir(vPath, instancePath)) {
+                    throw new Error("Chemin de profil Fabric hors périmètre bloqué.");
+                }
                 const hasVPath = await window.existsSafe(vPath);
                 if (!hasVPath) await fs.promises.mkdir(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
@@ -465,7 +493,7 @@ export async function launchInstance(inst, acc, ui) {
                 if (!hasJsonPath) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_fabric", "Téléchargement profil Fabric..."));
-                    const response = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${inst.version}/${loaderVer}/profile/json`);
+                    const response = await window.fetchWithTimeout(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(inst.version)}/${encodeURIComponent(loaderVer)}/profile/json`);
                     if (!response.ok) throw new Error("Impossible d'obtenir le profil Fabric.");
                     await fs.promises.writeFile(jsonPath, await response.text());
                 }
@@ -473,12 +501,19 @@ export async function launchInstance(inst, acc, ui) {
         } catch (/** @type {any} */ e) {
             sysLog("Erreur Fabric: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_fabric", "Erreur Fabric : ") + e.message, "error");
+            if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
         }
     } else if (inst.loader === "quilt") {
         try {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_install_quilt", "Installation de Quilt..."));
             let loaderVer = inst.loaderVersion;
+            if (!window.isValidVersionId(inst.version)) {
+                throw new Error(`Version Minecraft invalide (${inst.version}).`);
+            }
+            if (loaderVer && !window.isValidVersionId(loaderVer)) {
+                throw new Error(`Version Quilt invalide (${loaderVer}).`);
+            }
             if (!loaderVer) {
                 const hasVersions2 = await window.existsSafe(path.join(instancePath, "versions"));
                 const dirs = hasVersions2 ? await fs.promises.readdir(path.join(instancePath, "versions")) : [];
@@ -488,7 +523,7 @@ export async function launchInstance(inst, acc, ui) {
                 }
                 if (!loaderVer) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
-                    const qRes = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}`);
+                    const qRes = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${encodeURIComponent(inst.version)}`);
                     if (!qRes.ok) throw new Error(`HTTP ${qRes.status}`);
                     const qList = await qRes.json();
                     if (!Array.isArray(qList) || !qList[0]?.loader?.version) {
@@ -498,9 +533,15 @@ export async function launchInstance(inst, acc, ui) {
                 }
             }
             if (loaderVer) {
+                if (!window.isValidVersionId(loaderVer)) {
+                    throw new Error(`Version Quilt invalide (${loaderVer}).`);
+                }
                 const customVerName = `quilt-loader-${loaderVer}-${inst.version}`;
                 opts.version.custom = customVerName;
                 const vPath = path.join(instancePath, "versions", customVerName);
+                if (!window.isPathInsideDir(vPath, instancePath)) {
+                    throw new Error("Chemin de profil Quilt hors périmètre bloqué.");
+                }
                 const hasVPath2 = await window.existsSafe(vPath);
                 if (!hasVPath2) await fs.promises.mkdir(vPath, { recursive: true });
                 const jsonPath = path.join(vPath, `${customVerName}.json`);
@@ -508,7 +549,7 @@ export async function launchInstance(inst, acc, ui) {
                 if (!hasJsonPath2) {
                     if (isOffline) throw new Error(window.t("err_offline_fetch", "Impossible de télécharger les métadonnées hors ligne."));
                     if (ui.setStatusText) ui.setStatusText(window.t("msg_dl_quilt", "Téléchargement profil Quilt..."));
-                    const response = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${inst.version}/${loaderVer}/profile/json`);
+                    const response = await window.fetchWithTimeout(`https://meta.quiltmc.org/v3/versions/loader/${encodeURIComponent(inst.version)}/${encodeURIComponent(loaderVer)}/profile/json`);
                     if (!response.ok) throw new Error("Impossible d'obtenir le profil Quilt.");
                     await fs.promises.writeFile(jsonPath, await response.text());
                 }
@@ -516,6 +557,7 @@ export async function launchInstance(inst, acc, ui) {
         } catch (/** @type {any} */ e) {
             sysLog("Erreur Quilt: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_quilt", "Erreur Quilt : ") + e.message, "error");
+            if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
         }
     } else if (inst.loader === "forge" || inst.loader === "neoforge") {
@@ -532,11 +574,13 @@ export async function launchInstance(inst, acc, ui) {
         }
         if (!inst.loaderVersion) {
             if (ui.showToast) ui.showToast(window.t("msg_err_no_loader_version", `Version exacte de ${inst.loader} manquante.`), "error");
+            if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
         }
         if (!/^[\w.\-]+$/.test(inst.loaderVersion)) {
             sysLog(`Version de loader invalide ou dangereuse : "${inst.loaderVersion}"`, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_no_loader_version", `Version de ${inst.loader} invalide.`), "error");
+            if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             return;
         }
 
@@ -707,6 +751,10 @@ export async function launchInstance(inst, acc, ui) {
             if (ui.setProgressBar) ui.setProgressBar(-1);
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
             store.activeInstances.delete(inst.name);
+            if (store.primaryRpcInstance === inst.name) {
+                store.primaryRpcInstance = store.activeInstances.size > 0 ? Array.from(store.activeInstances)[0] : null;
+                updateRPC(null);
+            }
             if (window.setUIState) window.setUIState();
             if (window.renderUI) window.renderUI();
             return;

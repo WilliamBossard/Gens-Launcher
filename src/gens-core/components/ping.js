@@ -119,31 +119,43 @@ async function pingServer(address, timeoutMs = 5000) {
         }
     }
 
+    /** @param {string} addr */
+    const isLinkLocalOrUnspecified = (addr) => {
+        const clean = addr.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+        if (clean === '0.0.0.0' || clean === '::' || clean === '::ffff:0.0.0.0') return true;
+        if (/^169\.254\./.test(clean) || /^fe[89ab][0-9a-f]:/i.test(clean)) return true;
+        if (clean.startsWith('::ffff:')) {
+            const mapped = clean.slice(7);
+            if (/^169\.254\./.test(mapped) || mapped === '0.0.0.0') return true;
+            if (/^a9fe:[0-9a-f]{1,4}$/i.test(mapped)) return true;
+        }
+        return false;
+    };
+
     const cleanConnectHost = connectHost.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
-    // Toujours bloquer les plages link-local/IMDS cloud (169.254.0.0/16, fe80::/10, 0.0.0.0)
-    if (
-        /^169\.254\./.test(cleanConnectHost) ||
-        /^fe[89ab][0-9a-f]:/i.test(cleanConnectHost) ||
-        cleanConnectHost === '0.0.0.0' ||
-        cleanConnectHost === '::'
-    ) {
+    // Toujours bloquer les plages link-local/IMDS cloud (169.254.0.0/16, ::ffff:169.254.0.0/16, fe80::/10, 0.0.0.0)
+    if (isLinkLocalOrUnspecified(cleanConnectHost)) {
         throw new Error(`Blocked unsafe ping target: ${connectHost}`);
     }
     // Bloquer toute redirection SRV vers un hôte privé/local (anti-SSRF DNS/SRV)
     if (usedSrv && isPrivateOrLocalHost(cleanConnectHost)) {
         throw new Error(`Blocked private SRV target: ${connectHost}`);
     }
+    let pinnedConnectTarget = cleanConnectHost;
     if (!net.isIP(cleanConnectHost) && !isPrivateOrLocalHost(originalHost)) {
         try {
             const records = await dns.promises.lookup(cleanConnectHost, { all: true });
             for (const rec of records || []) {
                 if (rec?.address && (
-                    /^169\.254\./.test(rec.address) ||
-                    /^fe[89ab][0-9a-f]:/i.test(rec.address) ||
+                    isLinkLocalOrUnspecified(rec.address) ||
                     (usedSrv && isPrivateOrLocalHost(rec.address))
                 )) {
                     throw new Error(`Blocked unsafe DNS target for ${connectHost}: ${rec.address}`);
                 }
+            }
+            // Épingle la première IP validée pour éliminer la fenêtre TOCTOU de DNS rebinding
+            if (Array.isArray(records) && records.length > 0 && records[0]?.address) {
+                pinnedConnectTarget = records[0].address;
             }
         } catch (err) {
             if (err instanceof Error && err.message.startsWith('Blocked ')) throw err;
@@ -258,7 +270,7 @@ async function pingServer(address, timeoutMs = 5000) {
             }
         });
 
-        client.connect(port, cleanConnectHost, () => {
+        client.connect(port, pinnedConnectTarget, () => {
             const packetId = writeVarInt(0x00);
             const protocol = writeVarInt(47); // Or use -1 for any
             const serverAddress = writeString(originalHost);

@@ -313,8 +313,15 @@ async function buildLaunchOptions(ctx) {
       if (options.window.height) args.push('--height', options.window.height);
     }
   }
-  if (options.server) client?.emit('debug', '[Gens-Core]: server and port are deprecated launch flags. Use the quickPlay field.');
-  if (options.quickPlay && quickPlayArgs) args = args.concat(quickPlayArgs);
+  if (options.quickPlay && quickPlayArgs) {
+    args = args.concat(quickPlayArgs);
+  } else if (options.server && options.server.host) {
+    // Support legacy Minecraft < 1.20 (--server / --port)
+    args.push('--server', String(options.server.host));
+    if (options.server.port) {
+      args.push('--port', String(options.server.port));
+    }
+  }
   if (options.proxy) {
     args.push(
       '--proxyHost',

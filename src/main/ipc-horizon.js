@@ -1,6 +1,6 @@
 // @ts-check
 const { StringDecoder } = require('string_decoder');
-const { existsSafe } = require('./fs-utils');
+const { existsSafe, renameWithRetry } = require('./fs-utils');
 const { pipeStreams } = require('./zip-utils');
 
 /**
@@ -116,10 +116,14 @@ module.exports = function setupHorizonHandlers(context) {
 
     /** @type {Buffer | null} */
     let _sealHmacKey = null;
+    /** @type {Promise<Buffer | null> | null} */
+    let _sealHmacKeyPromise = null;
     const sealKeyFile = path.join(safeDataDir, 'horizon_seal.key');
 
     async function getSealHmacKey() {
         if (_sealHmacKey) return _sealHmacKey;
+        if (_sealHmacKeyPromise) return _sealHmacKeyPromise;
+        _sealHmacKeyPromise = (async () => {
         /** @type {any} */
         let safeStorage = null;
         try {
@@ -151,13 +155,23 @@ module.exports = function setupHorizonHandlers(context) {
             const enc = hasAsync
                 ? await safeStorage.encryptStringAsync(generated.toString('hex'))
                 : safeStorage.encryptString(generated.toString('hex'));
-            await fs.promises.writeFile(sealKeyFile, enc);
+            const tmpKeyFile = `${sealKeyFile}.tmp.${process.pid}.${Date.now()}`;
+            try {
+                await fs.promises.writeFile(tmpKeyFile, enc);
+                await renameWithRetry(tmpKeyFile, sealKeyFile);
+            } finally {
+                try { await fs.promises.unlink(tmpKeyFile); } catch (_) {}
+            }
             _sealHmacKey = generated;
             return _sealHmacKey;
         } catch (err) {
             mainLog("[Horizon] Impossible d'initialiser la clé de scellement locale: " + (err instanceof Error ? err.message : String(err)));
             return null;
         }
+        })().finally(() => {
+            _sealHmacKeyPromise = null;
+        });
+        return _sealHmacKeyPromise;
     }
 
     /**
@@ -253,35 +267,15 @@ module.exports = function setupHorizonHandlers(context) {
                 // En mode dev (!app.isPackaged), le tag local reste accepté sans _sig.
                 return { version: null, tampered: true, unsignedLegacy: true };
             }
+        } else if (app?.isPackaged) {
+            // Trousseau indisponible en mode packagé : impossible de vérifier _sig, on force la résolution sur latest.
+            return { version: null, tampered: true, unsignedLegacy: true };
         }
         return { version: parsed.version, tampered: false, unsignedLegacy: false };
     }
 
     /** @type {Promise<void>} */
     let _githubCacheWriteQueue = Promise.resolve();
-
-    /**
-     * @param {string} src
-     * @param {string} dest
-     */
-    async function renameWithRetry(src, dest) {
-        let lastErr = null;
-        for (let attempt = 0; attempt < 4; attempt++) {
-            try {
-                await fs.promises.rename(src, dest);
-                return;
-            } catch (err) {
-                lastErr = err;
-                const e = /** @type {any} */ (err);
-                if (e && (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES')) {
-                    await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
-                } else {
-                    throw err;
-                }
-            }
-        }
-        throw lastErr;
-    }
 
     /**
      * Met à jour de façon atomique et incrémentale le fichier de cache GitHub sans écraser les clés existantes.
@@ -373,6 +367,9 @@ module.exports = function setupHorizonHandlers(context) {
     }
 
     const horizonInitPromise = (async () => {
+        if (context.horizonMigrationPromise) {
+            await context.horizonMigrationPromise;
+        }
         try {
             if (await existsSafe(githubCacheFile)) {
                 const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
@@ -451,6 +448,9 @@ module.exports = function setupHorizonHandlers(context) {
         }) || assets.find(a => !path.extname(a.name));
     }
 
+    /** @type {Promise<any> | null} */
+    let _latestReleaseInFlight = null;
+
     /**
      * @param {string | null} [targetVersion]
      * @param {boolean} [forceBypassCache]
@@ -461,62 +461,179 @@ module.exports = function setupHorizonHandlers(context) {
                 return githubReleaseCache;
             }
         }
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-        // AUDIT-20 : version dynamique via app.getVersion() au lieu de la valeur hardcodée
-        const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.9.4';
-        
-        let url = 'https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest';
-        if (targetVersion) {
-            url = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/${encodeURIComponent(targetVersion)}`;
+        if (!targetVersion && !forceBypassCache && _latestReleaseInFlight) {
+            return _latestReleaseInFlight;
         }
 
-        let res;
-        try {
-            res = await fetch(url, { 
-                headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
-                signal: controller.signal 
-            });
+        const doFetch = async () => {
+            // AUDIT-20 : version dynamique via app.getVersion() au lieu de la valeur hardcodée
+            const launcherVersion = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '1.9.4';
+            const headers = { "User-Agent": `Gens-Launcher/${launcherVersion}` };
 
+            /** @param {string} reqUrl */
+            const fetchSingle = async (reqUrl) => {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                try {
+                    return await fetch(reqUrl, { headers, signal: controller.signal });
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+            };
+
+            let url = 'https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest';
+            if (targetVersion) {
+                url = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/${encodeURIComponent(targetVersion)}`;
+            }
+
+            let res = await fetchSingle(url);
             if (!res.ok && targetVersion && !targetVersion.startsWith('v')) {
                 const vUrl = `https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/tags/v${encodeURIComponent(targetVersion)}`;
-                res = await fetch(vUrl, { 
-                    headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
-                    signal: controller.signal 
-                });
+                res = await fetchSingle(vUrl);
             }
 
-            // Si on cherche une version précise et qu'elle n'existe pas, on ne doit SURTOUT PAS
-            // retomber sur latest, sinon le check de SHA va comparer un vieux binaire avec le hash du latest.
-            if (!res.ok && !targetVersion) {
-                res = await fetch('https://api.github.com/repos/WilliamBossard/Gens-Horizon/releases/latest', { 
-                    headers: { "User-Agent": `Gens-Launcher/${launcherVersion}` },
-                    signal: controller.signal 
-                });
-            }
-        } finally {
-            clearTimeout(timeoutId);
-        }
+            if (!res.ok) throw new Error("Erreur fetch Github (tag introuvable ou erreur réseau)");
+            const data = await res.json();
 
-        if (!res.ok) throw new Error("Erreur fetch Github (tag introuvable ou erreur réseau)");
-        const data = await res.json();
-        
-        // Mettre en cache uniquement la release latest (jamais une version ciblée)
-        if (!targetVersion) {
-            githubReleaseCache = data;
-            githubReleaseCacheTime = Date.now();
-            await updateGithubCache({ time: githubReleaseCacheTime, data });
+            // Mettre en cache uniquement la release latest (jamais une version ciblée)
+            if (!targetVersion) {
+                githubReleaseCache = data;
+                githubReleaseCacheTime = Date.now();
+                await updateGithubCache({ time: githubReleaseCacheTime, data });
+            }
+            return data;
+        };
+
+        if (!targetVersion && !forceBypassCache) {
+            const p = doFetch().finally(() => {
+                if (_latestReleaseInFlight === p) _latestReleaseInFlight = null;
+            });
+            _latestReleaseInFlight = p;
+            return p;
         }
-        return data;
+        return doFetch();
     }
 
     /** @param {string[]} args */
     function isHorizonWriteOp(args) {
-        if (args.includes('--upload') || args.includes('--rollback')) return true;
+        if (args.includes('--upload') || args.includes('--rollback') || args.includes('--login')) return true;
         if (args.includes('--sync') && args.includes('--delete')) return true;
         if (args.includes('--sync') && !args.includes('--list')) return true;
         if (args.includes('--clean') && args.includes('--apply')) return true;
         return false;
+    }
+
+    /** @type {Set<import('child_process').ChildProcess>} */
+    const activeHorizonChildren = new Set();
+
+    context.shutdownHorizon = (graceMs = 3200) => {
+        if (activeHorizonChildren.size === 0) return undefined;
+        /** @type {Promise<void>[]} */
+        const waiters = [];
+        for (const child of activeHorizonChildren) {
+            if (child.killed || child.exitCode !== null) continue;
+            waiters.push(new Promise((resolve) => {
+                let done = false;
+                /** @type {NodeJS.Timeout | undefined} */
+                let forceTimer;
+                const finishWait = () => {
+                    if (done) return;
+                    done = true;
+                    if (forceTimer) clearTimeout(forceTimer);
+                    resolve();
+                };
+                child.once('exit', finishWait);
+                child.once('close', finishWait);
+
+                let wroteShutdown = false;
+                try {
+                    if (child.stdin && child.stdin.writable) {
+                        child.stdin.write("SHUTDOWN\n");
+                        child.stdin.end();
+                        wroteShutdown = true;
+                    }
+                } catch (_) {}
+
+                if (!wroteShutdown) {
+                    try {
+                        if (!child.killed) child.kill('SIGTERM');
+                    } catch (_) {}
+                }
+
+                forceTimer = setTimeout(() => {
+                    try {
+                        if (!child.killed && child.exitCode === null) {
+                            child.kill(wroteShutdown ? 'SIGTERM' : 'SIGKILL');
+                        }
+                    } catch (_) {}
+                    finishWait();
+                }, wroteShutdown ? graceMs : 500);
+                if (typeof forceTimer.unref === 'function') forceTimer.unref();
+            }));
+        }
+        return waiters.length > 0 ? Promise.all(waiters).then(() => undefined) : undefined;
+    };
+
+    const ALIVE_HEARTBEAT_STALE_MS = 10 * 60 * 1000;
+
+    /**
+     * Inspecte l'état de `horizon.lock` (et nettoie les verrous obsolètes ou symlinks).
+     * @returns {Promise<{ alive: boolean }>}
+     */
+    async function inspectHorizonLock() {
+        let lockFile = path.join(horizonDir, 'horizon.lock');
+        if (!(await existsSafe(lockFile)) && (await existsSafe(path.join(horizonLegacyBinDir, 'horizon.lock')))) {
+            lockFile = path.join(horizonLegacyBinDir, 'horizon.lock');
+        }
+        try {
+            const lst = await fs.promises.lstat(lockFile);
+            if (lst.isSymbolicLink()) {
+                mainLog(`[Horizon] SÉCURITÉ : Lien symbolique horizon.lock détecté et supprimé (${lockFile}).`);
+                await fs.promises.rm(lockFile, { force: true });
+                return { alive: false };
+            }
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code === 'ENOENT') return { alive: false };
+        }
+        let rawPid = NaN;
+        try {
+            const content = (await fs.promises.readFile(lockFile, 'utf8')).trim();
+            if (content) rawPid = parseInt(content, 10);
+        } catch (e) {
+            const err = /** @type {any} */ (e);
+            if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
+        }
+        if (!isNaN(rawPid) && rawPid > 0) {
+            let alive = false;
+            try {
+                process.kill(rawPid, 0);
+                const stat = await fs.promises.stat(lockFile);
+                const age = Date.now() - stat.mtimeMs;
+                if (age > ALIVE_HEARTBEAT_STALE_MS) {
+                    mainLog(`[Horizon] Lock PID ${rawPid} actif mais heartbeat obsolète (${Math.round(age / 1000)}s > ${ALIVE_HEARTBEAT_STALE_MS / 1000}s) — PID recyclé détecté.`);
+                    alive = false;
+                } else {
+                    alive = true;
+                }
+            } catch (killErr) {
+                const kErr = /** @type {any} */ (killErr);
+                if (kErr?.code === 'EPERM') {
+                    try {
+                        const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
+                        alive = age <= ALIVE_HEARTBEAT_STALE_MS;
+                    } catch (_) {
+                        alive = false;
+                    }
+                }
+            }
+            if (alive) return { alive: true };
+            await fs.promises.rm(lockFile, { force: true });
+            mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
+        } else if (!isNaN(rawPid)) {
+            await fs.promises.rm(lockFile, { force: true });
+        }
+        return { alive: false };
     }
 
     /**
@@ -526,6 +643,9 @@ module.exports = function setupHorizonHandlers(context) {
      */
     async function _runHorizonActionImpl(action, event = null) {
         await horizonInitPromise;
+        if (_installHorizonPromise) {
+            try { await _installHorizonPromise; } catch (_) {}
+        }
         const _lockArgs = Array.isArray(action) ? action : [action];
         const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
         
@@ -636,57 +756,11 @@ module.exports = function setupHorizonHandlers(context) {
         }
 
         if (isWriteOp) {
-            let lockFile = path.join(horizonDir, 'horizon.lock');
-            if (!(await existsSafe(lockFile)) && (await existsSafe(path.join(horizonLegacyBinDir, 'horizon.lock')))) {
-                lockFile = path.join(horizonLegacyBinDir, 'horizon.lock');
-            }
-            // AUDIT-18 : polling simplifié — une seule tentative suffit car ENOENT signifie pas de lock actif
-            let rawPid = NaN;
-            try {
-                const content = (await fs.promises.readFile(lockFile, 'utf8')).trim();
-                if (content) rawPid = parseInt(content, 10);
-            } catch (e) {
-                const err = /** @type {any} */ (e);
-                if (err && err.code !== 'ENOENT') mainLog("[ipc] Ignored error: " + (err.message || err));
-            }
-            if (!isNaN(rawPid) && rawPid > 0) {
-                const ALIVE_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
-                let alive = false;
-                try {
-                    process.kill(rawPid, 0);
-                    const stat = await fs.promises.stat(lockFile);
-                    const age = Date.now() - stat.mtimeMs;
-                    if (age > ALIVE_HEARTBEAT_STALE_MS) {
-                        mainLog(`[Horizon] Lock PID ${rawPid} actif mais heartbeat obsolète (${Math.round(age/1000)}s > 300s) — PID recyclé détecté.`);
-                        alive = false;
-                    } else {
-                        alive = true;
-                    }
-                } catch (killErr) {
-                    const kErr = /** @type {any} */ (killErr);
-                    if (kErr?.code === 'EPERM') {
-                        try {
-                            const age = Date.now() - (await fs.promises.stat(lockFile)).mtimeMs;
-                            if (age > ALIVE_HEARTBEAT_STALE_MS) {
-                                alive = false;
-                            } else {
-                                alive = true;
-                            }
-                        } catch (_) {
-                            alive = false;
-                        }
-                    }
-                }
-                if (alive) {
-                    const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
-                    safeSend(event, 'horizon-status', msg);
-                    return Promise.resolve({ exitCode: -1, lastJson: msg });
-                } else {
-                    await fs.promises.rm(lockFile, { force: true }); 
-                    mainLog("[Horizon] Verrou obsolète nettoyé avec succès.");
-                }
-            } else if (!isNaN(rawPid)) {
-                await fs.promises.rm(lockFile, { force: true });
+            const lockState = await inspectHorizonLock();
+            if (lockState.alive) {
+                const msg = { type: 'ERROR', errorCode: 'ERR_ALREADY_RUNNING', message: 'ERR_ALREADY_RUNNING' };
+                safeSend(event, 'horizon-status', msg);
+                return Promise.resolve({ exitCode: -1, lastJson: msg });
             }
         }
 
@@ -696,7 +770,12 @@ module.exports = function setupHorizonHandlers(context) {
             mainLog(`[Horizon] Exécution : ${args.join(' ')}`);
 
             const currentCwd = path.dirname(activeExePath);
-            const horizon = spawn(activeExePath, args, { cwd: currentCwd, env: { ...process.env, HORIZON_DATA_DIR: currentCwd, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') } });
+            const horizon = spawn(activeExePath, args, {
+                cwd: currentCwd,
+                windowsHide: true,
+                env: { ...process.env, HORIZON_DATA_DIR: currentCwd, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') }
+            });
+            activeHorizonChildren.add(horizon);
             horizon.stdin?.on('error', () => {});
             let settled = false;
             /** @type {NodeJS.Timeout | undefined} */
@@ -712,6 +791,7 @@ module.exports = function setupHorizonHandlers(context) {
             const finish = (exitCode) => {
                 if (settled) return;
                 settled = true;
+                activeHorizonChildren.delete(horizon);
                 if (killTimer) clearTimeout(killTimer);
                 if (shutdownTimer) clearTimeout(shutdownTimer);
                 stdoutBuf += stdoutDecoder.end();
@@ -749,7 +829,7 @@ module.exports = function setupHorizonHandlers(context) {
                         try { horizon.kill('SIGKILL'); } catch (_) {}
                         finish(-1);
                     }, 3500);
-                }, 1500);
+                }, 4000);
             }, timeoutMs);
 
             const MAX_HORIZON_BUF = 2 * 1024 * 1024;
@@ -824,22 +904,43 @@ module.exports = function setupHorizonHandlers(context) {
                 throw new Error("Paramètres Horizon invalides.");
             }
             const ALLOWED_PROVIDERS = new Set(['google', 'dropbox', 'onedrive']);
-            const ALLOWED_KEYS = ['provider', 'autoSync', 'autoUpload', 'systemEnabled', 'deltaThreshold', 'maxRetries'];
+            const ALLOWED_SYNC_MODES = new Set(['SMART', 'FULL']);
+            const ALLOWED_KEYS = ['provider', 'syncMode', 'autoSync', 'autoUpload', 'systemEnabled', 'deltaCleanupThreshold', 'maxRetries'];
             const safe = /** @type {Record<string, any>} */ ({});
+            const normalizedInput = { ...newSettings };
+            if (!('deltaCleanupThreshold' in normalizedInput) && 'deltaThreshold' in normalizedInput) {
+                normalizedInput.deltaCleanupThreshold = normalizedInput.deltaThreshold;
+            }
             for (const key of ALLOWED_KEYS) {
-                if (!(key in newSettings)) continue;
-                const val = newSettings[key];
+                if (!(key in normalizedInput)) continue;
+                const val = normalizedInput[key];
                 if (key === 'provider') {
                     if (typeof val !== 'string' || !ALLOWED_PROVIDERS.has(val)) {
                         throw new Error(`Fournisseur cloud Horizon non autorisé : ${val}`);
                     }
                     safe[key] = val;
+                } else if (key === 'syncMode') {
+                    if (typeof val !== 'string' || !ALLOWED_SYNC_MODES.has(val)) {
+                        throw new Error(`Mode de synchronisation Horizon non autorisé : ${val}`);
+                    }
+                    safe[key] = val;
                 } else if (key === 'autoSync' || key === 'autoUpload' || key === 'systemEnabled') {
-                    safe[key] = Boolean(val);
+                    if (typeof val === 'string') {
+                        const lower = val.trim().toLowerCase();
+                        safe[key] = lower !== 'false' && lower !== '0' && lower !== '';
+                    } else {
+                        safe[key] = Boolean(val);
+                    }
+                } else if (key === 'deltaCleanupThreshold') {
+                    const num = Math.trunc(Number(val));
+                    if (!Number.isFinite(num) || num < 3 || num > 50) {
+                        throw new Error(`Valeur numérique invalide pour ${key} (attendu 3..50).`);
+                    }
+                    safe[key] = num;
                 } else {
-                    const num = Number(val);
-                    if (!Number.isFinite(num) || num < 0) {
-                        throw new Error(`Valeur numérique invalide pour ${key}.`);
+                    const num = Math.trunc(Number(val));
+                    if (!Number.isFinite(num) || num < 0 || num > 10) {
+                        throw new Error(`Valeur numérique invalide pour ${key} (attendu 0..10).`);
                     }
                     safe[key] = num;
                 }
@@ -923,8 +1024,74 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('call-horizon', async (event, action) => runHorizonAction(action, event));
 
+    ipcMain.handle('horizon:disconnect', async (_event, payload = {}) => {
+        const rawProvider = typeof payload === 'string' ? payload : payload?.provider;
+        const ALLOWED_PROVIDERS = new Set(['google', 'onedrive', 'dropbox']);
+        const provider = ALLOWED_PROVIDERS.has(String(rawProvider || '').toLowerCase())
+            ? String(rawProvider).toLowerCase()
+            : 'google';
+
+        const runDisconnect = async () => {
+            await horizonInitPromise;
+            if (_installHorizonPromise) {
+                try { await _installHorizonPromise; } catch (_) {}
+            }
+            const tokenFiles = [`token_${provider}.json`];
+            if (provider === 'google') tokenFiles.push('token.json');
+            for (const tf of tokenFiles) {
+                const candidates = [
+                    path.join(horizonAuthDir, tf),
+                    path.join(horizonDir, tf),
+                    path.join(horizonLegacyBinDir, tf)
+                ];
+                for (const cp of candidates) {
+                    try {
+                        if (await existsSafe(cp)) await fs.promises.unlink(cp);
+                    } catch (e) {
+                        const err = /** @type {any} */ (e);
+                        if (err && err.code !== 'ENOENT') mainLog(`[horizon:disconnect] Suppression impossible (${cp}): ${err.message || err}`);
+                    }
+                }
+            }
+            const cacheFiles = [
+                'horizon_cloud_cache.json',
+                'horizon_cloud_html_cache.txt',
+                'horizon_quota_cache.json',
+                'horizon_quota_html_cache.txt'
+            ];
+            for (const cf of cacheFiles) {
+                const candidates = [
+                    path.join(horizonCacheDir, cf),
+                    path.join(horizonDir, cf),
+                    path.join(horizonLegacyBinDir, cf)
+                ];
+                for (const cp of candidates) {
+                    try {
+                        if (await existsSafe(cp)) await fs.promises.unlink(cp);
+                    } catch (e) {
+                        const err = /** @type {any} */ (e);
+                        if (err && err.code !== 'ENOENT') mainLog(`[horizon:disconnect] Nettoyage cache impossible (${cp}): ${err.message || err}`);
+                    }
+                }
+            }
+            return { success: true };
+        };
+
+        const op = _horizonQueue.then(runDisconnect, runDisconnect);
+        _horizonQueue = op.then(() => undefined, () => undefined);
+        return op;
+    });
+
+    /** @type {Promise<{ success: boolean; version?: string; error?: string }> | null} */
+    let _installHorizonPromise = null;
+
     ipcMain.handle('install-horizon', async (event) => {
+        if (_installHorizonPromise) return _installHorizonPromise;
+        const runInstall = async () => {
         await horizonInitPromise;
+        if (activeHorizonChildren.size > 0 || (await inspectHorizonLock()).alive) {
+            return { success: false, error: "Une opération Horizon est actuellement en cours. Patientez avant de mettre à jour." };
+        }
         try {
             const data = await fetchHorizonRelease(null, true);
             const asset = findCompatibleHorizonAsset(data.assets);
@@ -1008,18 +1175,18 @@ module.exports = function setupHorizonHandlers(context) {
                 if (actual !== expected) {
                     throw new Error(`Vérification SHA256 du binaire Horizon échouée.\nAttendu : ${expected}\nObtenu  : ${actual}`);
                 }
+                mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
+                await renameWithRetry(tmpPath, targetExePath);
+                if (!isWin) await fs.promises.chmod(targetExePath, 0o755);
                 cachedExpectedHash = expected;
                 cachedExpectedHashTime = Date.now();
                 await updateGithubCache({ hash: expected, hashTime: cachedExpectedHashTime });
-                mainLog(`[Horizon] Intégrité SHA256 vérifiée pour la version ${data.tag_name}.`);
             } catch (hashErr) {
                 const err = hashErr instanceof Error ? hashErr.message : String(hashErr);
                 await fs.promises.rm(tmpPath, { force: true });
                 throw new Error(`SÉCURITÉ CRITIQUE : Impossible de vérifier le hash .sha256 — ${err}`);
             }
 
-            await renameWithRetry(tmpPath, targetExePath);
-            if (!isWin) await fs.promises.chmod(targetExePath, 0o755);
             const versionPayload = /** @type {Record<string, any>} */ ({ version: data.tag_name });
             const sealKey = await getSealHmacKey();
             const verSig = computePayloadHmac(versionPayload, sealKey);
@@ -1051,5 +1218,10 @@ module.exports = function setupHorizonHandlers(context) {
             const err = e instanceof Error ? e.message : String(e);
             return { success: false, error: err };
         }
+        };
+        _installHorizonPromise = runInstall().finally(() => {
+            _installHorizonPromise = null;
+        });
+        return _installHorizonPromise;
     });
 };

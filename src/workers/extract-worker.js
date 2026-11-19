@@ -28,10 +28,15 @@ function createByteLimitTransform(state, limitBytes) {
 }
 
 /**
- * Vérifie récursivement qu'un répertoire extrait ne contient aucun lien symbolique.
+ * Vérifie récursivement qu'un répertoire extrait ne contient aucun lien symbolique dangereux.
+ * Si `allowInternalSymlinks` vaut true (ex. tarballs Adoptium officiels vérifiés SHA-256),
+ * seuls les symlinks relatifs pointant strictement à l'intérieur de `rootDir` sont tolérés.
  * @param {string} rootDir
+ * @param {boolean} [allowInternalSymlinks=false]
  */
-async function ensureNoSymlinksUnderDir(rootDir) {
+async function ensureNoSymlinksUnderDir(rootDir, allowInternalSymlinks = false) {
+    const realRoot = await fs.promises.realpath(path.resolve(rootDir));
+    const normRoot = process.platform === 'win32' ? realRoot.toLowerCase() : realRoot;
     const stack = [rootDir];
     while (stack.length > 0) {
         const current = /** @type {string} */ (stack.pop());
@@ -40,7 +45,28 @@ async function ensureNoSymlinksUnderDir(rootDir) {
             const full = path.join(current, entry.name);
             const lstat = await fs.promises.lstat(full);
             if (lstat.isSymbolicLink()) {
-                throw new Error(`Lien symbolique bloqué dans l'archive : ${entry.name}`);
+                if (!allowInternalSymlinks) {
+                    throw new Error(`Lien symbolique bloqué dans l'archive : ${entry.name}`);
+                }
+                const linkTarget = await fs.promises.readlink(full);
+                if (path.isAbsolute(linkTarget)) {
+                    throw new Error(`Lien symbolique absolu bloqué dans l'archive : ${entry.name} -> ${linkTarget}`);
+                }
+                const resolvedLink = path.resolve(path.dirname(full), linkTarget);
+                const normResolved = process.platform === 'win32' ? resolvedLink.toLowerCase() : resolvedLink;
+                if (!normResolved.startsWith(normRoot + path.sep) && normResolved !== normRoot) {
+                    throw new Error(`Lien symbolique sortant du répertoire cible bloqué : ${entry.name} -> ${linkTarget}`);
+                }
+                try {
+                    const realLink = await fs.promises.realpath(full);
+                    const normRealLink = process.platform === 'win32' ? realLink.toLowerCase() : realLink;
+                    if (!normRealLink.startsWith(normRoot + path.sep) && normRealLink !== normRoot) {
+                        throw new Error(`Chaîne de liens symboliques sortant du répertoire cible : ${entry.name}`);
+                    }
+                } catch (_) {
+                    // Cible interne potentiellement cassée ou ordonnée plus tard : déjà confinée lexicalement
+                }
+                continue;
             }
             if (lstat.isDirectory()) {
                 stack.push(full);
@@ -80,10 +106,10 @@ async function moveDirContents(srcDir, destDir) {
 }
 
 /**
- * @param {{ archivePath: string; destDir: string; isWin?: boolean; mode?: 'zip' | 'tar'; collectFailedEntries?: boolean }} param0
+ * @param {{ archivePath: string; destDir: string; isWin?: boolean; mode?: 'zip' | 'tar'; collectFailedEntries?: boolean; allowInternalSymlinks?: boolean }} param0
  * @returns {Promise<{ success: boolean; error?: string; failedEntries?: string[] }>}
  */
-async function extractArchive({ archivePath, destDir, isWin = false, mode, collectFailedEntries = false }) {
+async function extractArchive({ archivePath, destDir, isWin = false, mode, collectFailedEntries = false, allowInternalSymlinks = false }) {
     if (!parentPort) return { success: false, error: "Aucun port parent" };
     const port = parentPort;
 
@@ -107,6 +133,44 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
             /** @type {string[]} */
             const failedEntries = [];
             const resolvedTarget = path.resolve(destDir);
+            /** @type {Set<string>} */
+            const verifiedParentDirs = new Set([normTarget]);
+            /** @type {Map<string, { entry: any; entryName: string; dest: string; resDest: string; parentDir: string }>} */
+            const dedupedFiles = new Map();
+            let dirProcessed = 0;
+
+            /** @param {string} dirToVerify */
+            const ensureSafeVerifiedDir = async (dirToVerify) => {
+                const resolvedDir = path.resolve(dirToVerify);
+                const normDir = process.platform === 'win32' ? resolvedDir.toLowerCase() : resolvedDir;
+                if (verifiedParentDirs.has(normDir)) return;
+                // Vérifie le plus proche ancêtre existant AVANT mkdir pour empêcher toute création hors cible via symlink
+                let cur = resolvedDir;
+                while (true) {
+                    try {
+                        const realCur = await fs.promises.realpath(cur);
+                        const relTail = path.relative(cur, resolvedDir);
+                        const projectedReal = relTail ? path.join(realCur, relTail) : realCur;
+                        const normProjected = process.platform === 'win32' ? projectedReal.toLowerCase() : projectedReal;
+                        if (!normProjected.startsWith(normTarget + path.sep) && normProjected !== normTarget) {
+                            throw new Error(`Évasion par symlink détectée avant création de ${resolvedDir}`);
+                        }
+                        break;
+                    } catch (err) {
+                        if (err instanceof Error && err.message.startsWith('Évasion par symlink')) throw err;
+                        const parent = path.dirname(cur);
+                        if (parent === cur) break;
+                        cur = parent;
+                    }
+                }
+                await fs.promises.mkdir(resolvedDir, { recursive: true });
+                const realDir = await fs.promises.realpath(resolvedDir);
+                const normRealDir = process.platform === 'win32' ? realDir.toLowerCase() : realDir;
+                if (!normRealDir.startsWith(normTarget + path.sep) && normRealDir !== normTarget) {
+                    throw new Error(`Évasion par symlink détectée dans le répertoire ${resolvedDir}`);
+                }
+                verifiedParentDirs.add(normDir);
+            };
 
             for await (const entry of zipfile) {
                 seenEntries++;
@@ -126,21 +190,32 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     continue;
                 }
                 if (/\/$/.test(entryName)) {
-                    await fs.promises.mkdir(dest, { recursive: true });
-                    const realDir = await fs.promises.realpath(resDest);
-                    const normRealDir = process.platform === 'win32' ? realDir.toLowerCase() : realDir;
-                    if (!normRealDir.startsWith(normTarget + path.sep) && normRealDir !== normTarget) {
-                        throw new Error(`Évasion par symlink détectée lors de la création de ${entryName}`);
-                    }
-                    processed++;
+                    await ensureSafeVerifiedDir(resDest);
+                    dirProcessed++;
                 } else {
-                    const parentDir = path.dirname(resDest);
-                    await fs.promises.mkdir(parentDir, { recursive: true });
-                    const realParent = await fs.promises.realpath(parentDir);
-                    const normRealParent = process.platform === 'win32' ? realParent.toLowerCase() : realParent;
-                    if (!normRealParent.startsWith(normTarget + path.sep) && normRealParent !== normTarget) {
-                        throw new Error(`Évasion par symlink détectée dans le répertoire parent de ${entryName}`);
-                    }
+                    const dedupKey = process.platform === 'win32' ? resDest.toLowerCase() : resDest;
+                    dedupedFiles.set(dedupKey, {
+                        entry,
+                        entryName,
+                        dest,
+                        resDest,
+                        parentDir: path.dirname(resDest)
+                    });
+                }
+            }
+
+            const fileItems = Array.from(dedupedFiles.values());
+            for (const item of fileItems) {
+                await ensureSafeVerifiedDir(item.parentDir);
+            }
+
+            processed = dirProcessed;
+            let cursor = 0;
+            const EXTRACT_CONCURRENCY = Math.min(4, Math.max(1, fileItems.length));
+            const workers = Array.from({ length: EXTRACT_CONCURRENCY }, async () => {
+                while (cursor < fileItems.length) {
+                    const idx = cursor++;
+                    const { entry, entryName, dest, resDest } = fileItems[idx];
                     try {
                         const existingStat = await fs.promises.lstat(resDest);
                         if (existingStat.isSymbolicLink() || existingStat.isDirectory()) {
@@ -164,13 +239,14 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     processed++;
                     if (total > 0) {
                         const progress = Math.min(100, Math.round((processed / total) * 100));
-                        if (progress !== lastProgress) {
+                        if (progress > lastProgress) {
                             lastProgress = progress;
                             port.postMessage({ type: 'progress', progress, percent: progress });
                         }
                     }
                 }
-            }
+            });
+            await Promise.all(workers);
             if (failedEntries.length > 0) {
                 port.postMessage({
                     type: 'log',
@@ -193,7 +269,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
 
     // Extraction TAR sécurisée : pré-inspection verbeuse + extraction dans un staging isolé
     await new Promise((resolve, reject) => {
-        execFile("tar", ["-tvzf", archivePath], { maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+        execFile("tar", ["-tvzf", archivePath], { maxBuffer: 32 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C', LANG: 'C' } }, (err, stdout) => {
             if (err) return reject(new Error("Erreur lecture tar : " + err.message));
             const lines = stdout.split('\n');
             let entryCount = 0;
@@ -206,7 +282,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     return reject(new Error(`Protection archive : trop d'entrées (${entryCount}).`));
                 }
                 const typeChar = line[0];
-                if (typeChar === 'l' || typeChar === 'h' || typeChar === 'b' || typeChar === 'c' || typeChar === 'p') {
+                if (typeChar === 'h' || typeChar === 'b' || typeChar === 'c' || typeChar === 'p' || (typeChar === 'l' && !allowInternalSymlinks)) {
                     port.postMessage({ type: 'log', message: "Entrée TAR dangereuse (symlink/hardlink/device) bloquée : " + line });
                     return reject(new Error("Archive malveillante détectée (lien symbolique/dur interdit)."));
                 }
@@ -221,10 +297,21 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     return reject(new Error("Protection archive : taille décompressée maximale dépassée."));
                 }
                 const p = tarLineMatch[2].trim();
-                const cleanPath = p.split(' -> ')[0];
+                const arrowIdx = p.indexOf(' -> ');
+                const cleanPath = arrowIdx >= 0 ? p.slice(0, arrowIdx) : p;
                 if (cleanPath.includes("..") || cleanPath.startsWith("/") || cleanPath.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(cleanPath)) {
                     port.postMessage({ type: 'log', message: "TAR SLIP bloqué : " + cleanPath });
                     return reject(new Error("Archive malveillante détectée (Path Traversal)."));
+                }
+                if (typeChar === 'l' && allowInternalSymlinks) {
+                    const linkTarget = arrowIdx >= 0 ? p.slice(arrowIdx + 4).trim() : '';
+                    if (!linkTarget || linkTarget.startsWith('/') || linkTarget.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(linkTarget)) {
+                        return reject(new Error(`Symlink TAR absolu bloqué : ${p}`));
+                    }
+                    const virtualResolved = path.posix.normalize(path.posix.join(path.posix.dirname(cleanPath.replace(/\\/g, '/')), linkTarget.replace(/\\/g, '/')));
+                    if (virtualResolved === '..' || virtualResolved.startsWith('../') || virtualResolved.startsWith('/')) {
+                        return reject(new Error(`Symlink TAR hors périmètre bloqué : ${p}`));
+                    }
                 }
             }
             resolve(true);
@@ -240,7 +327,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                 else resolve(true);
             });
         });
-        await ensureNoSymlinksUnderDir(stagingDir);
+        await ensureNoSymlinksUnderDir(stagingDir, allowInternalSymlinks);
         await moveDirContents(stagingDir, destDir);
         return { success: true };
     } finally {

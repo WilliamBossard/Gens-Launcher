@@ -19,7 +19,7 @@ export function setupServer() {
         _isCheckingServer = true;
         banner.style.display = "flex";
         if (banner.innerHTML === "") {
-            banner.innerHTML = `<div style="text-align:center; width:100%; color:#aaa;">${window.t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
+            banner.innerHTML = `<div class="u-s292">${window.t("msg_server_search", "Recherche du serveur")} ${window.escapeHTML(ip)}...</div>`;
         }
         try {
             const res = /** @type {{success?: boolean; error?: string; data?: any}} */ (await window.api.invoke("ping-server", ip));
@@ -27,12 +27,14 @@ export function setupServer() {
             const data = res.data;
             if (data.online) {
                 const safeIcon = (data.icon && (/^https:\/\//i.test(data.icon) || /^data:image\/(?:png|jpe?g|gif|webp|bmp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i.test(data.icon))) ? data.icon : "";
-                let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" style="width: 64px; height: 64px; border-radius: 4px; margin-right: 15px; image-rendering: pixelated;">` : `<div style="width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-right: 15px;"></div>`;
-                let motdHtml = "Serveur Minecraft";
+                let iconHtml = safeIcon ? `<img src="${window.escapeHTML(safeIcon)}" class="u-s293">` : `<div class="u-s294"></div>`;
+                let motdNode = null;
                 if (data.motd && data.motd.html) {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(data.motd.html, 'text/html');
-                    const clean = document.createElement('div');
+                    const clean = document.createDocumentFragment();
+                    const SAFE_MC_CLASS = /^mc-(?:c-[a-z_]{3,16}|bold|italic|underlined|strikethrough)$/;
+                    const HEX_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
                     /**
                      * @param {Node} src
                      * @param {Node} dest
@@ -47,23 +49,12 @@ export function setupServer() {
                                     dest.appendChild(document.createElement('br'));
                                 } else if (el.tagName === 'SPAN') {
                                     const span = document.createElement('span');
-                                    const rawStyle = el.getAttribute('style') || '';
-                                    const ALLOWED_CSS = {
-                                        'color': /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))$/,
-                                        'background-color': /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/,
-                                        'font-weight': /^(normal|bold|bolder|lighter|[1-9]00)$/,
-                                        'font-style': /^(normal|italic|oblique)$/,
-                                        'text-decoration': /^(none|underline|line-through|underline line-through)$/
-                                    };
-                                    for (const decl of rawStyle.split(';')) {
-                                        const colonIdx = decl.indexOf(':');
-                                        if (colonIdx <= 0) continue;
-                                        const prop = decl.slice(0, colonIdx).trim().toLowerCase();
-                                        const val = decl.slice(colonIdx + 1).trim();
-                                        const validator = /** @type {Record<string, RegExp>} */ (ALLOWED_CSS)[prop];
-                                        if (validator && validator.test(val)) {
-                                            span.style.setProperty(prop, val);
-                                        }
+                                    for (const cls of Array.from(el.classList)) {
+                                        if (SAFE_MC_CLASS.test(cls)) span.classList.add(cls);
+                                    }
+                                    const rgb = el.getAttribute('data-mc-rgb') || '';
+                                    if (HEX_COLOR_RE.test(rgb)) {
+                                        span.style.color = rgb;
                                     }
                                     processNode(el, span);
                                     dest.appendChild(span);
@@ -74,28 +65,37 @@ export function setupServer() {
                         }
                     }
                     processNode(doc.body, clean);
-                    motdHtml = clean.innerHTML;
+                    motdNode = clean;
                 }
+                const safePlayerCount = (/** @type {unknown} */ v) => {
+                    const n = Number(v);
+                    return Number.isFinite(n) && n >= 0 ? String(Math.trunc(n)) : "?";
+                };
                 banner.innerHTML = `
                 ${iconHtml}
-                <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
-                    <div style="font-size: 0.85rem; color: #aaa; font-family: 'Consolas', monospace; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; line-height: 1.2;">${motdHtml}</div>
+                <div class="server-banner-info">
+                    <div class="server-banner-ip">${window.escapeHTML(ip)}</div>
+                    <div class="server-banner-motd"></div>
                 </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 100px;">
-                    <div style="color: #17B139; font-weight: bold; font-size: 1.2rem;">[+] ${window.t("msg_online", "En ligne")}</div>
-                    <div style="color: var(--text-light);">${data.players?.online ?? "?"} / ${data.players?.max ?? "?"} ${window.t("lbl_players", "joueurs")}</div>
+                <div class="server-banner-status">
+                    <div class="server-banner-online">[+] ${window.et("msg_online", "En ligne")}</div>
+                    <div class="server-banner-players">${safePlayerCount(data.players?.online)} / ${safePlayerCount(data.players?.max)} ${window.et("lbl_players", "joueurs")}</div>
                 </div>`;
+                const motdBox = banner.querySelector('.server-banner-motd');
+                if (motdBox) {
+                    if (motdNode) motdBox.replaceChildren(motdNode);
+                    else motdBox.textContent = "Serveur Minecraft";
+                }
             } else {
                 banner.innerHTML = `
-                <div style="width: 64px; height: 64px; background: #333; border-radius: 4px; margin-right: 15px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">[X]</div>
-                <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="font-weight:bold; color:var(--text-light); font-size: 1.1rem; margin-bottom: 5px;">${window.escapeHTML(ip)}</div>
-                    <div style="font-size: 0.85rem; color: #f87171;">${window.t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
+                <div class="u-s295">[X]</div>
+                <div class="u-s296">
+                    <div class="u-s297">${window.escapeHTML(ip)}</div>
+                    <div class="u-s298">${window.t("msg_server_offline_desc", "Le serveur est actuellement hors-ligne.")}</div>
                 </div>`;
             }
         } catch (e) {
-            banner.innerHTML = `<div style="color:#f87171; padding: 10px; width:100%; text-align:center;">${window.t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
+            banner.innerHTML = `<div class="u-s299">${window.t("msg_server_error", "Erreur de connexion à")} ${window.escapeHTML(ip)}</div>`;
         } finally {
             _isCheckingServer = false;
         }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*; connect-src 'self' https://api.modrinth.com https://cdn.modrinth.com https://api.curseforge.com https://edge.forgecdn.net https://mediafilez.forgecdn.net https://piston-meta.mojang.com https://launchermeta.mojang.com https://launchercontent.mojang.com https://api.mojang.com https://sessionserver.mojang.com https://api.minecraftservices.com https://textures.minecraft.net https://meta.fabricmc.net https://meta.quiltmc.org https://files.minecraftforge.net https://maven.minecraftforge.net https://maven.neoforged.net https://bmclapi2.bangbang93.com https://api.adoptium.net https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net; font-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none';"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.modrinth.com https://*.forgecdn.net https://*.cursecdn.net https://*.minecraft.net https://*.mojang.com https://*.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net https://mineatar.io; connect-src 'self' https://api.modrinth.com https://cdn.modrinth.com https://api.curseforge.com https://edge.forgecdn.net https://mediafilez.forgecdn.net https://piston-meta.mojang.com https://launchermeta.mojang.com https://launchercontent.mojang.com https://api.mojang.com https://sessionserver.mojang.com https://api.minecraftservices.com https://textures.minecraft.net https://meta.fabricmc.net https://meta.quiltmc.org https://files.minecraftforge.net https://maven.minecraftforge.net https://maven.neoforged.net https://bmclapi2.bangbang93.com https://api.adoptium.net https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net https://mineatar.io; font-src 'self' data:; frame-src 'none'; child-src 'none'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none';"
     />
     <meta name="referrer" content="no-referrer" />
     <title>Gens Launcher</title>
@@ -14,6 +14,7 @@
     ></script>
     <link rel="stylesheet" href="src/css/main.css" />
     <link rel="stylesheet" href="src/css/modals.css" />
+    <link rel="stylesheet" href="src/css/utilities.css" />
   </head>
 
   <body>
@@ -27,34 +28,16 @@
 
     <div id="loading-overlay">
       <div
-        style="
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        "
-      >
+       class="u-s001">
         <div class="spinner"></div>
         <div
           id="loading-percent"
-          style="
-            position: absolute;
-            font-size: 0.9rem;
-            font-weight: bold;
-            color: var(--text-light);
-          "
-        ></div>
+         class="u-s002"></div>
       </div>
       <div
         id="loading-text"
-        style="
-          margin-top: 15px;
-          font-weight: bold;
-          font-size: 1.1rem;
-          text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-        "
         data-i18n="msg_processing"
-      >
+       class="u-s003">
         Traitement en cours...
       </div>
     </div>
@@ -68,7 +51,7 @@
             <option value="fr">Français</option>
             <option value="en">English</option>
           </select>
-          <div style="font-size: 0.75rem; color: #aaa; margin-top: 10px">
+          <div class="u-s004">
             Vous pourrez ajouter d'autres langues plus tard dans le dossier
             'lang'.<br />
             You can add more languages later in the 'lang' folder.
@@ -93,17 +76,7 @@
           </div>
           <div
             id="updates-list"
-            style="
-              max-height: 200px;
-              overflow-y: auto;
-              background: var(--bg-main);
-              border: 1px solid var(--border);
-              padding: 10px;
-              border-radius: 4px;
-              font-size: 0.85rem;
-              color: var(--text-light);
-            "
-          ></div>
+           class="u-s005"></div>
         </div>
         <div class="modal-footer">
           <button
@@ -149,8 +122,7 @@
 
             <div
               id="offline-input-container"
-              class="mmc-offline-input"
-              style="display: none"
+              class="mmc-offline-input is-hidden"
             >
               <input type="text" id="acc-name" placeholder="Pseudo..." />
               <button
@@ -181,16 +153,15 @@
               Skin & Cape
             </button>
             <button
-              class="btn-secondary"
+              class="btn-secondary u-s006"
               id="btn-del-acc"
-              style="color: #f87171"
               disabled
               data-i18n="btn_delete"
             >
               Supprimer
             </button>
 
-            <div style="flex-grow: 1"></div>
+            <div class="u-s007"></div>
             <button
               id="btn-close-account-modal"
               class="btn-secondary"
@@ -207,8 +178,7 @@
       type="file"
       id="import-upload"
       accept=".zip,.mrpack"
-      style="display: none"
-    />
+     class="is-hidden"/>
     <datalist id="java-paths-list"></datalist>
     <datalist id="group-paths-list"></datalist>
 
@@ -245,39 +215,16 @@
 
         <button
           id="btn-open-global-settings"
-          class="tool-btn"
-          style="position: relative"
+          class="tool-btn u-s008"
         >
           <span data-i18n="toolbar_settings">Paramètres Globaux</span>
           <span
             id="settings-update-badge"
-            style="
-              display: none;
-              position: absolute;
-              top: 2px;
-              right: 2px;
-              background: #f87171;
-              border-radius: 50%;
-              width: 8px;
-              height: 8px;
-              box-shadow: 0 0 5px #f87171;
-            "
-          ></span>
+           class="u-s009"></span>
           <span
             id="horizon-update-badge"
-            style="
-              display: none;
-              position: absolute;
-              top: 2px;
-              right: 14px;
-              background: #f48a21;
-              border-radius: 50%;
-              width: 8px;
-              height: 8px;
-              box-shadow: 0 0 5px #f48a21;
-            "
             data-i18n-title="horizon_update_available"
-          ></span>
+           class="u-s010"></span>
         </button>
 
         <button id="btn-show-console" class="tool-btn" data-i18n="toolbar_logs">
@@ -285,9 +232,8 @@
         </button>
         <button
           id="btn-open-stats"
-          class="tool-btn"
+          class="tool-btn u-s011"
           data-i18n="toolbar_stats"
-          style="color: var(--accent)"
         >
           Statistiques
         </button>
@@ -296,19 +242,10 @@
       <div class="toolbar-group">
         <img
           id="active-skin"
-          src=""
-          style="
-            width: 20px;
-            height: 20px;
-            border-radius: 2px;
-            image-rendering: pixelated;
-            display: none;
-          "
-        />
+         class="u-s012"/>
         <select
           id="account-dropdown"
-          class="tool-select"
-          style="min-width: 120px"
+          class="tool-select u-s013"
         ></select>
         <button
           id="btn-open-account-modal"
@@ -328,9 +265,8 @@
             id="search-bar"
             data-i18n="search_inst"
             placeholder="Rechercher une instance..."
-            style="width: 250px"
-          />
-          <select id="sort-dropdown" class="tool-select" style="width: 200px">
+           class="u-s014"/>
+          <select id="sort-dropdown" class="tool-select u-s015">
             <option value="name" data-i18n="sort_name">Trier par Nom</option>
             <option value="lastPlayed" data-i18n="sort_last">
               Dernière utilisation
@@ -347,37 +283,26 @@
 
         <div id="console-container">
           <div id="console-header">
-            <div style="display: flex; align-items: center; gap: 10px">
+            <div class="u-s016">
               <span data-i18n="lbl_mc_console">Console Minecraft</span>
               <input
                 type="text"
                 id="console-filter"
                 data-i18n="ph_filter_logs"
                 placeholder="Filtrer les logs..."
-                style="
-                  width: 180px;
-                  font-size: 0.7rem;
-                  padding: 3px 6px;
-                  background: #222;
-                  border: 1px solid var(--border);
-                  color: var(--text-light);
-                  border-radius: 3px;
-                "
-              />
+               class="u-s017"/>
             </div>
             <div>
               <button
                 id="btn-copy-logs"
-                class="btn-secondary"
-                style="padding: 2px 8px; font-size: 0.7rem; margin-right: 10px"
+                class="btn-secondary u-s018"
                 data-i18n="btn_copy_logs"
               >
                 Copier
               </button>
               <span
                 id="btn-hide-console"
-                style="cursor: pointer; font-size: 14px"
-                >X</span
+                 class="u-s019">X</span
               >
             </div>
           </div>
@@ -386,25 +311,23 @@
       </div>
 
       <div
-        class="action-panel"
+        class="action-panel u-s020"
         id="action-panel"
-        style="opacity: 0.4; pointer-events: none"
       >
         <div class="panel-header" id="panel-title" data-i18n="panel_title">
           Sélectionnez une instance
         </div>
-        <div id="panel-stats" class="panel-stats" style="display: none">
+        <div id="panel-stats" class="panel-stats is-hidden">
           <span data-i18n="panel_time">Temps :</span>
-          <span id="stat-time" style="color: #fff; font-weight: bold"></span
+          <span id="stat-time" class="u-s021"></span
           ><br />
           <span data-i18n="panel_last">Dernier :</span>
-          <span id="stat-last" style="color: #fff"></span>
+          <span id="stat-last" class="u-s022"></span>
         </div>
 
         <button
           id="launch-btn"
-          class="action-btn"
-          style="font-weight: bold; color: white; background: var(--accent)"
+          class="action-btn u-s023"
           disabled
           data-i18n="btn_launch"
         >
@@ -429,9 +352,8 @@
         </button>
         <div class="panel-divider"></div>
         <button
-          class="action-btn"
+          class="action-btn u-s006"
           id="btn-delete"
-          style="color: #f87171"
           data-i18n="btn_delete"
         >
           Supprimer
@@ -453,8 +375,7 @@
           type="file"
           id="update-modpack-input"
           accept=".zip,.mrpack"
-          style="display: none"
-        />
+         class="is-hidden"/>
       </div>
     </div>
 
@@ -464,7 +385,7 @@
         <span id="status-text" data-i18n="status_ready">Prêt</span>
       </div>
       <div class="status-right">
-        <span id="app-version" style="opacity: 0.7"></span>
+        <span id="app-version" class="u-s024"></span>
       </div>
     </div>
 
@@ -474,10 +395,9 @@
           Tableau de Bord
         </div>
         <div
-          class="modal-body"
-          style="padding: 20px; max-height: 70vh; overflow-y: auto"
+          class="modal-body u-s025"
         >
-          <div style="display: flex; gap: 15px; margin-bottom: 15px">
+          <div class="u-s026">
             <div class="stat-box">
               <div class="stat-value" id="dashboard-time">0h</div>
               <div class="stat-label" data-i18n="stat_total_time">
@@ -491,7 +411,7 @@
               </div>
             </div>
           </div>
-          <div style="display: flex; gap: 15px">
+          <div class="u-s027">
             <div class="stat-box">
               <div class="stat-value" id="dashboard-mods">0</div>
               <div class="stat-label" data-i18n="stat_total_mods">
@@ -500,9 +420,8 @@
             </div>
             <div class="stat-box">
               <div
-                class="stat-value"
+                class="stat-value u-s028"
                 id="dashboard-disk"
-                style="color: var(--text-light)"
               >
                 Calcul...
               </div>
@@ -511,12 +430,11 @@
               </div>
             </div>
           </div>
-          <div style="display: flex; gap: 15px; margin-top: 15px">
+          <div class="u-s029">
             <div class="stat-box">
               <div
-                class="stat-value"
+                class="stat-value u-s030"
                 id="dashboard-sessions"
-                style="font-size: 1.6rem"
               >
                 0
               </div>
@@ -526,9 +444,8 @@
             </div>
             <div class="stat-box">
               <div
-                class="stat-value"
+                class="stat-value u-s031"
                 id="dashboard-longest"
-                style="font-size: 1.4rem"
               >
                 -
               </div>
@@ -539,30 +456,23 @@
           </div>
 
           <div
-            style="
-              display: flex;
-              gap: 15px;
-              margin-top: 15px;
-              border-top: 1px solid var(--border);
-              padding-top: 15px;
-            "
-          >
-            <div class="stat-box" style="flex: 1">
-              <div class="stat-value" id="stat-mobs" style="font-size: 1.4rem">
+           class="u-s032">
+            <div class="stat-box u-s033">
+              <div class="stat-value u-s031" id="stat-mobs">
                 0
               </div>
               <div class="stat-label" data-i18n="stat_mobs">Mobs Tués</div>
             </div>
-            <div class="stat-box" style="flex: 1">
-              <div class="stat-value" id="stat-walk" style="font-size: 1.4rem">
+            <div class="stat-box u-s033">
+              <div class="stat-value u-s031" id="stat-walk">
                 0
               </div>
               <div class="stat-label" data-i18n="stat_distance">
                 Distance (Marche)
               </div>
             </div>
-            <div class="stat-box" style="flex: 1">
-              <div class="stat-value" id="stat-jumps" style="font-size: 1.4rem">
+            <div class="stat-box u-s033">
+              <div class="stat-value u-s031" id="stat-jumps">
                 0
               </div>
               <div class="stat-label" data-i18n="stat_jumps">Sauts</div>
@@ -570,45 +480,27 @@
           </div>
 
           <div
-            style="
-              margin-top: 15px;
-              background: rgba(248, 113, 113, 0.1);
-              border: 1px solid #f87171;
-              border-radius: 4px;
-              padding: 10px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-            "
-          >
+           class="u-s034">
             <div>
               <div
-                style="color: #f87171; font-weight: bold; font-size: 0.9rem"
                 data-i18n="lbl_cache_title"
-              >
+               class="u-s035">
                 Fichiers temporaires (Cache)
               </div>
-              <div style="font-size: 0.75rem; color: #aaa">
+              <div class="u-s036">
                 <span data-i18n="txt_cache_desc"
                   >Installeurs Forge, archives Java et anciens exports.</span
                 ><br />
                 <span data-i18n="lbl_freed_space">Espace libérable :</span>
                 <span
                   id="dashboard-cache-size"
-                  style="color: var(--text-light); font-weight: bold"
-                  >Calcul...</span
+                   class="u-s037">Calcul...</span
                 >
               </div>
             </div>
             <button
               id="btn-clean-cache"
-              class="btn-secondary"
-              style="
-                color: #f87171;
-                border-color: #f87171;
-                padding: 4px 10px;
-                font-size: 0.8rem;
-              "
+              class="btn-secondary u-s038"
               data-i18n="btn_clean"
             >
               Nettoyer
@@ -616,76 +508,37 @@
           </div>
 
           <div
-            style="
-              margin-top: 20px;
-              text-align: center;
-              background: rgba(0, 0, 0, 0.1);
-              padding: 10px;
-              border-radius: 4px;
-              border: 1px dashed var(--border);
-            "
-          >
+           class="u-s039">
             <span
-              style="color: #aaa; font-size: 0.85rem"
               data-i18n="stat_fav_instance"
-              >Instance favorite :
+               class="u-s040">Instance favorite :
             </span>
             <strong
-              style="color: var(--text-light); font-size: 1rem"
               id="dashboard-fav"
-              >-</strong
+               class="u-s041">-</strong
             >
           </div>
 
-          <div style="margin-top: 20px">
+          <div class="u-s042">
             <div
-              style="
-                font-size: 0.8rem;
-                color: #aaa;
-                margin-bottom: 8px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-              "
               data-i18n="lbl_graph_title"
-            >
+             class="u-s043">
               ⏱ Temps de jeu — 7 derniers jours
             </div>
             <div
               id="dashboard-graph"
-              style="
-                display: flex;
-                align-items: flex-end;
-                gap: 6px;
-                height: 80px;
-                background: rgba(0, 0, 0, 0.2);
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                padding: 8px;
-              "
-            ></div>
+             class="u-s044"></div>
           </div>
 
-          <div style="margin-top: 20px">
+          <div class="u-s042">
             <div
-              style="
-                font-size: 0.8rem;
-                color: #aaa;
-                margin-bottom: 8px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-              "
               data-i18n="lbl_achievements"
-            >
+             class="u-s043">
               Vos Progrès
             </div>
             <div
               id="dashboard-achievements"
-              style="
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-                gap: 10px;
-              "
-            ></div>
+             class="u-s045"></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -701,21 +554,13 @@
     </div>
 
     <div id="modal-import-mc" class="modal">
-      <div class="modal-card" style="width: 500px; height: 400px">
+      <div class="modal-card u-s046">
         <div class="modal-header" data-i18n="modal_import_mc">
           Importer un monde officiel
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s047"
           id="mc-worlds-list"
-          style="
-            flex-grow: 1;
-            overflow-y: auto;
-            background: var(--bg-main);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 10px;
-          "
         ></div>
         <div class="modal-footer">
           <button
@@ -730,44 +575,25 @@
     </div>
 
     <div id="modal-worlds" class="modal">
-      <div class="modal-card" style="width: 750px; height: 500px">
+      <div class="modal-card u-s048">
         <div
-          class="modal-header"
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          "
+          class="modal-header u-s049"
         >
           <span data-i18n="modal_worlds_title">Gestion des Mondes</span>
           <button
             id="btn-open-import-mc"
-            class="btn-secondary"
-            style="padding: 2px 8px; font-size: 0.75rem"
+            class="btn-secondary u-s050"
             data-i18n="btn_import_official_world"
           >
             Importer depuis .minecraft
           </button>
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s051"
           id="worlds-list"
-          style="
-            flex-grow: 1;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 15px;
-            background: var(--bg-main);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            margin: 15px;
-            margin-top: 0;
-          "
         ></div>
         <div class="modal-footer">
-          <div style="display: flex; gap: 8px; margin-right: auto">
+          <div class="u-s052">
             <button
               id="btn-open-dir-root"
               class="btn-secondary"
@@ -805,19 +631,11 @@
       <div class="modal-card">
         <div class="modal-header">
           <span data-i18n="modal_restore_title">Restaurer une sauvegarde</span>
-          : <span id="restore-world-name" style="color: var(--accent)"></span>
+          : <span id="restore-world-name" class="u-s011"></span>
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s053"
           id="restore-list"
-          style="
-            max-height: 300px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 15px;
-          "
         ></div>
         <div class="modal-footer">
           <button
@@ -832,29 +650,16 @@
     </div>
 
     <div id="modal-gallery" class="modal">
-      <div class="modal-card" style="width: 850px; height: 600px">
+      <div class="modal-card u-s054">
         <div class="modal-header" data-i18n="btn_gallery">
           Galerie de Captures d'écran
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s055"
           id="gallery-grid"
-          style="
-            flex-grow: 1;
-            overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 10px;
-            padding: 15px;
-            background: var(--bg-main);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            margin: 15px;
-            align-content: start;
-          "
         ></div>
         <div class="modal-footer">
-          <div style="display: flex; gap: 8px; margin-right: auto">
+          <div class="u-s052">
             <button
               id="btn-open-dir-root-gallery"
               class="btn-secondary"
@@ -882,26 +687,19 @@
     </div>
 
     <div id="modal-catalog" class="modal">
-      <div class="modal-card" style="width: 800px; height: 600px">
+      <div class="modal-card u-s056">
         <div class="modal-header" data-i18n="toolbar_catalog">
           Catalogue (Mods, Shaders, Packs)
         </div>
         <div
-          class="modal-body"
-          style="
-            flex-grow: 1;
-            overflow: hidden;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-          "
+          class="modal-body u-s057"
         >
-          <div style="display: flex; gap: 10px; margin-bottom: 15px">
-            <select id="catalog-source" style="width: 120px">
+          <div class="u-s058">
+            <select id="catalog-source" class="u-s059">
               <option value="modrinth">Modrinth</option>
               <option value="curseforge">CurseForge</option>
             </select>
-            <select id="catalog-type" style="width: 120px">
+            <select id="catalog-type" class="u-s059">
               <option value="mod" data-i18n="opt_mods_type">Mods</option>
               <option value="modpack" data-i18n="opt_modpack">Modpacks</option>
               <option value="shader" data-i18n="opt_shaders_type">
@@ -916,15 +714,14 @@
               id="catalog-search"
               data-i18n="ph_search_catalog"
               placeholder="Rechercher dans le catalogue..."
-              style="flex-grow: 1"
-            />
-            <select id="catalog-loader" style="width: 100px">
+             class="u-s007"/>
+            <select id="catalog-loader" class="u-s060">
               <option value="fabric">Fabric</option>
               <option value="quilt">Quilt</option>
               <option value="forge">Forge</option>
               <option value="neoforge">NeoForge</option>
             </select>
-            <select id="catalog-version" style="width: 90px"></select>
+            <select id="catalog-version" class="u-s061"></select>
             <button
               id="btn-search-catalog"
               class="btn-primary"
@@ -935,24 +732,12 @@
           </div>
           <div
             id="catalog-results"
-            style="
-              flex-grow: 1;
-              overflow-y: auto;
-              background: var(--bg-main);
-              border: 1px solid var(--border);
-              border-radius: 4px;
-              padding: 10px;
-              display: flex;
-              flex-direction: column;
-              gap: 10px;
-            "
-          ></div>
+           class="u-s062"></div>
         </div>
         <div class="modal-footer">
           <span
             id="catalog-status"
-            style="margin-right: auto; font-size: 0.85rem; color: var(--accent)"
-          ></span>
+           class="u-s063"></span>
           <button
             id="btn-close-catalog"
             class="btn-secondary"
@@ -981,8 +766,7 @@
             <input
               type="checkbox"
               id="check-beta"
-              style="width: auto; margin: 0"
-            />
+             class="u-s064"/>
             <label for="check-beta" data-i18n="lbl_beta"
               >Afficher les Bêtas</label
             >
@@ -1001,33 +785,20 @@
 
           <div
             id="loader-version-container"
-            style="display: none; margin-top: 5px"
-          >
+           class="u-s065">
             <label data-i18n="lbl_loader_version">Version du chargeur</label>
             <select id="new-loader-version"></select>
           </div>
 
           <div
-            style="
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-top: 10px;
-            "
-          >
+           class="u-s066">
             <label data-i18n="lbl_ram">Mémoire RAM (Mo) :</label>
             <input
               type="number"
               id="new-ram-input"
               min="1024"
               max="32768"
-              style="
-                width: 80px;
-                text-align: center;
-                color: var(--accent);
-                font-weight: bold;
-              "
-            />
+             class="u-s067"/>
           </div>
           <input
             type="range"
@@ -1080,24 +851,12 @@
             </div>
             <div
               id="tab-btn-glob-updates"
-              class="settings-tab"
-              style="position: relative"
+              class="settings-tab u-s008"
             >
               <span data-i18n="tab_updates">Mises à jour</span>
               <span
                 id="updates-tab-badge"
-                style="
-                  display: none;
-                  position: absolute;
-                  top: 6px;
-                  right: 8px;
-                  background: #f87171;
-                  border-radius: 50%;
-                  width: 8px;
-                  height: 8px;
-                  box-shadow: 0 0 5px #f87171;
-                "
-              ></span>
+               class="u-s068"></span>
             </div>
             <div
               id="tab-btn-glob-java"
@@ -1108,36 +867,24 @@
             </div>
             <div
               id="tab-btn-glob-horizon"
-              class="settings-tab"
-              style="position: relative"
+              class="settings-tab u-s008"
             >
               Horizon
               <span
                 id="horizon-tab-badge"
-                style="
-                  display: none;
-                  position: absolute;
-                  top: 6px;
-                  right: 8px;
-                  background: #f48a21;
-                  border-radius: 50%;
-                  width: 8px;
-                  height: 8px;
-                  box-shadow: 0 0 5px #f48a21;
-                "
-              ></span>
+               class="u-s069"></span>
             </div>
           </div>
 
           <div id="tab-glob-gen" class="settings-content active">
-            <label style="margin-top: 5px" data-i18n="lbl_lang"
-              >Langue du Launcher</label
+            <label data-i18n="lbl_lang"
+               class="u-s070">Langue du Launcher</label
             >
             <select id="global-lang"></select>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label data-i18n="lbl_visibility" style="margin-top: 0"
-                >Comportement au lancement</label
+            <div class="u-s071">
+              <label data-i18n="lbl_visibility"
+                 class="u-s072">Comportement au lancement</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1159,9 +906,9 @@
               </option>
             </select>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label data-i18n="lbl_enable_news" style="margin-top: 0"
-                >Bandeau d'actualités Minecraft</label
+            <div class="u-s071">
+              <label data-i18n="lbl_enable_news"
+                 class="u-s072">Bandeau d'actualités Minecraft</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1176,9 +923,9 @@
               <option value="false" data-i18n="opt_disabled">Désactivé</option>
             </select>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label data-i18n="lbl_discord_rpc" style="margin-top: 0"
-                >Discord RPC (Statut en jeu)</label
+            <div class="u-s071">
+              <label data-i18n="lbl_discord_rpc"
+                 class="u-s072">Discord RPC (Statut en jeu)</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1188,8 +935,8 @@
                 ?
               </div>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center">
-              <select id="global-discord-rpc" style="flex: 1; margin-bottom: 0">
+            <div class="u-s073">
+              <select id="global-discord-rpc" class="u-s074">
                 <option value="true" data-i18n="opt_enabled">Activé</option>
                 <option value="false" data-i18n="opt_disabled">
                   Désactivé
@@ -1197,16 +944,15 @@
               </select>
               <button
                 id="btn-reconnect-discord"
-                class="btn-secondary"
-                style="height: 35px; padding: 0 15px"
+                class="btn-secondary u-s075"
                 data-i18n="btn_reconnect_discord"
               >
                 Relancer RPC
               </button>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_multi_inst"
-              >Lancement Multi-instances</label
+            <label data-i18n="lbl_multi_inst"
+               class="u-s076">Lancement Multi-instances</label
             >
             <select id="global-multi-inst">
               <option value="false" data-i18n="opt_disabled">
@@ -1218,26 +964,14 @@
             </select>
 
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-top: 15px;
-              "
-            >
+             class="u-s077">
               <label data-i18n="lbl_ram">RAM par défaut (Mo) :</label>
               <input
                 type="number"
                 id="global-ram-input"
                 min="1024"
                 max="32768"
-                style="
-                  width: 80px;
-                  text-align: center;
-                  color: var(--accent);
-                  font-weight: bold;
-                "
-              />
+               class="u-s067"/>
             </div>
             <input
               type="range"
@@ -1248,11 +982,11 @@
               value="4096"
             />
 
-            <label style="margin-top: 15px" data-i18n="lbl_java"
-              >Chemin Java par défaut</label
+            <label data-i18n="lbl_java"
+               class="u-s076">Chemin Java par défaut</label
             >
-            <div style="display: flex; gap: 8px">
-              <select id="global-java" style="flex-grow: 1"></select>
+            <div class="u-s078">
+              <select id="global-java" class="u-s007"></select>
               <button
                 id="btn-scan-java"
                 class="btn-secondary"
@@ -1266,18 +1000,16 @@
               <input
                 type="file"
                 id="custom-java-file"
-                style="display: none"
                 accept=".exe"
-              />
+               class="is-hidden"/>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_cf_api"
-              >Clé API CurseForge (Optionnel)</label
+            <label data-i18n="lbl_cf_api"
+               class="u-s076">Clé API CurseForge (Optionnel)</label
             >
             <div
-              style="font-size: 0.7rem; color: #aaa; margin-bottom: 5px"
               data-i18n="txt_cf_api_desc"
-            >
+             class="u-s079">
               Nécessaire uniquement pour utiliser le catalogue CurseForge.
               Obtenez une clé gratuite sur EternalDeveloper.
             </div>
@@ -1287,18 +1019,17 @@
               placeholder="$2a$10$xxxxxxxxxxxxxxxx..."
             />
 
-            <label style="margin-top: 15px" data-i18n="lbl_options_profile"
-              >Profil d'Options (options.txt)</label
+            <label data-i18n="lbl_options_profile"
+               class="u-s076">Profil d'Options (options.txt)</label
             >
             <div
-              style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px"
               data-i18n="txt_options_desc"
-            >
+             class="u-s080">
               Sélectionnez une instance pour que ses touches deviennent celles
               par défaut.
             </div>
-            <div style="display: flex; gap: 8px">
-              <select id="global-options-source" style="flex-grow: 1"></select>
+            <div class="u-s078">
+              <select id="global-options-source" class="u-s007"></select>
               <button
                 id="btn-save-default-options"
                 class="btn-secondary"
@@ -1308,18 +1039,17 @@
               </button>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_servers_profile"
-              >Profil de Serveurs (servers.dat)</label
+            <label data-i18n="lbl_servers_profile"
+               class="u-s076">Profil de Serveurs (servers.dat)</label
             >
             <div
-              style="font-size: 0.75rem; color: #aaa; margin-bottom: 5px"
               data-i18n="txt_servers_desc"
-            >
+             class="u-s080">
               Copie automatiquement les serveurs de cette instance vers toutes
               les nouvelles instances.
             </div>
-            <div style="display: flex; gap: 8px">
-              <select id="global-servers-source" style="flex-grow: 1"></select>
+            <div class="u-s078">
+              <select id="global-servers-source" class="u-s007"></select>
               <button
                 id="btn-save-default-servers"
                 class="btn-secondary"
@@ -1329,8 +1059,8 @@
               </button>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_fav_server"
-              >Serveur favori (Afficher le statut)</label
+            <label data-i18n="lbl_fav_server"
+               class="u-s076">Serveur favori (Afficher le statut)</label
             >
             <input
               type="text"
@@ -1338,9 +1068,9 @@
               placeholder="Ex: play.hypixel.net"
             />
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label style="margin-top: 0" data-i18n="lbl_offline_mode"
-                >Forcer le mode hors ligne</label
+            <div class="u-s071">
+              <label data-i18n="lbl_offline_mode"
+                 class="u-s072">Forcer le mode hors ligne</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1355,9 +1085,9 @@
               <option value="true" data-i18n="btn_yes">Oui</option>
             </select>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label style="margin-top: 0" data-i18n="lbl_fast_verify"
-                >Vérification rapide des fichiers</label
+            <div class="u-s071">
+              <label data-i18n="lbl_fast_verify"
+                 class="u-s072">Vérification rapide des fichiers</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1375,37 +1105,23 @@
 
           <div id="tab-glob-app" class="settings-content">
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              "
-            >
+             class="u-s049">
               <label data-i18n="lbl_accent">Couleur Principale</label>
               <input
                 type="color"
                 id="global-accent"
-                style="
-                  width: 50px;
-                  height: 35px;
-                  padding: 2px;
-                  cursor: pointer;
-                  background: transparent;
-                  border: 1px solid var(--border);
-                "
-              />
+               class="u-s081"/>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_bg"
-              >Image de fond (Fond d'écran)</label
+            <label data-i18n="lbl_bg"
+               class="u-s076">Image de fond (Fond d'écran)</label
             >
-            <div style="display: flex; gap: 8px">
+            <div class="u-s078">
               <input
                 type="text"
                 id="global-bg-path"
                 placeholder="C:\Images\bg.png"
-                style="flex-grow: 1"
-              />
+               class="u-s007"/>
               <button
                 id="btn-bg-upload"
                 class="btn-secondary"
@@ -1424,12 +1140,11 @@
                 type="file"
                 id="bg-upload"
                 accept="image/png, image/jpeg, image/gif, image/webp, image/bmp"
-                style="display: none"
-              />
+               class="is-hidden"/>
             </div>
 
-            <label style="margin-top: 15px" data-i18n="lbl_darkness"
-              >Assombrissement du fond (Opacité)</label
+            <label data-i18n="lbl_darkness"
+               class="u-s076">Assombrissement du fond (Opacité)</label
             >
             <input
               type="range"
@@ -1440,8 +1155,8 @@
               value="0.5"
             />
 
-            <label style="margin-top: 15px" data-i18n="lbl_blur"
-              >Flou du fond</label
+            <label data-i18n="lbl_blur"
+               class="u-s076">Flou du fond</label
             >
             <input
               type="range"
@@ -1452,8 +1167,8 @@
               value="5"
             />
 
-            <label style="margin-top: 15px" data-i18n="lbl_panel_opacity"
-              >Opacité de l'interface (Panneaux)</label
+            <label data-i18n="lbl_panel_opacity"
+               class="u-s076">Opacité de l'interface (Panneaux)</label
             >
             <input
               type="range"
@@ -1464,9 +1179,9 @@
               value="0.6"
             />
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label style="margin-top: 0" data-i18n="lbl_disable_animations"
-                >Désactiver les animations</label
+            <div class="u-s071">
+              <label data-i18n="lbl_disable_animations"
+                 class="u-s072">Désactiver les animations</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1481,9 +1196,9 @@
               <option value="true" data-i18n="btn_yes">Oui</option>
             </select>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label style="margin-top: 0" data-i18n="lbl_disable_transparency"
-                >Désactiver la transparence / flou</label
+            <div class="u-s071">
+              <label data-i18n="lbl_disable_transparency"
+                 class="u-s072">Désactiver la transparence / flou</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -1501,60 +1216,28 @@
 
           <div id="tab-glob-updates" class="settings-content">
             <div
-              style="
-                font-weight: bold;
-                margin-bottom: 10px;
-                color: var(--text-light);
-              "
-            >
+             class="u-s082">
               <span data-i18n="lbl_current_version">Version actuelle :</span>
               <span
                 id="current-app-version"
-                style="color: var(--accent)"
-              ></span>
+               class="u-s011"></span>
             </div>
 
             <div
               id="update-available-container"
-              style="
-                display: none;
-                margin-top: 10px;
-                background: rgba(0, 122, 204, 0.1);
-                border: 1px solid var(--accent);
-                padding: 15px;
-                border-radius: 4px;
-              "
-            >
+             class="u-s083">
               <div
-                style="
-                  font-weight: bold;
-                  color: var(--text-light);
-                  font-size: 1.1rem;
-                  margin-bottom: 10px;
-                "
-              >
+               class="u-s084">
                 <span data-i18n="lbl_new_version"
                   >Nouvelle version disponible :</span
                 >
                 <span
                   id="new-version-badge"
-                  style="color: var(--accent)"
-                ></span>
+                 class="u-s011"></span>
               </div>
               <div
                 id="update-changelog"
-                style="
-                  font-size: 0.8rem;
-                  color: #ccc;
-                  max-height: 150px;
-                  overflow-y: auto;
-                  background: rgba(0, 0, 0, 0.2);
-                  padding: 10px;
-                  border-radius: 4px;
-                  margin-bottom: 15px;
-                  white-space: pre-wrap;
-                "
-              ></div>
+               class="u-s085"></div>
               <button
                 class="btn-primary"
                 id="btn-start-update"
@@ -1564,9 +1247,9 @@
               </button>
             </div>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label data-i18n="lbl_auto_update" style="margin-top: 0"
-                >Télécharger les MAJ automatiquement</label
+            <div class="u-s071">
+              <label data-i18n="lbl_auto_update"
+                 class="u-s072">Télécharger les MAJ automatiquement</label
               >
             </div>
             <select id="global-auto-update">
@@ -1575,8 +1258,7 @@
             </select>
 
             <button
-              class="btn-primary"
-              style="margin-top: 15px"
+              class="btn-primary u-s076"
               id="btn-check-launcher"
               data-i18n="btn_check_launcher_updates"
             >
@@ -1584,8 +1266,7 @@
             </button>
             <div
               id="update-status"
-              style="margin-top: 10px; color: #aaa; font-size: 0.85rem"
-            ></div>
+             class="u-s086"></div>
           </div>
 
           <div id="tab-glob-java" class="settings-content">
@@ -1593,37 +1274,25 @@
               >Téléchargeur automatique de Java</label
             >
             <div
-              style="font-size: 0.75rem; color: #aaa; margin-bottom: 15px"
               data-i18n="txt_java_auto_desc"
-            >
+             class="u-s087">
               Installez rapidement la version dont vous avez besoin si une
               instance refuse de se lancer. Le chemin sera automatiquement
               configuré.
             </div>
 
-            <div style="display: flex; flex-direction: column; gap: 10px">
+            <div class="u-s088">
               <div
-                style="
-                  background: rgba(0, 0, 0, 0.2);
-                  border: 1px solid var(--border);
-                  padding: 10px;
-                  border-radius: 4px;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                "
-              >
+               class="u-s089">
                 <div>
                   <div
-                    style="font-weight: bold; color: var(--text-light)"
                     data-i18n="lbl_java_25"
-                  >
+                   class="u-s090">
                     Java 25
                   </div>
                   <div
-                    style="font-size: 0.7rem; color: #888"
                     data-i18n="desc_java_25"
-                  >
+                   class="u-s091">
                     Pour Minecraft 26.1 et +
                   </div>
                 </div>
@@ -1637,27 +1306,16 @@
               </div>
 
               <div
-                style="
-                  background: rgba(0, 0, 0, 0.2);
-                  border: 1px solid var(--border);
-                  padding: 10px;
-                  border-radius: 4px;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                "
-              >
+               class="u-s089">
                 <div>
                   <div
-                    style="font-weight: bold; color: var(--text-light)"
                     data-i18n="lbl_java_21"
-                  >
+                   class="u-s090">
                     Java 21
                   </div>
                   <div
-                    style="font-size: 0.7rem; color: #888"
                     data-i18n="desc_java_21"
-                  >
+                   class="u-s091">
                     Pour Minecraft 1.20.5 à 26.1
                   </div>
                 </div>
@@ -1671,27 +1329,16 @@
               </div>
 
               <div
-                style="
-                  background: rgba(0, 0, 0, 0.2);
-                  border: 1px solid var(--border);
-                  padding: 10px;
-                  border-radius: 4px;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                "
-              >
+               class="u-s089">
                 <div>
                   <div
-                    style="font-weight: bold; color: var(--text-light)"
                     data-i18n="lbl_java_17"
-                  >
+                   class="u-s090">
                     Java 17
                   </div>
                   <div
-                    style="font-size: 0.7rem; color: #888"
                     data-i18n="desc_java_17"
-                  >
+                   class="u-s091">
                     Pour Minecraft 1.17 à 1.20.4
                   </div>
                 </div>
@@ -1705,27 +1352,16 @@
               </div>
 
               <div
-                style="
-                  background: rgba(0, 0, 0, 0.2);
-                  border: 1px solid var(--border);
-                  padding: 10px;
-                  border-radius: 4px;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                "
-              >
+               class="u-s089">
                 <div>
                   <div
-                    style="font-weight: bold; color: var(--text-light)"
                     data-i18n="lbl_java_8"
-                  >
+                   class="u-s090">
                     Java 8
                   </div>
                   <div
-                    style="font-size: 0.7rem; color: #888"
                     data-i18n="desc_java_8"
-                  >
+                   class="u-s091">
                     Pour Minecraft 1.16.5 et inférieur
                   </div>
                 </div>
@@ -1742,67 +1378,36 @@
           <div id="tab-glob-horizon" class="settings-content">
             <div class="settings-header">
               <h2
-                style="color: var(--text-light); margin-bottom: 5px"
                 data-i18n="horizon_tab_title"
-              >
+               class="u-s092">
                 Synchronisation Cloud
               </h2>
               <p
-                style="font-size: 0.85rem; opacity: 0.6"
                 data-i18n="horizon_tab_desc"
-              >
+               class="u-s093">
                 Gérez la sauvegarde de vos instances via Gens Horizon.
               </p>
             </div>
 
-            <div id="horizon-container" style="margin-top: 15px"></div>
+            <div id="horizon-container" class="u-s076"></div>
 
             <div
               id="horizon-progress-zone"
-              style="
-                display: none;
-                margin-top: 20px;
-                padding: 15px;
-                background: var(--bg-panel);
-                border: 1px solid var(--border);
-                border-radius: 4px;
-              "
-            >
+             class="u-s094">
               <div
-                style="
-                  display: flex;
-                  justify-content: space-between;
-                  margin-bottom: 8px;
-                  font-size: 0.8rem;
-                  color: var(--text-light);
-                "
-              >
+               class="u-s095">
                 <span
                   id="horizon-step"
-                  style="font-weight: bold"
                   data-i18n="horizon_initializing"
-                  >Initialisation...</span
+                   class="u-s096">Initialisation...</span
                 >
-                <span id="horizon-perc" style="opacity: 0.7">0%</span>
+                <span id="horizon-perc" class="u-s024">0%</span>
               </div>
               <div
-                style="
-                  width: 100%;
-                  background: var(--bg-main);
-                  height: 6px;
-                  border-radius: 3px;
-                  overflow: hidden;
-                "
-              >
+               class="u-s097">
                 <div
                   id="horizon-bar"
-                  style="
-                    width: 0%;
-                    height: 100%;
-                    background: var(--accent);
-                    transition: width 0.3s;
-                  "
-                ></div>
+                 class="u-s098"></div>
               </div>
             </div>
           </div>
@@ -1884,39 +1489,26 @@
           </div>
 
           <div id="tab-general" class="settings-content active">
-            <div style="display: flex; gap: 15px; align-items: flex-start">
+            <div class="u-s099">
               <div
-                style="
-                  display: flex;
-                  flex-direction: column;
-                  gap: 8px;
-                  align-items: center;
-                "
-              >
+               class="u-s100">
                 <div id="btn-edit-icon-upload" class="icon-wrapper">
-                  <img id="edit-icon-preview" src="" />
+                  <img id="edit-icon-preview" />
                   <input
                     type="file"
                     id="edit-icon-upload"
-                    style="display: none"
                     accept="image/png, image/jpeg, image/jpg"
-                  />
+                   class="is-hidden"/>
                 </div>
                 <button
                   id="btn-open-icon-gallery"
-                  class="btn-secondary"
-                  style="
-                    padding: 4px 0;
-                    font-size: 0.8rem;
-                    width: 100%;
-                    text-align: center;
-                  "
+                  class="btn-secondary u-s101"
                   data-i18n="btn_icon_gallery"
                 >
                   Galerie
                 </button>
               </div>
-              <div style="flex-grow: 1">
+              <div class="u-s007">
                 <label data-i18n="lbl_inst_name">Nom de l'instance</label>
                 <input
                   type="text"
@@ -1927,7 +1519,7 @@
               </div>
             </div>
 
-            <div style="margin-top: 15px">
+            <div class="u-s076">
               <label data-i18n="lbl_group"
                 >Dossier / Catégorie de l'instance</label
               >
@@ -1940,86 +1532,42 @@
             </div>
 
             <div
-              style="
-                margin-top: 15px;
-                background: rgba(0, 0, 0, 0.2);
-                padding: 10px;
-                border-radius: 4px;
-                border: 1px solid var(--border);
-              "
-            >
+             class="u-s102">
               <div
-                style="
-                  font-size: 0.85rem;
-                  font-weight: bold;
-                  color: var(--text-light);
-                  margin-bottom: 8px;
-                "
                 data-i18n="lbl_change_version"
-              >
+               class="u-s103">
                 Version &amp; Loader
               </div>
               <div
-                style="
-                  display: flex;
-                  gap: 8px;
-                  align-items: center;
-                  flex-wrap: wrap;
-                "
-              >
+               class="u-s104">
                 <div
-                  style="
-                    display: flex;
-                    flex-direction: column;
-                    gap: 3px;
-                    flex: 1;
-                    min-width: 120px;
-                  "
-                >
+                 class="u-s105">
                   <label
-                    style="font-size: 0.75rem; color: #aaa"
                     data-i18n="lbl_mc_version"
-                    >Version MC</label
+                     class="u-s036">Version MC</label
                   >
                   <select
                     id="edit-mc-version"
-                    style="font-size: 0.8rem; padding: 4px"
-                  ></select>
+                   class="u-s106"></select>
                 </div>
                 <div
-                  style="
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding-top: 16px;
-                  "
-                >
+                 class="u-s107">
                   <input type="checkbox" id="edit-show-snapshots" />
                   <label
                     for="edit-show-snapshots"
-                    style="font-size: 0.75rem; color: #aaa; cursor: pointer"
                     data-i18n="lbl_beta"
-                    >Bêtas</label
+                     class="u-s108">Bêtas</label
                   >
                 </div>
                 <div
-                  style="
-                    display: flex;
-                    flex-direction: column;
-                    gap: 3px;
-                    flex: 1;
-                    min-width: 120px;
-                  "
-                >
+                 class="u-s105">
                   <label
-                    style="font-size: 0.75rem; color: #aaa"
                     data-i18n="lbl_loader"
-                    >Loader</label
+                     class="u-s036">Loader</label
                   >
                   <select
                     id="edit-loader-type"
-                    style="font-size: 0.8rem; padding: 4px"
-                  >
+                   class="u-s106">
                     <option value="vanilla">Vanilla</option>
                     <option value="fabric">Fabric</option>
                     <option value="forge">Forge</option>
@@ -2029,58 +1577,36 @@
                 </div>
                 <div
                   id="edit-loader-version-container"
-                  style="
-                    display: none;
-                    flex-direction: column;
-                    gap: 3px;
-                    flex: 1;
-                    min-width: 120px;
-                  "
-                >
+                 class="u-s109">
                   <label
-                    style="font-size: 0.75rem; color: #aaa"
                     data-i18n="lbl_loader_version"
-                    >Version loader</label
+                     class="u-s036">Version loader</label
                   >
                   <select
                     id="edit-loader-version"
-                    style="font-size: 0.8rem; padding: 4px"
-                  ></select>
+                   class="u-s106"></select>
                 </div>
               </div>
               <div
-                style="font-size: 0.7rem; color: #f48a21; margin-top: 6px"
                 data-i18n="txt_version_warning"
-              >
+               class="u-s110">
                 ⚠ Changer la version supprimera les fichiers du jeu et forcera
                 leur retéléchargement.
               </div>
             </div>
 
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-top: 15px;
-              "
-            >
-              <div style="display: flex; align-items: center">
+             class="u-s077">
+              <div class="u-s111">
                 <label data-i18n="lbl_ram">Mémoire RAM allouée (Mo) :</label>
               </div>
-              <div style="display: flex; gap: 8px; align-items: center">
+              <div class="u-s112">
                 <input
                   type="number"
                   id="edit-ram-input"
                   min="1024"
                   max="32768"
-                  style="
-                    width: 80px;
-                    text-align: center;
-                    color: var(--accent);
-                    font-weight: bold;
-                  "
-                />
+                 class="u-s067"/>
               </div>
             </div>
             <input
@@ -2092,43 +1618,22 @@
             />
 
             <div
-              style="
-                margin-top: 15px;
-                background: rgba(0, 0, 0, 0.2);
-                padding: 10px;
-                border-radius: 4px;
-                border: 1px solid var(--border);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              "
-            >
+             class="u-s113">
               <div>
                 <div
-                  style="
-                    font-size: 0.85rem;
-                    font-weight: bold;
-                    color: var(--text-light);
-                  "
                   data-i18n="lbl_sync_options"
-                >
+                 class="u-s114">
                   Touches & Options
                 </div>
                 <div
-                  style="font-size: 0.7rem; color: #aaa"
                   data-i18n="txt_sync_options"
-                >
+                 class="u-s115">
                   Écrase les paramètres avec votre profil par défaut.
                 </div>
               </div>
               <button
                 id="btn-force-inject-options"
-                class="btn-secondary"
-                style="
-                  font-size: 0.75rem;
-                  padding: 4px 8px;
-                  white-space: nowrap;
-                "
+                class="btn-secondary u-s116"
                 data-i18n="btn_sync_now"
               >
                 Injecter
@@ -2136,34 +1641,24 @@
             </div>
           </div>
 
-          <div id="tab-mods" class="settings-content" style="padding: 10px">
+          <div id="tab-mods" class="settings-content u-s117">
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-bottom: 1px solid var(--border);
-                padding-bottom: 5px;
-              "
-            >
+             class="u-s118">
               <span
-                style="font-size: 0.85rem; font-weight: bold"
                 data-i18n="lbl_installed_mods"
-                >Vos Mods Installés</span
+                 class="u-s119">Vos Mods Installés</span
               >
-              <div style="display: flex; gap: 5px">
+              <div class="u-s120">
                 <button
-                  class="btn-secondary"
+                  class="btn-secondary u-s121"
                   id="btn-check-mod-updates"
-                  style="padding: 4px 8px; font-size: 0.75rem"
                   data-i18n="btn_check_updates"
                 >
                   Vérifier les MAJ
                 </button>
                 <button
                   id="btn-open-dir-mods"
-                  class="btn-secondary"
-                  style="padding: 4px 8px; font-size: 0.75rem"
+                  class="btn-secondary u-s121"
                   data-i18n="btn_folder"
                 >
                   Dossier
@@ -2171,61 +1666,36 @@
               </div>
             </div>
             <div
-              style="
-                display: flex;
-                gap: 5px;
-                margin-bottom: 5px;
-                padding-top: 10px;
-              "
-            >
+             class="u-s122">
               <input
                 type="text"
                 id="local-mod-search"
                 data-i18n="ph_search_local_mod"
                 placeholder="Rechercher un mod installé..."
-                style="flex-grow: 1; padding: 4px; font-size: 0.8rem"
-              />
+               class="u-s123"/>
             </div>
             <div
               id="mods-list"
-              style="
-                overflow-y: auto;
-                flex-grow: 1;
-                padding-top: 5px;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-              "
-            ></div>
+             class="u-s124"></div>
             <button
               id="btn-open-catalog-mods"
-              class="btn-primary"
-              style="margin-top: 10px"
+              class="btn-primary u-s125"
               data-i18n="btn_dl_mods"
             >
               Télécharger de nouveaux mods
             </button>
           </div>
 
-          <div id="tab-shaders" class="settings-content" style="padding: 10px">
+          <div id="tab-shaders" class="settings-content u-s117">
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-bottom: 1px solid var(--border);
-                padding-bottom: 5px;
-              "
-            >
+             class="u-s118">
               <span
-                style="font-size: 0.85rem; font-weight: bold"
                 data-i18n="lbl_installed_shaders"
-                >Vos Shaders</span
+                 class="u-s119">Vos Shaders</span
               >
               <button
                 id="btn-open-dir-shaderpacks"
-                class="btn-secondary"
-                style="padding: 4px 8px; font-size: 0.75rem"
+                class="btn-secondary u-s121"
                 data-i18n="btn_folder"
               >
                 Dossier
@@ -2233,19 +1703,10 @@
             </div>
             <div
               id="shaders-list"
-              style="
-                overflow-y: auto;
-                flex-grow: 1;
-                padding-top: 5px;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-              "
-            ></div>
+             class="u-s124"></div>
             <button
               id="btn-open-catalog-shaders"
-              class="btn-primary"
-              style="margin-top: 10px"
+              class="btn-primary u-s125"
               data-i18n="btn_dl_shaders"
             >
               Télécharger de nouveaux shaders
@@ -2254,27 +1715,17 @@
 
           <div
             id="tab-resourcepacks"
-            class="settings-content"
-            style="padding: 10px"
+            class="settings-content u-s117"
           >
             <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-bottom: 1px solid var(--border);
-                padding-bottom: 5px;
-              "
-            >
+             class="u-s118">
               <span
-                style="font-size: 0.85rem; font-weight: bold"
                 data-i18n="lbl_installed_rps"
-                >Vos Packs de Textures</span
+                 class="u-s119">Vos Packs de Textures</span
               >
               <button
                 id="btn-open-dir-resourcepacks"
-                class="btn-secondary"
-                style="padding: 4px 8px; font-size: 0.75rem"
+                class="btn-secondary u-s121"
                 data-i18n="btn_folder"
               >
                 Dossier
@@ -2282,19 +1733,10 @@
             </div>
             <div
               id="resourcepacks-list"
-              style="
-                overflow-y: auto;
-                flex-grow: 1;
-                padding-top: 5px;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-              "
-            ></div>
+             class="u-s124"></div>
             <button
               id="btn-open-catalog-resourcepacks"
-              class="btn-primary"
-              style="margin-top: 10px"
+              class="btn-primary u-s125"
               data-i18n="btn_dl_rps"
             >
               Télécharger de nouveaux packs
@@ -2302,7 +1744,7 @@
           </div>
 
           <div id="tab-servers" class="settings-content">
-            <div style="display: flex; gap: 8px; margin-bottom: 10px">
+            <div class="u-s126">
               <input
                 type="text"
                 id="new-server-ip"
@@ -2318,14 +1760,7 @@
             </div>
             <div
               id="server-list"
-              style="
-                overflow-y: auto;
-                flex-grow: 1;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-              "
-            ></div>
+             class="u-s127"></div>
           </div>
 
           <div id="tab-backups" class="settings-content">
@@ -2341,8 +1776,8 @@
                 À la fermeture du jeu
               </option>
             </select>
-            <label style="margin-top: 10px" data-i18n="lbl_backup_limit"
-              >Nombre de sauvegardes à conserver :</label
+            <label data-i18n="lbl_backup_limit"
+               class="u-s125">Nombre de sauvegardes à conserver :</label
             >
             <input
               type="number"
@@ -2350,61 +1785,43 @@
               min="1"
               max="100"
               value="5"
-              style="width: 80px"
-            />
+             class="u-s128"/>
             <div
-              style="font-size: 0.75rem; color: #aaa; margin-top: 5px"
               data-i18n="txt_backup_desc"
-            >
+             class="u-s129">
               Le launcher conservera automatiquement vos sauvegardes dans le
               dossier 'backups'.
             </div>
             <button
               id="btn-open-dir-backups-edit"
-              class="btn-secondary"
-              style="margin-top: 15px"
+              class="btn-secondary u-s076"
               data-i18n="btn_open_backups"
             >
               Ouvrir le dossier des sauvegardes
             </button>
 
             <div
-              style="
-                margin-top: 20px;
-                padding-top: 15px;
-                border-top: 1px solid var(--border);
-              "
-            >
+             class="u-s130">
               <label
-                style="font-weight: bold; color: var(--accent)"
                 data-i18n="lbl_horizon_instance"
-                >☁ Gens Horizon (Cloud)</label
+                 class="u-s131">☁ Gens Horizon (Cloud)</label
               >
               <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 10px;
-                  margin-top: 8px;
-                "
-              >
+               class="u-s132">
                 <input
                   type="checkbox"
                   id="edit-disable-horizon"
-                  style="width: 16px; height: 16px; cursor: pointer"
-                />
+                 class="u-s133"/>
                 <label
                   for="edit-disable-horizon"
-                  style="cursor: pointer; font-size: 0.9rem"
                   data-i18n="lbl_disable_horizon_instance"
-                  >Désactiver la synchronisation Cloud pour cette
+                   class="u-s134">Désactiver la synchronisation Cloud pour cette
                   instance</label
                 >
               </div>
               <div
-                style="font-size: 0.75rem; color: #888; margin-top: 4px"
                 data-i18n="txt_disable_horizon_desc"
-              >
+               class="u-s135">
                 Si activé, cette instance ne sera jamais uploadée ni
                 synchronisée via Horizon, même si la synchronisation globale est
                 active.
@@ -2416,8 +1833,8 @@
             <label data-i18n="lbl_java"
               >Chemin de l'exécutable Java local</label
             >
-            <div style="display: flex; gap: 8px">
-              <select id="edit-javapath" style="flex-grow: 1"></select>
+            <div class="u-s078">
+              <select id="edit-javapath" class="u-s007"></select>
               <button
                 id="btn-scan-java-edit"
                 class="btn-secondary"
@@ -2431,27 +1848,25 @@
               <input
                 type="file"
                 id="custom-edit-java-file"
-                style="display: none"
                 accept=".exe"
-              />
+               class="is-hidden"/>
             </div>
-            <div style="display: flex; gap: 10px; margin-top: 10px">
-              <div style="flex: 1">
+            <div class="u-s136">
+              <div class="u-s033">
                 <label data-i18n="lbl_width">Largeur</label
                 ><input type="number" id="edit-res-w" placeholder="854" />
               </div>
-              <div style="flex: 1">
+              <div class="u-s033">
                 <label data-i18n="lbl_height">Hauteur</label
                 ><input type="number" id="edit-res-h" placeholder="480" />
               </div>
             </div>
 
             <label
-              style="margin-top: 15px; font-weight: bold; color: var(--accent)"
               data-i18n="lbl_java_opti"
-              >Profil d'Optimisation Java (Anti-Lag)</label
+               class="u-s137">Profil d'Optimisation Java (Anti-Lag)</label
             >
-            <select id="edit-jvm-profile" style="margin-bottom: 5px">
+            <select id="edit-jvm-profile" class="u-s138">
               <option value="none" data-i18n="opt_java_none">
                 Aucun (Standard)
               </option>
@@ -2465,16 +1880,7 @@
 
             <div
               id="jvm-desc-none"
-              class="jvm-desc"
-              style="
-                font-size: 0.75rem;
-                color: #aaa;
-                background: rgba(0, 0, 0, 0.2);
-                padding: 8px;
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                display: none;
-              "
+              class="jvm-desc u-s139"
               data-i18n="desc_java_none"
             >
               Standard : Laisse le jeu gérer la mémoire avec les paramètres par
@@ -2482,16 +1888,7 @@
             </div>
             <div
               id="jvm-desc-aikar"
-              class="jvm-desc"
-              style="
-                font-size: 0.75rem;
-                color: #aaa;
-                background: rgba(0, 0, 0, 0.2);
-                padding: 8px;
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                display: none;
-              "
+              class="jvm-desc u-s139"
               data-i18n="desc_java_aikar"
             >
               Aikar's Flags : Les arguments les plus célèbres de la communauté
@@ -2502,16 +1899,7 @@
             </div>
             <div
               id="jvm-desc-zgc"
-              class="jvm-desc"
-              style="
-                font-size: 0.75rem;
-                color: #aaa;
-                background: rgba(0, 0, 0, 0.2);
-                padding: 8px;
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                display: none;
-              "
+              class="jvm-desc u-s139"
               data-i18n="desc_java_zgc"
             >
               Z Generational (ZGC) : Une technologie ultra-moderne de Java. Elle
@@ -2521,9 +1909,9 @@
               utilise Java 21 ou supérieur).
             </div>
 
-            <div style="display: flex; align-items: center; margin-top: 15px">
-              <label data-i18n="lbl_jvm" style="margin-top: 0"
-                >Arguments JVM manuels (Avancé)</label
+            <div class="u-s071">
+              <label data-i18n="lbl_jvm"
+                 class="u-s072">Arguments JVM manuels (Avancé)</label
               >
               <div
                 class="ram-help-icon custom-tooltip-trigger"
@@ -2543,8 +1931,7 @@
             <label data-i18n="tab_notes">Notes sur cette instance</label>
             <textarea
               id="edit-notes"
-              style="height: 250px; resize: none"
-            ></textarea>
+             class="u-s140"></textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -2586,8 +1973,7 @@
           </div>
           <button
             type="button"
-            class="btn-microsoft"
-            style="width: 100%; margin-top: 4px"
+            class="btn-microsoft u-s141"
             id="ms-device-btn-open"
             data-i18n="ms_device_open"
           >
@@ -2601,21 +1987,12 @@
         <div class="modal-footer">
           <span
             id="ms-device-footer-note"
-            style="
-              font-size: 0.75rem;
-              color: #aaa;
-              line-height: 1.35;
-              text-align: left;
-              flex: 1;
-              min-width: 0;
-            "
-          ></span>
+           class="u-s142"></span>
           <button
             type="button"
-            class="btn-secondary"
+            class="btn-secondary u-s143"
             id="ms-device-btn-cancel"
             data-i18n="ms_device_cancel"
-            style="flex-shrink: 0"
           >
             Annuler
           </button>
@@ -2629,31 +2006,23 @@
           Confirmation
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s144"
           id="confirm-message"
-          style="
-            padding: 20px 15px;
-            text-align: center;
-            line-height: 1.5;
-            white-space: pre-wrap;
-          "
         >
           ...
         </div>
-        <div class="modal-footer" style="justify-content: center; gap: 15px">
+        <div class="modal-footer u-s145">
           <button
-            class="btn-secondary"
+            class="btn-secondary u-s060"
             id="confirm-no"
             data-i18n="btn_no"
-            style="width: 100px"
           >
             Non
           </button>
           <button
-            class="btn-primary"
+            class="btn-primary u-s060"
             id="confirm-yes"
             data-i18n="btn_yes"
-            style="width: 100px"
           >
             Oui
           </button>
@@ -2667,43 +2036,18 @@
           Visionneuse 3D de Skin
         </div>
         <div
-          class="modal-body"
-          style="display: flex; gap: 20px; align-items: center; padding: 20px"
+          class="modal-body u-s146"
         >
           <div
-            style="
-              background: rgba(0, 0, 0, 0.3);
-              border: 1px solid var(--border);
-              border-radius: 6px;
-              padding: 10px;
-              width: 220px;
-              height: 320px;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-            "
-          >
-            <canvas id="fullscreen-skin-canvas" style="cursor: grab"></canvas>
+           class="u-s147">
+            <canvas id="fullscreen-skin-canvas" class="u-s148"></canvas>
           </div>
 
           <div
-            style="
-              display: flex;
-              flex-direction: column;
-              gap: 10px;
-              flex-grow: 1;
-            "
-          >
+           class="u-s149">
             <div
-              style="
-                font-weight: bold;
-                color: var(--text-light);
-                text-align: center;
-                font-size: 1.2rem;
-                margin-bottom: 5px;
-              "
               id="skin-modal-name"
-            >
+             class="u-s150">
               Pseudo
             </div>
 
@@ -2718,8 +2062,7 @@
               type="file"
               id="skin-upload"
               accept=".png"
-              style="display: none"
-            />
+             class="is-hidden"/>
 
             <button
               id="btn-export-skin"
@@ -2731,16 +2074,14 @@
 
             <div
               id="skin-divider"
-              class="acc-divider"
-              style="height: 1px; background: var(--border); margin: 5px 0"
+              class="acc-divider u-s151"
             ></div>
 
-            <div id="btn-link-ms-skin" style="display: none; width: 100%">
-              <div style="display: flex; gap: 10px">
+            <div id="btn-link-ms-skin" class="u-s152">
+              <div class="u-s153">
                 <select
                   id="skin-variant-select"
-                  class="tool-select"
-                  style="flex: 1"
+                  class="tool-select u-s033"
                 >
                   <option value="classic" data-i18n="lbl_skin_classic">
                     Classique
@@ -2751,9 +2092,8 @@
                 </select>
                 <button
                   id="btn-skin-mojang-upload"
-                  class="btn-microsoft"
+                  class="btn-microsoft u-s154"
                   data-i18n="btn_upload_mojang"
-                  style="flex: 2"
                 >
                   Envoyer vers Mojang
                 </button>
@@ -2762,19 +2102,12 @@
                 type="file"
                 id="skin-mojang-input"
                 accept=".png"
-                style="display: none"
-              />
+               class="is-hidden"/>
             </div>
 
             <div
-              style="
-                font-size: 0.75rem;
-                color: #aaa;
-                text-align: center;
-                margin-top: 10px;
-              "
               data-i18n="tip_skin_3d"
-            >
+             class="u-s155">
               💡 Astuce : Cliquez et glissez pour faire pivoter le personnage.
               Utilisez la molette pour zoomer.
             </div>
@@ -2798,41 +2131,20 @@
           Options d'exportation
         </div>
         <div
-          class="modal-body"
-          style="
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            padding: 20px;
-          "
+          class="modal-body u-s156"
         >
           <div
             id="btn-export-zip-light"
-            style="
-              background: rgba(0, 0, 0, 0.2);
-              border: 1px solid var(--border);
-              padding: 15px;
-              border-radius: 4px;
-              cursor: pointer;
-              transition: 0.2s;
-            "
-            class="export-card"
+            class="export-card u-s157"
           >
             <div
-              style="
-                font-weight: bold;
-                color: var(--accent);
-                font-size: 1.1rem;
-                margin-bottom: 5px;
-              "
               data-i18n="modal_export_light"
-            >
+             class="u-s158">
               Export Léger (.zip)
             </div>
             <div
-              style="font-size: 0.8rem; color: #aaa"
               data-i18n="txt_export_light_desc"
-            >
+             class="u-s159">
               Inclut vos mods, configurations et sauvegardes (Exclut les assets
               et versions du jeu). (Recommandé)
             </div>
@@ -2840,31 +2152,16 @@
 
           <div
             id="btn-export-zip-full"
-            style="
-              background: rgba(0, 0, 0, 0.2);
-              border: 1px solid var(--border);
-              padding: 15px;
-              border-radius: 4px;
-              cursor: pointer;
-              transition: 0.2s;
-            "
-            class="export-card"
+            class="export-card u-s157"
           >
             <div
-              style="
-                font-weight: bold;
-                color: var(--text-light);
-                font-size: 1.1rem;
-                margin-bottom: 5px;
-              "
               data-i18n="modal_export_full"
-            >
+             class="u-s160">
               Export Complet (.zip)
             </div>
             <div
-              style="font-size: 0.8rem; color: #aaa"
               data-i18n="txt_export_full_desc"
-            >
+             class="u-s159">
               Contient absolument tous les fichiers de l'instance, y compris le
               cœur du jeu. (Fichier très lourd).
             </div>
@@ -2884,121 +2181,61 @@
 
     <div id="modal-crash" class="modal">
       <div
-        class="modal-card"
-        style="
-          width: 500px;
-          max-height: 80vh;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-        "
+        class="modal-card u-s161"
       >
         <div
-          class="modal-header"
-          style="
-            background: rgba(248, 113, 113, 0.2);
-            border-bottom: 1px solid rgba(248, 113, 113, 0.5);
-            color: #fca5a5;
-          "
+          class="modal-header u-s162"
         >
           <span data-i18n="modal_crash_title">💥 Rapport de Crash</span>
         </div>
-        <div class="modal-body" style="padding: 20px; overflow-y: auto">
+        <div class="modal-body u-s163">
           <div
-            style="
-              font-size: 1rem;
-              color: var(--text-light);
-              margin-bottom: 15px;
-            "
             id="crash-summary"
-          >
+           class="u-s164">
             Le jeu s'est arrêté de manière inattendue.
           </div>
 
           <div
-            style="
-              background: rgba(0, 0, 0, 0.3);
-              border: 1px solid var(--border);
-              padding: 15px;
-              border-radius: 4px;
-              margin-bottom: 15px;
-            "
-          >
+           class="u-s165">
             <div
-              style="
-                font-size: 0.8rem;
-                color: #aaa;
-                text-transform: uppercase;
-                margin-bottom: 5px;
-              "
               data-i18n="lbl_crash_cause"
-            >
+             class="u-s166">
               Cause Probable
             </div>
             <div
               id="crash-cause"
-              style="font-weight: bold; color: #fca5a5; font-size: 1rem"
-            >
+             class="u-s167">
               Analyse en cours...
             </div>
           </div>
 
           <div
-            style="
-              background: rgba(0, 0, 0, 0.3);
-              border: 1px solid var(--border);
-              padding: 15px;
-              border-radius: 4px;
-              margin-bottom: 15px;
-            "
-          >
+           class="u-s165">
             <div
-              style="
-                font-size: 0.8rem;
-                color: #aaa;
-                text-transform: uppercase;
-                margin-bottom: 5px;
-              "
               data-i18n="lbl_crash_action"
-            >
+             class="u-s166">
               Action Recommandée
             </div>
             <div
               id="crash-action"
-              style="color: var(--text-main); font-size: 0.95rem"
-            >
+             class="u-s168">
               Veuillez patienter...
             </div>
           </div>
 
           <div
-            style="font-size: 0.8rem; color: #aaa; margin-bottom: 5px"
             data-i18n="lbl_crash_log_excerpt"
-          >
+           class="u-s169">
             Extrait du log :
           </div>
           <div
             id="crash-log-excerpt"
-            style="
-              background: #111;
-              color: #f87171;
-              font-family: monospace;
-              font-size: 0.75rem;
-              padding: 10px;
-              border-radius: 4px;
-              overflow-x: auto;
-              white-space: pre-wrap;
-              max-height: 150px;
-              overflow-y: auto;
-              border: 1px solid #333;
-            "
-          ></div>
+           class="u-s170"></div>
         </div>
         <div class="modal-footer">
           <button
-            class="btn-primary"
+            class="btn-primary u-s171"
             id="btn-copy-crash-log"
-            style="background: var(--bg-hover)"
             data-i18n="btn_copy_log"
           >
             Copier le Log
@@ -3020,14 +2257,8 @@
           Galerie d'icônes
         </div>
         <div
-          class="modal-body"
+          class="modal-body u-s172"
           id="icon-gallery-grid"
-          style="
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 10px;
-            padding: 20px;
-          "
         ></div>
         <div class="modal-footer">
           <button
@@ -3043,47 +2274,18 @@
 
     <div id="modal-builder" class="modal">
       <div
-        class="modal-card"
-        style="
-          width: 95vw;
-          max-width: 950px;
-          height: 85vh;
-          max-height: 650px;
-          display: flex;
-          flex-direction: column;
-        "
+        class="modal-card u-s173"
       >
         <div class="modal-header" data-i18n="modal_builder_title">
           Créateur de Modpack Personnalisé
         </div>
         <div
-          class="modal-body"
-          style="
-            flex-grow: 1;
-            padding: 0;
-            display: flex;
-            flex-direction: row;
-            overflow: hidden;
-          "
+          class="modal-body u-s174"
         >
           <div
-            style="
-              width: 320px;
-              background: var(--bg-panel);
-              border-right: 1px solid var(--border);
-              display: flex;
-              flex-direction: column;
-              flex-shrink: 0;
-              overflow: hidden;
-            "
-          >
+           class="u-s175">
             <div
-              style="
-                padding: 15px;
-                border-bottom: 1px solid var(--border);
-                flex-shrink: 0;
-              "
-            >
+             class="u-s176">
               <label data-i18n="lbl_modpack_name">Nom du Modpack</label>
               <input
                 type="text"
@@ -3092,12 +2294,12 @@
                 placeholder="Mon Super Modpack"
                 maxlength="64"
               />
-              <div style="display: flex; gap: 10px; margin-top: 10px">
-                <div style="flex: 1">
+              <div class="u-s136">
+                <div class="u-s033">
                   <label data-i18n="lbl_version">Version</label>
                   <select id="builder-version"></select>
                 </div>
-                <div style="flex: 1">
+                <div class="u-s033">
                   <label data-i18n="lbl_loader">Loader</label>
                   <select id="builder-loader">
                     <option value="fabric">Fabric</option>
@@ -3109,58 +2311,21 @@
               </div>
             </div>
             <div
-              style="
-                padding: 15px 15px 5px 15px;
-                font-weight: bold;
-                color: var(--accent);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                flex-shrink: 0;
-              "
-            >
+             class="u-s177">
               <span data-i18n="lbl_your_selection">Votre sélection</span>
               <span
                 id="builder-count"
-                style="
-                  background: var(--accent);
-                  color: white;
-                  padding: 2px 8px;
-                  border-radius: 10px;
-                  font-size: 0.75rem;
-                "
-                >0</span
+                 class="u-s178">0</span
               >
             </div>
             <div
               id="builder-selected-list"
-              style="
-                flex-grow: 1;
-                overflow-y: auto;
-                padding: 10px 15px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-              "
-            ></div>
+             class="u-s179"></div>
             <div
-              style="
-                padding: 15px;
-                border-top: 1px solid var(--border);
-                background: rgba(0, 0, 0, 0.1);
-                flex-shrink: 0;
-              "
-            >
+             class="u-s180">
               <button
                 id="btn-build-modpack"
-                class="btn-primary"
-                style="
-                  width: 100%;
-                  font-weight: bold;
-                  background: #17b139;
-                  border-color: #17b139;
-                  padding: 10px;
-                "
+                class="btn-primary u-s181"
                 data-i18n="btn_create_install"
               >
                 Créer &amp; Installer
@@ -3169,26 +2334,10 @@
           </div>
 
           <div
-            style="
-              flex-grow: 1;
-              display: flex;
-              flex-direction: column;
-              background: var(--bg-main);
-              overflow: hidden;
-            "
-          >
+           class="u-s182">
             <div
-              style="
-                padding: 15px;
-                border-bottom: 1px solid var(--border);
-                display: flex;
-                gap: 10px;
-                background: rgba(0, 0, 0, 0.2);
-                align-items: center;
-                flex-shrink: 0;
-              "
-            >
-              <select id="builder-type" style="width: 140px">
+             class="u-s183">
+              <select id="builder-type" class="u-s184">
                 <option value="mod" data-i18n="opt_mods_type">Mods</option>
                 <option value="shader" data-i18n="opt_shaders_type">
                   Shaders
@@ -3197,7 +2346,7 @@
                   Ressources
                 </option>
               </select>
-              <select id="builder-source" style="width: 140px">
+              <select id="builder-source" class="u-s184">
                 <option value="modrinth">Modrinth</option>
                 <option value="curseforge">CurseForge</option>
               </select>
@@ -3206,24 +2355,14 @@
                 id="builder-search"
                 data-i18n="ph_search_mods"
                 placeholder="Rechercher..."
-                style="flex-grow: 1"
-              />
+               class="u-s007"/>
             </div>
             <div
               id="builder-results"
-              style="
-                flex-grow: 1;
-                overflow-y: auto;
-                padding: 15px;
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 10px;
-                align-content: start;
-              "
-            ></div>
+             class="u-s185"></div>
           </div>
         </div>
-        <div class="modal-footer" style="flex-shrink: 0">
+        <div class="modal-footer u-s143">
           <button
             id="btn-close-builder-modal"
             class="btn-secondary"
@@ -3273,18 +2412,16 @@
         Créer raccourci bureau
       </div>
       <div
-        class="context-menu-item"
+        class="context-menu-item u-s186"
         id="ctx-delete-shortcut"
         data-i18n="ctx_delete_shortcut"
-        style="display: none; color: #f87171"
       >
         Supprimer le raccourci
       </div>
       <div class="context-menu-divider"></div>
       <div
         id="ctx-delete"
-        class="context-menu-item"
-        style="color: #f87171"
+        class="context-menu-item u-s006"
         data-i18n="btn_delete"
       >
         Supprimer
@@ -3300,311 +2437,118 @@
         Restaurer l'instance
       </div>
       <div
-        class="context-menu-item"
+        class="context-menu-item is-hidden"
         id="ctx-cloud-sync-item"
         data-i18n="ctx_cloud_import"
-        style="display: none"
       >
         Importer du Cloud
       </div>
       <div
-        class="context-menu-item"
+        class="context-menu-item is-hidden"
         id="ctx-cloud-upload-item"
         data-i18n="ctx_cloud_upload"
-        style="display: none"
       >
         Envoyer sur le Cloud
       </div>
       <div class="context-menu-divider"></div>
       <div
         id="ctx-delete-cloud-only"
-        class="context-menu-item"
+        class="context-menu-item u-s006"
         data-i18n="ctx_delete_cloud"
-        style="color: #f87171"
       >
         Supprimer du Cloud
       </div>
     </div>
     <div
       id="auto-launch-overlay"
-      style="
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 9999999;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 28px 32px;
-        -webkit-app-region: drag;
-        gap: 0;
-        overflow: hidden;
-      "
-    >
+     class="u-s187">
       <div
         id="auto-bg-screenshot"
-        style="
-          position: absolute;
-          inset: 0;
-          background-size: cover;
-          background-position: center;
-          filter: blur(18px) brightness(0.25);
-          transform: scale(1.08);
-          transition: opacity 0.6s;
-          opacity: 0;
-          pointer-events: none;
-        "
-      ></div>
+       class="u-s188"></div>
       <div
-        style="position: absolute; inset: 0; background: #1a1a1a; z-index: -1"
-      ></div>
+       class="u-s189"></div>
 
       <div
-        style="
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          width: 100%;
-          max-width: 380px;
-        "
-      >
+       class="u-s190">
         <div
           id="auto-crash-banner"
-          style="
-            display: none;
-            width: 100%;
-            background: rgba(248, 113, 113, 0.12);
-            border: 1px solid rgba(248, 113, 113, 0.35);
-            border-radius: 10px;
-            padding: 8px 14px;
-            margin-bottom: 14px;
-            font-size: 0.78rem;
-            color: #f87171;
-            text-align: center;
-            -webkit-app-region: no-drag;
-            cursor: pointer;
-          "
-        >
+         class="u-s191">
           ⚠
           <span data-i18n="msg_last_crash"
             >Dernier lancement : crash détecté</span
           >
           —
-          <span style="text-decoration: underline" data-i18n="lbl_see_report"
-            >Voir le rapport</span
+          <span data-i18n="lbl_see_report"
+             class="u-s192">Voir le rapport</span
           >
         </div>
 
         <div
-          style="
-            position: relative;
-            margin-bottom: 14px;
-            -webkit-app-region: no-drag;
-          "
-        >
+         class="u-s193">
           <div
             id="auto-icon-glow"
-            style="
-              position: absolute;
-              inset: -8px;
-              border-radius: 22px;
-              background: var(--accent, #007acc);
-              opacity: 0.15;
-              filter: blur(12px);
-              animation: autoIconPulse 2s ease-in-out infinite;
-            "
-          ></div>
+           class="u-s194"></div>
           <img
             id="auto-icon"
-            src=""
-            style="
-              width: 84px;
-              height: 84px;
-              border-radius: 14px;
-              box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
-              object-fit: cover;
-              flex-shrink: 0;
-              position: relative;
-            "
-          />
+           class="u-s195"/>
         </div>
 
         <div
           id="auto-inst-name"
-          style="
-            font-size: 1.35rem;
-            font-weight: 700;
-            color: var(--text-light, #fff);
-            margin-bottom: 14px;
-            text-align: center;
-            max-width: 340px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          "
-        ></div>
+         class="u-s196"></div>
 
         <div
           id="auto-badges"
-          style="
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            justify-content: center;
-            margin-bottom: 14px;
-            -webkit-app-region: no-drag;
-          "
-        >
+         class="u-s197">
           <span
             id="auto-badge-version"
-            style="
-              background: rgba(255, 255, 255, 0.06);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-              border-radius: 20px;
-              padding: 4px 12px;
-              font-size: 0.78rem;
-              color: #bbb;
-              white-space: nowrap;
-            "
-          ></span>
+           class="u-s198"></span>
           <span
             id="auto-badge-loader"
-            style="
-              background: rgba(255, 255, 255, 0.06);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-              border-radius: 20px;
-              padding: 4px 12px;
-              font-size: 0.78rem;
-              color: #bbb;
-              white-space: nowrap;
-            "
-          ></span>
+           class="u-s198"></span>
           <span
             id="auto-badge-ram"
-            style="
-              background: rgba(255, 255, 255, 0.06);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-              border-radius: 20px;
-              padding: 4px 12px;
-              font-size: 0.78rem;
-              color: #bbb;
-              white-space: nowrap;
-            "
-          ></span>
+           class="u-s198"></span>
           <span
             id="auto-badge-playtime"
-            style="
-              display: none;
-              background: rgba(255, 255, 255, 0.06);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-              border-radius: 20px;
-              padding: 4px 12px;
-              font-size: 0.78rem;
-              color: #bbb;
-              white-space: nowrap;
-            "
-          ></span>
+           class="u-s199"></span>
         </div>
 
         <div
-          style="
-            width: 240px;
-            height: 1px;
-            background: rgba(255, 255, 255, 0.07);
-            margin-bottom: 14px;
-            flex-shrink: 0;
-          "
-        ></div>
+         class="u-s200"></div>
 
         <div
-          style="
-            font-size: 0.85rem;
-            color: #777;
-            margin-bottom: 14px;
-            text-align: center;
-          "
-        >
+         class="u-s201">
           <span data-i18n="lbl_auto_session">Session de :</span>
           <span
             id="auto-acc-name"
-            style="
-              color: var(--accent, #007acc);
-              font-weight: 600;
-              margin-left: 5px;
-            "
-          ></span>
+           class="u-s202"></span>
         </div>
 
         <div
-          style="
-            width: 260px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.08);
-            border-radius: 2px;
-            margin-bottom: 10px;
-            overflow: hidden;
-            flex-shrink: 0;
-          "
-        >
+         class="u-s203">
           <div
             id="auto-progress-bar"
-            style="
-              height: 100%;
-              width: 0%;
-              background: var(--accent, #007acc);
-              border-radius: 2px;
-              transition: width 0.3s ease;
-            "
-          ></div>
+           class="u-s204"></div>
         </div>
 
         <div
           id="auto-status-text"
-          style="
-            font-size: 0.78rem;
-            color: #666;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 20px;
-            padding: 5px 18px;
-            text-align: center;
-            -webkit-app-region: no-drag;
-            max-width: 340px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            margin-bottom: 14px;
-          "
           data-i18n="msg_auto_init"
-        >
+         class="u-s205">
           Initialisation...
         </div>
 
         <button
           id="auto-cancel-btn"
-          class="btn-secondary"
-          style="
-            display: none;
-            height: 28px;
-            padding: 0 18px;
-            font-size: 0.8rem;
-            -webkit-app-region: no-drag;
-          "
+          class="btn-secondary u-s206"
         >
           <span data-i18n="btn_cancel">Annuler</span>
         </button>
 
         <div
           id="auto-not-found-zone"
-          style="
-            display: none;
-            text-align: center;
-            margin-top: 8px;
-            -webkit-app-region: no-drag;
-          "
-        ></div>
+         class="u-s207"></div>
       </div>
     </div>
     <script type="module" src="./src/event-listeners.js"></script>

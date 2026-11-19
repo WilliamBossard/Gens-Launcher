@@ -1,6 +1,9 @@
 // @ts-check
 
-const { isAllowedDomain } = require('./download-utils');
+const { isAllowedDomain, createDownloadFile } = require('./download-utils');
+const { existsSafe, renameWithRetry } = require('./fs-utils');
+const { pipeStreams } = require('./zip-utils');
+const { Worker } = require('worker_threads');
 
 const ALLOWED_LOADER_META_DOMAINS = [
     'mojang.com',
@@ -40,6 +43,8 @@ module.exports = function setupGameHandlers(context) {
 
     /** @type {Map<string, { launcher?: any; process?: any; closeLogStream?: () => void }> } */
     const activeMinecraftClients = new Map();
+    /** @type {Set<string>} */
+    const pendingLaunches = new Set();
 
     /**
      * Envoie au renderer en relisant la fenêtre courante (évite une référence capturée/détruite).
@@ -73,13 +78,26 @@ module.exports = function setupGameHandlers(context) {
             for (const folder of folders) {
                 const lockFile = path.join(instancesDir, folder, "instance.lock");
                 try {
-                    await fs.promises.access(lockFile);
-                    const pidStr = await fs.promises.readFile(lockFile, 'utf8');
-                    const pid = parseInt(pidStr, 10);
+                    const lockStat = await fs.promises.stat(lockFile);
+                    const rawLock = (await fs.promises.readFile(lockFile, 'utf8')).trim();
+                    if (!rawLock) {
+                        // Tolérer un lock tout juste créé en cours d'écriture (< 10s)
+                        if (Date.now() - lockStat.mtimeMs < 10000) continue;
+                        throw new Error('Lock vide expiré');
+                    }
+                    let pid = NaN;
+                    if (rawLock.startsWith('{')) {
+                        const parsed = JSON.parse(rawLock);
+                        pid = parseInt(String(parsed?.pid ?? ''), 10);
+                    } else {
+                        pid = parseInt(rawLock, 10);
+                    }
                     if (!Number.isInteger(pid) || pid <= 0) {
                         throw new Error('PID invalide');
                     }
-                    process.kill(pid, 0);
+                    if (!(await isRunningJavaPid(pid))) {
+                        throw new Error('PID inactif ou non-Java');
+                    }
                     let instanceId = folder;
                     const jsonPath = path.join(instancesDir, folder, "instance.json");
                     try {
@@ -112,24 +130,29 @@ module.exports = function setupGameHandlers(context) {
         if (typeof javaPath !== "string" || !javaPath.trim()) {
             return { ok: false, message: "Chemin Java invalide bloqué." };
         }
-        // Bloquer les chemins UNC / partages réseau
-        if (javaPath.startsWith("\\") || javaPath.startsWith("//")) {
+        const trimmedJavaPath = javaPath.trim();
+        // Bloquer les chemins UNC / partages réseau (y compris barres obliques mixtes \/ ou /\)
+        if (/^[/\\]{2}/.test(trimmedJavaPath) || trimmedJavaPath.startsWith("\\") || trimmedJavaPath.startsWith("//")) {
             return { ok: false, message: "Exécution de Java depuis un partage réseau bloquée." };
         }
-        const baseName = path.basename(javaPath).toLowerCase().trim();
+        const baseName = path.basename(trimmedJavaPath).toLowerCase().trim();
         if (!VALID_JAVA_NAMES.has(baseName)) {
             return { ok: false, message: "Chemin Java invalide bloqué." };
         }
-        if (!VALID_JAVA_NAMES.has(javaPath.toLowerCase().trim())) {
-            if (!path.isAbsolute(javaPath.trim())) {
+        if (!VALID_JAVA_NAMES.has(trimmedJavaPath.toLowerCase())) {
+            if (!path.isAbsolute(trimmedJavaPath)) {
                 return { ok: false, message: "Chemin relatif Java non autorisé bloqué." };
+            }
+            const resolvedJavaPath = path.resolve(trimmedJavaPath);
+            if (process.platform === 'win32' && resolvedJavaPath.startsWith('\\\\')) {
+                return { ok: false, message: "Exécution de Java depuis un partage réseau bloquée." };
             }
             /** @type {string} */
             let realJavaPath;
             try {
-                const stat = await fs.promises.stat(javaPath);
+                const stat = await fs.promises.stat(resolvedJavaPath);
                 if (!stat.isFile()) throw new Error("Not a file");
-                realJavaPath = await fs.promises.realpath(javaPath);
+                realJavaPath = await fs.promises.realpath(resolvedJavaPath);
             } catch (e) {
                 return { ok: false, message: "Fichier Java introuvable." };
             }
@@ -137,23 +160,38 @@ module.exports = function setupGameHandlers(context) {
             if (!VALID_JAVA_NAMES.has(realBase)) {
                 return { ok: false, message: "Cible du lien Java invalide bloquée." };
             }
+            const realParentName = path.basename(path.dirname(realJavaPath)).toLowerCase().trim();
+            if (realParentName !== 'bin') {
+                return { ok: false, message: "L'exécutable Java doit résider dans un dossier bin/ valide." };
+            }
             const isWin = process.platform === 'win32';
             /** @param {string} s */
             const norm = (s) => isWin ? s.toLowerCase() : s;
-            const tmpDir = norm(os.tmpdir());
-            const dlDir = norm(path.join(os.homedir(), 'Downloads'));
-            const desktopDir = norm(path.join(os.homedir(), 'Desktop'));
-            const docsDir = norm(path.join(os.homedir(), 'Documents'));
+            const home = os.homedir();
+            let realTmpDir = os.tmpdir();
+            try { realTmpDir = fs.realpathSync(realTmpDir); } catch (_) {}
+            const blockedDirs = [
+                os.tmpdir(),
+                realTmpDir,
+                path.join(home, 'Downloads'),
+                path.join(home, 'Desktop'),
+                path.join(home, 'Documents'),
+                path.join(home, 'OneDrive', 'Desktop'),
+                path.join(home, 'OneDrive', 'Documents'),
+                path.join(home, '.Trash'),
+                path.join(home, '.local', 'share', 'Trash'),
+                ...(isWin ? [path.join(home, 'AppData', 'Local', 'Temp')] : ['/tmp', '/var/tmp', '/dev/shm'])
+            ].filter(Boolean).map(d => norm(path.resolve(d)));
             const normSandbox = norm(path.resolve(safeDataDir));
             const normRuntimeDir = norm(path.join(safeDataDir, 'runtime'));
             const normJavaDir = norm(path.join(safeDataDir, 'java'));
             for (const candidate of [norm(path.resolve(javaPath)), norm(realJavaPath)]) {
-                if (candidate.startsWith(tmpDir + path.sep) || candidate === tmpDir ||
-                    candidate.startsWith(dlDir + path.sep) || candidate === dlDir ||
-                    candidate.startsWith(desktopDir + path.sep) || candidate === desktopDir ||
-                    candidate.startsWith(docsDir + path.sep) || candidate === docsDir ||
-                    candidate.includes(path.sep + 'temp' + path.sep)) {
-                    return { ok: false, message: "Exécution de Java depuis un dossier temporaire, Documents, Desktop ou de téléchargement bloquée." };
+                if (
+                    blockedDirs.some(bd => candidate === bd || candidate.startsWith(bd + path.sep)) ||
+                    candidate.includes(path.sep + 'temp' + path.sep) ||
+                    candidate.includes(path.sep + '$recycle.bin' + path.sep)
+                ) {
+                    return { ok: false, message: "Exécution de Java depuis un dossier temporaire, Corbeille, Documents, Desktop ou de téléchargement bloquée." };
                 }
                 const isAllowedSandboxJava =
                     candidate.startsWith(normRuntimeDir + path.sep) ||
@@ -176,6 +214,7 @@ module.exports = function setupGameHandlers(context) {
         '-xrun',
         '-xx:onoutofmemoryerror',
         '-xx:onerror',
+        '-xx:flags=',
         '-xx:compilecommand=',
         '-xx:compilecommandfile',
         '-xx:flightrecorderoptions',
@@ -188,16 +227,36 @@ module.exports = function setupGameHandlers(context) {
         '--patch-module',
         '--module-path=',
         '--upgrade-module-path=',
+        '--module=',
         '-p=',
         '-djavax.net.ssl.truststore',
         '-djavax.accessibility.assistive_technologies=',
         '-djava.system.class.loader=',
         '-djava.security.policy=',
         '-djava.security.manager',
+        '-djava.security.auth.login.config=',
         '-djava.util.logging.config.class=',
         '-djava.naming.factory.initial=',
         '-djdk.instrument.traceusage',
-        '-djava.rmi'
+        '-djava.rmi',
+        '-dcom.sun.management.jmxremote',
+        '-dcom.sun.management.config.file=',
+        '-dorg.lwjgl.librarypath=',
+        '-djna.boot.library.path=',
+        '-djna.library.path=',
+        '-dhttp.proxyhost=',
+        '-dhttps.proxyhost=',
+        '-dsocksproxyhost=',
+        '-djava.class.path=',
+        '--class-path=',
+        '-dlog4j.configurationfile=',
+        '-dlog4j2.configurationfile=',
+        '-dlog4j2.formatmsgnolookups=',
+        '-djava.io.tmpdir=',
+        '-duser.home=',
+        '-xshare:',
+        '--add-opens=',
+        '--add-exports='
     ];
 
     const DANGEROUS_JVM_EXACT = new Set([
@@ -206,18 +265,57 @@ module.exports = function setupGameHandlers(context) {
         '-javaagent',
         '-xbootclasspath',
         '-xrun',
+        '-xx:flags',
         '--patch-module',
         '--module-path',
         '--upgrade-module-path',
+        '--module',
+        '-m',
         '-p',
+        '-cp',
+        '-classpath',
+        '--class-path',
         '-jar',
         '-djava.library.path',
+        '-dorg.lwjgl.librarypath',
+        '-djna.boot.library.path',
+        '-djna.library.path',
         '-djava.ext.dirs',
         '-djava.security.policy',
+        '-djava.security.auth.login.config',
+        '-dcom.sun.management.config.file',
+        '-dhttp.proxyhost',
+        '-dhttps.proxyhost',
+        '-dsocksproxyhost',
         '-djava.util.logging.config.class',
         '-djavax.accessibility.assistive_technologies',
         '-djava.naming.factory.initial',
+        '-djava.class.path',
+        '-dlog4j.configurationfile',
+        '-dlog4j2.configurationfile',
+        '-dlog4j2.formatmsgnolookups',
+        '-djava.io.tmpdir',
+        '-duser.home',
+        '--add-opens',
+        '--add-exports',
         '-xloggc'
+    ]);
+
+    const BLOCKED_LAUNCH_FLAGS = new Set([
+        '--accesstoken',
+        '--session',
+        '--uuid',
+        '--username',
+        '--gamedir',
+        '--assetsdir',
+        '--assetindex',
+        '--proxyhost',
+        '--proxyport',
+        '--proxyuser',
+        '--proxypass',
+        '--userproperties',
+        '--clientid',
+        '--xuid'
     ]);
 
     /**
@@ -291,6 +389,23 @@ module.exports = function setupGameHandlers(context) {
     }
 
     /**
+     * Valide les arguments de jeu (`customLaunchArgs`) pour interdire la surcharge de jetons ou chemins critiques.
+     * @param {unknown} rawArgs
+     * @returns {string[]}
+     */
+    function validateCustomLaunchArgs(rawArgs) {
+        const cleaned = validateCustomJvmArgs(rawArgs);
+        for (const arg of cleaned) {
+            const lower = arg.toLowerCase();
+            const flagOnly = lower.split('=')[0];
+            if (BLOCKED_LAUNCH_FLAGS.has(flagOnly)) {
+                throw new Error(`Argument de lancement réservé bloqué (${arg}).`);
+            }
+        }
+        return cleaned;
+    }
+
+    /**
      * @param {string} urlStr
      * @param {string} label
      * @param {string[]} [allowedDomains]
@@ -328,6 +443,9 @@ module.exports = function setupGameHandlers(context) {
                 if (typeof opts.overrides[key] === 'string' && opts.overrides[key].trim()) {
                     opts.overrides[key] = assertPathUnderSandbox(opts.overrides[key]);
                 }
+            }
+            if (opts.overrides.assetIndex != null && String(opts.overrides.assetIndex).trim()) {
+                opts.overrides.assetIndex = validateSafeSegment(opts.overrides.assetIndex, 'opts.overrides.assetIndex');
             }
             if (opts.overrides.classes != null) {
                 if (!Array.isArray(opts.overrides.classes)) {
@@ -518,14 +636,15 @@ module.exports = function setupGameHandlers(context) {
                     fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
                 }
                 const response = await fetch(finalUrl.href, fetchOptions);
-                clearTimeout(timeoutId);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return { success: true, data: await response.json() };
+                const parsed = await response.json();
+                return { success: true, data: parsed };
             } catch (fetchErr) {
-                clearTimeout(timeoutId);
                 const ferr = /** @type {any} */ (fetchErr);
                 if (ferr?.name === 'AbortError') throw new Error("timeout");
                 throw fetchErr;
+            } finally {
+                clearTimeout(timeoutId);
             }
         } catch (e) {
             const err = e instanceof Error ? e.message : String(e);
@@ -547,14 +666,15 @@ module.exports = function setupGameHandlers(context) {
                     headers: { "User-Agent": `WilliamBossard/Gens-Launcher (wbossard@free.fr)`, "Accept": "application/json" },
                     signal: controller.signal
                 });
-                clearTimeout(timeoutId);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return { success: true, data: await response.json() };
+                const parsed = await response.json();
+                return { success: true, data: parsed };
             } catch (fetchErr) {
-                clearTimeout(timeoutId);
                 const ferr = /** @type {any} */ (fetchErr);
                 if (ferr?.name === 'AbortError') throw new Error("timeout");
                 throw fetchErr;
+            } finally {
+                clearTimeout(timeoutId);
             }
         } catch (e) {
             const err = e instanceof Error ? e.message : String(e);
@@ -584,8 +704,14 @@ module.exports = function setupGameHandlers(context) {
         const lockFile = path.join(safeDataDir, "instances", folder, "instance.lock");
         try {
             await fs.promises.access(lockFile);
-            const pidStr = await fs.promises.readFile(lockFile, 'utf8');
-            const pid = parseInt(pidStr, 10);
+            const rawLock = (await fs.promises.readFile(lockFile, 'utf8')).trim();
+            let pid = NaN;
+            if (rawLock.startsWith('{')) {
+                const parsed = JSON.parse(rawLock);
+                pid = parseInt(String(parsed?.pid ?? ''), 10);
+            } else {
+                pid = parseInt(rawLock, 10);
+            }
             if (Number.isInteger(pid) && pid > 0 && await isRunningJavaPid(pid)) {
                 try {
                     await killPidAndWait(pid, null);
@@ -607,86 +733,150 @@ module.exports = function setupGameHandlers(context) {
 
     ipcMain.on("launch-game", async (event, opts) => {
         if (!opts || !opts.authorization || !opts.version || !opts.root || !opts.instanceId) { sendToWindow("mc-close", { instanceId: opts?.instanceId || "unknown", code: 1 }); return; }
-        try {
-            if (!opts.version || typeof opts.version !== 'object') {
-                throw new Error("opts.version invalide.");
-            }
-            opts.version.number = validateSafeSegment(opts.version.number, "version.number");
-            if (opts.version.custom != null && String(opts.version.custom).trim() !== '') {
-                opts.version.custom = validateSafeSegment(opts.version.custom, "version.custom");
-            }
-            opts.root = assertPathUnderSandbox(opts.root);
-            if (opts.forge) opts.forge = assertPathUnderSandbox(opts.forge);
-            if (opts.logFilePath) opts.logFilePath = assertPathUnderSandbox(opts.logFilePath);
-            validateLaunchOverrides(opts);
-            if (opts.customArgs !== undefined) opts.customArgs = validateCustomJvmArgs(opts.customArgs);
-            if (opts.customLaunchArgs !== undefined) opts.customLaunchArgs = validateCustomJvmArgs(opts.customLaunchArgs);
-        } catch (sandboxErr) {
-            const err = sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr);
-            mainLog(`[Sécurité] launch-game bloqué : ${err}`);
-            sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
-            return;
-        }
-        if (opts.javaPath) {
-            const javaCheck = await validateJavaExecutable(opts.javaPath);
-            if (!javaCheck.ok) {
-                mainLog(`[Sécurité] launch-game javaPath bloqué : ${javaCheck.message}`);
-                sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
-                return;
-            }
-        }
-        if (activeMinecraftClients.has(opts.instanceId)) {
-            mainLog(`launch-game: instance déjà en cours [${opts.instanceId}]`);
+        if (activeMinecraftClients.has(opts.instanceId) || pendingLaunches.has(opts.instanceId)) {
+            mainLog(`launch-game: instance déjà en cours ou démarrage concurrent [${opts.instanceId}]`);
             safeSend(event, "launch-game-rejected", { instanceId: opts.instanceId, reason: "ALREADY_RUNNING" });
             return;
         }
-
-        const { Client } = require("../gens-core/index.js");
-
+        pendingLaunches.add(opts.instanceId);
+        let launcher;
+        /** @type {() => void} */
+        let closeLogStream;
+        /** @type {(raw: any) => string} */
+        let redactLaunchSecrets;
+        /** @type {(raw: any) => void} */
+        let streamLogLine;
         const instanceId = opts.instanceId;
-        const launcher = new Client();
-
-        /** @type {import('fs').WriteStream | null} */
-        let gameLogStream = null;
-        if (opts.logFilePath) {
+        try {
             try {
-                gameLogStream = fs.createWriteStream(opts.logFilePath, { flags: 'a', encoding: 'utf8' });
-                gameLogStream.on('error', () => { gameLogStream = null; });
-            } catch (_) {
-                gameLogStream = null;
+                if (!opts.version || typeof opts.version !== 'object') {
+                    throw new Error("opts.version invalide.");
+                }
+                opts.version.number = validateSafeSegment(opts.version.number, "version.number");
+                if (opts.version.custom != null && String(opts.version.custom).trim() !== '') {
+                    opts.version.custom = validateSafeSegment(opts.version.custom, "version.custom");
+                }
+                opts.root = assertPathUnderSandbox(opts.root);
+                if (opts.forge) opts.forge = assertPathUnderSandbox(opts.forge);
+                if (opts.logFilePath) opts.logFilePath = assertPathUnderSandbox(opts.logFilePath);
+                validateLaunchOverrides(opts);
+                if (opts.customArgs !== undefined) opts.customArgs = validateCustomJvmArgs(opts.customArgs);
+                if (opts.customLaunchArgs !== undefined) opts.customLaunchArgs = validateCustomLaunchArgs(opts.customLaunchArgs);
+            } catch (sandboxErr) {
+                const err = sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr);
+                mainLog(`[Sécurité] launch-game bloqué : ${err}`);
+                sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
+                return;
             }
+            if (opts.javaPath) {
+                const javaCheck = await validateJavaExecutable(opts.javaPath);
+                if (!javaCheck.ok) {
+                    mainLog(`[Sécurité] launch-game javaPath bloqué : ${javaCheck.message}`);
+                    sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
+                    return;
+                }
+            }
+            if (activeMinecraftClients.has(opts.instanceId)) {
+                mainLog(`launch-game: instance déjà en cours [${opts.instanceId}]`);
+                safeSend(event, "launch-game-rejected", { instanceId: opts.instanceId, reason: "ALREADY_RUNNING" });
+                return;
+            }
+
+            const { Client } = require("../gens-core/index.js");
+
+            launcher = new Client();
+
+            /** @type {import('fs').WriteStream | null} */
+            let gameLogStream = null;
+            if (opts.logFilePath) {
+                try {
+                    gameLogStream = fs.createWriteStream(opts.logFilePath, { flags: 'a', encoding: 'utf8' });
+                    gameLogStream.on('error', () => { gameLogStream = null; });
+                } catch (_) {
+                    gameLogStream = null;
+                }
+            }
+            closeLogStream = () => {
+                if (gameLogStream) {
+                    const s = gameLogStream;
+                    gameLogStream = null;
+                    try { s.end(); } catch (_) {}
+                }
+            };
+            redactLaunchSecrets = (raw) => {
+                if (!raw) return '';
+                let text = raw.toString();
+                text = text.replace(/(--(?:accessToken|session|proxyPass)\s+)\S+/g, '$1***REDACTED***');
+                const tok = opts.authorization?.access_token;
+                if (typeof tok === 'string' && tok.length >= 8 && text.includes(tok)) {
+                    text = text.split(tok).join('***REDACTED***');
+                }
+                const proxyPass = opts.proxy?.password;
+                if (typeof proxyPass === 'string' && proxyPass.length >= 4 && text.includes(proxyPass)) {
+                    text = text.split(proxyPass).join('***REDACTED***');
+                }
+                return text;
+            };
+
+            streamLogLine = (raw) => {
+                if (!gameLogStream || !raw || !gameLogStream.writable) return;
+                const text = redactLaunchSecrets(raw).trim();
+                if (!text) return;
+                if (gameLogStream.writableNeedDrain && gameLogStream.writableLength > 512 * 1024) {
+                    return; // Protection contre saturation mémoire sur flood de logs JVM
+                }
+                gameLogStream.write(`[${new Date().toLocaleTimeString()}] ${text}\n`);
+            };
+
+            activeMinecraftClients.set(instanceId, { launcher, closeLogStream });
+        } finally {
+            pendingLaunches.delete(opts.instanceId);
         }
-        const closeLogStream = () => {
-            if (gameLogStream) {
-                const s = gameLogStream;
-                gameLogStream = null;
-                try { s.end(); } catch (_) {}
+
+        /** @type {string[]} */
+        let mcDataQueue = [];
+        let mcDataChars = 0;
+        let mcDataDropped = 0;
+        /** @type {ReturnType<typeof setTimeout> | null} */
+        let mcDataFlushTimer = null;
+        const MC_DATA_FLUSH_MS = 60;
+        const MC_DATA_MAX_LINES_PER_BATCH = 200;
+        const MC_DATA_MAX_CHARS_PER_BATCH = 64 * 1024;
+
+        const flushMcData = () => {
+            if (mcDataFlushTimer) {
+                clearTimeout(mcDataFlushTimer);
+                mcDataFlushTimer = null;
             }
-        };
-        /** @param {any} raw */
-        const redactLaunchSecrets = (raw) => {
-            if (!raw) return '';
-            let text = raw.toString();
-            text = text.replace(/(--(?:accessToken|session)\s+)\S+/g, '$1***REDACTED***');
-            const tok = opts.authorization?.access_token;
-            if (typeof tok === 'string' && tok.length >= 8 && text.includes(tok)) {
-                text = text.split(tok).join('***REDACTED***');
+            if (mcDataQueue.length === 0 && mcDataDropped === 0) return;
+            const lines = mcDataQueue;
+            const dropped = mcDataDropped;
+            mcDataQueue = [];
+            mcDataChars = 0;
+            mcDataDropped = 0;
+            if (dropped > 0) {
+                lines.push(`[...${dropped} ligne(s) ignorée(s) — flood JVM...]`);
             }
-            return text;
+            sendToWindow("mc-data", { instanceId, data: lines.join('\n') });
         };
 
-        /** @param {any} raw */
-        const streamLogLine = (raw) => {
-            if (!gameLogStream || !raw || !gameLogStream.writable) return;
-            const text = redactLaunchSecrets(raw).trim();
-            if (!text) return;
-            if (gameLogStream.writableNeedDrain && gameLogStream.writableLength > 512 * 1024) {
-                return; // Protection contre saturation mémoire sur flood de logs JVM
+        /** @param {string} line */
+        const enqueueMcData = (line) => {
+            if (!line) return;
+            if (mcDataQueue.length >= MC_DATA_MAX_LINES_PER_BATCH || mcDataChars >= MC_DATA_MAX_CHARS_PER_BATCH) {
+                mcDataDropped++;
+            } else {
+                mcDataQueue.push(line);
+                mcDataChars += line.length;
             }
-            gameLogStream.write(`[${new Date().toLocaleTimeString()}] ${text}\n`);
+            if (mcDataChars >= 16 * 1024) {
+                flushMcData();
+                return;
+            }
+            if (!mcDataFlushTimer) {
+                mcDataFlushTimer = setTimeout(flushMcData, MC_DATA_FLUSH_MS);
+            }
         };
-
-        activeMinecraftClients.set(instanceId, { launcher, closeLogStream });
 
         let lastReportedPct = -1;
         let lastProgressTime = 0;
@@ -702,16 +892,17 @@ module.exports = function setupGameHandlers(context) {
         launcher.on("data", (/** @type {any} */ e) => {
             const safeLine = redactLaunchSecrets(e);
             streamLogLine(safeLine);
-            sendToWindow("mc-data", { instanceId, data: safeLine });
+            enqueueMcData(safeLine);
         });
         launcher.on("debug", (/** @type {any} */ e) => {
             const safeLine = redactLaunchSecrets(e);
             streamLogLine(safeLine);
-            sendToWindow("mc-data", { instanceId, data: safeLine });
+            enqueueMcData(safeLine);
         });
 
         launcher.launch(opts).then(async (/** @type {any} */ mcProcess) => {
             if (!mcProcess) {
+                flushMcData();
                 closeLogStream();
                 if (activeMinecraftClients.has(instanceId)) {
                     activeMinecraftClients.delete(instanceId);
@@ -720,37 +911,13 @@ module.exports = function setupGameHandlers(context) {
                 return;
             }
             const lockFile = path.join(opts.root, "instance.lock");
-            if (mcProcess.pid) {
-                // Un échec d'écriture du lock ne doit pas être traité comme un crash de la JVM (le jeu tourne)
-                try {
-                    await fs.promises.writeFile(lockFile, mcProcess.pid.toString(), 'utf8');
-                } catch (lockErr) {
-                    const err = lockErr instanceof Error ? lockErr.message : String(lockErr);
-                    mainLog(`[AVERTISSEMENT] Impossible d'écrire ${lockFile} : ${err}`);
-                }
-            } else {
-                mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
-            }
-            activeMinecraftClients.set(instanceId, { process: mcProcess, launcher, closeLogStream });
-            sendToWindow("mc-started", { instanceId });
-            // Auto-launch : cacher la fenêtre directement depuis le main process (sans dépendre du renderer)
-            const isAutoLaunchMode = process.argv.some(a => a.startsWith('--auto-launch='));
-            mainLog(`[auto-launch] Jeu démarré, isAutoLaunch=${isAutoLaunchMode}`);
-            if (isAutoLaunchMode) {
-                const mw = getMainWindow();
-                if (mw && !mw.isDestroyed()) {
-                    setTimeout(() => {
-                        if (process.platform === 'linux') mw.setSkipTaskbar(true);
-                        mw.hide();
-                        mainLog('[auto-launch] Fenêtre masquée.');
-                    }, 500); // petit délai pour laisser le jeu s'afficher d'abord
-                }
-            }
             let finalized = false;
+            let lockCreated = false;
             /** @param {number} code */
             const finalizeProcess = async (code) => {
                 if (finalized) return;
                 finalized = true;
+                flushMcData();
                 closeLogStream();
                 try { await fs.promises.unlink(lockFile); } catch (e) {
                     const err = /** @type {any} */ (e);
@@ -764,6 +931,12 @@ module.exports = function setupGameHandlers(context) {
                     mainLog(`[auto-launch] Jeu fermé. isAutoLaunch=${isAutoLaunchMode}, activeClients=${activeMinecraftClients.size}`);
                 }
             };
+
+            const isAutoLaunchMode = process.argv.some(a => a.startsWith('--auto-launch='));
+            activeMinecraftClients.set(instanceId, { process: mcProcess, launcher, closeLogStream });
+
+            // Attacher les écouteurs error/close SYNCHRONIQUEMENT avant tout await pour ne jamais manquer un crash JVM immédiat
+            let earlyExitCode = null;
             if (mcProcess._spawnError) {
                 streamLogLine("Erreur démarrage Java : " + mcProcess._spawnError.message);
                 await finalizeProcess(1);
@@ -775,9 +948,73 @@ module.exports = function setupGameHandlers(context) {
                 finalizeProcess(1);
             });
             mcProcess.on("close", (/** @type {any} */ code) => {
-                finalizeProcess(typeof code === 'number' ? code : 1);
+                earlyExitCode = typeof code === 'number' ? code : 1;
+                finalizeProcess(earlyExitCode);
             });
+
+            if (typeof mcProcess.exitCode === 'number' || typeof mcProcess.signalCode === 'string') {
+                await finalizeProcess(typeof mcProcess.exitCode === 'number' ? mcProcess.exitCode : 1);
+                return;
+            }
+
+            if (mcProcess.pid && !finalized) {
+                // Un échec d'écriture du lock ne doit pas être traité comme un crash de la JVM (le jeu tourne)
+                try {
+                    await fs.promises.writeFile(lockFile, mcProcess.pid.toString(), { encoding: 'utf8', flag: 'wx' });
+                    lockCreated = true;
+                } catch (lockErr) {
+                    const anyLockErr = /** @type {any} */ (lockErr);
+                    if (anyLockErr?.code === 'EEXIST') {
+                        // Nettoie uniquement un verrou résiduel dont le PID n'est plus un processus Java actif
+                        let staleReplaced = false;
+                        try {
+                            const existingRaw = (await fs.promises.readFile(lockFile, 'utf8')).trim();
+                            const existingPid = existingRaw.startsWith('{')
+                                ? parseInt(String(JSON.parse(existingRaw)?.pid ?? ''), 10)
+                                : parseInt(existingRaw, 10);
+                            if (!Number.isInteger(existingPid) || existingPid <= 0 || !(await isRunningJavaPid(existingPid))) {
+                                await fs.promises.unlink(lockFile).catch(() => {});
+                                await fs.promises.writeFile(lockFile, mcProcess.pid.toString(), { encoding: 'utf8', flag: 'wx' });
+                                staleReplaced = true;
+                                lockCreated = true;
+                            }
+                        } catch (_) {}
+                        if (!staleReplaced) {
+                            mainLog(`[AVERTISSEMENT] Verrou actif ou inaccessible sur ${lockFile}`);
+                        }
+                    } else {
+                        const err = lockErr instanceof Error ? lockErr.message : String(lockErr);
+                        mainLog(`[AVERTISSEMENT] Impossible d'écrire ${lockFile} : ${err}`);
+                    }
+                }
+            } else if (!mcProcess.pid) {
+                mainLog(`[AVERTISSEMENT] PID indéfini pour l'instance ${instanceId} — lockfile non créé.`);
+            }
+
+            if (finalized) {
+                if (lockCreated) {
+                    try { await fs.promises.unlink(lockFile); } catch (_) {}
+                }
+                return;
+            }
+
+            sendToWindow("mc-started", { instanceId });
+            // Auto-launch : cacher la fenêtre directement depuis le main process (sans dépendre du renderer)
+            mainLog(`[auto-launch] Jeu démarré, isAutoLaunch=${isAutoLaunchMode}`);
+            if (isAutoLaunchMode) {
+                const mw = getMainWindow();
+                if (mw && !mw.isDestroyed()) {
+                    setTimeout(() => {
+                        const currentWin = getMainWindow();
+                        if (!currentWin || currentWin.isDestroyed()) return;
+                        if (process.platform === 'linux') currentWin.setSkipTaskbar(true);
+                        currentWin.hide();
+                        mainLog('[auto-launch] Fenêtre masquée.');
+                    }, 500); // petit délai pour laisser le jeu s'afficher d'abord
+                }
+            }
         }).catch((/** @type {any} */ e) => {
+            flushMcData();
             const safeErr = redactLaunchSecrets(e ? (e.stack || e.toString()) : 'Erreur inconnue');
             const safeMsg = redactLaunchSecrets(e ? e.toString() : 'Erreur inconnue');
             streamLogLine("Erreur critique de la JVM : " + safeErr);
@@ -790,12 +1027,264 @@ module.exports = function setupGameHandlers(context) {
         });
     });
 
+    let _javaInstallInProgress = false;
+
+    /**
+     * @param {string} archivePath
+     * @param {string} destDir
+     * @param {'zip' | 'tar'} mode
+     * @param {boolean} allowInternalSymlinks
+     * @returns {Promise<{ success: boolean; error?: string }>}
+     */
+    function runExtractWorker(archivePath, destDir, mode, allowInternalSymlinks) {
+        return new Promise((resolveRaw) => {
+            let settled = false;
+            /** @type {NodeJS.Timeout | undefined} */
+            let timer;
+            const resolve = (/** @type {any} */ v) => {
+                if (!settled) {
+                    settled = true;
+                    if (timer) clearTimeout(timer);
+                    resolveRaw(v);
+                }
+            };
+            const workerPath = path.join(__dirname, '..', 'workers', 'extract-worker.js');
+            const worker = new Worker(workerPath, {
+                workerData: {
+                    archivePath,
+                    destDir,
+                    isWin: process.platform === 'win32',
+                    mode,
+                    allowInternalSymlinks
+                }
+            });
+            timer = setTimeout(() => {
+                worker.terminate().catch(() => {});
+                resolve({ success: false, error: "Délai d'attente dépassé lors de l'extraction de Java." });
+            }, 15 * 60 * 1000);
+            worker.on('message', (msg) => {
+                if (msg.type === 'log') mainLog(msg.message);
+                else if (msg.type === 'done') resolve({ success: Boolean(msg.success), error: msg.error });
+            });
+            worker.on('error', (err) => resolve({ success: false, error: err instanceof Error ? err.message : String(err) }));
+            worker.on('exit', (code) => {
+                resolve(code === 0
+                    ? { success: false, error: "Worker d'extraction terminé sans résultat." }
+                    : { success: false, error: `Worker d'extraction arrêté (code ${code}).` });
+            });
+        });
+    }
+
+    /**
+     * Restaure les permissions d'exécution POSIX sur `bin/*` et `lib/jspawnhelper` après extraction `--no-same-permissions`.
+     * @param {string} rootDir
+     */
+    async function restoreUnixJavaExecPermissions(rootDir) {
+        if (process.platform === 'win32') return;
+        const stack = [rootDir];
+        while (stack.length > 0) {
+            const cur = /** @type {string} */ (stack.pop());
+            let entries;
+            try {
+                entries = await fs.promises.readdir(cur, { withFileTypes: true });
+            } catch (_) {
+                continue;
+            }
+            const curBase = path.basename(cur).toLowerCase();
+            for (const entry of entries) {
+                const full = path.join(cur, entry.name);
+                if (entry.isSymbolicLink()) continue;
+                if (entry.isDirectory()) {
+                    stack.push(full);
+                } else if (entry.isFile()) {
+                    const lowerName = entry.name.toLowerCase();
+                    if (curBase === 'bin' || lowerName === 'jspawnhelper' || lowerName === 'jexec') {
+                        try { await fs.promises.chmod(full, 0o755); } catch (_) {}
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param {string} dir
+     * @param {string} targetName
+     * @param {number} [depth]
+     * @returns {Promise<string | null>}
+     */
+    async function findJavaBinaryUnder(dir, targetName, depth = 0) {
+        if (depth > 8) return null;
+        try {
+            const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isSymbolicLink()) continue;
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const found = await findJavaBinaryUnder(full, targetName, depth + 1);
+                    if (found) return found;
+                } else if (entry.isFile() && entry.name.toLowerCase() === targetName) {
+                    return full;
+                }
+            }
+        } catch (_) {}
+        return null;
+    }
+
+    ipcMain.handle("java:delete", async (_event, payload) => {
+        try {
+            const version = Number(typeof payload === 'object' ? payload?.version : payload);
+            if (!Number.isInteger(version) || version < 8 || version > 30) {
+                return { success: false, error: "Version Java invalide." };
+            }
+            if (_javaInstallInProgress) {
+                return { success: false, error: "Une installation Java est déjà en cours." };
+            }
+            const javaDir = assertPathUnderSandbox(path.join(safeDataDir, "java"));
+            const jrePath = assertPathUnderSandbox(path.join(javaDir, `jre${version}`));
+            const jdkPath = assertPathUnderSandbox(path.join(javaDir, `jdk${version}`));
+            if (await existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
+            if (await existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
+            return { success: true };
+        } catch (err) {
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+    });
+
+    ipcMain.handle("java:install-adoptium", async (event, payload = {}) => {
+        if (_javaInstallInProgress) {
+            return { success: false, error: "Une installation Java est déjà en cours." };
+        }
+        const version = Number(payload?.version);
+        const type = payload?.type === 'jdk' ? 'jdk' : (payload?.type === 'jre' ? 'jre' : null);
+        const progressId = typeof payload?.progressId === 'string' ? payload.progressId : '';
+        if (!Number.isInteger(version) || version < 8 || version > 30 || !type) {
+            return { success: false, error: "Paramètres d'installation Java invalides." };
+        }
+
+        _javaInstallInProgress = true;
+        /** @type {string | null} */
+        let archivePath = null;
+        /** @type {string | null} */
+        let stagingDir = null;
+        try {
+            const javaDir = assertPathUnderSandbox(path.join(safeDataDir, "java"));
+            await fs.promises.mkdir(javaDir, { recursive: true });
+
+            const platform = process.platform === "darwin" ? "mac" : (process.platform === "linux" ? "linux" : "windows");
+            const rawArch = String(process.arch || "x64");
+            const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
+            const ext = (platform === "windows") ? ".zip" : ".tar.gz";
+            archivePath = assertPathUnderSandbox(path.join(javaDir, `${type}${version}_${Date.now()}${ext}`));
+
+            const assetsUrl = `https://api.adoptium.net/v3/assets/latest/${version}/hotspot?architecture=${arch}&image_type=${type}&os=${platform}&vendor=eclipse`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            let url = null;
+            let expectedSha256 = null;
+            try {
+                const assetsRes = await fetch(assetsUrl, { signal: controller.signal });
+                if (assetsRes.ok) {
+                    const assets = await assetsRes.json();
+                    const pkg = Array.isArray(assets) ? assets[0]?.binary?.package : null;
+                    if (pkg?.checksum) expectedSha256 = String(pkg.checksum).trim().toLowerCase();
+                    if (pkg?.link && /^https:\/\//i.test(pkg.link)) url = pkg.link;
+                }
+            } finally {
+                clearTimeout(timer);
+            }
+
+            if (!url || !expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+                return { success: false, error: "Empreinte SHA-256 Adoptium introuvable. Installation Java annulée par sécurité." };
+            }
+
+            const cryptoMod = context.crypto || require('crypto');
+            const dlFn = context.downloadFile || createDownloadFile({
+                fs,
+                path,
+                crypto: cryptoMod,
+                pipeStreams,
+                existsSafe,
+                safeUnlink: async (p) => { try { await fs.promises.unlink(p); } catch (_) {} }
+            });
+
+            await dlFn(url, archivePath, {
+                expectedSha256,
+                onProgress: progressId ? (/** @type {any} */ p) => {
+                    if (event?.sender && !event.sender.isDestroyed()) {
+                        event.sender.send("download-progress", { progressId, ...p });
+                    }
+                } : undefined
+            });
+
+            const extractDir = assertPathUnderSandbox(path.join(javaDir, `${type}${version}`));
+            stagingDir = assertPathUnderSandbox(`${extractDir}.tmp.${Date.now()}`);
+            const backupDir = assertPathUnderSandbox(`${extractDir}.bak.${Date.now()}`);
+
+            await fs.promises.mkdir(stagingDir, { recursive: true });
+            const extractRes = await runExtractWorker(
+                archivePath,
+                stagingDir,
+                platform === "windows" ? "zip" : "tar",
+                platform !== "windows"
+            );
+            if (!extractRes || !extractRes.success) {
+                throw new Error(extractRes?.error || "Erreur extraction Java");
+            }
+
+            await restoreUnixJavaExecPermissions(stagingDir);
+
+            const hadExisting = await existsSafe(extractDir);
+            if (hadExisting) {
+                await renameWithRetry(extractDir, backupDir);
+            }
+            try {
+                await renameWithRetry(stagingDir, extractDir);
+                stagingDir = null;
+            } catch (swapErr) {
+                if (hadExisting && (await existsSafe(backupDir)) && !(await existsSafe(extractDir))) {
+                    try { await renameWithRetry(backupDir, extractDir); } catch (_) {}
+                }
+                throw swapErr;
+            }
+            if (hadExisting && (await existsSafe(backupDir))) {
+                try { await fs.promises.rm(backupDir, { recursive: true, force: true }); } catch (_) {}
+            }
+
+            const javaExe = (platform === "windows") ? "javaw.exe" : "java";
+            const exePath = await findJavaBinaryUnder(extractDir, javaExe);
+            if (!exePath) {
+                return { success: false, error: "Exécutable Java introuvable après extraction." };
+            }
+            if (platform !== "windows") {
+                try { await fs.promises.chmod(exePath, 0o755); } catch (_) {}
+            }
+            return { success: true, exePath };
+        } catch (err) {
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+        } finally {
+            if (archivePath) {
+                try { await fs.promises.unlink(archivePath); } catch (_) {}
+            }
+            if (stagingDir) {
+                try { await fs.promises.rm(stagingDir, { recursive: true, force: true }); } catch (_) {}
+            }
+            _javaInstallInProgress = false;
+        }
+    });
+
     ipcMain.handle("check-internet", async () => {
         try {
             const res = await fetch("https://captive.apple.com/hotspot-detect.html", { signal: AbortSignal.timeout(3000) });
             const text = await res.text();
-            return text.includes("Success");
-        } catch (e) {
+            if (text.includes("Success")) return true;
+        } catch (_) {}
+        try {
+            const res = await fetch("https://launchercontent.mojang.com/v2/news.json", {
+                method: "HEAD",
+                signal: AbortSignal.timeout(3000)
+            });
+            return res.ok;
+        } catch (_) {
             return false;
         }
     });
