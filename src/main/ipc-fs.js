@@ -132,14 +132,17 @@ module.exports = function setupFsHandlers(context) {
      * Valide un chemin en écriture/suppression/modification dans le sandbox
      * tout en appliquant la liste d'exclusion Renderer (secrets + java/ + runtime/).
      * @param {unknown} p
+     * @param {'write' | 'delete'} [mode='write']
      * @returns {Promise<string>}
      */
-    async function assertWritePath(p) {
+    async function assertWritePath(p, mode = 'write') {
         if (typeof p !== 'string' || !p.trim()) {
             throw new Error("Chemin invalide (type non supporté).");
         }
         const safePath = await assertSandboxWriteAsync(p);
-        assertRendererPathAllowed(safePath, 'write');
+        assertRendererPathAllowed(safePath, mode);
+        const realTarget = await resolveNearestRealPath(safePath);
+        assertRendererPathAllowed(realTarget, mode);
         return safePath;
     }
 
@@ -309,7 +312,7 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:rm', async (_, p, opts) => {
         try {
-            const safePath = await assertWritePath(p);
+            const safePath = await assertWritePath(p, 'delete');
             const safeOpts = opts && typeof opts === 'object'
                 ? { recursive: Boolean(opts.recursive), force: Boolean(opts.force) }
                 : undefined;
@@ -332,8 +335,8 @@ module.exports = function setupFsHandlers(context) {
 
     ipcMain.handle('fs:rename', async (_, oldP, newP) => {
         try {
-            const safeOld = await assertWritePath(oldP);
-            const safeNew = await assertWritePath(newP);
+            const safeOld = await assertWritePath(oldP, 'delete');
+            const safeNew = await assertWritePath(newP, 'delete');
             await renameWithRetry(safeOld, safeNew);
             return { ok: true };
         } catch (err) {

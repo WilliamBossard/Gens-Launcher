@@ -1,6 +1,6 @@
 // @ts-check
 const { pipeStreams } = require('./src/main/zip-utils');
-const { existsSafe, createSandboxValidator, createRendererPathGuard } = require('./src/main/fs-utils');
+const { existsSafe, createSandboxValidator, createSandboxValidatorAsync, createRendererPathGuard } = require('./src/main/fs-utils');
 const { createDownloadFile } = require('./src/main/download-utils');
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification, powerSaveBlocker, systemPreferences, session, Tray, Menu } = require("electron");
 process.env.NODE_NO_WARNINGS = "1";
@@ -11,7 +11,6 @@ const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { encryptText, decryptText, legacyDecryptText } = require('./src/main/crypto-utils');
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 /** @param {string} name */
 function sanitizeShortcutName(name) {
@@ -86,11 +85,16 @@ function isHorizonVersionAtLeast(versionStr, minVersion = "1.4.2") {
     return (pat1 || 0) >= (pat2 || 0);
 }
 
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    app.quit();
+}
+
 /** @type {fs.WriteStream | null} */
 let _logStream = null;
 let _logStreamBytes = 0;
 
-const mainCoreInitPromise = (async () => {
+const mainCoreInitPromise = !gotTheLock ? Promise.resolve() : (async () => {
     await fs.promises.mkdir(safeDataDir, { recursive: true });
     await fs.promises.mkdir(logsDir, { recursive: true });
     await fs.promises.mkdir(horizonDir, { recursive: true });
@@ -130,7 +134,7 @@ const mainCoreInitPromise = (async () => {
     }
 })();
 
-const horizonMigrationPromise = (async () => {
+const horizonMigrationPromise = !gotTheLock ? Promise.resolve() : (async () => {
     await mainCoreInitPromise;
 
     // Détection de la version installée de Horizon
@@ -240,6 +244,7 @@ const horizonMigrationPromise = (async () => {
 })();
 
 const assertPathUnderSandbox = createSandboxValidator(safeDataDir);
+const assertPathUnderSandboxAsync = createSandboxValidatorAsync(safeDataDir);
 
 /**
  * @param {any} event
@@ -364,7 +369,7 @@ const context = {
     horizonBinDir, horizonExePath, horizonVersionPath,
     horizonDir, horizonLegacyBinDir, horizonAuthDir, horizonMetaDir, horizonManifestsDir, horizonCacheDir,
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
-    assertPathUnderSandbox, sanitizeShortcutName, isApprovedCopySource, horizonMigrationPromise, shell
+    assertPathUnderSandbox, assertPathUnderSandboxAsync, sanitizeShortcutName, isApprovedCopySource, horizonMigrationPromise, shell
 };
 
 process.on('uncaughtException', (err) => {
@@ -508,10 +513,7 @@ function createWindow() {
 
     mainWindow.loadFile("index.html");
 }
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-    app.quit();
-} else {
+if (gotTheLock) {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
         if (mainWindow) {
             const instName = parseAutoLaunchArg(commandLine);
@@ -540,6 +542,7 @@ if (!gotTheLock) {
     });
 }
 app.whenReady().then(async () => {
+    if (!gotTheLock) return;
     await mainCoreInitPromise;
     app.setAppUserModelId("com.gens.launcher");
     
@@ -749,7 +752,7 @@ const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
 
 ipcMain.handle("download-file-stream", async (event, { url, destPath, expectedSha256, expectedHash, hashAlgo, progressId }) => {
     try {
-        const safeDest = assertPathUnderSandbox(destPath);
+        const safeDest = await assertPathUnderSandboxAsync(destPath);
         assertRendererPathAllowed(safeDest, 'write');
         await downloadFile(url, safeDest, {
             expectedSha256: typeof expectedSha256 === 'string' ? expectedSha256 : null,
@@ -834,13 +837,13 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         let destDir = safeDataDir;
         if (subDir) {
             const candidate = path.join(safeDataDir, subDir);
-            assertPathUnderSandbox(candidate);
+            await assertPathUnderSandboxAsync(candidate);
             assertRendererPathAllowed(candidate, 'write');
             destDir = candidate;
         }
         await fs.promises.mkdir(destDir, { recursive: true });
         const destPath = path.join(destDir, safeName + ext);
-        assertPathUnderSandbox(destPath);
+        await assertPathUnderSandboxAsync(destPath);
         assertRendererPathAllowed(destPath, 'write');
         await fs.promises.copyFile(realSrcPath, destPath);
 
@@ -932,32 +935,34 @@ function applyDiscordData(data) {
 }
 
 let shouldConnectDiscord = true;
-(async () => {
-    try {
-        const settingsPath = path.join(safeDataDir, 'settings.json');
-        if (await existsSafe(settingsPath)) {
-            const settings = JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
-            if (settings.disableRPC === true || settings.offlineMode === true) {
-                shouldConnectDiscord = false;
+if (gotTheLock) {
+    (async () => {
+        try {
+            const settingsPath = path.join(safeDataDir, 'settings.json');
+            if (await existsSafe(settingsPath)) {
+                const settings = JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
+                if (settings.disableRPC === true || settings.offlineMode === true) {
+                    shouldConnectDiscord = false;
+                }
             }
+        } catch (err) {
+            const e = /** @type {any} */ (err);
+            if (e.code !== 'ENOENT') mainLog(`[Discord] Erreur lecture settings: ${e.message}`);
         }
-    } catch (err) {
-        const e = /** @type {any} */ (err);
-        if (e.code !== 'ENOENT') mainLog(`[Discord] Erreur lecture settings: ${e.message}`);
-    }
 
-    if (shouldConnectDiscord) {
-        rpc.connect().then((/** @type {boolean} */ success) => {
-            if (success) {
-                mainLog('Discord RPC connecté.');
-                if (lastDiscordData) applyDiscordData(lastDiscordData);
-            }
-            else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
-        });
-    } else {
-        mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
-    }
-})();
+        if (shouldConnectDiscord) {
+            rpc.connect().then((/** @type {boolean} */ success) => {
+                if (success) {
+                    mainLog('Discord RPC connecté.');
+                    if (lastDiscordData) applyDiscordData(lastDiscordData);
+                }
+                else mainLog('Discord RPC: Impossible de se connecter pour le moment.');
+            });
+        } else {
+            mainLog('Discord RPC désactivé par les paramètres ou le mode hors-ligne.');
+        }
+    })();
+}
 
 ipcMain.handle("reconnect-discord", async () => {
     rpc.disconnect();
@@ -986,7 +991,8 @@ ipcMain.handle('hash-file', async (event, { filePath, algo }) => {
     const ALLOWED_ALGOS = ['sha1', 'sha256', 'sha512', 'md5'];
     if (!ALLOWED_ALGOS.includes(algo)) return { success: false, error: `Algorithme non autorisé : ${algo}` };
     try {
-        const safePath = assertPathUnderSandbox(filePath);
+        const safePath = await assertPathUnderSandboxAsync(filePath);
+        assertRendererPathAllowed(safePath, 'read');
         const hash = crypto.createHash(algo);
         await new Promise((resolve, reject) => {
             const stream = fs.createReadStream(safePath);

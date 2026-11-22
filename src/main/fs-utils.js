@@ -154,9 +154,9 @@ function createSandboxValidatorAsync(sandboxDir) {
 
 /**
  * Crée un garde d'accès pour empêcher le Renderer Process de lire les secrets du Main Process
- * ou d'écrire dans les dossiers d'exécutables (`java/`, `runtime/`, binaires Horizon).
+ * ou d'écrire/supprimer dans les dossiers protégés (`java/`, `runtime/`, binaires Horizon, racine sandbox).
  * @param {string} safeDataDir
- * @returns {(resolvedPath: string, mode: 'read' | 'write') => void}
+ * @returns {(resolvedPath: string, mode: 'read' | 'write' | 'delete') => void}
  */
 function createRendererPathGuard(safeDataDir) {
     const absRoot = path.resolve(safeDataDir);
@@ -178,6 +178,13 @@ function createRendererPathGuard(safeDataDir) {
         'java',
         'runtime'
     ];
+    const BLOCKED_DELETE_ROOTS = new Set([
+        'horizon',
+        'bin',
+        'java',
+        'runtime',
+        'msa-cache'
+    ]);
     const HORIZON_BIN_PREFIXES = [
         path.join('horizon', 'horizon'),
         path.join('bin', 'horizon')
@@ -185,24 +192,27 @@ function createRendererPathGuard(safeDataDir) {
 
     /**
      * @param {string} resolvedPath
-     * @param {'read' | 'write'} mode
+     * @param {'read' | 'write' | 'delete'} mode
      */
     return function assertRendererPathAllowed(resolvedPath, mode) {
         if (!resolvedPath || !safeDataDir) return;
         const normTarget = norm(path.resolve(resolvedPath));
-        if (!normTarget.startsWith(normRoot + path.sep)) return;
-
-        const rel = normTarget.slice(normRoot.length + 1);
-        const relLower = rel.toLowerCase();
-        const parts = relLower.split(path.sep).filter(Boolean);
-        if (parts.length === 0) return;
-
         const deny = (/** @type {string} */ reason) => {
             /** @type {Error & { code?: string }} */
             const err = new Error(`Accès refusé par la politique de sécurité du Launcher (${reason}).`);
             err.code = 'EACCES';
             throw err;
         };
+
+        if (mode === 'delete' && normTarget === normRoot) {
+            deny('suppression ou renommage du dossier racine GensLauncher interdit');
+        }
+        if (!normTarget.startsWith(normRoot + path.sep)) return;
+
+        const rel = normTarget.slice(normRoot.length + 1);
+        const relLower = rel.toLowerCase();
+        const parts = relLower.split(path.sep).filter(Boolean);
+        if (parts.length === 0) return;
 
         // 1. Secrets strictement réservés au Main Process (lecture + écriture interdites)
         if (parts.length === 1 && BLOCKED_BOTH_FILES.has(parts[0])) {
@@ -221,8 +231,13 @@ function createRendererPathGuard(safeDataDir) {
             }
         }
 
-        // 2. Dossiers d'exécutables Java/runtime (écriture/suppression/chmod interdites au Renderer)
-        if (mode === 'write') {
+        // 2. Dossiers critiques protégés contre suppression/renommage global
+        if (mode === 'delete' && parts.length === 1 && BLOCKED_DELETE_ROOTS.has(parts[0])) {
+            deny('suppression ou renommage de dossier système réservé au Main Process');
+        }
+
+        // 3. Dossiers d'exécutables Java/runtime (écriture/suppression/chmod interdites au Renderer)
+        if (mode === 'write' || mode === 'delete') {
             for (const sub of BLOCKED_WRITE_SUBDIRS) {
                 if (relLower === sub || relLower.startsWith(sub + path.sep)) {
                     deny('dossier runtime/java géré exclusivement par le Main Process');

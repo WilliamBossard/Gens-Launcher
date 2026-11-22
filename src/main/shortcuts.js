@@ -6,7 +6,11 @@ const { existsSafe } = require('./fs-utils');
  * @param {import('../types/main').MainContext} context
  */
 module.exports = function (context) {
-    const { app, ipcMain, shell, fs, path, assertPathUnderSandbox, mainSafeDir, mainLog, sanitizeShortcutName } = context;
+    const {
+        app, ipcMain, shell, fs, path, assertPathUnderSandbox, assertPathUnderSandboxAsync,
+        mainSafeDir, mainLog, sanitizeShortcutName
+    } = context;
+    const validateSandboxPath = assertPathUnderSandboxAsync || (async (/** @type {string} */ p) => assertPathUnderSandbox(p));
 
 
 
@@ -60,7 +64,7 @@ module.exports = function (context) {
             if (iconPath && typeof iconPath === 'string' && iconPath.startsWith("file://")) {
                 try {
                     const candidate = require('url').fileURLToPath(iconPath);
-                    const safeCandidate = assertPathUnderSandbox(candidate);
+                    const safeCandidate = await validateSandboxPath(candidate);
                     const lst = await fs.promises.lstat(safeCandidate);
                     if (!lst.isSymbolicLink() && lst.isFile()) {
                         localIconPath = safeCandidate;
@@ -101,7 +105,7 @@ module.exports = function (context) {
                                 pngData = Buffer.from(resized.toPNG());
                             }
                             if (pngData && pngData.length > 0) {
-                                const safeInstFolder = assertPathUnderSandbox(instFolder);
+                                const safeInstFolder = await validateSandboxPath(instFolder);
                                 const icoPath = path.join(safeInstFolder, "icon_win.ico");
                                 const header = Buffer.alloc(22);
                                 header.writeUInt16LE(0, 0);
@@ -222,15 +226,15 @@ module.exports = function (context) {
         return await existsSafe(shortcutPath);
     });
 
-    ipcMain.on("update-jump-list", (event, instances) => {
+    ipcMain.on("update-jump-list", async (event, instances) => {
         if (process.platform === 'win32' && Array.isArray(instances)) {
-            const tasks = instances.map((/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
+            const tasks = await Promise.all(instances.map(async (/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
                 const safeName = sanitizeShortcutName(inst.name);
                 const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
                 let safeIconPath = appExecutable;
                 if (typeof inst.iconIcoPath === 'string' && inst.iconIcoPath.trim()) {
                     try {
-                        safeIconPath = assertPathUnderSandbox(inst.iconIcoPath);
+                        safeIconPath = await validateSandboxPath(inst.iconIcoPath);
                     } catch (_) {
                         safeIconPath = appExecutable;
                     }
@@ -243,7 +247,7 @@ module.exports = function (context) {
                     title: `Lancer ${safeName}`,
                     description: `Démarrer l'instance ${safeName}`
                 };
-            });
+            }));
             app.setUserTasks(tasks);
         }
     });

@@ -23,8 +23,12 @@ async function compressFolder({ src, dest, exclude, level = 1 }) {
         for (const item of items) {
             const fullPath = path.join(currentDir, item);
             const relativePath = path.relative(src, fullPath);
+            const lowerParts = relativePath.toLowerCase().split(/[/\\]/).filter(Boolean);
             const rootItem = relativePath.split(/[/\\]/)[0];
             if (excludeSet.has(rootItem)) continue;
+            const topLower = lowerParts[0];
+            if (topLower === '.secret_key' || topLower === '.key_salt' || topLower === 'horizon_seal.key' || topLower === 'msa-cache') continue;
+            if (topLower === 'horizon' && lowerParts[1] === 'auth') continue;
 
             const stat = await fs.promises.lstat(fullPath);
             if (stat.isSymbolicLink()) continue;

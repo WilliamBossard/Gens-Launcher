@@ -9,9 +9,10 @@ const { Worker } = require('worker_threads');
 module.exports = function setupSystemHandlers(context) {
     const {
         ipcMain, getMainWindow, mainLog, path, fs, execFile,
-        assertPathUnderSandbox, sanitizeShortcutName, shell, app, safeDataDir
+        assertPathUnderSandbox, assertPathUnderSandboxAsync, sanitizeShortcutName, shell, app, safeDataDir
     } = context;
 
+    const validateSandboxPath = assertPathUnderSandboxAsync || (async (/** @type {string} */ p) => assertPathUnderSandbox(p));
     const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
     const WORKER_TIMEOUT_MS = 15 * 60 * 1000;
     const ALLOWED_OPEN_EXTS = new Set([
@@ -21,8 +22,13 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("compress-folder", async (event, { src, dest, exclude = [] }) => {
         try {
-            src = assertPathUnderSandbox(src);
-            dest = assertPathUnderSandbox(dest);
+            src = await validateSandboxPath(src);
+            dest = await validateSandboxPath(dest);
+            if (path.resolve(src) === path.resolve(safeDataDir)) {
+                return { success: false, error: "La compression complète du dossier racine GensLauncher est interdite." };
+            }
+            assertRendererPathAllowed(src, 'read');
+            assertRendererPathAllowed(dest, 'write');
         } catch (e) {
             return { success: false, error: e instanceof Error ? e.message : String(e) };
         }
@@ -76,8 +82,8 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("extract-tar", async (_, archivePath, destDir) => {
         try {
-            archivePath = assertPathUnderSandbox(archivePath);
-            destDir = assertPathUnderSandbox(destDir);
+            archivePath = await validateSandboxPath(archivePath);
+            destDir = await validateSandboxPath(destDir);
             assertRendererPathAllowed(archivePath, 'read');
             assertRendererPathAllowed(destDir, 'write');
         } catch (e) {
@@ -118,7 +124,8 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("read-zip-text", async (event, { zipPath, entryNames }) => {
         const { openZip, readStreamBuffer } = require("./zip-utils");
         try {
-            zipPath = assertPathUnderSandbox(zipPath);
+            zipPath = await validateSandboxPath(zipPath);
+            assertRendererPathAllowed(zipPath, 'read');
             const targets = new Set(entryNames);
             const zipfile = await openZip(zipPath);
             try {
@@ -148,8 +155,8 @@ module.exports = function setupSystemHandlers(context) {
     ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
         try {
             mainLog(`[extract-zip] Demande reçue pour ${zipPath} vers ${destDir}`);
-            zipPath = assertPathUnderSandbox(zipPath); // AUDIT-15 : défense en profondeur — re-validation côté Main
-            destDir = assertPathUnderSandbox(destDir);
+            zipPath = await validateSandboxPath(zipPath); // AUDIT-15 : défense en profondeur — re-validation côté Main
+            destDir = await validateSandboxPath(destDir);
             assertRendererPathAllowed(zipPath, 'read');
             assertRendererPathAllowed(destDir, 'write');
 
@@ -290,11 +297,11 @@ module.exports = function setupSystemHandlers(context) {
             if (!safeName || safeName === '.' || safeName === '..') return { success: false, error: "Nom de fichier de destination invalide." };
             let targetDir = safeDataDir;
             if (subDir) {
-                targetDir = assertPathUnderSandbox(path.join(safeDataDir, String(subDir)));
+                targetDir = await validateSandboxPath(path.join(safeDataDir, String(subDir)));
                 assertRendererPathAllowed(targetDir, 'write');
                 await fs.promises.mkdir(targetDir, { recursive: true });
             }
-            destPath = assertPathUnderSandbox(path.join(targetDir, safeName));
+            destPath = await validateSandboxPath(path.join(targetDir, safeName));
             assertRendererPathAllowed(destPath, 'write');
             await fs.promises.copyFile(realSrcPath, destPath);
             return { success: true, destPath };
@@ -405,8 +412,8 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("duplicate-instance-folder", async (_, { srcPath, destPath }) => {
         try {
-            srcPath = assertPathUnderSandbox(srcPath);
-            destPath = assertPathUnderSandbox(destPath);
+            srcPath = await validateSandboxPath(srcPath);
+            destPath = await validateSandboxPath(destPath);
             assertRendererPathAllowed(srcPath, 'read');
             assertRendererPathAllowed(destPath, 'write');
             await fs.promises.cp(srcPath, destPath, {
@@ -433,7 +440,7 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("get-folder-size", async (_, dirPath) => {
         try {
-            const rootDir = assertPathUnderSandbox(dirPath);
+            const rootDir = await validateSandboxPath(dirPath);
             const isWin = process.platform === 'win32';
             const norm = (/** @type {string} */ p) => isWin ? p.toLowerCase() : p;
             const realRoot = await fs.promises.realpath(rootDir);
@@ -508,7 +515,7 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("system:open-path", async (_, p) => {
         try {
-            const safe = assertPathUnderSandbox(p);
+            const safe = await validateSandboxPath(p);
             assertRendererPathAllowed(safe, 'read');
             const lstat = await fs.promises.lstat(safe);
             if (lstat.isSymbolicLink()) {
@@ -534,7 +541,7 @@ module.exports = function setupSystemHandlers(context) {
 
     ipcMain.handle("system:show-item-in-folder", async (_, p) => {
         try {
-            const safe = assertPathUnderSandbox(p);
+            const safe = await validateSandboxPath(p);
             assertRendererPathAllowed(safe, 'read');
             shell.showItemInFolder(safe);
             return { success: true };

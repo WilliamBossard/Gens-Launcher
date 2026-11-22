@@ -176,7 +176,8 @@ function createDownloadFile(deps) {
 
             await pipeStreams(Readable.fromWeb(/** @type {any} */ (res.body)), tracker, fs.createWriteStream(tmpDest));
 
-            if (totalBytes > 0 && receivedBytes !== totalBytes) {
+            const contentEncoding = res.headers.get('content-encoding');
+            if (!contentEncoding && totalBytes > 0 && receivedBytes !== totalBytes) {
                 throw new Error(`Téléchargement incomplet (${receivedBytes}/${totalBytes} octets reçus).`);
             }
 

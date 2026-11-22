@@ -37,6 +37,7 @@ export interface MainContext {
   mainSafeDir: (name: string) => string;
   mainResolveInstanceFolder: (nameOrFolder: string) => string;
   assertPathUnderSandbox: (p: string) => string;
+  assertPathUnderSandboxAsync?: (p: string) => Promise<string>;
   sanitizeShortcutName: (name: string) => string;
   isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean;
   horizonMigrationPromise?: Promise<void>;

@@ -1,7 +1,7 @@
 // @ts-check
 
 const { isAllowedDomain, createDownloadFile } = require('./download-utils');
-const { existsSafe, renameWithRetry } = require('./fs-utils');
+const { existsSafe, renameWithRetry, createRendererPathGuard } = require('./fs-utils');
 const { pipeStreams } = require('./zip-utils');
 const { Worker } = require('worker_threads');
 
@@ -37,9 +37,11 @@ const ALLOWED_CLIENT_PACKAGE_DOMAINS = [
 module.exports = function setupGameHandlers(context) {
     const {
         app, ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, execFile,
-        mainResolveInstanceFolder, safeSend, assertPathUnderSandbox
+        mainResolveInstanceFolder, safeSend, assertPathUnderSandbox, assertPathUnderSandboxAsync
     } = context;
     const os = require('os');
+    const validateSandboxPath = assertPathUnderSandboxAsync || (async (/** @type {string} */ p) => assertPathUnderSandbox(p));
+    const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
 
     /** @type {Map<string, { launcher?: any; process?: any; closeLogStream?: () => void }> } */
     const activeMinecraftClients = new Map();
@@ -563,8 +565,21 @@ module.exports = function setupGameHandlers(context) {
 
     ipcMain.handle("run-forge-installer", async (_, { javaPath, installerPath, rootPath }) => {
         try {
-            installerPath = assertPathUnderSandbox(installerPath);
-            rootPath = assertPathUnderSandbox(rootPath);
+            installerPath = await validateSandboxPath(installerPath);
+            rootPath = await validateSandboxPath(rootPath);
+            const absRoot = path.resolve(safeDataDir);
+            const installersRoot = path.resolve(absRoot, 'installers');
+            const instancesRoot = path.resolve(absRoot, 'instances');
+            const isWinPlatform = process.platform === 'win32';
+            const norm = (/** @type {string} */ p) => isWinPlatform ? p.toLowerCase() : p;
+            if (!norm(installerPath).startsWith(norm(installersRoot) + path.sep) || path.extname(installerPath).toLowerCase() !== '.jar') {
+                throw new Error("Installeur Forge invalide : doit être un fichier .jar dans installers/.");
+            }
+            if (!norm(rootPath).startsWith(norm(instancesRoot) + path.sep)) {
+                throw new Error("Dossier cible Forge invalide : doit se trouver dans instances/.");
+            }
+            assertRendererPathAllowed(installerPath, 'read');
+            assertRendererPathAllowed(rootPath, 'write');
         } catch (e) {
             const err = e instanceof Error ? e.message : String(e);
             return { err, stderr: "", stdout: "" };
@@ -756,9 +771,18 @@ module.exports = function setupGameHandlers(context) {
                 if (opts.version.custom != null && String(opts.version.custom).trim() !== '') {
                     opts.version.custom = validateSafeSegment(opts.version.custom, "version.custom");
                 }
-                opts.root = assertPathUnderSandbox(opts.root);
-                if (opts.forge) opts.forge = assertPathUnderSandbox(opts.forge);
-                if (opts.logFilePath) opts.logFilePath = assertPathUnderSandbox(opts.logFilePath);
+                opts.root = await validateSandboxPath(opts.root);
+                if (opts.forge) opts.forge = await validateSandboxPath(opts.forge);
+                if (opts.logFilePath) {
+                    opts.logFilePath = await validateSandboxPath(opts.logFilePath);
+                    const logsRoot = path.resolve(safeDataDir, 'logs');
+                    const isWinPlatform = process.platform === 'win32';
+                    const norm = (/** @type {string} */ p) => isWinPlatform ? p.toLowerCase() : p;
+                    if (!norm(opts.logFilePath).startsWith(norm(logsRoot) + path.sep)) {
+                        throw new Error("Chemin de log invalide : doit se trouver dans logs/.");
+                    }
+                    assertRendererPathAllowed(opts.logFilePath, 'write');
+                }
                 validateLaunchOverrides(opts);
                 if (opts.customArgs !== undefined) opts.customArgs = validateCustomJvmArgs(opts.customArgs);
                 if (opts.customLaunchArgs !== undefined) opts.customLaunchArgs = validateCustomLaunchArgs(opts.customLaunchArgs);
@@ -1139,9 +1163,9 @@ module.exports = function setupGameHandlers(context) {
             if (_javaInstallInProgress) {
                 return { success: false, error: "Une installation Java est déjà en cours." };
             }
-            const javaDir = assertPathUnderSandbox(path.join(safeDataDir, "java"));
-            const jrePath = assertPathUnderSandbox(path.join(javaDir, `jre${version}`));
-            const jdkPath = assertPathUnderSandbox(path.join(javaDir, `jdk${version}`));
+            const javaDir = await validateSandboxPath(path.join(safeDataDir, "java"));
+            const jrePath = await validateSandboxPath(path.join(javaDir, `jre${version}`));
+            const jdkPath = await validateSandboxPath(path.join(javaDir, `jdk${version}`));
             if (await existsSafe(jrePath)) await fs.promises.rm(jrePath, { recursive: true, force: true });
             if (await existsSafe(jdkPath)) await fs.promises.rm(jdkPath, { recursive: true, force: true });
             return { success: true };
@@ -1167,14 +1191,14 @@ module.exports = function setupGameHandlers(context) {
         /** @type {string | null} */
         let stagingDir = null;
         try {
-            const javaDir = assertPathUnderSandbox(path.join(safeDataDir, "java"));
+            const javaDir = await validateSandboxPath(path.join(safeDataDir, "java"));
             await fs.promises.mkdir(javaDir, { recursive: true });
 
             const platform = process.platform === "darwin" ? "mac" : (process.platform === "linux" ? "linux" : "windows");
             const rawArch = String(process.arch || "x64");
             const arch = (rawArch === "arm64" || rawArch === "aarch64") ? "aarch64" : "x64";
             const ext = (platform === "windows") ? ".zip" : ".tar.gz";
-            archivePath = assertPathUnderSandbox(path.join(javaDir, `${type}${version}_${Date.now()}${ext}`));
+            archivePath = await validateSandboxPath(path.join(javaDir, `${type}${version}_${Date.now()}${ext}`));
 
             const assetsUrl = `https://api.adoptium.net/v3/assets/latest/${version}/hotspot?architecture=${arch}&image_type=${type}&os=${platform}&vendor=eclipse`;
             const controller = new AbortController();
@@ -1216,9 +1240,9 @@ module.exports = function setupGameHandlers(context) {
                 } : undefined
             });
 
-            const extractDir = assertPathUnderSandbox(path.join(javaDir, `${type}${version}`));
-            stagingDir = assertPathUnderSandbox(`${extractDir}.tmp.${Date.now()}`);
-            const backupDir = assertPathUnderSandbox(`${extractDir}.bak.${Date.now()}`);
+            const extractDir = await validateSandboxPath(path.join(javaDir, `${type}${version}`));
+            stagingDir = await validateSandboxPath(`${extractDir}.tmp.${Date.now()}`);
+            const backupDir = await validateSandboxPath(`${extractDir}.bak.${Date.now()}`);
 
             await fs.promises.mkdir(stagingDir, { recursive: true });
             const extractRes = await runExtractWorker(

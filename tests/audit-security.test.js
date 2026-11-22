@@ -1031,6 +1031,208 @@ test('Audit Phase 4: Strict CSP without unsafe-inline and zero inline style attr
     assert.deepStrictEqual(offenders, [], `Inline style= ou <style> détecté(s) : ${offenders.join(', ')}`);
 });
 
+test('Audit 2026: SEC-1/SEC-2 ipc-system & ipc-fs bloquent secrets, racine sandbox et répertoires critiques en rm/rename/zip', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(await fs.promises.realpath(os.tmpdir()), 'gens_audit_2026_sec12_'));
+    const sandboxDir = path.join(tmpRoot, 'sandbox');
+    try {
+        await fs.promises.mkdir(path.join(sandboxDir, 'Horizon', 'auth'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'bin'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'java'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'runtime'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'msa-cache'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'instances', 'TempPack'), { recursive: true });
+        await fs.promises.writeFile(path.join(sandboxDir, '.secret_key'), 'top-secret');
+        await fs.promises.writeFile(path.join(sandboxDir, 'Horizon', 'auth', 'secret.zip'), Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+
+        const { createSandboxValidatorAsync } = require('../src/main/fs-utils');
+        const assertPathUnderSandbox = createSandboxValidator(sandboxDir);
+        const assertPathUnderSandboxAsync = createSandboxValidatorAsync(sandboxDir);
+
+        const sysHandlers = new Map();
+        const setupSystemHandlers = require('../src/main/ipc-system');
+        setupSystemHandlers({
+            ipcMain: { handle: (ch, fn) => sysHandlers.set(ch, fn) },
+            getMainWindow: () => null,
+            mainLog: () => {},
+            path,
+            fs,
+            execFile: () => {},
+            assertPathUnderSandbox,
+            assertPathUnderSandboxAsync,
+            sanitizeShortcutName: (n) => n,
+            shell: {},
+            app: { getPath: () => sandboxDir },
+            safeDataDir: sandboxDir,
+        });
+
+        const destZip = path.join(sandboxDir, 'instances', 'out.zip');
+        for (const forbiddenSrc of [sandboxDir, path.join(sandboxDir, '.secret_key'), path.join(sandboxDir, 'Horizon', 'auth')]) {
+            const res = await sysHandlers.get('compress-folder')({}, { src: forbiddenSrc, dest: destZip });
+            assert.strictEqual(res.success, false, `compress-folder devait bloquer ${forbiddenSrc}`);
+        }
+        const readZipRes = await sysHandlers.get('read-zip-text')({}, {
+            zipPath: path.join(sandboxDir, 'Horizon', 'auth', 'secret.zip'),
+            entryNames: ['token.json']
+        });
+        assert.strictEqual(readZipRes.success, false, 'read-zip-text devait bloquer Horizon/auth/');
+
+        const fsHandlers = new Map();
+        setupFsHandlers({
+            ipcMain: { handle: (ch, fn) => fsHandlers.set(ch, fn) },
+            safeDataDir: sandboxDir,
+            mainLog: () => {},
+            path,
+            fs,
+            crypto,
+            app: { getPath: () => sandboxDir }
+        });
+
+        const mkdirRoot = await fsHandlers.get('fs:mkdir')(null, sandboxDir, { recursive: true });
+        assert.strictEqual(mkdirRoot.ok, true, 'fs:mkdir recursive sur sandboxDir doit rester autorisé');
+
+        for (const protectedTarget of [
+            sandboxDir,
+            path.join(sandboxDir, 'Horizon'),
+            path.join(sandboxDir, 'bin'),
+            path.join(sandboxDir, 'java'),
+            path.join(sandboxDir, 'runtime'),
+            path.join(sandboxDir, 'msa-cache'),
+        ]) {
+            const rmRes = await fsHandlers.get('fs:rm')(null, protectedTarget, { recursive: true, force: true });
+            assert.strictEqual(rmRes.ok, false, `fs:rm devait bloquer ${protectedTarget}`);
+            const renRes = await fsHandlers.get('fs:rename')(null, protectedTarget, path.join(sandboxDir, 'moved_target'));
+            assert.strictEqual(renRes.ok, false, `fs:rename devait bloquer ${protectedTarget}`);
+        }
+
+        const rmInstance = await fsHandlers.get('fs:rm')(null, path.join(sandboxDir, 'instances', 'TempPack'), { recursive: true, force: true });
+        assert.strictEqual(rmInstance.ok, true, 'fs:rm sur un sous-dossier instance doit rester autorisé');
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+test('Audit 2026: SEC-3/SEC-4 ipc-game confine run-forge-installer (installers/*.jar -> instances/*) et launch-game logFilePath (logs/*)', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(await fs.promises.realpath(os.tmpdir()), 'gens_audit_2026_game_'));
+    const sandboxDir = path.join(tmpRoot, 'sandbox');
+    try {
+        await fs.promises.mkdir(path.join(sandboxDir, 'installers'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'instances', 'ForgePack'), { recursive: true });
+        await fs.promises.mkdir(path.join(sandboxDir, 'logs'), { recursive: true });
+        await fs.promises.writeFile(path.join(sandboxDir, 'installers', 'not_jar.txt'), 'text');
+        await fs.promises.writeFile(path.join(sandboxDir, 'instances', 'ForgePack', 'evil.jar'), 'jar');
+
+        const { createSandboxValidatorAsync } = require('../src/main/fs-utils');
+        const assertPathUnderSandbox = createSandboxValidator(sandboxDir);
+        const assertPathUnderSandboxAsync = createSandboxValidatorAsync(sandboxDir);
+
+        const gameHandlers = new Map();
+        const gameListeners = new Map();
+        const sentEvents = [];
+        const setupGameHandlers = require('../src/main/ipc-game');
+        setupGameHandlers({
+            app: { getPath: () => tmpRoot },
+            ipcMain: {
+                handle: (ch, fn) => gameHandlers.set(ch, fn),
+                on: (ch, fn) => gameListeners.set(ch, fn)
+            },
+            getMainWindow: () => ({
+                isDestroyed: () => false,
+                webContents: { isDestroyed: () => false, send: (ch, payload) => sentEvents.push({ ch, payload }) }
+            }),
+            safeDataDir: sandboxDir,
+            mainLog: () => {},
+            path,
+            fs,
+            execFile: () => {},
+            mainResolveInstanceFolder: (n) => n,
+            safeSend: () => {},
+            assertPathUnderSandbox,
+            assertPathUnderSandboxAsync
+        });
+
+        const forgeHandler = gameHandlers.get('run-forge-installer');
+        const badSrc = await forgeHandler({}, {
+            javaPath: 'java',
+            installerPath: path.join(sandboxDir, 'instances', 'ForgePack', 'evil.jar'),
+            rootPath: path.join(sandboxDir, 'instances', 'ForgePack')
+        });
+        assert.match(String(badSrc.err || ''), /installers/i);
+
+        const badExt = await forgeHandler({}, {
+            javaPath: 'java',
+            installerPath: path.join(sandboxDir, 'installers', 'not_jar.txt'),
+            rootPath: path.join(sandboxDir, 'instances', 'ForgePack')
+        });
+        assert.match(String(badExt.err || ''), /\.jar/i);
+
+        const badTarget = await forgeHandler({}, {
+            javaPath: 'java',
+            installerPath: path.join(sandboxDir, 'installers', 'forge.jar'),
+            rootPath: path.join(sandboxDir, 'Horizon')
+        });
+        assert.match(String(badTarget.err || ''), /instances/i);
+
+        const launchListener = gameListeners.get('launch-game');
+        sentEvents.length = 0;
+        await launchListener({}, {
+            instanceId: 'inst-log',
+            authorization: { access_token: 'x', uuid: 'u', name: 'p', meta: {} },
+            version: { number: '1.20.4', type: 'release' },
+            root: path.join(sandboxDir, 'instances', 'ForgePack'),
+            logFilePath: path.join(sandboxDir, 'settings.json')
+        });
+        assert.ok(sentEvents.some(e => e.ch === 'mc-close' && e.payload.instanceId === 'inst-log' && e.payload.code === 1),
+            'launch-game devait rejeter logFilePath hors logs/');
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+test('Audit 2026: REL-2/REL-4/PERF-2 download-utils content-encoding & main.js single-instance / SharedArrayBuffer / hash-file guard', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_audit_2026_dl_'));
+    try {
+        const { createDownloadFile } = require('../src/main/download-utils');
+        const { pipeStreams } = require('../src/main/zip-utils');
+        const decompressed = Buffer.from('hello-compressed-payload');
+        const dest = path.join(tmpRoot, 'payload.json');
+        const dl = createDownloadFile({
+            fs,
+            path,
+            crypto,
+            pipeStreams,
+            existsSafe: async (p) => { try { await fs.promises.access(p); return true; } catch { return false; } },
+            safeUnlink: async (p) => { try { await fs.promises.unlink(p); } catch {} },
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({
+                    'content-length': '10',
+                    'content-encoding': 'gzip'
+                }),
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(decompressed);
+                        controller.close();
+                    }
+                })
+            })
+        });
+        await dl('https://api.modrinth.com/v2/test', dest, {});
+        assert.deepStrictEqual(await fs.promises.readFile(dest), decompressed);
+
+        const mainJs = fs.readFileSync(path.resolve(__dirname, '..', 'main.js'), 'utf8');
+        assert.ok(!mainJs.includes('SharedArrayBuffer'), 'SharedArrayBuffer inutile doit être retiré de main.js');
+        const lockIdx = mainJs.indexOf('app.requestSingleInstanceLock()');
+        const coreInitIdx = mainJs.indexOf('const mainCoreInitPromise');
+        assert.ok(lockIdx > 0 && coreInitIdx > lockIdx, 'requestSingleInstanceLock doit précéder mainCoreInitPromise');
+        const hashSection = mainJs.slice(mainJs.indexOf("ipcMain.handle('hash-file'"));
+        assert.ok(hashSection.includes("assertRendererPathAllowed(safePath, 'read')"), 'hash-file doit appliquer assertRendererPathAllowed');
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+
 
 
 
