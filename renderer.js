@@ -382,6 +382,8 @@ async function renderHorizonQuotaPanel(el, data, persistCache = true) {
     }
 }
 
+let _lastHorizonAuthExpiredToastTs = 0;
+
 window.api.on("horizon-status", async (data) => {
     if (data.type === "CHECK_RESULT") {
         if (data.status === "UPDATE_AVAILABLE") {
@@ -660,14 +662,21 @@ window.api.on("horizon-status", async (data) => {
         });
         let finalMsg = data.message || "";
         const errCode = 'errorCode' in data ? data.errorCode : undefined;
+        let isHorizonAuthExpired = false;
         if (errCode === "ERR_ALREADY_RUNNING" || finalMsg === "ERR_ALREADY_RUNNING") {
             if (!window._isManualHorizon) return;
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
         else if (errCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée") || finalMsg.toLowerCase().includes("session expired")) {
-            finalMsg = t("msg_session_expired", "Session expirée. Veuillez vous reconnecter à votre compte dans l'onglet Gérer.");
-            if (window.refreshHorizonUI) {
-                window.refreshHorizonUI();
+            isHorizonAuthExpired = true;
+            finalMsg = t("msg_session_expired_cloud", "Session Cloud expirée.");
+            const grid = $("horizon-cloud-grid");
+            if (grid) {
+                grid.innerHTML = `<div class="u-s340">${window.escapeHTML(finalMsg)}</div>`;
+            }
+            const quotaZone = $("horizon-quota-zone");
+            if (quotaZone && !window._lastQuotaHtml) {
+                quotaZone.innerHTML = `<div class="u-s335">${window.escapeHTML(finalMsg)}</div>`;
             }
         }
         else if (errCode === "NOT_ON_CLOUD" || errCode === "NOT_FOUND" || finalMsg.includes("n'existe pas sur le Cloud") || finalMsg.toLowerCase().includes("not on cloud") || finalMsg.toLowerCase().includes("not found")) {
@@ -737,9 +746,14 @@ window.api.on("horizon-status", async (data) => {
             }
         }
         if (data.type !== "INFO" || finalMsg.includes(t("horizon_login_ready", "Prêt").split('(')[0])) {
-            const realName = await getRealName(data.instance || "");
-            const prefixName = realName ? `${realName} : ` : "";
-            window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
+            const nowTs = Date.now();
+            const shouldSkipAuthToast = isHorizonAuthExpired && (nowTs - _lastHorizonAuthExpiredToastTs < 5000);
+            if (!shouldSkipAuthToast) {
+                if (isHorizonAuthExpired) _lastHorizonAuthExpiredToastTs = nowTs;
+                const realName = await getRealName(data.instance || "");
+                const prefixName = realName ? `${realName} : ` : "";
+                window.showToast(`${prefixName}${finalMsg}`, data.type.toLowerCase());
+            }
         }
         if (data.type === "SUCCESS" && !window._isManualHorizon
             && !finalMsg.includes("Jeton") && !finalMsg.includes("Connexion")) {
@@ -1004,8 +1018,12 @@ window.horizonOpFailed = (/** @type {any} */ result) => {
 window.horizonScheduleCloudRefresh = async (/** @type {any} */ opts = {}) => {
     const { refreshQuota = false } = opts;
     try {
-        await window.api.invoke("call-horizon", ["--sync", "--list"]);
-        if (refreshQuota) await window.refreshHorizonQuotaSilent();
+        const listRes = await window.api.invoke("call-horizon", ["--sync", "--list"]);
+        const lastJson = listRes?.lastJson;
+        const lastErrCode = (lastJson && 'errorCode' in lastJson) ? lastJson.errorCode : undefined;
+        const lastMsg = (lastJson && 'message' in lastJson && lastJson.message) ? String(lastJson.message) : "";
+        const authExpired = lastErrCode === "AUTH_EXPIRED" || lastMsg.includes("Session expirée") || lastMsg.toLowerCase().includes("session expired");
+        if (refreshQuota && !authExpired) await window.refreshHorizonQuotaSilent();
     } catch (/** @type {any} */ e) {
         console.error("[Horizon] Rafraîchissement cloud:", e);
     }
