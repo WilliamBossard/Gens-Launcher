@@ -405,6 +405,7 @@ window.showCustomConfirm = (msg, isDestructive = false) => {
             return;
         }
         msgEl.innerText = msg;
+        msgEl.style.textAlign = (typeof msg === "string" && msg.includes("\n• ")) ? "left" : "";
         yesBtn.style.background = isDestructive ? "#f87171" : "var(--accent)";
         yesBtn.style.borderColor = isDestructive ? "#f87171" : "var(--accent)";
         modal.style.display = "flex";

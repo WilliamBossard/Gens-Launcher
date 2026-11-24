@@ -98,6 +98,7 @@ module.exports = function setupHorizonHandlers(context) {
 
     /** @type {Promise<any>} */
     let _horizonQueue = Promise.resolve();
+    let _inFlightHorizonOps = 0;
 
     /** @type {any} */
     let githubReleaseCache = null;
@@ -422,11 +423,21 @@ module.exports = function setupHorizonHandlers(context) {
      * @param {any[]} assets
      * @returns {any}
      */
-    function findCompatibleHorizonAsset(assets) {
+    /**
+     * @param {any[]} assets
+     * @param {string} [platform]
+     * @param {string} [arch]
+     * @returns {any}
+     */
+    function findCompatibleHorizonAsset(assets, platform = process.platform, arch = process.arch) {
         if (!Array.isArray(assets)) return null;
-        const platform = process.platform;
         if (platform === 'win32') {
-            return assets.find(a => a.name.endsWith('.exe'));
+            const exeAssets = assets.filter(a => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'));
+            if (arch === 'arm64') {
+                const armWin = exeAssets.find(a => a.name.toLowerCase().includes('arm64'));
+                if (armWin) return armWin;
+            }
+            return exeAssets.find(a => !a.name.toLowerCase().includes('arm64')) || exeAssets[0] || null;
         }
         if (platform === 'darwin') {
             return assets.find(a => {
@@ -435,7 +446,7 @@ module.exports = function setupHorizonHandlers(context) {
             }) || assets.find(a => !path.extname(a.name));
         }
         // Linux : Détection automatique de l'architecture ARM64 vs x86_64
-        if (process.arch === 'arm64') {
+        if (arch === 'arm64') {
             const armAsset = assets.find(a => {
                 const n = a.name.toLowerCase();
                 return n.includes('linux') && n.includes('arm64') && !n.endsWith('.sha256');
@@ -447,6 +458,7 @@ module.exports = function setupHorizonHandlers(context) {
             return n.includes('linux') && !n.includes('arm64') && !n.endsWith('.sha256');
         }) || assets.find(a => !path.extname(a.name));
     }
+    context.findCompatibleHorizonAsset = findCompatibleHorizonAsset;
 
     /** @type {Promise<any> | null} */
     let _latestReleaseInFlight = null;
@@ -637,6 +649,103 @@ module.exports = function setupHorizonHandlers(context) {
     }
 
     /**
+     * Vérifie l'intégrité SHA-256 et le scellement HMAC du binaire Horizon en mode packagé.
+     * @param {string} activeExePath
+     * @param {string} activeVersionPath
+     * @param {any} [event]
+     * @returns {Promise<{ ok: boolean; error?: string }>}
+     */
+    async function verifyHorizonBinaryIntegrity(activeExePath, activeVersionPath, event = null) {
+        if (!app.isPackaged || !(await existsSafe(activeExePath))) {
+            return { ok: true };
+        }
+        let expectedHash = cachedExpectedHash;
+        const hashIsStale = !expectedHash || (Date.now() - cachedExpectedHashTime > HASH_CACHE_TTL_MS);
+        /** @type {string | null} */
+        let legacyResealTag = null;
+
+        if (hashIsStale) {
+            try {
+                const verState = await readVerifiedHorizonVersion(activeVersionPath);
+                if (verState.tampered && !verState.unsignedLegacy) {
+                    mainLog(`SÉCURITÉ CRITIQUE : Signature HMAC de horizon_version.json invalide (tentative de downgrade/falsification).`);
+                    const msg = "SÉCURITÉ CRITIQUE : Fichier de version Horizon falsifié. Veuillez réinstaller le module Cloud.";
+                    if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: msg });
+                    return { ok: false, error: msg };
+                }
+                const localVersion = verState.unsignedLegacy ? null : verState.version;
+
+                const data = await fetchHorizonRelease(localVersion);
+                if (verState.unsignedLegacy && data && typeof data.tag_name === 'string') {
+                    legacyResealTag = data.tag_name;
+                }
+                const asset = findCompatibleHorizonAsset(data.assets);
+                if (asset) {
+                    const shaAsset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
+                    if (shaAsset) {
+                        const hashUrl = assertTrustedGithubDownloadUrl(shaAsset.browser_download_url);
+                        const hashRes = await fetchWithTimeout(hashUrl, 4000);
+                        if (hashRes.ok) {
+                            const h = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
+                            if (isValidSha256(h)) {
+                                expectedHash = h;
+                                cachedExpectedHash = h;
+                                cachedExpectedHashTime = Date.now();
+                                await updateGithubCache({ hash: h, hashTime: cachedExpectedHashTime });
+                            }
+                        }
+                    }
+                }
+            } catch (fetchErr) {
+                const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                mainLog(`[Horizon] Rafraîchissement SHA-256 impossible : ${msg}`);
+            }
+        }
+
+        if (!expectedHash) {
+            const sealKeyAvail = !!(await getSealHmacKey());
+            const errorCode = !sealKeyAvail ? 'HORIZON_KEYRING_UNAVAILABLE' : 'HORIZON_VERIFY_OFFLINE';
+            const errMsg = !sealKeyAvail
+                ? "SÉCURITÉ : Trousseau système (safeStorage) indisponible et GitHub inaccessible pour vérifier le SHA-256 d'Horizon."
+                : "SÉCURITÉ : Impossible de vérifier l'intégrité du module Cloud Horizon hors-ligne (aucun SHA-256 vérifié en cache).";
+            mainLog(`SÉCURITÉ CRITIQUE [${errorCode}] : Aucun hash SHA-256 attendu disponible pour vérifier Horizon.`);
+            if (event) safeSend(event, 'horizon-status', { type: 'ERROR', errorCode, message: errMsg });
+            return { ok: false, error: errMsg };
+        }
+
+        try {
+            const actualHash = await getLocalHorizonHash(activeExePath);
+            if (actualHash !== expectedHash) {
+                mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
+                const msg = "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud.";
+                if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: msg });
+                return { ok: false, error: msg };
+            }
+            if (legacyResealTag) {
+                try {
+                    const sealKey = await getSealHmacKey();
+                    const resealPayload = /** @type {Record<string, any>} */ ({ version: legacyResealTag });
+                    const verSig = computePayloadHmac(resealPayload, sealKey);
+                    if (verSig) {
+                        resealPayload._sig = verSig;
+                        const tmpVer = `${activeVersionPath}.tmp.${process.pid}.${Date.now()}`;
+                        await fs.promises.writeFile(tmpVer, JSON.stringify(resealPayload));
+                        await renameWithRetry(tmpVer, activeVersionPath);
+                        mainLog(`[Horizon] horizon_version.json legacy re-scellé sur la version vérifiée ${legacyResealTag}.`);
+                    }
+                } catch (_) {}
+            }
+        } catch (hashReadErr) {
+            const err = hashReadErr instanceof Error ? hashReadErr.message : String(hashReadErr);
+            mainLog(`SÉCURITÉ CRITIQUE : Erreur lecture Horizon pour vérification SHA-256 : ${err}`);
+            const msg = "SÉCURITÉ : Impossible de lire l'exécutable Horizon pour vérification d'intégrité.";
+            if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: msg });
+            return { ok: false, error: msg };
+        }
+        return { ok: true };
+    }
+
+    /**
      * @param {string | string[]} action
      * @param {any} [event]
      * @returns {Promise<{ exitCode: number, lastJson: any }>}
@@ -646,8 +755,10 @@ module.exports = function setupHorizonHandlers(context) {
         if (_installHorizonPromise) {
             try { await _installHorizonPromise; } catch (_) {}
         }
+        _inFlightHorizonOps++;
+        try {
         const _lockArgs = Array.isArray(action) ? action : [action];
-        const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--help', '--version'];
+        const ALLOWED_COMMANDS = ['--check', '--sync', '--upload', '--login', '--quota', '--rollback', '--status', '--clean', '--has-e2e-key', '--help', '--version'];
         
         const isSafeCommand = _lockArgs.length > 0 && ALLOWED_COMMANDS.includes(_lockArgs[0]);
         // AUDIT-11 : validation durcie des arguments — les arguments positionnels (noms d'instance) n'acceptent plus '/' ni '.'
@@ -670,89 +781,9 @@ module.exports = function setupHorizonHandlers(context) {
         // Vérification de sécurité du binaire Horizon
         // En mode développement (!app.isPackaged), la vérification distante GitHub reste désactivée
         // pour permettre l'exécution des binaires compilés localement.
-        if (app.isPackaged && (await existsSafe(activeExePath))) {
-            let expectedHash = cachedExpectedHash;
-            const hashIsStale = !expectedHash || (Date.now() - cachedExpectedHashTime > HASH_CACHE_TTL_MS);
-            /** @type {string | null} */
-            let legacyResealTag = null;
-
-            if (hashIsStale) {
-                try {
-                    const verState = await readVerifiedHorizonVersion(activeVersionPath);
-                    if (verState.tampered && !verState.unsignedLegacy) {
-                        mainLog(`SÉCURITÉ CRITIQUE : Signature HMAC de horizon_version.json invalide (tentative de downgrade/falsification).`);
-                        if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Fichier de version Horizon falsifié. Veuillez réinstaller le module Cloud." });
-                        return Promise.resolve({ exitCode: -1, lastJson: null });
-                    }
-                    // Si unsignedLegacy, localVersion vaut null : on résout exclusivement contre `releases/latest` (anti-downgrade).
-                    const localVersion = verState.unsignedLegacy ? null : verState.version;
-
-                    const data = await fetchHorizonRelease(localVersion);
-                    if (verState.unsignedLegacy && data && typeof data.tag_name === 'string') {
-                        legacyResealTag = data.tag_name;
-                    }
-                    const asset = findCompatibleHorizonAsset(data.assets);
-                    if (asset) {
-                        const shaAsset = data.assets.find((/** @type {any} */ a) => a.name === asset.name + ".sha256");
-                        if (shaAsset) {
-                            const hashUrl = assertTrustedGithubDownloadUrl(shaAsset.browser_download_url);
-                            const hashRes = await fetchWithTimeout(hashUrl, 4000);
-                            if (hashRes.ok) {
-                                const h = (await hashRes.text()).trim().split(/\s/)[0].toLowerCase();
-                                if (isValidSha256(h)) {
-                                    expectedHash = h;
-                                    cachedExpectedHash = h;
-                                    cachedExpectedHashTime = Date.now();
-                                    await updateGithubCache({ hash: h, hashTime: cachedExpectedHashTime });
-                                }
-                            }
-                        }
-                    }
-                } catch (fetchErr) {
-                    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-                    mainLog(`[Horizon] Rafraîchissement SHA-256 impossible : ${msg}`);
-                }
-            }
-
-            if (!expectedHash) {
-                const sealKeyAvail = !!(await getSealHmacKey());
-                const errorCode = !sealKeyAvail ? 'HORIZON_KEYRING_UNAVAILABLE' : 'HORIZON_VERIFY_OFFLINE';
-                const errMsg = !sealKeyAvail
-                    ? "SÉCURITÉ : Trousseau système (safeStorage) indisponible et GitHub inaccessible pour vérifier le SHA-256 d'Horizon."
-                    : "SÉCURITÉ : Impossible de vérifier l'intégrité du module Cloud Horizon hors-ligne (aucun SHA-256 vérifié en cache).";
-                mainLog(`SÉCURITÉ CRITIQUE [${errorCode}] : Aucun hash SHA-256 attendu disponible pour vérifier Horizon.`);
-                if (event) safeSend(event, 'horizon-status', { type: 'ERROR', errorCode, message: errMsg });
-                return Promise.resolve({ exitCode: -1, lastJson: null });
-            }
-
-            try {
-                // Stream async ou cache — ne bloque pas le Main Process
-                const actualHash = await getLocalHorizonHash(activeExePath);
-                if (actualHash !== expectedHash) {
-                    mainLog(`SÉCURITÉ CRITIQUE : Le hash de Horizon.exe ne correspond pas à la version officielle !`);
-                    if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ CRITIQUE : Exécutable Horizon corrompu ou falsifié. Veuillez réinstaller le module Cloud." });
-                    return Promise.resolve({ exitCode: -1, lastJson: null });
-                }
-                if (legacyResealTag) {
-                    try {
-                        const sealKey = await getSealHmacKey();
-                        const resealPayload = /** @type {Record<string, any>} */ ({ version: legacyResealTag });
-                        const verSig = computePayloadHmac(resealPayload, sealKey);
-                        if (verSig) {
-                            resealPayload._sig = verSig;
-                            const tmpVer = `${activeVersionPath}.tmp.${process.pid}.${Date.now()}`;
-                            await fs.promises.writeFile(tmpVer, JSON.stringify(resealPayload));
-                            await renameWithRetry(tmpVer, activeVersionPath);
-                            mainLog(`[Horizon] horizon_version.json legacy re-scellé sur la version vérifiée ${legacyResealTag}.`);
-                        }
-                    } catch (_) {}
-                }
-            } catch (hashReadErr) {
-                const err = hashReadErr instanceof Error ? hashReadErr.message : String(hashReadErr);
-                mainLog(`SÉCURITÉ CRITIQUE : Erreur lecture Horizon pour vérification SHA-256 : ${err}`);
-                if (event) safeSend(event, 'horizon-status', { type: 'ERROR', message: "SÉCURITÉ : Impossible de lire l'exécutable Horizon pour vérification d'intégrité." });
-                return Promise.resolve({ exitCode: -1, lastJson: null });
-            }
+        const integrity = await verifyHorizonBinaryIntegrity(activeExePath, activeVersionPath, event);
+        if (!integrity.ok) {
+            return Promise.resolve({ exitCode: -1, lastJson: null });
         }
 
         if (isWriteOp) {
@@ -832,13 +863,27 @@ module.exports = function setupHorizonHandlers(context) {
                 }, 4000);
             }, timeoutMs);
 
-            const MAX_HORIZON_BUF = 2 * 1024 * 1024;
+            const MAX_HORIZON_BUF = 16 * 1024 * 1024;
+            let discardOversizedLine = false;
             horizon.stdout.on('data', (data) => {
                 stdoutBuf += stdoutDecoder.write(data);
                 const lines = stdoutBuf.split('\n');
                 stdoutBuf = lines.pop() || '';
+                if (discardOversizedLine) {
+                    if (lines.length > 0) {
+                        lines.shift();
+                        discardOversizedLine = false;
+                    } else {
+                        if (stdoutBuf.length > MAX_HORIZON_BUF) {
+                            stdoutBuf = '';
+                        }
+                        return;
+                    }
+                }
                 if (stdoutBuf.length > MAX_HORIZON_BUF) {
-                    stdoutBuf = stdoutBuf.slice(-MAX_HORIZON_BUF);
+                    mainLog('[Horizon] Ligne stdout > 16 Mio ignorée (très volumineuse).');
+                    stdoutBuf = '';
+                    discardOversizedLine = true;
                 }
                 for (const line of lines) {
                     if (!line.trim()) continue;
@@ -865,6 +910,9 @@ module.exports = function setupHorizonHandlers(context) {
                 finish(-1);
             });
         });
+        } finally {
+            _inFlightHorizonOps--;
+        }
     }
 
     /**
@@ -905,7 +953,12 @@ module.exports = function setupHorizonHandlers(context) {
             }
             const ALLOWED_PROVIDERS = new Set(['google', 'dropbox', 'onedrive']);
             const ALLOWED_SYNC_MODES = new Set(['SMART', 'FULL']);
-            const ALLOWED_KEYS = ['provider', 'syncMode', 'autoSync', 'autoUpload', 'systemEnabled', 'deltaCleanupThreshold', 'maxRetries'];
+            const ALLOWED_SELECTIVE_PROFILES = new Set(['', 'FULL', 'ESSENTIAL', 'WORLDS_ONLY', 'WORLDS_MODS_PACKS']);
+            const ALLOWED_KEYS = [
+                'provider', 'syncMode', 'autoSync', 'autoUpload', 'systemEnabled',
+                'deltaCleanupThreshold', 'maxRetries',
+                'verifyIntegrityOnLaunch', 'dryRunPreview', 'e2eEncryption', 'selectiveSync', 'selectiveProfiles'
+            ];
             const safe = /** @type {Record<string, any>} */ ({});
             const normalizedInput = { ...newSettings };
             if (!('deltaCleanupThreshold' in normalizedInput) && 'deltaThreshold' in normalizedInput) {
@@ -924,12 +977,25 @@ module.exports = function setupHorizonHandlers(context) {
                         throw new Error(`Mode de synchronisation Horizon non autorisé : ${val}`);
                     }
                     safe[key] = val;
-                } else if (key === 'autoSync' || key === 'autoUpload' || key === 'systemEnabled') {
+                } else if (key === 'autoSync' || key === 'autoUpload' || key === 'systemEnabled' || key === 'verifyIntegrityOnLaunch' || key === 'dryRunPreview' || key === 'e2eEncryption' || key === 'selectiveSync') {
                     if (typeof val === 'string') {
                         const lower = val.trim().toLowerCase();
                         safe[key] = lower !== 'false' && lower !== '0' && lower !== '';
                     } else {
                         safe[key] = Boolean(val);
+                    }
+                } else if (key === 'selectiveProfiles') {
+                    if (val && typeof val === 'object' && !Array.isArray(val)) {
+                        /** @type {Record<string, string>} */
+                        const cleanProfiles = {};
+                        for (const [instKey, profVal] of Object.entries(val)) {
+                            if (typeof instKey !== 'string' || !instKey.trim() || instKey.length > 100) continue;
+                            if (typeof profVal !== 'string' || !ALLOWED_SELECTIVE_PROFILES.has(profVal)) continue;
+                            if (profVal && profVal !== 'FULL') cleanProfiles[instKey.trim()] = profVal;
+                        }
+                        safe[key] = cleanProfiles;
+                    } else {
+                        safe[key] = {};
                     }
                 } else if (key === 'deltaCleanupThreshold') {
                     const num = Math.trunc(Number(val));
@@ -1024,6 +1090,134 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('call-horizon', async (event, action) => runHorizonAction(action, event));
 
+    /**
+     * Exécute une commande E2E (--set-e2e-key / --get-e2e-key) de façon sérialisée,
+     * avec vérification de version (>= 1.4.3), vérification SHA-256 en mode packagé et timeout borné.
+     * @param {{ args: string[]; stdinPayload?: string; event?: any; timeoutMs?: number }} opts
+     * @returns {Promise<{ success: boolean; hasKey?: boolean; passphrase?: string; error?: string }>}
+     */
+    function runHorizonE2EKeyOp({ args, stdinPayload, event = null, timeoutMs = 15000 }) {
+        const execOp = async () => {
+            await horizonInitPromise;
+            if (_installHorizonPromise) {
+                try { await _installHorizonPromise; } catch (_) {}
+            }
+            const activeExePath = await resolveActiveExePath();
+            if (!(await existsSafe(activeExePath))) {
+                return { success: false, error: "Module Horizon non installé." };
+            }
+            const activeVersionPath = await resolveVersionPath();
+            const verState = await readVerifiedHorizonVersion(activeVersionPath);
+            if (verState.tampered && !verState.unsignedLegacy) {
+                return { success: false, error: "SÉCURITÉ CRITIQUE : Fichier de version Horizon falsifié." };
+            }
+            if (verState.version && !isHorizonVersionAtLeast(verState.version, "1.4.3")) {
+                return { success: false, error: "Cette fonctionnalité requiert Horizon v1.4.3 ou supérieur." };
+            }
+            const integrity = await verifyHorizonBinaryIntegrity(activeExePath, activeVersionPath, event);
+            if (!integrity.ok) {
+                return { success: false, error: integrity.error || "Vérification d'intégrité Horizon échouée." };
+            }
+
+            return new Promise((resolve) => {
+                const currentCwd = path.dirname(activeExePath);
+                const child = spawn(activeExePath, args, {
+                    cwd: currentCwd,
+                    windowsHide: true,
+                    env: { ...process.env, HORIZON_DATA_DIR: currentCwd, GENS_INSTANCES_DIR: path.join(safeDataDir, 'instances') }
+                });
+                activeHorizonChildren.add(child);
+                child.stdin?.on('error', () => {});
+
+                let settled = false;
+                /** @type {NodeJS.Timeout | undefined} */
+                let killTimer;
+                /** @type {NodeJS.Timeout | undefined} */
+                let forceTimer;
+                let out = '';
+
+                /** @param {{ success: boolean; hasKey?: boolean; passphrase?: string; error?: string }} res */
+                const finish = (res) => {
+                    if (settled) return;
+                    settled = true;
+                    activeHorizonChildren.delete(child);
+                    if (killTimer) clearTimeout(killTimer);
+                    if (forceTimer) clearTimeout(forceTimer);
+                    resolve(res);
+                };
+
+                killTimer = setTimeout(() => {
+                    try {
+                        if (!child.killed && child.exitCode === null) child.kill('SIGTERM');
+                    } catch (_) {}
+                    forceTimer = setTimeout(() => {
+                        try {
+                            if (!child.killed && child.exitCode === null) child.kill('SIGKILL');
+                        } catch (_) {}
+                        finish({ success: false, error: "Délai d'attente dépassé lors de l'opération E2E Horizon." });
+                    }, 2000);
+                }, timeoutMs);
+
+                child.stdout.on('data', (d) => {
+                    if (out.length < 64 * 1024) out += d.toString();
+                });
+                child.on('error', (err) => finish({ success: false, error: err.message }));
+                child.on('close', (code) => {
+                    let lastJson = null;
+                    for (const line of out.split('\n')) {
+                        if (!line.trim()) continue;
+                        try { lastJson = JSON.parse(line); } catch (_) {}
+                    }
+                    if (code === 0 && lastJson && lastJson.type !== 'ERROR') {
+                        finish({
+                            success: true,
+                            hasKey: typeof lastJson.hasKey === 'boolean' ? lastJson.hasKey : Boolean(lastJson.passphrase),
+                            passphrase: typeof lastJson.passphrase === 'string' ? lastJson.passphrase : undefined
+                        });
+                    } else {
+                        finish({ success: false, error: lastJson?.message || 'Erreur configuration clé E2E' });
+                    }
+                });
+
+                if (stdinPayload !== undefined) {
+                    try {
+                        child.stdin.write(stdinPayload);
+                        child.stdin.end();
+                    } catch (e) {
+                        finish({ success: false, error: e instanceof Error ? e.message : String(e) });
+                    }
+                }
+            });
+        };
+
+        const op = _horizonQueue.then(execOp, execOp);
+        _horizonQueue = op.then(() => undefined, () => undefined);
+        return op;
+    }
+
+    ipcMain.handle('horizon:set-e2e-key', async (event, payload = {}) => {
+        const passphrase = typeof payload === 'string' ? payload.trim() : String(payload?.passphrase || '').trim();
+        if (passphrase && passphrase.length < 4) {
+            return { success: false, error: "La passphrase E2E doit contenir au moins 4 caractères." };
+        }
+        const res = await runHorizonE2EKeyOp({
+            args: ['--set-e2e-key'],
+            stdinPayload: passphrase + '\n',
+            event
+        });
+        if (res.success && !res.passphrase && passphrase) {
+            res.passphrase = passphrase;
+        }
+        return res;
+    });
+
+    ipcMain.handle('horizon:get-e2e-key', async (event) => {
+        return runHorizonE2EKeyOp({
+            args: ['--get-e2e-key'],
+            event
+        });
+    });
+
     ipcMain.handle('horizon:disconnect', async (_event, payload = {}) => {
         const rawProvider = typeof payload === 'string' ? payload : payload?.provider;
         const ALLOWED_PROVIDERS = new Set(['google', 'onedrive', 'dropbox']);
@@ -1089,7 +1283,7 @@ module.exports = function setupHorizonHandlers(context) {
         if (_installHorizonPromise) return _installHorizonPromise;
         const runInstall = async () => {
         await horizonInitPromise;
-        if (activeHorizonChildren.size > 0 || (await inspectHorizonLock()).alive) {
+        if (_inFlightHorizonOps > 0 || activeHorizonChildren.size > 0 || (await inspectHorizonLock()).alive) {
             return { success: false, error: "Une opération Horizon est actuellement en cours. Patientez avant de mettre à jour." };
         }
         try {
@@ -1153,8 +1347,15 @@ module.exports = function setupHorizonHandlers(context) {
                 }, { once: true });
                 await pipeStreams(nodeReadable, tracker, fileStream);
             } catch (err) {
-                fileStream.destroy();
-                await fs.promises.rm(tmpPath, { force: true });
+                await new Promise((resolveClose) => {
+                    if (fileStream.closed || fileStream.destroyed) {
+                        resolveClose(undefined);
+                        return;
+                    }
+                    fileStream.once('close', resolveClose);
+                    fileStream.destroy();
+                });
+                await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
                 throw err;
             } finally {
                 if (idleTimer) clearTimeout(idleTimer);
@@ -1219,7 +1420,9 @@ module.exports = function setupHorizonHandlers(context) {
             return { success: false, error: err };
         }
         };
-        _installHorizonPromise = runInstall().finally(() => {
+        const queuedInstall = _horizonQueue.then(runInstall, runInstall);
+        _horizonQueue = queuedInstall.then(() => undefined, () => undefined);
+        _installHorizonPromise = queuedInstall.finally(() => {
             _installHorizonPromise = null;
         });
         return _installHorizonPromise;

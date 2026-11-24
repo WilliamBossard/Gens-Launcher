@@ -60,11 +60,12 @@ class DiscordRPC {
      * Attempts to connect to Discord's local IPC pipe.
      * @returns {Promise<boolean>}
      */
-    async connect() {
-        if (this.connected) return true;
+    connect() {
+        if (this.connected) return Promise.resolve(true);
+        if (this._connectingPromise) return this._connectingPromise;
         this.manualDisconnect = false;
 
-        return new Promise((resolve) => {
+        this._connectingPromise = new Promise((resolve) => {
             /**
              * @param {number} id
              */
@@ -147,7 +148,10 @@ class DiscordRPC {
             };
 
             tryConnect(0);
+        }).finally(() => {
+            this._connectingPromise = null;
         });
+        return this._connectingPromise;
     }
 
     scheduleReconnect() {

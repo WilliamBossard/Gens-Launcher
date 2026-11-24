@@ -90,7 +90,10 @@ function resolveSrv(host) {
  * @returns {Promise<any>} Server status response object
  */
 async function pingServer(address, timeoutMs = 5000) {
-    let originalHost = String(address || '');
+    if (typeof address !== 'string' || !address.trim()) {
+        throw new Error('Invalid or empty server address');
+    }
+    let originalHost = String(address);
     let connectHost = originalHost;
     let port = 25565;
     let usedSrv = false;

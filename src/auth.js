@@ -35,7 +35,7 @@ function openMicrosoftDeviceModal(data) {
   }, 7000);
 }
 
-function closeMicrosoftDeviceModal() {
+export function closeMicrosoftDeviceModal() {
   const modal = document.getElementById("modal-ms-device");
   if (modal) modal.style.display = "none";
   if (_msDeviceFinalizeHintTimer) {
@@ -46,7 +46,11 @@ function closeMicrosoftDeviceModal() {
   _msDeviceUserCode = "";
 }
 
+let _authSetupDone = false;
+
 export function setupAuth() {
+  if (_authSetupDone) return;
+  _authSetupDone = true;
   ipcRenderer.on("microsoft-device-code", (/** @type {any} */ data) => {
     if (!isLoginSessionActive && !window._msLoginSessionActive) return;
     openMicrosoftDeviceModal(data);

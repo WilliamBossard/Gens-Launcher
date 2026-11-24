@@ -1522,3 +1522,282 @@ test('Audit remediations finale: shutdownHorizon graceful, assetIndex validation
     const accountUiSrc = fs.readFileSync(path.resolve(__dirname, '../src/ui/AccountUI.js'), 'utf8');
     assert.ok(accountUiSrc.includes('file.size > 2 * 1024 * 1024'), 'uploadSkinToMojang doit contrôler file.size avant arrayBuffer()');
 });
+
+test('Audit 2026-11 remediations: getRequiredJavaVersion 26.1.2, pingServer empty host, matchArch ReDoS guard, DiscordRPC.connect dedup', async () => {
+    const launchCoreSrc = fs.readFileSync(path.resolve(__dirname, '../src/launch/launchCore.js'), 'utf8');
+    const fnMatch = launchCoreSrc.match(/export function getRequiredJavaVersion\(mcVersion\)\s*\{[\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'getRequiredJavaVersion introuvable dans launchCore.js');
+    const getRequiredJavaVersion = new Function('mcVersion', fnMatch[0].replace(/^export function getRequiredJavaVersion\(mcVersion\)\s*\{/, '').replace(/\}$/, ''));
+    assert.strictEqual(getRequiredJavaVersion('26.1.2'), 25);
+    assert.strictEqual(getRequiredJavaVersion('26.1'), 25);
+    assert.strictEqual(getRequiredJavaVersion('1.21.4'), 21);
+    assert.strictEqual(getRequiredJavaVersion('1.20.4'), 17);
+    assert.strictEqual(getRequiredJavaVersion('1.16.5'), 8);
+
+    await assert.rejects(() => Ping.pingServer('   ', 500), /Invalid or empty server address/);
+
+    const jvmUtils = require('../src/gens-core/components/jvm-utils');
+    assert.strictEqual(jvmUtils.evaluateMojangRules([{ action: 'allow', os: { arch: '(a+)+$' } }], 'windows'), false);
+
+    const DiscordRPC = require('../src/gens-core/components/discord');
+    const rpc = new DiscordRPC('123456');
+    let ipcCalls = 0;
+    rpc.getIpcPath = async () => {
+        ipcCalls++;
+        return '\\\\.\\pipe\\nonexistent-gens-test-pipe-' + Date.now();
+    };
+    const p1 = rpc.connect();
+    const p2 = rpc.connect();
+    assert.strictEqual(p1, p2);
+    rpc.disconnect();
+    await Promise.all([p1, p2]);
+    assert.strictEqual(ipcCalls, 1);
+});
+
+test('Audit 2026-11 Lot 2: writeFileAtomic leaves no tmp files and fetchWithSafeRedirects supports IP pinning', async () => {
+    const { writeFileAtomic, fetchWithSafeRedirects } = require('../src/gens-core/components/network-utils');
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_atomic_test_'));
+    try {
+        const target = path.join(tmpDir, 'nested', 'state.json');
+        await writeFileAtomic(target, JSON.stringify({ ok: true }));
+        const readBack = JSON.parse(await fs.promises.readFile(target, 'utf8'));
+        assert.deepStrictEqual(readBack, { ok: true });
+        const entries = await fs.promises.readdir(path.dirname(target));
+        assert.deepStrictEqual(entries, ['state.json']);
+    } finally {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+
+    await assert.rejects(
+        () => fetchWithSafeRedirects('https://example.com/test', {
+            lookupFn: async () => [{ address: '127.0.0.1' }]
+        }),
+        /Blocked private\/local host/
+    );
+});
+
+test('Audit 2026-11 Lot 3: ipc-horizon serializes install-horizon and discards oversized stdout lines safely', async () => {
+    const ipcHorizonSrc = fs.readFileSync(path.resolve(__dirname, '../src/main/ipc-horizon.js'), 'utf8');
+    assert.ok(ipcHorizonSrc.includes('_inFlightHorizonOps'), 'ipc-horizon doit suivre les opérations en vol');
+    assert.ok(ipcHorizonSrc.includes('queuedInstall = _horizonQueue.then(runInstall, runInstall)'), 'install-horizon doit être sérialisé sur _horizonQueue');
+    assert.ok(ipcHorizonSrc.includes('16 * 1024 * 1024'), 'MAX_HORIZON_BUF doit être porté à 16 Mio');
+    assert.ok(ipcHorizonSrc.includes('discardOversizedLine'), 'ipc-horizon doit ignorer proprement les lignes stdout > 16 Mio sans slice(-...)');
+
+    const cloudUiSrc = fs.readFileSync(path.resolve(__dirname, '../src/ui/CloudUI.js'), 'utf8');
+    assert.ok(cloudUiSrc.includes('window.invalidateCloudCache'), 'CloudUI doit exposer invalidateCloudCache');
+
+    const settingsUiSrc = fs.readFileSync(path.resolve(__dirname, '../src/ui/SettingsUI.js'), 'utf8');
+    assert.ok(settingsUiSrc.includes('invalidateCloudCache'), 'SettingsUI doit invalider le cache Cloud après save-horizon-settings');
+
+    const updaterSrc = fs.readFileSync(path.resolve(__dirname, '../src/main/updater.js'), 'utf8');
+    assert.ok(updaterSrc.includes('sudo apt-get update && sudo apt-get install -y gens-launcher'), 'updater.js doit utiliser apt-get -y dans le fallback terminal');
+});
+
+test('system:export-diagnostic packages diagnostic.json and recent logs into a valid zip', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_diag_test_'));
+    const sandboxDir = path.join(tmpRoot, 'AppData');
+    const logsDir = path.join(sandboxDir, 'logs');
+    await fs.promises.mkdir(logsDir, { recursive: true });
+    await fs.promises.writeFile(path.join(logsDir, 'main-process_2026-11-24.log'), 'main log line\n', 'utf8');
+    await fs.promises.writeFile(path.join(logsDir, 'game_test_2026-11-24.log'), 'game log line\n', 'utf8');
+
+    const handlers = new Map();
+    const assertPathUnderSandbox = createSandboxValidator(sandboxDir);
+    setupSystemHandlers({
+        app: { getVersion: () => '1.9.4' },
+        ipcMain: { handle: (ch, fn) => handlers.set(ch, fn) },
+        getMainWindow: () => null,
+        mainLog: () => {},
+        path,
+        fs,
+        execFile: () => {},
+        assertPathUnderSandbox,
+        sanitizeShortcutName: (s) => s,
+        shell: {},
+        safeDataDir: sandboxDir
+    });
+
+    try {
+        const exportHandler = handlers.get('system:export-diagnostic');
+        assert.ok(typeof exportHandler === 'function');
+        const outsideZip = path.join(tmpRoot, 'outside-diag.zip');
+        const blockedRes = await exportHandler({}, { destPath: outsideZip });
+        assert.strictEqual(blockedRes.success, false);
+
+        const outZip = path.join(sandboxDir, 'diag.zip');
+        const res = await exportHandler({}, { destPath: outZip });
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.path, outZip);
+        const st = await fs.promises.stat(outZip);
+        assert.ok(st.size > 100);
+
+        const readZipText = handlers.get('read-zip-text');
+        const diagRead = await readZipText({}, { zipPath: outZip, entryNames: ['diagnostic.json'] });
+        assert.strictEqual(diagRead.success, true);
+        const parsed = JSON.parse(diagRead.text);
+        assert.strictEqual(parsed.appVersion, '1.9.4');
+        assert.ok(parsed.includedLogs.includes('logs/main-process_2026-11-24.log'));
+        assert.ok(parsed.includedLogs.includes('logs/game_test_2026-11-24.log'));
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+test('Features Lot: quickPlay validation, ModsUI strict matching, crash patterns, Modsets, Datapacks, Prism metadata', async () => {
+    const { createGameValidators } = require('../src/main/game-validation');
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_qp_test_'));
+    try {
+        const { validateLaunchOverrides } = createGameValidators({
+            path, fs, os, safeDataDir: tmpRoot, assertPathUnderSandbox: createSandboxValidator(tmpRoot)
+        });
+        assert.doesNotThrow(() => validateLaunchOverrides({ quickPlay: { type: 'multiplayer', identifier: 'play.example.com:25565' } }));
+        assert.throws(() => validateLaunchOverrides({ quickPlay: { type: 'invalid', identifier: 'x' } }), /Type quickPlay/);
+        assert.throws(() => validateLaunchOverrides({ quickPlay: { type: 'multiplayer', identifier: 'bad host' } }), /Identifiant quickPlay/);
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+
+    const modsUiSrc = fs.readFileSync(path.resolve(__dirname, '../src/ui/ModsUI.js'), 'utf8');
+    assert.ok(!modsUiSrc.includes('|| data.data[0]'), 'ModsUI CurseForge ne doit jamais retomber sur data.data[0] incompatible');
+    assert.ok(modsUiSrc.includes('preferredVersionId'), 'ModsUI Modrinth doit honorer dep.version_id');
+    assert.ok(modsUiSrc.includes('catalog-datapack-world'), 'ModsUI doit supporter l installation de datapacks par monde');
+    assert.ok(!modsUiSrc.includes('modBaseTitle.includes(fileBase)'), 'ModsUI checkInstalled ne doit pas faire de faux positifs par sous-chaîne');
+    assert.ok(modsUiSrc.includes('oldDuplicateFiles'), 'ModsUI doit éviter les doublons de versions de mods');
+
+    const serverUiSrc = fs.readFileSync(path.resolve(__dirname, '../src/ui/ServerUI.js'), 'utf8');
+    assert.ok(serverUiSrc.includes('launch-btn') && !serverUiSrc.includes('u-s269'), 'ServerUI Quick Play doit cibler launch-btn sans classe disabled u-s269');
+
+    const installersSrc = fs.readFileSync(path.resolve(__dirname, '../src/local/installers.js'), 'utf8');
+    assert.ok(installersSrc.includes('mods-update-channel') && installersSrc.includes('["release"]') && installersSrc.includes('newTs <= curTs'), 'checkModUpdates doit permettre de choisir le canal, rester sur release par défaut et bloquer les régressions');
+
+    const launchCoreSrc = fs.readFileSync(path.resolve(__dirname, '../src/launch/launchCore.js'), 'utf8');
+    assert.ok(launchCoreSrc.includes('hs_err_pid'), 'analyzeCrash doit inspecter les logs natifs hs_err_pid');
+    assert.ok(launchCoreSrc.includes('Duplicate mods found'), 'analyzeCrash doit détecter les mods en double');
+
+    const prismSrc = fs.readFileSync(path.resolve(__dirname, '../src/archives/prism.js'), 'utf8');
+    const fnMatch = prismSrc.match(/export function parsePrismPackMetadata\([\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'parsePrismPackMetadata introuvable dans prism.js');
+    const parsePrismPackMetadata = new Function('mmcPackText', 'instanceCfgText', fnMatch[0].replace(/^export function parsePrismPackMetadata\([^)]*\)\s*\{/, '').replace(/\}$/, ''));
+    const meta = parsePrismPackMetadata(
+        JSON.stringify({
+            components: [
+                { uid: 'net.minecraft', version: '1.21.1' },
+                { uid: 'net.neoforged', version: '21.1.42' }
+            ]
+        }),
+        'name=MonPackPrism\nMaxMemAlloc=6144\n'
+    );
+    assert.deepStrictEqual(meta, {
+        name: 'MonPackPrism',
+        version: '1.21.1',
+        loader: 'neoforge',
+        loaderVersion: '21.1.42',
+        ram: '6144'
+    });
+});
+
+test('modCompatibility detects inter-mod semver and breaks conflicts (Iris + Sodium)', async () => {
+    const compatSrc = fs.readFileSync(path.resolve(__dirname, '../src/local/modCompatibility.js'), 'utf8');
+    const fnBody = compatSrc
+        .replace(/export function /g, 'function ')
+        + '\nreturn { normalizeModVersionString, parseModSemver, compareModSemver, satisfiesFabricRange, findModCompatibilityIssues, detectModCompatibilityConflicts };';
+    const { normalizeModVersionString, satisfiesFabricRange, findModCompatibilityIssues, detectModCompatibilityConflicts } = new Function(fnBody)();
+
+    assert.strictEqual(normalizeModVersionString('mc26.3-0.9.3-fabric'), '0.9.3');
+    assert.strictEqual(normalizeModVersionString('fabric-0.9.4-beta.1+mc26.3'), '0.9.4-beta.1+mc26.3');
+    assert.strictEqual(satisfiesFabricRange('mc26.3-0.9.3-fabric', '>=0.9.0 <=0.9.3'), true);
+    assert.strictEqual(satisfiesFabricRange('0.9.3+mc26.3', '>=0.9.0 <=0.9.3'), true);
+    assert.strictEqual(satisfiesFabricRange('0.9.4-beta.1+mc26.3', '>=0.9.0 <=0.9.3'), false);
+    assert.strictEqual(satisfiesFabricRange('0.9.4-beta.1+mc26.3', '^0.9.0'), true);
+    assert.strictEqual(satisfiesFabricRange('1.11.7+mc26.3', '<=1.11.7-'), false);
+
+    const installed = [
+        {
+            file: 'iris-fabric-1.11.7+mc26.3.jar',
+            id: 'iris',
+            version: '1.11.7+mc26.3',
+            depends: { sodium: '>=0.9.0 <=0.9.3' },
+            breaks: { optifine: '*' }
+        }
+    ];
+    const badSodium = { id: 'sodium', version: '0.9.4-beta.1+mc26.3' };
+    const goodSodium = { id: 'sodium', version: '0.9.3+mc26.3' };
+    assert.strictEqual(detectModCompatibilityConflicts(goodSodium, installed).length, 0);
+    const badIssues = findModCompatibilityIssues(badSodium, installed);
+    assert.strictEqual(badIssues.length, 1);
+    assert.strictEqual(badIssues[0].existingId, 'iris');
+    assert.match(badIssues[0].message, /iris.*requiert sodium/i);
+
+    const optifine = { id: 'optifine', version: '1.0.0' };
+    assert.strictEqual(detectModCompatibilityConflicts(optifine, installed).length, 1);
+});
+
+test('LaunchManager prioritizes compatible global defaultJavaPath before scan-java-versions and main.js cleans up Horizon on uncaughtException', () => {
+    const lmSrc = fs.readFileSync(path.resolve(__dirname, '../src/launch/LaunchManager.js'), 'utf8');
+    const globalIdx = lmSrc.indexOf('const globalJava = store.globalSettings.defaultJavaPath');
+    const scanIdx = lmSrc.indexOf('window.api.invoke("scan-java-versions")');
+    assert.ok(globalIdx > 0 && scanIdx > globalIdx, 'LaunchManager doit vérifier defaultJavaPath avant scan-java-versions');
+
+    const mainSrc = fs.readFileSync(path.resolve(__dirname, '../main.js'), 'utf8');
+    const uncaughtBlock = mainSrc.slice(
+        mainSrc.indexOf("process.on('uncaughtException'"),
+        mainSrc.indexOf("process.on('unhandledRejection'")
+    );
+    assert.ok(uncaughtBlock.includes('context.shutdownHorizon'), 'uncaughtException doit appeler context.shutdownHorizon');
+});
+
+test('redactDiagnosticLog anonymizes paths/tokens/emails and findCompatibleHorizonAsset supports win32 arm64', async () => {
+    const sysHandlers = new Map();
+    const sysCtx = {
+        ipcMain: { handle: (ch, fn) => sysHandlers.set(ch, fn) },
+        getMainWindow: () => null,
+        mainLog: () => {},
+        path,
+        fs,
+        execFile: () => {},
+        assertPathUnderSandbox: (p) => p,
+        assertPathUnderSandboxAsync: async (p) => p,
+        sanitizeShortcutName: (s) => s,
+        shell: {},
+        app: { getVersion: () => '1.9.4' },
+        safeDataDir: os.tmpdir()
+    };
+    setupSystemHandlers(sysCtx);
+    assert.strictEqual(typeof sysCtx.redactDiagnosticLog, 'function');
+    assert.strictEqual(typeof sysCtx.invalidateJavaScanCache, 'function');
+
+    const redacted = sysCtx.redactDiagnosticLog(
+        'User C:\\Users\\Alice\\AppData\\GensLauncher logged in with Bearer secret_jwt_123 --accessToken tok999 email alice@example.com',
+        { homedir: 'C:\\Users\\Alice', username: 'Alice' }
+    );
+    assert.ok(!redacted.includes('Alice'));
+    assert.ok(!redacted.includes('secret_jwt_123'));
+    assert.ok(!redacted.includes('tok999'));
+    assert.ok(!redacted.includes('alice@example.com'));
+    assert.ok(redacted.includes('<USER_HOME>'));
+    assert.ok(redacted.includes('<EMAIL_REDACTED>'));
+
+    const horizonCtx = {
+        ipcMain: { handle: () => {} },
+        safeDataDir: os.tmpdir(),
+        mainLog: () => {},
+        path,
+        fs,
+        crypto,
+        spawn: () => {},
+        app: { isPackaged: false, getVersion: () => '1.9.4' },
+        horizonBinDir: os.tmpdir(),
+        horizonExePath: path.join(os.tmpdir(), 'Horizon.exe'),
+        horizonVersionPath: path.join(os.tmpdir(), 'horizon_version.json'),
+        isWin: true,
+        safeSend: () => {}
+    };
+    setupHorizonHandlers(horizonCtx);
+    const assets = [
+        { name: 'Horizon.exe' },
+        { name: 'Horizon-win-arm64.exe' },
+        { name: 'Horizon-win-arm64.exe.sha256' }
+    ];
+    assert.strictEqual(horizonCtx.findCompatibleHorizonAsset(assets, 'win32', 'arm64')?.name, 'Horizon-win-arm64.exe');
+    assert.strictEqual(horizonCtx.findCompatibleHorizonAsset(assets, 'win32', 'x64')?.name, 'Horizon.exe');
+});

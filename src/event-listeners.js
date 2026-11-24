@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-clear-bg')?.addEventListener('click', () => { $('global-bg-path').value = ''; });
     $('btn-start-update')?.addEventListener('click', () => window.startLauncherUpdate());
     $('btn-check-launcher')?.addEventListener('click', (/** @type {any} */ e) => { if (checkOffline(e)) return; window.checkLauncherUpdates(); });
+    $('btn-export-diagnostic')?.addEventListener('click', () => window.exportDiagnosticReport?.());
     $('btn-close-global-settings')?.addEventListener('click', () => window.closeGlobalSettings());
     $('btn-save-global-settings')?.addEventListener('click', () => window.saveGlobalSettings());
     $('tab-btn-general')?.addEventListener('click', () => window.switchTab('tab-general'));

@@ -43,6 +43,9 @@ export interface MainContext {
   horizonMigrationPromise?: Promise<void>;
   shutdownHorizon?: (graceMs?: number) => Promise<void> | void;
   downloadFile?: (url: string, dest: string, options?: any) => Promise<{ success: true }>;
+  invalidateJavaScanCache?: () => void;
+  redactDiagnosticLog?: (rawText: string, info?: { homedir?: string; username?: string }) => string;
+  findCompatibleHorizonAsset?: (assets: any[], platform?: string, arch?: string) => any;
   shell: Shell;
 }
 

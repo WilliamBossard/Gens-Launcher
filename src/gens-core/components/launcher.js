@@ -175,6 +175,7 @@ class MCLCore extends EventEmitter {
     } catch (e) {
       if (e && /** @type {any} */(e).message === "Launch aborted by user") throw e;
       this.emit('debug', `[Gens-Core]: Failed to start due to ${e}, closing...`)
+      this.emit('close', 1)
       return null
     }
   }

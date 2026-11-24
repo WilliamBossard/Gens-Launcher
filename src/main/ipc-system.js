@@ -318,11 +318,17 @@ module.exports = function setupSystemHandlers(context) {
     /** @type {string[] | null} */
     let _javaScanCache = null;
     let _javaScanCacheTime = 0;
+    const JAVA_SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
+
+    context.invalidateJavaScanCache = () => {
+        _javaScanCache = null;
+        _javaScanCacheTime = 0;
+    };
 
     ipcMain.handle("scan-java-versions", async (_event, options = {}) => {
         try {
             const forceRefresh = Boolean(options && typeof options === 'object' && options.forceRefresh);
-            if (!forceRefresh && _javaScanCache && (Date.now() - _javaScanCacheTime < 30000)) {
+            if (!forceRefresh && _javaScanCache && (Date.now() - _javaScanCacheTime < JAVA_SCAN_CACHE_TTL_MS)) {
                 return { success: true, paths: _javaScanCache };
             }
             const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
@@ -371,7 +377,8 @@ module.exports = function setupSystemHandlers(context) {
                         }
                         const full = path.join(dir, entryName);
                         try {
-                            const stats = await fs.promises.stat(full);
+                            const stats = await fs.promises.lstat(full);
+                            if (stats.isSymbolicLink()) return;
                             if (stats.isDirectory()) {
                                 await findJavaAsync(full, depth + 1);
                             } else if (entryName.toLowerCase() === javaExeName) {
@@ -621,6 +628,142 @@ module.exports = function setupSystemHandlers(context) {
         } catch (e) {
             const error = e instanceof Error ? e.message : String(e);
             return { success: false, error };
+        }
+    });
+
+    /**
+     * Anonymise les données personnelles / secrets dans les logs exportés en diagnostic.
+     * @param {string} rawText
+     * @param {{ homedir?: string; username?: string }} [info]
+     * @returns {string}
+     */
+    function redactDiagnosticLog(rawText, info = {}) {
+        if (typeof rawText !== 'string' || !rawText) return '';
+        let out = rawText;
+        const homedir = info.homedir || '';
+        const username = info.username || '';
+        if (homedir && homedir.length >= 3) {
+            out = out.split(homedir).join('<USER_HOME>');
+            const slashHome = homedir.replace(/\\/g, '/');
+            if (slashHome !== homedir) out = out.split(slashHome).join('<USER_HOME>');
+        }
+        if (username && username.length >= 2) {
+            const escapedUser = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            out = out.replace(new RegExp(`([/\\\\])${escapedUser}([/\\\\]|$)`, 'gi'), '$1<USER>$2');
+        }
+        out = out
+            .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1***REDACTED***')
+            .replace(/(--(?:accessToken|session|proxyPass)(?:\s+|=))\S+/gi, '$1***REDACTED***')
+            .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '<EMAIL_REDACTED>');
+        return out;
+    }
+    context.redactDiagnosticLog = redactDiagnosticLog;
+
+    ipcMain.handle("system:export-diagnostic", async (_event, opts = {}) => {
+        const os = require("os");
+        const { writeZipFromFiles } = require("./zip-utils");
+        let tmpDir = "";
+        try {
+            let targetZipPath = typeof opts?.destPath === "string" ? opts.destPath.trim() : "";
+            if (targetZipPath) {
+                targetZipPath = await validateSandboxPath(targetZipPath);
+                assertRendererPathAllowed(targetZipPath, "write");
+                if (path.extname(targetZipPath).toLowerCase() !== ".zip") {
+                    throw new Error("Extension .zip requise pour l'export de diagnostic.");
+                }
+            } else {
+                const { dialog } = require("electron");
+                const win = typeof getMainWindow === "function" ? getMainWindow() : null;
+                const dateTag = new Date().toISOString().slice(0, 10);
+                const saveOpts = {
+                    title: "Exporter un rapport de diagnostic",
+                    defaultPath: `gens-diagnostic-${dateTag}.zip`,
+                    filters: [{ name: "Archive ZIP", extensions: ["zip"] }]
+                };
+                const saveRes = (win && !win.isDestroyed())
+                    ? await dialog.showSaveDialog(win, saveOpts)
+                    : await dialog.showSaveDialog(saveOpts);
+                if (saveRes.canceled || !saveRes.filePath) {
+                    return { success: false, canceled: true };
+                }
+                targetZipPath = saveRes.filePath;
+            }
+
+            const logsDir = path.join(safeDataDir, "logs");
+            /** @type {Array<{ fullPath: string; relativePath: string }>} */
+            const filesToPack = [];
+            try {
+                const entries = await fs.promises.readdir(logsDir);
+                const statLogs = await Promise.all(
+                    entries
+                        .filter((f) => f.endsWith(".log"))
+                        .map(async (f) => {
+                            const fullPath = path.join(logsDir, f);
+                            const st = await fs.promises.stat(fullPath).catch(() => null);
+                            return st && st.isFile() ? { name: f, fullPath, mtimeMs: st.mtimeMs } : null;
+                        })
+                );
+                const validLogs = statLogs.filter((x) => Boolean(x));
+                const mainLogs = validLogs
+                    .filter((x) => x && x.name.startsWith("main-process_"))
+                    .sort((a, b) => (b?.mtimeMs || 0) - (a?.mtimeMs || 0))
+                    .slice(0, 2);
+                const gameLogs = validLogs
+                    .filter((x) => x && x.name.startsWith("game_"))
+                    .sort((a, b) => (b?.mtimeMs || 0) - (a?.mtimeMs || 0))
+                    .slice(0, 1);
+
+                const userInfo = (() => { try { return os.userInfo(); } catch (_) { return { username: '' }; } })();
+                const homedir = (() => { try { return os.homedir(); } catch (_) { return ''; } })();
+                tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "gens-diag-"));
+
+                for (const logItem of [...mainLogs, ...gameLogs]) {
+                    if (!logItem) continue;
+                    try {
+                        const rawLog = await fs.promises.readFile(logItem.fullPath, "utf8");
+                        const safeLog = redactDiagnosticLog(rawLog, { homedir, username: userInfo.username || '' });
+                        const stagedLogPath = path.join(tmpDir, logItem.name);
+                        await fs.promises.writeFile(stagedLogPath, safeLog, "utf8");
+                        filesToPack.push({ fullPath: stagedLogPath, relativePath: `logs/${logItem.name}` });
+                    } catch (_) {}
+                }
+            } catch (_) {}
+
+            let horizonVersion = null;
+            try {
+                const hvPath = path.join(safeDataDir, "Horizon", "horizon_version.json");
+                const rawHv = JSON.parse(await fs.promises.readFile(hvPath, "utf8"));
+                if (rawHv && typeof rawHv.version === "string") horizonVersion = rawHv.version;
+            } catch (_) {}
+
+            const diagSummary = {
+                generatedAt: new Date().toISOString(),
+                appVersion: app && typeof app.getVersion === "function" ? app.getVersion() : "unknown",
+                platform: process.platform,
+                arch: process.arch,
+                electron: process.versions?.electron || null,
+                node: process.versions?.node || null,
+                totalMemMB: Math.round(os.totalmem() / (1024 * 1024)),
+                freeMemMB: Math.round(os.freemem() / (1024 * 1024)),
+                horizonVersion,
+                includedLogs: filesToPack.map((f) => f.relativePath)
+            };
+
+            const diagJsonPath = path.join(tmpDir, "diagnostic.json");
+            await fs.promises.writeFile(diagJsonPath, JSON.stringify(diagSummary, null, 2), "utf8");
+            filesToPack.push({ fullPath: diagJsonPath, relativePath: "diagnostic.json" });
+
+            await fs.promises.mkdir(path.dirname(targetZipPath), { recursive: true });
+            await writeZipFromFiles(targetZipPath, filesToPack, { level: 6 });
+            return { success: true, path: targetZipPath };
+        } catch (e) {
+            const error = e instanceof Error ? e.message : String(e);
+            mainLog(`[diagnostic] Échec export rapport : ${error}`);
+            return { success: false, error };
+        } finally {
+            if (tmpDir) {
+                await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+            }
         }
     });
 };

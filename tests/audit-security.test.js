@@ -1232,6 +1232,111 @@ test('Audit 2026: REL-2/REL-4/PERF-2 download-utils content-encoding & main.js s
     }
 });
 
+test('ipc-horizon E2E channels isolate --get-e2e-key, enforce >= 1.4.3 and SHA-256, and never log passphrase', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gens_audit_e2e_'));
+    const horizonDir = path.join(tmpRoot, 'Horizon');
+    await fs.promises.mkdir(horizonDir, { recursive: true });
+    const exeName = process.platform === 'win32' ? 'Horizon.exe' : 'Horizon';
+    const exePath = path.join(horizonDir, exeName);
+    await fs.promises.writeFile(exePath, 'dummy-binary');
+    const verPath = path.join(horizonDir, 'horizon_version.json');
+    await fs.promises.writeFile(verPath, JSON.stringify({ version: 'v1.4.2' }));
+
+    const logs = [];
+    const handlers = new Map();
+    const { EventEmitter } = require('node:events');
+    const fakeSpawn = (_cmd, args) => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdin = { writable: true, write: () => {}, end: () => {}, on: () => {} };
+        child.killed = false;
+        child.exitCode = null;
+        child.kill = () => { child.killed = true; };
+        process.nextTick(() => {
+            if (args[0] === '--get-e2e-key') {
+                child.stdout.emit('data', Buffer.from(JSON.stringify({
+                    type: 'INFO',
+                    hasKey: true,
+                    passphrase: 'GH-SECRET-TEST-PASS'
+                }) + '\n'));
+            } else {
+                child.stdout.emit('data', Buffer.from(JSON.stringify({
+                    type: 'INFO',
+                    message: 'E2E_KEY_SAVED'
+                }) + '\n'));
+            }
+            child.exitCode = 0;
+            child.emit('close', 0);
+        });
+        return child;
+    };
+
+    try {
+        setupHorizonHandlers({
+            ipcMain: { handle: (ch, fn) => handlers.set(ch, fn) },
+            safeDataDir: tmpRoot,
+            mainLog: (m) => logs.push(String(m)),
+            path,
+            fs,
+            crypto,
+            spawn: fakeSpawn,
+            app: { isPackaged: false, getVersion: () => '1.9.4' },
+            horizonBinDir: horizonDir,
+            horizonExePath: exePath,
+            horizonVersionPath: verPath,
+            horizonDir,
+            isWin: process.platform === 'win32',
+            safeSend: () => {}
+        });
+
+        // 1. call-horizon doit rejeter --get-e2e-key
+        const callRes = await handlers.get('call-horizon')(null, ['--get-e2e-key']);
+        assert.strictEqual(callRes.exitCode, -1);
+
+        // 2. horizon:get-e2e-key et horizon:set-e2e-key doivent refuser v1.4.2 (< 1.4.3)
+        const getOld = await handlers.get('horizon:get-e2e-key')(null);
+        assert.strictEqual(getOld.success, false);
+        assert.match(getOld.error, /1\.4\.3/);
+
+        const setOld = await handlers.get('horizon:set-e2e-key')(null, { passphrase: 'valid-passphrase' });
+        assert.strictEqual(setOld.success, false);
+        assert.match(setOld.error, /1\.4\.3/);
+
+        // 3. En v1.4.3, horizon:get-e2e-key retourne la passphrase sans la journaliser dans mainLog
+        await fs.promises.writeFile(verPath, JSON.stringify({ version: 'v1.4.3' }));
+        const getOk = await handlers.get('horizon:get-e2e-key')(null);
+        assert.strictEqual(getOk.success, true);
+        assert.strictEqual(getOk.hasKey, true);
+        assert.strictEqual(getOk.passphrase, 'GH-SECRET-TEST-PASS');
+        assert.strictEqual(logs.some(l => l.includes('GH-SECRET-TEST-PASS')), false);
+
+        // 4. En mode packagé sans hash vérifié, horizon:set-e2e-key échoue (fail-closed)
+        const packagedHandlers = new Map();
+        setupHorizonHandlers({
+            ipcMain: { handle: (ch, fn) => packagedHandlers.set(ch, fn) },
+            safeDataDir: tmpRoot,
+            mainLog: () => {},
+            path,
+            fs,
+            crypto,
+            spawn: fakeSpawn,
+            app: { isPackaged: true, getVersion: () => '1.9.4' },
+            horizonBinDir: horizonDir,
+            horizonExePath: exePath,
+            horizonVersionPath: verPath,
+            horizonDir,
+            isWin: process.platform === 'win32',
+            safeSend: () => {}
+        });
+        const pkgSet = await packagedHandlers.get('horizon:set-e2e-key')(null, { passphrase: 'valid-passphrase' });
+        assert.strictEqual(pkgSet.success, false);
+    } finally {
+        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    }
+});
+
+
 
 
 

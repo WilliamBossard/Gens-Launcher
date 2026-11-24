@@ -157,7 +157,7 @@ export function setup() {
         if (!(await window.existsSafe(modsPath))) await fs.promises.mkdir(modsPath, { recursive: true });
         const allFiles = await fs.promises.readdir(modsPath);
         const files = allFiles.filter(f => f.endsWith(".jar") || f.endsWith(".jar.disabled"));
-        
+
         let hasMods = files.length > 0;
 
         /** @param {Record<string, string[]>} [warnings] */
@@ -233,10 +233,13 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
-        await fs.promises.rename(
-            path.join(modsPath, filename),
-            path.join(modsPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
-        );
+        const resolvedModsRoot = path.resolve(modsPath);
+        const safeName = path.basename(String(filename || ""));
+        const srcPath = path.resolve(modsPath, safeName);
+        const destName = isEnabled ? safeName.replace(".disabled", "") : safeName + ".disabled";
+        const destPath = path.resolve(modsPath, destName);
+        if (path.dirname(srcPath) !== resolvedModsRoot || path.dirname(destPath) !== resolvedModsRoot) return;
+        await fs.promises.rename(srcPath, destPath);
         window.renderModsManager();
     };
 
@@ -246,8 +249,10 @@ export function setup() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
             const modsPath = path.join(store.instancesRoot, window.safeDir(inst.name), "mods");
+            const resolvedModsRoot = path.resolve(modsPath);
             try {
-                const filePath = path.join(modsPath, filename);
+                const filePath = path.resolve(modsPath, path.basename(String(filename || "")));
+                if (path.dirname(filePath) !== resolvedModsRoot) return;
                 if (await window.existsSafe(filePath)) {
                     await fs.promises.unlink(filePath);
                     window.showToast(t("msg_mod_deleted", "Mod supprimé !"), "success");

@@ -447,6 +447,23 @@ export function setupSettings() {
             if (!res.success && statusDiv) statusDiv.innerText = t("msg_update_check_error");
         } catch (/** @type {any} */ e) { if (statusDiv) statusDiv.innerText = t("msg_update_unreachable"); }
     };
+    window.exportDiagnosticReport = async () => {
+        const btn = $("btn-export-diagnostic");
+        if (btn) btn.disabled = true;
+        try {
+            const res = await window.api.invoke("system:export-diagnostic");
+            if (res?.canceled) return;
+            if (res?.success) {
+                window.showToast(t("msg_diagnostic_exported", "Rapport de diagnostic exporté avec succès."), "success");
+            } else {
+                window.showToast((res?.error || t("msg_diagnostic_error", "Impossible d'exporter le diagnostic.")), "error");
+            }
+        } catch (/** @type {any} */ e) {
+            window.showToast(e?.message || "Erreur export diagnostic", "error");
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    };
     window.renderUpdateTab = () => {
         const container  = $("update-available-container");
         const tabBadge   = $("updates-tab-badge");
@@ -567,6 +584,7 @@ window.refreshHorizonUI = async () => {
             hSettings[key] = val;
             const res = await window.api.invoke("save-horizon-settings", hSettings);
             if (res.success) {
+                window.invalidateCloudCache?.();
                 if (key === "systemEnabled") {
                     store.horizonActive = (val === true);
                     window.refreshHorizonUI();
@@ -630,6 +648,18 @@ window.refreshHorizonUI = async () => {
         const updateBtnHTML = (status.needsUpdate && !status.offline)
             ? `<button id="btn-horizon-update" class="btn-primary ${isOffline ? 'offline-disabled' : ''} u-s307">${t("btn_horizon_update", "Mettre à jour")} (${safeLatestVer})</button>`
             : `<button id="btn-horizon-update" class="btn-secondary ${isOffline ? 'offline-disabled' : ''} u-s308">${t("btn_horizon_reinstall", "Réinstaller")}</button>`;
+        const isHorizonAtLeast143 = (() => {
+            const v = String(status.localVersion || '').replace(/^v/i, '').split(/[-+]/)[0].trim();
+            if (!v) return false;
+            const [maj = 0, min = 0, pat = 0] = v.split('.').map((/** @type {string} */ n) => parseInt(n, 10) || 0);
+            if (maj !== 1) return maj > 1;
+            if (min !== 4) return min > 4;
+            return pat >= 3;
+        })();
+        const req143Badge = !isHorizonAtLeast143
+            ? ` <span class="u-s314">(${window.escapeHTML(t("horizon_requires_143", "Requiert Horizon v1.4.3+"))})</span>`
+            : "";
+
         let html = `
             <div class="u-s309">
                 <div class="u-s310">
@@ -711,6 +741,66 @@ window.refreshHorizonUI = async () => {
                 </div>
                 <div class="u-s332">${t("horizon_retry_hint", "0 = pas de retry · Recommandé : 3")}</div>
             </div>
+            <div class="u-s320">
+                <div class="u-s321">${t("horizon_advanced_options", "Options avancées (désactivées par défaut)")}</div>
+
+                <div class="u-s324">
+                    <label class="u-s325">${t("horizon_opt_verify_integrity", "Vérifier l'intégrité SHA-1 avant lancement")}</label>
+                    <div class="ram-help-icon custom-tooltip-trigger u-s326"
+                        data-i18n-tooltip="horizon_opt_verify_integrity_help"
+                        data-tooltip="${window.escapeHTML(t("horizon_opt_verify_integrity_help", "Contrôle l'empreinte SHA-1 de tous les fichiers du jeu avant le lancement et répare automatiquement tout fichier corrompu (même à taille identique)."))}"
+                    >?</div>
+                </div>
+                <select id="select-horizon-verify-integrity" class="u-s323">
+                    <option value="false" ${hSettings.verifyIntegrityOnLaunch !== true ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                    <option value="true" ${hSettings.verifyIntegrityOnLaunch === true ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                </select>
+                <div class="u-s332">${t("horizon_opt_verify_integrity_desc", "Contrôle l'empreinte SHA-1 de tous les fichiers au lancement et répare automatiquement les fichiers corrompus.")}</div>
+
+                <div class="u-s324">
+                    <label class="u-s325">${t("horizon_opt_dry_run", "Prévisualiser avant Sync / Clean (Dry-Run)")}${req143Badge}</label>
+                    <div class="ram-help-icon custom-tooltip-trigger u-s326"
+                        data-i18n-tooltip="horizon_opt_dry_run_help"
+                        data-tooltip="${window.escapeHTML(t("horizon_opt_dry_run_help", "Simule la synchronisation avant de toucher au disque et affiche le nombre de deltas/archives à télécharger pour confirmation. Requiert Horizon v1.4.3+."))}"
+                    >?</div>
+                </div>
+                <select id="select-horizon-dry-run" class="u-s323" ${!isHorizonAtLeast143 ? "disabled" : ""}>
+                    <option value="false" ${!isHorizonAtLeast143 || hSettings.dryRunPreview !== true ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                    <option value="true" ${isHorizonAtLeast143 && hSettings.dryRunPreview === true ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                </select>
+                <div class="u-s332">${t("horizon_opt_dry_run_desc", "Affiche un récapitulatif des fichiers à télécharger ou nettoyer avant toute modification.")}</div>
+
+                <div class="u-s324">
+                    <label class="u-s325">${t("horizon_opt_e2e", "Chiffrement de bout en bout (E2E)")}${req143Badge}</label>
+                    <div class="ram-help-icon custom-tooltip-trigger u-s326"
+                        data-i18n-tooltip="horizon_opt_e2e_help"
+                        data-tooltip="${window.escapeHTML(t("horizon_opt_e2e_help", "Chiffre vos sauvegardes sur votre PC en AES-256-GCM avant l'envoi. Votre passphrase reste uniquement sur vos appareils ; conservez-la pour déchiffrer vos mondes sur un nouveau PC. Requiert Horizon v1.4.3+."))}"
+                    >?</div>
+                </div>
+                <select id="select-horizon-e2e" class="u-s323" ${!isHorizonAtLeast143 ? "disabled" : ""}>
+                    <option value="false" ${!isHorizonAtLeast143 || hSettings.e2eEncryption !== true ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                    <option value="true" ${isHorizonAtLeast143 && hSettings.e2eEncryption === true ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                </select>
+                <div class="u-s332">${t("horizon_opt_e2e_desc", "Chiffre vos sauvegardes localement en AES-256-GCM avant l'envoi sur le Cloud.")}</div>
+                <div id="horizon-e2e-actions" class="${isHorizonAtLeast143 && hSettings.e2eEncryption === true ? 'u-s016' : 'is-hidden'}">
+                    <input type="password" id="horizon-e2e-passphrase-input" class="u-s327" placeholder="Passphrase E2E (min. 4 car. ou vide = auto)">
+                    <button id="btn-horizon-set-e2e" class="btn-secondary">${t("horizon_btn_set_e2e", "Définir / Changer la clé E2E")}</button>
+                    <button id="btn-horizon-show-e2e" class="btn-secondary">${t("horizon_btn_show_e2e", "Afficher / Copier ma clé de récupération")}</button>
+                </div>
+
+                <div class="u-s324">
+                    <label class="u-s325">${t("horizon_opt_selective", "Sauvegarde sélective par instance")}${req143Badge}</label>
+                    <div class="ram-help-icon custom-tooltip-trigger u-s326"
+                        data-i18n-tooltip="horizon_opt_selective_help"
+                        data-tooltip="${window.escapeHTML(t("horizon_opt_selective_help", "Débloque un sélecteur de profil simplifié dans les paramètres de chaque instance (Complet, Essentiel, Mondes uniquement, ou Mondes, Mods & Packs) pour économiser de l'espace Cloud. Requiert Horizon v1.4.3+."))}"
+                    >?</div>
+                </div>
+                <select id="select-horizon-selective" class="u-s323" ${!isHorizonAtLeast143 ? "disabled" : ""}>
+                    <option value="false" ${!isHorizonAtLeast143 || hSettings.selectiveSync !== true ? "selected" : ""}>${t("opt_disabled", "Désactivé")}</option>
+                    <option value="true" ${isHorizonAtLeast143 && hSettings.selectiveSync === true ? "selected" : ""}>${t("opt_enabled", "Activé")}</option>
+                </select>
+                <div class="u-s332">${t("horizon_opt_selective_desc", "Permet de choisir dans chaque instance un profil simplifié (Essentiel, Mondes uniquement, etc.).")}</div>
+            </div>
             <div class="u-s333">
                 <div id="horizon-quota-zone" class="u-s334">
                     ${window._lastQuotaHtml || `<div class="u-s335">${t("msg_loading", "Chargement...")}</div>`}
@@ -745,6 +835,47 @@ window.refreshHorizonUI = async () => {
         container.querySelector('#select-horizon-auto-sync')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('autoSync', e.target.value));
         container.querySelector('#select-horizon-auto-upload')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('autoUpload', e.target.value));
         container.querySelector('#horizon-max-retries')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('maxRetries', Math.max(0, Math.min(10, parseInt(e.target.value) || 0))));
+        container.querySelector('#select-horizon-verify-integrity')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('verifyIntegrityOnLaunch', e.target.value));
+        container.querySelector('#select-horizon-dry-run')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('dryRunPreview', e.target.value));
+        container.querySelector('#select-horizon-e2e')?.addEventListener('change', async (/** @type {any} */ e) => {
+            await window.saveHorizonConfig('e2eEncryption', e.target.value);
+            const actBox = $('horizon-e2e-actions');
+            if (actBox) {
+                if (e.target.value === 'true') {
+                    actBox.className = 'u-s016';
+                } else {
+                    actBox.className = 'is-hidden';
+                }
+            }
+        });
+        container.querySelector('#select-horizon-selective')?.addEventListener('change', (/** @type {any} */ e) => window.saveHorizonConfig('selectiveSync', e.target.value));
+        container.querySelector('#btn-horizon-set-e2e')?.addEventListener('click', async () => {
+            const inp = /** @type {HTMLInputElement | null} */ ($('horizon-e2e-passphrase-input'));
+            const pass = inp ? inp.value.trim() : '';
+            const res = await window.api.invoke('horizon:set-e2e-key', { passphrase: pass });
+            if (res && res.success) {
+                if (inp) inp.value = '';
+                window.showToast(`${t("horizon_e2e_saved", "Clé E2E enregistrée et protégée localement.")}`, "success");
+            } else {
+                window.showToast(res?.error || "Erreur E2E", "error");
+            }
+        });
+        container.querySelector('#btn-horizon-show-e2e')?.addEventListener('click', async () => {
+            const res = await window.api.invoke('horizon:get-e2e-key');
+            const pass = res?.passphrase;
+            if (!res?.success) {
+                if (res?.error) window.showToast(res.error, "error");
+                return;
+            }
+            if (!pass) {
+                window.showToast(t("horizon_e2e_none", "Aucune clé E2E configurée pour le moment."), "info");
+                return;
+            }
+            if (window.api.clipboard?.writeText) {
+                await window.api.clipboard.writeText(pass);
+            }
+            window.showToast(`${t("horizon_e2e_copied", "Clé de récupération copiée dans le presse-papier :")} ${pass}`, "success");
+        });
         container.querySelector('#btn-horizon-clean-cloud')?.addEventListener('click', () => window.cleanHorizonCloud());
         if (isEnabled && status.linked) {
             if (window.horizonScheduleCloudRefresh) {
@@ -809,6 +940,36 @@ window.runHorizonLogin = async (/** @type {string} */ provider) => {
 
         
         
+        if (action === 'sync') {
+            try {
+                const [hSettings, hStatus] = await Promise.all([
+                    window.api.invoke("get-horizon-settings"),
+                    window.api.invoke("check-horizon-status")
+                ]);
+                const hv = String(hStatus?.localVersion || '').replace(/^v/i, '').split(/[-+]/)[0].trim();
+                const [maj = 0, min = 0, pat = 0] = hv ? hv.split('.').map((/** @type {string} */ n) => parseInt(n, 10) || 0) : [0, 0, 0];
+                const is143 = maj > 1 || (maj === 1 && (min > 4 || (min === 4 && pat >= 3)));
+                if (is143 && hSettings && hSettings.dryRunPreview === true) {
+                    const prevRes = await window.api.invoke("call-horizon", ['--sync', '--dry-run']);
+                    const prevJson = /** @type {any} */ (prevRes?.lastJson);
+                    const items = prevJson?.items;
+                    if (Array.isArray(items) && items.length === 0) {
+                        window.showToast(t("horizon_dry_run_empty", "Toutes vos instances Cloud sont déjà à jour."), "info");
+                        if (zone) zone.style.display = "none";
+                        return;
+                    }
+                    if (Array.isArray(items) && items.length > 0) {
+                        const summary = items.map((/** @type {any} */ it) => `• ${it.instance} (${it.needsBase ? 'Base' : `${it.deltaCount} delta(s)`})`).join('\n');
+                        const msg = t("horizon_dry_run_confirm", "Prévisualisation de la synchronisation Cloud :\n\n{summary}\n\nLancer la synchronisation ?").replace("{summary}", summary);
+                        if (!(await window.showCustomConfirm(msg, false))) {
+                            if (zone) zone.style.display = "none";
+                            return;
+                        }
+                    }
+                }
+            } catch (_) {}
+        }
+
         if (action === 'upload') {
             for (const inst of store.allInstances) {
                 await writeInstanceMetaForCloud(inst);

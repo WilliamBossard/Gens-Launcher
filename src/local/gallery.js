@@ -57,7 +57,11 @@ export function setup() {
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
             const screensDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
-            const filePath = path.join(screensDir, filename);
+            const filePath = path.resolve(screensDir, path.basename(String(filename || "")));
+            if (path.dirname(filePath) !== path.resolve(screensDir)) {
+                window.showToast(t("msg_del_screen_err", "Chemin invalide."), "error");
+                return;
+            }
             try {
                 if (await window.existsSafe(filePath)) {
                     await fs.promises.unlink(filePath);

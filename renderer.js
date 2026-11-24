@@ -667,6 +667,14 @@ window.api.on("horizon-status", async (data) => {
             if (!window._isManualHorizon) return;
             finalMsg = t("horizon_already_running", "Une opération Horizon est déjà en cours. Réessayez dans quelques instants.");
         }
+        else if (errCode === "HORIZON_KEYRING_UNAVAILABLE") {
+            finalMsg = window.api.platform === "linux"
+                ? t("horizon_keyring_unavailable_linux", "Trousseau système (Secret Service) indisponible. Installez ou déverrouillez gnome-keyring / kwallet pour utiliser Horizon.")
+                : t("horizon_keyring_unavailable", "Trousseau système indisponible et GitHub inaccessible pour vérifier l'intégrité d'Horizon.");
+        }
+        else if (errCode === "HORIZON_VERIFY_OFFLINE") {
+            finalMsg = t("horizon_verify_offline", "Impossible de vérifier l'intégrité d'Horizon hors-ligne (aucune empreinte vérifiée en cache).");
+        }
         else if (errCode === "AUTH_EXPIRED" || finalMsg.includes("Session expirée") || finalMsg.toLowerCase().includes("session expired")) {
             isHorizonAuthExpired = true;
             finalMsg = t("msg_session_expired_cloud", "Session Cloud expirée.");
@@ -1051,7 +1059,7 @@ window.refreshHorizonQuota = async () => {
                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
                 <path d="M16 16h5v5"></path>
             </svg>
-            <span>${store.currentLangObj?.["msg_loading"] || "Chargement..."}</span>
+            <span>${window.escapeHTML(store.currentLangObj?.["msg_loading"] || "Chargement...")}</span>
         </div>`;
     } else {
         el.innerHTML = window._lastQuotaHtml;

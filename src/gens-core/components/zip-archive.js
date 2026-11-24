@@ -108,7 +108,9 @@ class Zip {
         }
         const destPath = path.join(dest, entryName);
         const resDest = path.resolve(destPath);
-        if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+        const normResDest = isWin ? resDest.toLowerCase() : resDest;
+        const normResolvedTarget = isWin ? resolvedTarget.toLowerCase() : resolvedTarget;
+        if (!normResDest.startsWith(normResolvedTarget + path.sep) && normResDest !== normResolvedTarget) {
           throw new Error(`Zip slip path traversal blocked: ${entryName}`);
         }
         if (entryName.endsWith('/')) {

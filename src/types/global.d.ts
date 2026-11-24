@@ -174,6 +174,14 @@ declare global {
     performModpackUpdate: (...args: any[]) => Promise<void>;
     handleUpdateModpack?: (project: any) => Promise<void>;
     invalidateModCountCache?: (instName: string) => void;
+    invalidateCloudCache?: () => void;
+    exportDiagnosticReport?: () => Promise<void>;
+    _pendingQuickPlay?: { type: string; identifier: string; path?: string } | null;
+    listInstanceWorlds?: () => Promise<string[]>;
+    listWorldDatapacks?: (worldName: string) => Promise<string[]>;
+    toggleWorldDatapack?: (worldName: string, filename: string, isEnabled: boolean) => Promise<void>;
+    deleteWorldDatapack?: (worldName: string, filename: string) => Promise<void>;
+    handlePrismImport?: (zipPath: string, mmcPackText?: string | null) => Promise<void>;
     doCurseForgeUpdate: (modOrZip: any, inst?: any) => Promise<void>;
     doMrPackUpdate: (projectOrPath: any, inst?: any) => Promise<void>;
     openCatalogModal: () => void;

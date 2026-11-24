@@ -93,7 +93,13 @@ async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir
         const hits = searchRes?.success && Array.isArray(searchRes.data?.hits) ? searchRes.data.hits : [];
         const loader = ["fabric", "forge", "neoforge", "quilt"].includes(loaderType) ? loaderType : "";
 
+        const normTarget = projectName.toLowerCase().replace(/[^a-z0-9]/g, "");
         for (const hit of hits) {
+            const normTitle = String(hit.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            const normSlug = String(hit.slug || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (!normTarget || (normTitle !== normTarget && normSlug !== normTarget)) {
+                continue;
+            }
             let versionsUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(hit.project_id)}/version?game_versions=${encodeURIComponent(JSON.stringify([mcVersion]))}`;
             if (loader) versionsUrl += `&loaders=${encodeURIComponent(JSON.stringify([loader]))}`;
             const versionsRes = await window.fetchWithTimeout(versionsUrl, { timeout: 30000 });
@@ -106,12 +112,14 @@ async function downloadModrinthFallback(fileInfo, mcVersion, loaderType, modsDir
             const fileName = String(modFile.filename || `${hit.slug || hit.project_id}.jar`)
                 .replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_").substring(0, 200);
             const filePath = path.join(modsDir, fileName);
-            const expectedSha1 = modFile.hashes?.sha1 ? String(modFile.hashes.sha1).toLowerCase() : null;
+            const hashAlgo = modFile.hashes?.sha512 ? "sha512" : (modFile.hashes?.sha1 ? "sha1" : null);
+            const expectedHash = hashAlgo ? String(modFile.hashes[hashAlgo]).toLowerCase() : null;
+            if (!hashAlgo || !expectedHash) continue;
             const dlRes = await window.api.invoke("download-file-stream", {
                 url: modFile.url,
                 destPath: filePath,
-                expectedHash: expectedSha1,
-                hashAlgo: expectedSha1 ? "sha1" : null
+                expectedHash,
+                hashAlgo
             });
             if (!dlRes || !dlRes.success) continue;
             sysLog(`[IMPORT CF] Mod récupéré via Modrinth : ${projectName} -> ${fileName}`);
@@ -579,12 +587,17 @@ export function setup() {
             // Inspection rapide sans extraction pour détecter un modpack CurseForge et éviter une double extraction complète
             const probe = await window.api.invoke("read-zip-text", {
                 zipPath: sandboxZip,
-                entryNames: ["instance.json", "manifest.json"]
+                entryNames: ["instance.json", "manifest.json", "mmc-pack.json"]
             }).catch(() => null);
             if (probe && probe.success && probe.file === "manifest.json" && typeof probe.text === "string") {
                 sysLog(`[IMPORT] Modpack CurseForge détecté avant extraction — redirection directe.`);
                 window.hideLoading();
                 return await window.handleCurseForgeImport(sandboxZip, probe.text);
+            }
+            if (probe && probe.success && probe.file === "mmc-pack.json" && typeof probe.text === "string" && window.handlePrismImport) {
+                sysLog(`[IMPORT] Instance Prism/MultiMC détectée avant extraction — redirection directe.`);
+                window.hideLoading();
+                return await window.handlePrismImport(sandboxZip, probe.text);
             }
             const exRes = await window.api.invoke("extract-zip", { zipPath: sandboxZip, destDir: tempExtractDir });
             if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur extraction ZIP");
@@ -618,7 +631,8 @@ export function setup() {
             let finalName = window.nextAvailableInstanceName(originalName);
             const SAFE_LOADERS = ["vanilla", "fabric", "forge", "neoforge", "quilt"];
             let detectedLoader        = SAFE_LOADERS.includes(rawData.loader) ? rawData.loader : "vanilla";
-            let detectedLoaderVersion = String(rawData.loaderVersion || "").substring(0, 64);
+            const rawLoaderVer      = typeof rawData.loaderVersion === 'string' ? rawData.loaderVersion.trim() : "";
+            let detectedLoaderVersion = (rawLoaderVer && window.isValidVersionId(rawLoaderVer)) ? rawLoaderVer : "";
             if (detectedLoader === "vanilla" && !rawData.loader) {
                 const filesDirFallback = await window.existsSafe(path.join(extractRoot, "files"))
                     ? path.join(extractRoot, "files")
@@ -631,9 +645,10 @@ export function setup() {
                     window.showToast(`${t("msg_loader_detected", "Loader détecté automatiquement :")} ${detectedLoader}`, "success");
                 }
             }
+            const rawMcVer = typeof rawData.version === 'string' ? rawData.version.trim() : "";
             const instData = {
                 name:          finalName,
-                version:       String(rawData.version  || "1.20.4").substring(0, 32),
+                version:       (rawMcVer && window.isValidVersionId(rawMcVer)) ? rawMcVer : "1.20.4",
                 loader:        detectedLoader,
                 loaderVersion: detectedLoaderVersion,
                 ram:           String(Math.max(1024, Math.min(65536, parseInt(rawData.ram) || 4096))),

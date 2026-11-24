@@ -3,6 +3,7 @@ import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
 import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, detectRequiredJavaVersion, mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "./launchCore.js";
+import { showE2EKeyPromptModal } from "../ui/ModalManager.js";
 
 const ipcRenderer = window.api;
 const fs = window.api.fs;
@@ -37,8 +38,9 @@ const _launchingInstances = new Set();
  * @param {any} inst
  * @param {any} acc
  * @param {any} ui
+ * @param {{ quickPlay?: { type: string; identifier: string; path?: string } }} [extraOpts]
  */
-export async function launchInstance(inst, acc, ui) {
+export async function launchInstance(inst, acc, ui, extraOpts = {}) {
     if (!inst || !acc) return;
 
     if (store.activeInstances.has(inst.name) || (store.activeInstances.size > 0 && !store.globalSettings.multiInstance)) {
@@ -81,7 +83,19 @@ export async function launchInstance(inst, acc, ui) {
                     ui.setAutoStatusText(window.t("msg_cloud_sync", "Vérification du Cloud..."));
                 }
                 window._isManualHorizon = false;
-                const syncRes = await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+                let syncRes = await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+                const errCode = /** @type {any} */ (syncRes?.lastJson)?.errorCode;
+                if (window.horizonOpFailed && window.horizonOpFailed(syncRes) && (errCode === 'E2E_KEY_REQUIRED' || errCode === 'E2E_KEY_MISMATCH')) {
+                    const enteredPass = await showE2EKeyPromptModal(errCode, window.t);
+                    if (enteredPass) {
+                        const setRes = await window.api.invoke('horizon:set-e2e-key', { passphrase: enteredPass });
+                        if (setRes && setRes.success) {
+                            syncRes = await window.api.invoke("call-horizon", ['--sync', window.safeDir(inst.name)]);
+                        } else if (ui.showToast) {
+                            ui.showToast(setRes?.error || "Erreur E2E", "error");
+                        }
+                    }
+                }
                 if (window.horizonOpFailed && window.horizonOpFailed(syncRes)) {
                     const lastJson = /** @type {any} */ (syncRes?.lastJson);
                     const errMsg = lastJson?.message || `Code ${syncRes?.exitCode ?? "?"}`;
@@ -236,6 +250,28 @@ export async function launchInstance(inst, acc, ui) {
             jPath = localJava;
             sysLog(`Auto-sélection de Java ${requiredJava} : ${localJava}`);
         } else {
+            const globalJava = store.globalSettings.defaultJavaPath?.trim() || "";
+            let globalJavaMatched = false;
+            if (globalJava && await window.existsSafe(globalJava)) {
+                const testGlobalJava = globalJava.toLowerCase().endsWith("javaw.exe")
+                    ? globalJava.slice(0, -9) + "java.exe"
+                    : (globalJava.toLowerCase().endsWith("javaw") ? globalJava.slice(0, -5) + "java" : globalJava);
+                const gRes = await checkJavaCached(testGlobalJava);
+                const gVerText = `${gRes?.stderr || ""} ${gRes?.stdout || ""}`;
+                const gVerMatch = gVerText.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+                const gMajor = gVerMatch ? (gVerMatch[1] === "1" ? parseInt(gVerMatch[2] || "0", 10) : parseInt(gVerMatch[1], 10)) : null;
+                const gIncompatible = gMajor === null || (
+                    (requiredJava >= 17 && gMajor < requiredJava) ||
+                    (requiredJava === 8 && gMajor > 8) ||
+                    (requiredJava === 17 && (inst.loader === "forge" || inst.loader === "neoforge") && gMajor >= 24)
+                );
+                if (!gIncompatible) {
+                    jPath = globalJava;
+                    globalJavaMatched = true;
+                    sysLog(`Utilisation du Java global configuré (Java ${gMajor}) : ${globalJava}`);
+                }
+            }
+            if (!globalJavaMatched) {
             try {
                 const scan = await window.api.invoke("scan-java-versions");
                 const candidates = scan?.success && Array.isArray(scan.paths) ? scan.paths : [];
@@ -266,6 +302,7 @@ export async function launchInstance(inst, acc, ui) {
             if (jPath === "javaw" || jPath === "java") {
                 jPath = store.globalSettings.defaultJavaPath || jPath;
                 sysLog(`Aucun Java ${requiredJava} trouvé; utilisation du Java par défaut : ${jPath}`);
+            }
             }
         }
     }
@@ -415,10 +452,19 @@ export async function launchInstance(inst, acc, ui) {
     }
 
     /** @type {any} */
+    let effectiveFastSizeOnly = Boolean(store.globalSettings.fastSizeOnly);
+    try {
+        const hSettings = await window.api.invoke("get-horizon-settings");
+        if (hSettings && hSettings.verifyIntegrityOnLaunch === true) {
+            effectiveFastSizeOnly = false;
+        }
+    } catch (_) {}
+
+    /** @type {any} */
     let opts = {
         instanceId: inst.name,
         offline: isOffline,
-        fastSizeOnly: Boolean(store.globalSettings.fastSizeOnly),
+        fastSizeOnly: effectiveFastSizeOnly,
         authorization: authObj, root: instancePath, version: { number: inst.version, type: "release" },
         memory: { max: ramMB + "M", min: "1024M" }, javaPath: jPath, customArgs,
         window: { width: resW, height: resH },
@@ -761,6 +807,9 @@ export async function launchInstance(inst, acc, ui) {
         }
     }
 
+    if (extraOpts && extraOpts.quickPlay) {
+        opts.quickPlay = extraOpts.quickPlay;
+    }
     sysLog("Démarrage du processus MCLC...");
     window.api.send("launch-game", opts);
     } finally {

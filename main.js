@@ -380,13 +380,18 @@ process.on('uncaughtException', (err) => {
             dialog.showErrorBox("Erreur critique — Gens Launcher", err?.message || msg);
         }
     } catch (_) {}
-    if (_logStream && _logStream.writable) {
-        const failSafe = setTimeout(() => app.exit(1), 2000);
-        if (typeof failSafe.unref === 'function') failSafe.unref();
-        _logStream.end(() => app.exit(1));
-    } else {
+    const failSafe = setTimeout(() => app.exit(1), 2000);
+    if (typeof failSafe.unref === 'function') failSafe.unref();
+    const horizonCleanup = typeof context.shutdownHorizon === 'function'
+        ? Promise.resolve(context.shutdownHorizon(1500)).catch(() => {})
+        : Promise.resolve();
+    const logCleanup = (_logStream && _logStream.writable)
+        ? new Promise((res) => _logStream?.end(res))
+        : Promise.resolve();
+    Promise.all([horizonCleanup, logCleanup]).finally(() => {
+        clearTimeout(failSafe);
         app.exit(1);
-    }
+    });
 });
 process.on('unhandledRejection', (reason) => {
     const r = /** @type {any} */ (reason);
@@ -1021,9 +1026,16 @@ app.on('before-quit', (event) => {
                 Promise.race([
                     shutdownPromise,
                     new Promise((resolve) => setTimeout(resolve, 3800))
-                ]).catch(() => {}).finally(() => {
+                ]).catch(() => {}).finally(async () => {
                     try {
-                        if (_logStream) _logStream.end();
+                        if (_logStream) {
+                            const s = _logStream;
+                            _logStream = null;
+                            await Promise.race([
+                                new Promise((res) => s.end(res)),
+                                new Promise((res) => setTimeout(res, 300))
+                            ]);
+                        }
                     } catch (_e) {
                         const _ = /** @type {any} */ (_e);
                         if (_ && _.code !== 'ENOENT') console.error('[main.js] Erreur silencieuse interceptée:', _.message || _);

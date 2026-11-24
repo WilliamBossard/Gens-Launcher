@@ -1,6 +1,7 @@
 // @ts-check
 import { store } from "../store.js";
 import { sysLog } from "../utils.js";
+import { closeMicrosoftDeviceModal } from "../auth.js";
 import { updateRPC } from "../discord.js";
 import { getCloudSettings, performAutoBackup, getRequiredJavaVersion, analyzeCrash, mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "./launchCore.js";
 import { launchInstance } from "./LaunchManager.js";
@@ -429,7 +430,7 @@ export function setupLauncher() {
                                             if (!f.endsWith(".jar")) continue;
                                             const baseNoJar = f.slice(0, -4).toLowerCase().replace(/[^a-z0-9]/g, "");
                                             if (!baseNoJar || baseNoJar.length < 3) continue;
-                                            if (baseNoJar === targetMod || baseNoJar.includes(targetMod) || (baseNoJar.length >= 4 && targetMod.includes(baseNoJar))) {
+                                            if (baseNoJar === targetMod || (targetMod.length >= 4 && (baseNoJar.startsWith(targetMod) || baseNoJar.endsWith(targetMod)))) {
                                                 await fs.promises.rename(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
                                                 disabledCount++;
                                             }
@@ -603,8 +604,7 @@ export function setupLauncher() {
                 }
             },
             hideMsModal: () => {
-                const modal = document.getElementById("modal-ms-device");
-                if (modal) modal.style.display = "none";
+                closeMicrosoftDeviceModal();
             },
             showLoading: (/** @type {string} */ msg) => window.showLoading(msg),
             hideLoading: () => window.hideLoading(),
@@ -623,7 +623,9 @@ export function setupLauncher() {
             }
         };
 
-        await launchInstance(inst, acc, uiCallbacks);
+        const pendingQuickPlay = window._pendingQuickPlay || null;
+        window._pendingQuickPlay = null;
+        await launchInstance(inst, acc, uiCallbacks, pendingQuickPlay ? { quickPlay: pendingQuickPlay } : {});
     });
 
     window.cancelAutoLaunch = () => {

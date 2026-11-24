@@ -695,36 +695,39 @@
           class="modal-body u-s057"
         >
           <div class="u-s058">
-            <select id="catalog-source" class="u-s059">
+            <select id="catalog-source" class="catalog-select">
               <option value="modrinth">Modrinth</option>
               <option value="curseforge">CurseForge</option>
             </select>
-            <select id="catalog-type" class="u-s059">
+            <select id="catalog-type" class="catalog-select">
               <option value="mod" data-i18n="opt_mods_type">Mods</option>
               <option value="modpack" data-i18n="opt_modpack">Modpacks</option>
-              <option value="shader" data-i18n="opt_shaders_type">
-                Shaders
-              </option>
-              <option value="resourcepack" data-i18n="opt_rp_type">
-                Ressources
-              </option>
+              <option value="shader" data-i18n="opt_shaders_type">Shaders</option>
+              <option value="resourcepack" data-i18n="opt_rp_type">Ressources</option>
+              <option value="datapack" data-i18n="opt_datapacks_type">Datapacks</option>
             </select>
+            <select id="catalog-datapack-world" class="catalog-select is-hidden"></select>
             <input
               type="text"
               id="catalog-search"
               data-i18n="ph_search_catalog"
               placeholder="Rechercher dans le catalogue..."
              class="u-s007"/>
-            <select id="catalog-loader" class="u-s060">
+            <select id="catalog-loader" class="catalog-select">
               <option value="fabric">Fabric</option>
               <option value="quilt">Quilt</option>
               <option value="forge">Forge</option>
               <option value="neoforge">NeoForge</option>
             </select>
-            <select id="catalog-version" class="u-s061"></select>
+            <select id="catalog-version" class="catalog-select"></select>
+            <select id="catalog-channel" class="catalog-select">
+              <option value="release" data-i18n="opt_channel_release">Stables</option>
+              <option value="beta" data-i18n="opt_channel_beta">Stables + Bêta</option>
+              <option value="alpha" data-i18n="opt_channel_alpha">Toutes (Alpha)</option>
+            </select>
             <button
               id="btn-search-catalog"
-              class="btn-primary"
+              class="btn-primary catalog-search-btn"
               data-i18n="btn_search"
             >
               Chercher
@@ -1267,6 +1270,13 @@
             <div
               id="update-status"
              class="u-s086"></div>
+            <button
+              class="btn-secondary u-s076"
+              id="btn-export-diagnostic"
+              data-i18n="btn_export_diagnostic"
+            >
+              Exporter un rapport de diagnostic
+            </button>
           </div>
 
           <div id="tab-glob-java" class="settings-content">
@@ -1673,6 +1683,11 @@
                 data-i18n="ph_search_local_mod"
                 placeholder="Rechercher un mod installé..."
                class="u-s123"/>
+              <select id="mods-update-channel" class="mods-channel-select">
+                <option value="release" data-i18n="opt_channel_release">Stables</option>
+                <option value="beta" data-i18n="opt_channel_beta">Stables + Bêta</option>
+                <option value="alpha" data-i18n="opt_channel_alpha">Toutes (Alpha)</option>
+              </select>
             </div>
             <div
               id="mods-list"
@@ -1826,6 +1841,37 @@
                 synchronisée via Horizon, même si la synchronisation globale est
                 active.
               </div>
+              <div id="edit-horizon-selective-row" class="u-s132">
+                <div class="u-s324">
+                  <label
+                    for="edit-horizon-selective-profile"
+                    data-i18n="lbl_horizon_selective_profile"
+                    class="u-s131"
+                    >Profil de sauvegarde Cloud</label
+                  >
+                  <span id="edit-horizon-selective-badge" class="u-s314"></span>
+                  <div
+                    class="ram-help-icon custom-tooltip-trigger u-s326"
+                    data-i18n-tooltip="horizon_selective_profile_help"
+                    data-tooltip="Choisissez ce qui est sauvegardé sur le Cloud : Complet (tout), Essentiel (mondes + réglages + configs), Mondes uniquement, ou Mondes, Mods & Packs."
+                  >?</div>
+                </div>
+                <select id="edit-horizon-selective-profile" class="u-s323">
+                  <option value="FULL" data-i18n="horizon_profile_full">
+                    Complet (Tout sauvegarder)
+                  </option>
+                  <option value="ESSENTIAL" data-i18n="horizon_profile_essential">
+                    Essentiel (Mondes & Réglages)
+                  </option>
+                  <option value="WORLDS_ONLY" data-i18n="horizon_profile_worlds_only">
+                    Mondes uniquement
+                  </option>
+                  <option value="WORLDS_MODS_PACKS" data-i18n="horizon_profile_worlds_mods_packs">
+                    Mondes, Mods & Packs
+                  </option>
+                </select>
+              </div>
+              <div id="edit-horizon-selective-notice" class="u-s135 is-hidden"></div>
             </div>
           </div>
 

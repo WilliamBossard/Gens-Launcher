@@ -281,6 +281,46 @@ async function fetchLoaderVersions(loader, mcVer) {
         if ($("edit-disable-horizon")) {
             $("edit-disable-horizon").checked = !!inst.disableHorizon;
         }
+        const selSelect = /** @type {HTMLSelectElement | null} */ ($("edit-horizon-selective-profile"));
+        const selBadge = $("edit-horizon-selective-badge");
+        const selNotice = $("edit-horizon-selective-notice");
+        if (selSelect) {
+            Promise.all([
+                window.api.invoke("get-horizon-settings"),
+                window.api.invoke("check-horizon-status")
+            ]).then(([hSettings, hStatus]) => {
+                const v = String(hStatus?.localVersion || '').replace(/^v/i, '').split(/[-+]/)[0].trim();
+                const [maj = 0, min = 0, pat = 0] = v ? v.split('.').map((/** @type {string} */ n) => parseInt(n, 10) || 0) : [0, 0, 0];
+                const is143 = maj > 1 || (maj === 1 && (min > 4 || (min === 4 && pat >= 3)));
+                const globalEnabled = Boolean(hSettings && hSettings.selectiveSync === true);
+                selSelect.value = (hSettings?.selectiveProfiles && hSettings.selectiveProfiles[inst.name]) || "FULL";
+                selSelect.disabled = !is143;
+                if (!is143) {
+                    if (selBadge) selBadge.textContent = `(${t("horizon_requires_143", "Requiert Horizon v1.4.3+")})`;
+                    if (selNotice) {
+                        selNotice.textContent = t("horizon_selective_need_v143_notice", "Mettez à jour Horizon vers la v1.4.3+ puis activez « Sauvegarde sélective par instance » dans Paramètres → Horizon.");
+                        selNotice.classList.remove("is-hidden");
+                    }
+                } else if (!globalEnabled) {
+                    if (selBadge) selBadge.textContent = `(${t("horizon_selective_global_off_badge", "Option globale désactivée")})`;
+                    if (selNotice) {
+                        selNotice.textContent = t("horizon_selective_global_off_notice", "Activez d'abord « Sauvegarde sélective par instance » dans Paramètres → Horizon pour que ce profil soit appliqué.");
+                        selNotice.classList.remove("is-hidden");
+                    }
+                } else {
+                    if (selBadge) selBadge.textContent = "";
+                    if (selNotice) {
+                        selNotice.textContent = "";
+                        selNotice.classList.add("is-hidden");
+                    }
+                }
+                selSelect.onchange = () => {
+                    if (is143 && !globalEnabled && selSelect.value !== "FULL") {
+                        window.showToast(t("horizon_selective_global_off_notice", "Activez d'abord « Sauvegarde sélective par instance » dans Paramètres → Horizon pour que ce profil soit appliqué."), "info");
+                    }
+                };
+            }).catch(() => {});
+        }
         const versionSelect = $("edit-mc-version");
         if (versionSelect) {
             const showBeta = $("edit-show-snapshots")?.checked || false;
@@ -620,6 +660,22 @@ async function fetchLoaderVersions(loader, mcVer) {
         inst.backupLimit = parseInt($("edit-backup-limit").value) || 5;
         if ($("edit-disable-horizon")) {
             inst.disableHorizon = $("edit-disable-horizon").checked;
+        }
+        const selSelectSave = /** @type {HTMLSelectElement | null} */ ($("edit-horizon-selective-profile"));
+        if (selSelectSave && !selSelectSave.disabled) {
+            try {
+                const hSettings = await window.api.invoke("get-horizon-settings");
+                const profiles = { ...(hSettings?.selectiveProfiles || {}) };
+                if (selSelectSave.value && selSelectSave.value !== "FULL") {
+                    profiles[inst.name] = selSelectSave.value;
+                    if (!hSettings?.selectiveSync) {
+                        window.showToast(t("horizon_selective_global_off_notice", "Activez d'abord « Sauvegarde sélective par instance » dans Paramètres → Horizon pour que ce profil soit appliqué."), "info");
+                    }
+                } else {
+                    delete profiles[inst.name];
+                }
+                await window.api.invoke("save-horizon-settings", { selectiveProfiles: profiles });
+            } catch (_) {}
         }
         const editVersionEl   = $("edit-mc-version");
         const editLoaderEl    = $("edit-loader-type");
@@ -1168,7 +1224,11 @@ async function fetchLoaderVersions(loader, mcVer) {
         if (btn) btn.classList.add("active");
         const tab = $(tabId);
         if (tab) tab.classList.add("active");
-        if (tabId === "tab-mods"         && window.renderModsManager)         window.renderModsManager();
+        if (tabId === "tab-mods") {
+            const chEl = /** @type {HTMLSelectElement | null} */ (document.getElementById("mods-update-channel"));
+            if (chEl) chEl.value = "release";
+            if (window.renderModsManager) window.renderModsManager();
+        }
         if (tabId === "tab-shaders"      && window.renderShadersManager)      window.renderShadersManager();
         if (tabId === "tab-resourcepacks"&& window.renderResourcePacksManager)window.renderResourcePacksManager();
         if (tabId === "tab-servers"      && window.renderServersManager)      window.renderServersManager();

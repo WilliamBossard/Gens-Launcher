@@ -2,6 +2,7 @@
 import { store } from "../store.js";
 import { sysLog } from "../utils.js";
 import { getCurseForgeCdnUrls } from "../archives/curseforge.js";
+import { detectModCompatibilityConflicts, findModCompatibilityIssues, normalizeModVersionString } from "../local/modCompatibility.js";
 const fs = window.api.fs;
 const path = window.api.path;
 /** @type {(id: string) => any} */
@@ -53,6 +54,242 @@ async function streamVerifiedAsset({ url, destPath, hashes, requireHash = false,
         throw new Error(dlRes?.error || t("msg_err_dl", "Erreur de téléchargement."));
     }
 }
+
+/**
+ * Lit les métadonnées Fabric/Quilt d'un .jar local pour vérifier la compatibilité inter-mods.
+ * @param {string} jarPath
+ */
+async function readJarModMetadata(jarPath) {
+    try {
+        const res = await window.api.invoke("read-zip-text", {
+            zipPath: jarPath,
+            entryNames: ["fabric.mod.json", "quilt.mod.json"]
+        });
+        if (!res?.success || !res?.text) return null;
+        const parsed = JSON.parse(res.text);
+        if (parsed?.quilt_loader) {
+            const ql = parsed.quilt_loader;
+            /** @type {Record<string, any>} */
+            const depMap = {};
+            if (Array.isArray(ql.depends)) {
+                for (const d of ql.depends) {
+                    if (typeof d === "string") depMap[d] = "*";
+                    else if (d && d.id) depMap[d.id] = d.versions || "*";
+                }
+            }
+            return {
+                id: String(ql.id || ""),
+                version: String(ql.version || ""),
+                depends: depMap,
+                breaks: {},
+                conflicts: {}
+            };
+        }
+        return {
+            id: String(parsed?.id || ""),
+            version: String(parsed?.version || ""),
+            depends: parsed?.depends || {},
+            breaks: parsed?.breaks || {},
+            conflicts: parsed?.conflicts || {}
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
+/**
+ * Récupère les versions Modrinth compatibles (version MC + loader) pour un mod identifié par son modId Fabric.
+ * @param {string} modId
+ * @param {string} gameVersion
+ * @param {string} loader
+ * @returns {Promise<any[]>}
+ */
+async function fetchModrinthVersionsForModId(modId, gameVersion, loader) {
+    if (!modId || !gameVersion || !loader) return [];
+    const qs = `game_versions=${encodeURIComponent('["' + gameVersion + '"]')}&loaders=${encodeURIComponent('["' + loader + '"]')}`;
+    try {
+        const directRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/project/${encodeURIComponent(modId)}/version?${qs}`);
+        if (directRes.ok) {
+            const list = await directRes.json();
+            if (Array.isArray(list)) return list;
+        }
+    } catch (_) {}
+    try {
+        const searchRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(modId)}&limit=5`);
+        if (!searchRes.ok) return [];
+        const searchData = await searchRes.json();
+        const hits = Array.isArray(searchData?.hits) ? searchData.hits : [];
+        const idLow = modId.toLowerCase();
+        const match = hits.find((/** @type {any} */ h) => String(h.slug || "").toLowerCase() === idLow)
+            || hits.find((/** @type {any} */ h) => String(h.title || "").toLowerCase() === idLow);
+        if (!match?.project_id) return [];
+        const vRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/project/${encodeURIComponent(match.project_id)}/version?${qs}`);
+        if (!vRes.ok) return [];
+        const list = await vRes.json();
+        return Array.isArray(list) ? list : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+/**
+ * Vérifie si le mod téléchargé est compatible avec les autres mods installés dans `modsDir`.
+ * Propose automatiquement une version compatible du nouveau mod OU du mod installé en conflit.
+ * @param {string} modsDir
+ * @param {string} newFilePath
+ * @param {string[]} [ignoreFiles]
+ * @param {any[]} [candidateVersions]
+ * @param {{ gameVersion?: string; loader?: string; projectId?: string }} [context]
+ * @returns {Promise<{ ok: boolean; adjustToVersionId?: string | null }>}
+ */
+export async function verifyNewModCompatibility(modsDir, newFilePath, ignoreFiles = [], candidateVersions = [], context = {}) {
+    const candidate = await readJarModMetadata(newFilePath);
+    if (!candidate || !candidate.id || !candidate.version) return { ok: true };
+    const newBase = path.basename(newFilePath);
+    const ignored = new Set([newBase, ...ignoreFiles]);
+    let entries = [];
+    try {
+        entries = (await fs.promises.readdir(modsDir)).filter((/** @type {string} */ f) => f.endsWith(".jar") && !ignored.has(f));
+    } catch (_) {
+        return { ok: true };
+    }
+    if (entries.length === 0) return { ok: true };
+    const metas = /** @type {Array<{ file: string; id: string; version: string; depends?: any; breaks?: any; conflicts?: any }>} */ ((await Promise.all(entries.map(async (/** @type {string} */ f) => {
+        const meta = await readJarModMetadata(path.join(modsDir, f));
+        return meta && meta.id ? { file: f, ...meta } : null;
+    }))).filter(Boolean));
+
+    const issues = findModCompatibilityIssues(candidate, metas);
+    if (issues.length === 0) return { ok: true };
+
+    if (window.hideLoading) window.hideLoading();
+    const details = issues.slice(0, 3).map((i) => i.message).join("\n• ");
+    let altList = Array.isArray(candidateVersions) ? candidateVersions : [];
+    if (altList.length === 0 && context?.projectId && context?.gameVersion && context?.loader) {
+        altList = await fetchModrinthVersionsForModId(context.projectId, context.gameVersion, context.loader);
+    }
+    const candNorm = normalizeModVersionString(candidate.version);
+
+    /**
+     * Télécharge temporairement une version Modrinth et vérifie son vrai fabric.mod.json.
+     * @param {any} verObj
+     * @param {any[]} againstMetas
+     * @param {string} targetModId
+     * @returns {Promise<{ verObj: any; tempPath: string; fileName: string } | null>}
+     */
+    const verifyRealModrinthCandidate = async (verObj, againstMetas, targetModId) => {
+        const files = Array.isArray(verObj?.files) ? verObj.files : [];
+        const f = files.find((/** @type {any} */ x) => x.primary) || files[0];
+        if (!f?.url || !/^https:\/\//i.test(f.url)) return null;
+        const safeAltName = String(f.filename || `${targetModId}.jar`).replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
+        const tempPath = path.join(modsDir, `.compat_probe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jar`);
+        try {
+            await streamVerifiedAsset({
+                url: f.url,
+                destPath: tempPath,
+                hashes: f.hashes,
+                requireHash: true,
+                label: f.filename
+            });
+            const realMeta = await readJarModMetadata(tempPath);
+            if (realMeta && realMeta.id && detectModCompatibilityConflicts(realMeta, againstMetas).length === 0) {
+                return { verObj, tempPath, fileName: safeAltName };
+            }
+        } catch (_) {}
+        await fs.promises.unlink(tempPath).catch(() => {});
+        return null;
+    };
+
+    // 1. Chercher une version réellement compatible du nouveau mod
+    let verifiedSelf = null;
+    let selfProbeCount = 0;
+    for (const v of altList) {
+        if (selfProbeCount >= 5) break;
+        if (!v || !v.version_number) continue;
+        const normVer = normalizeModVersionString(String(v.version_number));
+        if (!normVer || normVer === candNorm || String(v.version_number) === candidate.version) continue;
+        const altCand = { id: candidate.id, version: normVer, depends: {}, breaks: {} };
+        if (detectModCompatibilityConflicts(altCand, metas).length !== 0) continue;
+        selfProbeCount++;
+        verifiedSelf = await verifyRealModrinthCandidate(v, metas, candidate.id);
+        if (verifiedSelf) break;
+    }
+
+    if (verifiedSelf) {
+        const msg = t(
+            "msg_mod_compat_adjust",
+            "Incompatibilité détectée avec vos mods installés :\n• {details}\n\nInstaller automatiquement la version compatible ({ver}) à la place ?"
+        ).replace("{details}", details).replace("{ver}", String(verifiedSelf.verObj.version_number));
+        const adjust = await window.showCustomConfirm(msg, false);
+        await fs.promises.unlink(verifiedSelf.tempPath).catch(() => {});
+        await fs.promises.unlink(newFilePath).catch(() => {});
+        return adjust ? { ok: false, adjustToVersionId: String(verifiedSelf.verObj.id) } : { ok: false, adjustToVersionId: null };
+    }
+
+    // 2. Sinon, vérifier si un des mods déjà installés en conflit dispose d'une version réellement compatible
+    if (context?.gameVersion && context?.loader) {
+        const seenIds = new Set();
+        for (const issue of issues) {
+            const exIdLow = String(issue.existingId || "").toLowerCase();
+            if (!exIdLow || seenIds.has(exIdLow)) continue;
+            seenIds.add(exIdLow);
+            const existingMeta = metas.find((m) => m.id.toLowerCase() === exIdLow);
+            if (!existingMeta) continue;
+            const otherMetas = metas.filter((m) => m.id.toLowerCase() !== exIdLow);
+            const existingVersions = await fetchModrinthVersionsForModId(existingMeta.id, context.gameVersion, context.loader);
+            const exNorm = normalizeModVersionString(existingMeta.version);
+
+            let verifiedOther = null;
+            let otherProbeCount = 0;
+            for (const v of existingVersions) {
+                if (otherProbeCount >= 5) break;
+                if (!v || !v.version_number || !Array.isArray(v.files) || v.files.length === 0) continue;
+                const normVer = normalizeModVersionString(String(v.version_number));
+                if (!normVer || normVer === exNorm || String(v.version_number) === existingMeta.version) continue;
+                const altEx = { id: existingMeta.id, version: normVer, depends: {}, breaks: {} };
+                if (detectModCompatibilityConflicts(candidate, [altEx, ...otherMetas]).length !== 0) continue;
+                if (detectModCompatibilityConflicts(altEx, [candidate, ...otherMetas]).length !== 0) continue;
+                otherProbeCount++;
+                verifiedOther = await verifyRealModrinthCandidate(v, [candidate, ...otherMetas], existingMeta.id);
+                if (verifiedOther) break;
+            }
+
+            if (verifiedOther) {
+                const msg = t(
+                    "msg_mod_compat_adjust_other",
+                    "Incompatibilité détectée avec vos mods installés :\n• {details}\n\nAjuster automatiquement {mod} vers la version compatible ({ver}) pour que les deux mods fonctionnent ensemble ?"
+                ).replace("{details}", details).replace("{mod}", existingMeta.id).replace("{ver}", String(verifiedOther.verObj.version_number));
+                const adjustOther = await window.showCustomConfirm(msg, false);
+                if (!adjustOther) {
+                    await fs.promises.unlink(verifiedOther.tempPath).catch(() => {});
+                    await fs.promises.unlink(newFilePath).catch(() => {});
+                    return { ok: false, adjustToVersionId: null };
+                }
+                const altDestPath = path.join(modsDir, verifiedOther.fileName);
+                try {
+                    await fs.promises.rename(verifiedOther.tempPath, altDestPath);
+                    if (existingMeta.file && existingMeta.file !== verifiedOther.fileName) {
+                        await fs.promises.unlink(path.join(modsDir, existingMeta.file)).catch(() => {});
+                    }
+                    return { ok: true };
+                } catch (_) {
+                    await fs.promises.unlink(verifiedOther.tempPath).catch(() => {});
+                }
+            }
+        }
+    }
+
+    const msg = t(
+        "msg_mod_compat_conflict",
+        "Incompatibilité détectée avec vos mods installés :\n• {details}\n\nInstaller ce mod quand même ? (Le jeu risque de crasher)"
+    ).replace("{details}", details);
+    const keep = await window.showCustomConfirm(msg, true);
+    if (!keep) {
+        await fs.promises.unlink(newFilePath).catch(() => {});
+        return { ok: false, adjustToVersionId: null };
+    }
+    return { ok: true };
+}
 function setupMods() {
     let globalSearchTimer = /** @type {any} */ (null);
     let catalogAbortController = /** @type {AbortController | null} */ (null);
@@ -66,6 +303,10 @@ function setupMods() {
         $("catalog-version").value = inst.version;
       }
       $("catalog-search").value = "";
+      if ($("catalog-channel")) $("catalog-channel").value = "release";
+      const initType = $("catalog-type")?.value || "mod";
+      if ($("catalog-loader")) $("catalog-loader").classList.toggle("is-hidden", initType !== "mod" && initType !== "modpack");
+      if ($("catalog-datapack-world")) $("catalog-datapack-world").classList.toggle("is-hidden", initType !== "datapack");
       $("modal-catalog").style.display = "flex";
       window.searchGlobalCatalog();
     };
@@ -83,10 +324,36 @@ function setupMods() {
       let version = $("catalog-version").value;
       const type = $("catalog-type").value;
       const resDiv = $("catalog-results");
+      if ($("catalog-loader")) {
+          $("catalog-loader").classList.toggle("is-hidden", type !== "mod" && type !== "modpack");
+      }
       if (!version) version = "1.20.4";
       if (catalogAbortController) catalogAbortController.abort();
       catalogAbortController = new AbortController();
 
+    const dpWorldSelect = $("catalog-datapack-world");
+    if (dpWorldSelect) {
+        if (type === "datapack") {
+            dpWorldSelect.classList.remove("is-hidden");
+            const worlds = window.listInstanceWorlds ? await window.listInstanceWorlds() : [];
+            const prevWorld = dpWorldSelect.value;
+            dpWorldSelect.innerHTML = "";
+            if (worlds.length === 0) {
+                dpWorldSelect.innerHTML = `<option value="">${t("msg_no_worlds_dp", "Aucun monde")}</option>`;
+                resDiv.innerHTML = `<div class="u-s261">${t("msg_dp_need_world", "Créez ou lancez un monde d'abord pour y installer des Datapacks.")}</div>`;
+                return;
+            }
+            for (const w of worlds) {
+                const opt = document.createElement("option");
+                opt.value = w;
+                opt.textContent = w;
+                dpWorldSelect.appendChild(opt);
+            }
+            if (prevWorld && worlds.includes(prevWorld)) dpWorldSelect.value = prevWorld;
+        } else {
+            dpWorldSelect.classList.add("is-hidden");
+        }
+    }
     const inst = store.selectedInstanceIdx !== null ? store.allInstances[store.selectedInstanceIdx] : null;
     if (inst && inst.loader === "vanilla" && type === "mod") {
         resDiv.innerHTML = `<div class="u-s261">${t("msg_vanilla_no_mods", "C'est une instance Vanilla, vous ne pouvez pas y installer de mods. Veuillez choisir une instance moddée.")}</div>`;
@@ -113,13 +380,9 @@ function setupMods() {
                   const regex = new RegExp("^" + escapeRegExp(searchTitle) + "([-_.]+(fabric|forge|quilt|neoforge|mc|v|api|lib|core|mod|\\d)|\\.jar$)", "i");
                   if (regex.test(f)) return true;
               }
-              let fileBase = f.toLowerCase().replace(/\.jar$/, "").split(/[-_](fabric|forge|quilt|neoforge|mc|\d)/)[0].replace(/[^a-z0-9]/g, "");
+              let fileBase = f.toLowerCase().replace(/\.jar(?:\.disabled)?$/, "").split(/[-_](fabric|forge|quilt|neoforge|mc|\d)/)[0].replace(/[^a-z0-9]/g, "");
               if (fileBase.length >= 3) {
                   if (modBaseTitle === fileBase || modBaseSlug === fileBase) return true;
-              }
-              if (fileBase.length >= 5) {
-                  if (modBaseTitle && modBaseTitle.includes(fileBase)) return true;
-                  if (modBaseSlug && modBaseSlug.includes(fileBase)) return true;
               }
               return false;
           });
@@ -201,6 +464,7 @@ function setupMods() {
             if (type === "modpack") cfClassId = 4471;
             if (type === "resourcepack") cfClassId = 12;
             if (type === "shader") cfClassId = 6552;
+            if (type === "datapack") cfClassId = 6945;
             let modLoaderType = 0; 
             if (type === "mod" || type === "modpack") {
                 if (loader === "forge") modLoaderType = 1;
@@ -268,7 +532,7 @@ function setupMods() {
         resDiv.innerHTML = `<div class="u-s270">${t("msg_builder_search_err", "Erreur de recherche")} : ${safeErrMsg}</div>`;
       }
     };
-    window.installGlobalMod = async (/** @type {string} */ projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "") => {
+    window.installGlobalMod = async (/** @type {string} */ projectId, isDependency = false, projType = "mod", source = "modrinth", visitedDeps = new Set(), websiteUrl = "", cfSlug = "", preferredVersionId = null) => {
       if (visitedDeps.has(projectId)) return; 
       visitedDeps.add(projectId);
       if (projType !== "modpack" && store.selectedInstanceIdx === null) {
@@ -278,38 +542,80 @@ function setupMods() {
       const statusText = $("catalog-status");
       const catalogLoaderEl = $("catalog-loader");
       const catalogVersionEl = $("catalog-version");
-      let loader = catalogLoaderEl ? catalogLoaderEl.value : "";
-      let version = catalogVersionEl ? catalogVersionEl.value : "";
+      let loader = catalogLoaderEl ? String(catalogLoaderEl.value || "").toLowerCase() : "";
+      let version = catalogVersionEl ? String(catalogVersionEl.value || "").trim() : "";
+      const VALID_LOADERS = new Set(["fabric", "forge", "neoforge", "quilt"]);
       if (projType !== "modpack") {
-        const inst = store.selectedInstanceIdx !== null ? store.allInstances[store.selectedInstanceIdx] : null;
-        if (!loader && inst) loader = inst.loader === "forge" ? "forge" : "fabric";
-        if (!version && inst) version = inst.version;
+    const inst = store.selectedInstanceIdx !== null ? store.allInstances[store.selectedInstanceIdx] : null;
+        if (inst) {
+          const instLoader = String(inst.loader || "").toLowerCase();
+          if (VALID_LOADERS.has(instLoader) && !loader) loader = instLoader;
+          if (!version && inst.version) version = String(inst.version).trim();
+        }
+        if (!VALID_LOADERS.has(loader)) loader = "fabric";
       }
       if (!version) version = "1.20.4";
       try {
         if (!isDependency) statusText.innerText = t("msg_dl_mod", "Téléchargement en cours...");
         if (source === "modrinth") {
-            let url = `https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`;
-            let params = [];
-            if (version) params.push(`game_versions=${encodeURIComponent('["' + version + '"]')}`);
-            if (projType === "mod") {
-              if (loader) params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
-            } else if (projType === "modpack") {
-              if (loader) {
-                params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
-              } else {
-                params.push(`loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`);
+            /** @type {any} */
+            let fileData = null;
+            /** @type {any[]} */
+            let compatiblePool = [];
+            const matchesConstraints = (/** @type {any} */ v) => {
+              if (!v || !Array.isArray(v.files) || v.files.length === 0) return false;
+              const gvs = Array.isArray(v.game_versions) ? v.game_versions : [];
+              const lds = Array.isArray(v.loaders) ? v.loaders.map((/** @type {any} */ l) => String(l).toLowerCase()) : [];
+              const verOk = !version || gvs.includes(version);
+              const loaderOk = projType !== "mod" || !loader || lds.includes(loader);
+              return verOk && loaderOk;
+            };
+
+            if (preferredVersionId) {
+              try {
+                const prefRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/version/${encodeURIComponent(preferredVersionId)}`);
+                if (prefRes.ok) {
+                  const prefData = await prefRes.json();
+                  if (matchesConstraints(prefData)) fileData = prefData;
+                }
+              } catch (_) {}
+            }
+
+            if (!fileData) {
+              let url = `https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`;
+              let params = [];
+              if (version) params.push(`game_versions=${encodeURIComponent('["' + version + '"]')}`);
+              if (projType === "mod") {
+                if (loader) params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
+              } else if (projType === "modpack") {
+                if (loader) {
+                  params.push(`loaders=${encodeURIComponent('["' + loader + '"]')}`);
+                } else {
+                  params.push(`loaders=${encodeURIComponent('["fabric","forge","quilt","neoforge"]')}`);
+                }
               }
+              if (params.length > 0) url += "?" + params.join("&");
+              const versionsRes = await window.fetchWithTimeout(url);
+              if (!versionsRes.ok) throw new Error(`Modrinth API HTTP ${versionsRes.status}`);
+              const versions = await versionsRes.json();
+              const compatible = Array.isArray(versions) ? versions.filter(matchesConstraints) : [];
+              if (compatible.length === 0) {
+                if (!isDependency) {
+                  const msg = t("msg_no_compat", "Aucun fichier compatible pour cette version/loader.");
+                  statusText.innerText = msg;
+                  if (window.showToast) window.showToast(`${msg} (${version} / ${loader})`, "error");
+                }
+                return;
+              }
+              const catalogChannel = String($("catalog-channel")?.value || "release").toLowerCase();
+              const allowedChannelTypes = new Set(
+                catalogChannel === "alpha" ? ["release", "beta", "alpha"] : (catalogChannel === "beta" ? ["release", "beta"] : ["release"])
+              );
+              const channelFiltered = compatible.filter((/** @type {any} */ v) => allowedChannelTypes.has(String(v.version_type || "release").toLowerCase()));
+              const pool = channelFiltered.length > 0 ? channelFiltered : compatible;
+              compatiblePool = compatible;
+              fileData = pool[0];
             }
-            if (params.length > 0) url += "?" + params.join("&");
-            const versionsRes = await window.fetchWithTimeout(url);
-            if (!versionsRes.ok) throw new Error(`Modrinth API HTTP ${versionsRes.status}`);
-            const versions = await versionsRes.json();
-            if (versions.length === 0) {
-              if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
-              return;
-            }
-            const fileData = versions[0];
             let file = fileData.files.find((/** @type {any} */ f) => f.primary) || fileData.files[0];
             if (projType === "modpack") {
               const mrpackFile = fileData.files.find((/** @type {any} */ f) => typeof f?.filename === "string" && f.filename.toLowerCase().endsWith(".mrpack"));
@@ -341,10 +647,31 @@ function setupMods() {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
-            const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
+            let destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
+            if (projType === "datapack") {
+              const dpWorld = $("catalog-datapack-world")?.value;
+              if (!dpWorld) {
+                window.showToast(t("msg_dp_need_world", "Sélectionnez un monde pour installer ce Datapack."), "error");
+                return;
+              }
+              destPath = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", dpWorld, "datapacks");
+            }
             if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = file.filename.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
+            const extractModStem = (/** @type {string} */ n) => n.toLowerCase().replace(/\.jar(?:\.disabled)?$/, "").split(/[-_](?:fabric|forge|quilt|neoforge|mc|\d)/)[0].replace(/[^a-z0-9]/g, "");
+            const targetStem = projType === "mod" ? extractModStem(safeName) : "";
+            /** @type {string[]} */
+            let oldDuplicateFiles = [];
+            if (projType === "mod" && targetStem.length >= 3) {
+              try {
+                const existingMods = await fs.promises.readdir(destPath);
+                oldDuplicateFiles = existingMods.filter((/** @type {string} */ f) => (f.endsWith(".jar") || f.endsWith(".jar.disabled")) && f !== safeName && extractModStem(f) === targetStem);
+              } catch (_) {}
+            }
+            if (isDependency && oldDuplicateFiles.length > 0) {
+              return;
+            }
             if (!(await window.existsSafe(filePath))) {
               if (!file.url || !/^https:\/\//i.test(file.url)) {
                 sysLog(`URL rejetée (protocole invalide) : ${file.url}`, true);
@@ -359,6 +686,26 @@ function setupMods() {
                   requireHash: true,
                   label: file.filename
                 });
+                if (projType === "mod") {
+                  if (compatiblePool.length === 0 && preferredVersionId) {
+                    try {
+                      const vRes = await window.fetchWithTimeout(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?game_versions=${encodeURIComponent('["' + version + '"]')}&loaders=${encodeURIComponent('["' + loader + '"]')}`);
+                      if (vRes.ok) compatiblePool = await vRes.json();
+                    } catch (_) {}
+                  }
+                  const compatRes = await verifyNewModCompatibility(destPath, filePath, oldDuplicateFiles, compatiblePool, { gameVersion: version, loader });
+                  if (!compatRes.ok) {
+                    if (compatRes.adjustToVersionId) {
+                      visitedDeps.delete(projectId);
+                      return await window.installGlobalMod(projectId, isDependency, projType, "modrinth", visitedDeps, websiteUrl, cfSlug, compatRes.adjustToVersionId);
+                    }
+                    if (!isDependency) statusText.innerText = t("msg_install_cancelled_compat", "Installation annulée (incompatibilité détectée).");
+                    return;
+                  }
+                }
+                for (const oldFile of oldDuplicateFiles) {
+                  await fs.promises.unlink(path.join(destPath, oldFile)).catch(() => {});
+                }
               } catch (/** @type {any} */ dlErr) {
                 sysLog(`SÉCURITÉ / DL échec Modrinth (${file.filename}) : ${dlErr.message}`, true);
                 if (!isDependency) statusText.innerText = t("msg_err_hash", "Fichier corrompu ou modifié !");
@@ -378,7 +725,7 @@ function setupMods() {
                   }
                   if (depId) {
                     statusText.innerText = t("msg_deps", "Dépendances...");
-                    await window.installGlobalMod(depId, true, "mod", "modrinth", visitedDeps);
+                    await window.installGlobalMod(depId, true, "mod", "modrinth", visitedDeps, "", "", dep.version_id || null);
                   }
                 }
               }
@@ -405,19 +752,25 @@ function setupMods() {
                 if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
                 return;
             }
+            const cfChannel = String($("catalog-channel")?.value || "release").toLowerCase();
+            const allowedCfTypes = new Set(cfChannel === "alpha" ? [1, 2, 3] : (cfChannel === "beta" ? [1, 2] : [1]));
             const fileData = data.data.find((/** @type {any} */ file) => {
-                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => v.toLowerCase()) : [];
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => String(v).toLowerCase()) : [];
                 const matchVer = version ? gv.includes(version.toLowerCase()) : true;
-                const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
-                return matchVer && matchLoader && file.releaseType === 1;
+                const matchLoader = (projType === "mod" && loader) ? gv.includes(loader.toLowerCase()) : true;
+                return matchVer && matchLoader && allowedCfTypes.has(file.releaseType);
             }) || data.data.find((/** @type {any} */ file) => {
-                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => v.toLowerCase()) : [];
+                const gv = Array.isArray(file.gameVersions) ? file.gameVersions.map((/** @type {any} */ v) => String(v).toLowerCase()) : [];
                 const matchVer = version ? gv.includes(version.toLowerCase()) : true;
-                const matchLoader = loader ? gv.includes(loader.toLowerCase()) : true;
+                const matchLoader = (projType === "mod" && loader) ? gv.includes(loader.toLowerCase()) : true;
                 return matchVer && matchLoader;
-            }) || data.data[0];
+            });
             if (!fileData) {
-                if (!isDependency) statusText.innerText = t("msg_no_compat", "Aucun fichier compatible.");
+                if (!isDependency) {
+                    const msg = t("msg_no_compat", "Aucun fichier compatible pour cette version/loader.");
+                    statusText.innerText = msg;
+                    if (window.showToast) window.showToast(`${msg} (${version} / ${loader})`, "error");
+                }
                 return;
             }
             if (projType === "modpack" && !isDependency) {
@@ -516,7 +869,15 @@ function setupMods() {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
-            const destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
+            let destPath = path.join(store.instancesRoot, window.safeDir(inst.name), targetFolder);
+            if (projType === "datapack") {
+              const dpWorld = $("catalog-datapack-world")?.value;
+              if (!dpWorld) {
+                window.showToast(t("msg_dp_need_world", "Sélectionnez un monde pour installer ce Datapack."), "error");
+                return;
+              }
+              destPath = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", dpWorld, "datapacks");
+            }
             if (!(await window.existsSafe(destPath))) await fs.promises.mkdir(destPath, { recursive: true });
             const safeName = fileData.fileName.replace(/[^a-zA-Z0-9.\-_+\[\]() ]/g, "_");
             const filePath = path.join(destPath, safeName);
@@ -552,6 +913,13 @@ function setupMods() {
                 if (!downloaded) {
                     statusText.innerText = t("msg_err_dl", "Erreur : Téléchargement échoué.");
                     return;
+                }
+                if (projType === "mod") {
+                    const compatRes = await verifyNewModCompatibility(destPath, filePath, [], [], { gameVersion: version, loader });
+                    if (!compatRes.ok) {
+                        if (!isDependency) statusText.innerText = t("msg_install_cancelled_compat", "Installation annulée (incompatibilité détectée).");
+                        return;
+                    }
                 }
             }
             if (projType === "mod" && fileData.dependencies && fileData.dependencies.length > 0) {

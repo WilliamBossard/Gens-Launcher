@@ -3,10 +3,53 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const dns = require('dns');
+const https = require('https');
 const net = require('net');
 const { Readable } = require('stream');
 const { pipeStreams } = require('../../main/zip-utils');
 const { existsAsync } = require('./zip-archive');
+
+const nativeFetch = global.fetch;
+
+/**
+ * Écrit un fichier de manière atomique via un fichier temporaire et un rename avec retry Windows.
+ * @param {string} filePath
+ * @param {string | Buffer | Uint8Array} data
+ * @param {BufferEncoding | null} [encoding='utf8']
+ */
+async function writeFileAtomic(filePath, data, encoding = 'utf8') {
+  const dir = path.dirname(filePath);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const randSuffix = crypto.randomBytes(4).toString('hex');
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${randSuffix}`;
+  try {
+    if (encoding && typeof data === 'string') {
+      await fs.promises.writeFile(tmpPath, data, encoding);
+    } else {
+      await fs.promises.writeFile(tmpPath, data);
+    }
+    let renamed = false;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await fs.promises.rename(tmpPath, filePath);
+        renamed = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const errAny = /** @type {any} */ (err);
+        if (errAny && (errAny.code === 'EPERM' || errAny.code === 'EBUSY' || errAny.code === 'EACCES') && attempt < 3) {
+          await new Promise(r => setTimeout(r, 40 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!renamed && lastErr) throw lastErr;
+  } finally {
+    try { await fs.promises.unlink(tmpPath); } catch (_) {}
+  }
+}
 
 /**
  * Executes an async callback on an array of items with bounded concurrency, preserving order.
@@ -73,12 +116,14 @@ function assertSafeRemoteUrl(rawUrl, client) {
 /**
  * @param {string} rawUrl
  * @param {any} [client]
- * @param {((hostname: string, opts: { all: true }) => Promise<Array<{ address: string }>>) | null} [lookupFn]
- * @returns {Promise<URL>}
+ * @param {((hostname: string, opts: { all: true }) => Promise<Array<{ address: string; family?: number }>>) | null} [lookupFn]
+ * @returns {Promise<{ url: URL; pinnedRecord: { address: string; family: number } | null }>}
  */
-async function assertSafeRemoteUrlAsync(rawUrl, client = null, lookupFn = null) {
+async function resolveAndValidateRemoteUrl(rawUrl, client = null, lookupFn = null) {
   const parsed = assertSafeRemoteUrl(rawUrl, client);
   const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  /** @type {{ address: string; family: number } | null} */
+  let pinnedRecord = null;
   if (!net.isIP(host)) {
     const doLookup = lookupFn || ((/** @type {string} */ h, /** @type {{ all: true }} */ o) => dns.promises.lookup(h, o));
     try {
@@ -89,6 +134,13 @@ async function assertSafeRemoteUrlAsync(rawUrl, client = null, lookupFn = null) 
           throw new Error(`Blocked private/local host: ${host} (${rec.address})`);
         }
       }
+      const first = (records || []).find(r => r && r.address && net.isIP(r.address));
+      if (first) {
+        pinnedRecord = {
+          address: first.address,
+          family: first.family || (net.isIP(first.address) === 6 ? 6 : 4)
+        };
+      }
     } catch (e) {
       if (e instanceof Error && e.message.startsWith('Blocked ')) {
         throw e;
@@ -96,13 +148,120 @@ async function assertSafeRemoteUrlAsync(rawUrl, client = null, lookupFn = null) 
       // En cas d'échec DNS (ex: offline ou tests mockant global.fetch), on laisse fetch gérer l'erreur réseau.
     }
   }
-  return parsed;
+  return { url: parsed, pinnedRecord };
+}
+
+/**
+ * @param {string} rawUrl
+ * @param {any} [client]
+ * @param {((hostname: string, opts: { all: true }) => Promise<Array<{ address: string; family?: number }>>) | null} [lookupFn]
+ * @returns {Promise<URL>}
+ */
+async function assertSafeRemoteUrlAsync(rawUrl, client = null, lookupFn = null) {
+  const { url } = await resolveAndValidateRemoteUrl(rawUrl, client, lookupFn);
+  return url;
+}
+
+/**
+ * Exécute une requête HTTPS en épinglant l'IP résolue pour prévenir le DNS rebinding.
+ * @param {string} urlStr
+ * @param {RequestInit} fetchInit
+ * @param {{ address: string; family: number }} pinnedRecord
+ * @returns {Promise<any>}
+ */
+function pinnedHttpsRequest(urlStr, fetchInit, pinnedRecord) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(urlStr);
+    const reqHeaders = /** @type {Record<string, string>} */ ({});
+    if (fetchInit.headers) {
+      if (typeof /** @type {any} */ (fetchInit.headers).forEach === 'function') {
+        /** @type {Headers} */ (fetchInit.headers).forEach((v, k) => { reqHeaders[k] = v; });
+      } else if (Array.isArray(fetchInit.headers)) {
+        for (const [k, v] of fetchInit.headers) reqHeaders[k] = v;
+      } else {
+        Object.assign(reqHeaders, fetchInit.headers);
+      }
+    }
+
+    /** @type {import('https').RequestOptions} */
+    const reqOpts = {
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      method: fetchInit.method || 'GET',
+      headers: reqHeaders,
+      lookup: (_hostname, opts, cb) => {
+        if (opts && typeof opts === 'object' && opts.all) {
+          return cb(null, [{ address: pinnedRecord.address, family: pinnedRecord.family }]);
+        }
+        return cb(null, pinnedRecord.address, pinnedRecord.family);
+      }
+    };
+
+    const req = https.request(reqOpts, (res) => {
+      const status = res.statusCode || 0;
+      const statusText = res.statusMessage || '';
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(res.headers)) {
+        if (Array.isArray(v)) {
+          for (const item of v) headers.append(k, item);
+        } else if (v !== undefined) {
+          headers.set(k, v);
+        }
+      }
+      const webBody = Readable.toWeb(res);
+      /** @type {Promise<string> | null} */
+      let textPromise = null;
+      const readAllText = () => {
+        if (!textPromise) {
+          textPromise = new Promise((resText, rejText) => {
+            const chunks = /** @type {Buffer[]} */ ([]);
+            res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+            res.on('end', () => resText(Buffer.concat(chunks).toString('utf8')));
+            res.on('error', rejText);
+          });
+        }
+        return textPromise;
+      };
+      resolve({
+        ok: status >= 200 && status < 300,
+        status,
+        statusText,
+        headers,
+        body: webBody,
+        text: readAllText,
+        json: async () => JSON.parse(await readAllText())
+      });
+    });
+
+    const signal = fetchInit.signal;
+    const onAbort = () => {
+      req.destroy(new Error('The operation was aborted'));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+      req.on('close', () => signal.removeEventListener('abort', onAbort));
+    }
+
+    req.on('error', reject);
+    if (fetchInit.body != null && typeof fetchInit.body === 'string') {
+      req.write(fetchInit.body);
+    } else if (fetchInit.body != null && Buffer.isBuffer(fetchInit.body)) {
+      req.write(fetchInit.body);
+    }
+    req.end();
+  });
 }
 
 /**
  * Exécute fetch() avec suivi manuel des redirections et revalidation HTTPS + anti-SSRF à chaque hop.
  * @param {string} rawUrl
- * @param {RequestInit & { lookupFn?: (hostname: string, opts: { all: true }) => Promise<Array<{ address: string }>> }} [init]
+ * @param {RequestInit & { lookupFn?: (hostname: string, opts: { all: true }) => Promise<Array<{ address: string; family?: number }>> }} [init]
  * @param {any} [client]
  * @param {number} [maxRedirects]
  * @returns {Promise<Response>}
@@ -111,8 +270,11 @@ async function fetchWithSafeRedirects(rawUrl, init = {}, client = null, maxRedir
   const { lookupFn, ...fetchInit } = init || {};
   let currentUrl = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    await assertSafeRemoteUrlAsync(currentUrl, client, lookupFn || null);
-    const res = await fetch(currentUrl, { ...fetchInit, redirect: 'manual' });
+    const { pinnedRecord } = await resolveAndValidateRemoteUrl(currentUrl, client, lookupFn || null);
+    const usePinned = global.fetch === nativeFetch && pinnedRecord !== null;
+    const res = usePinned
+      ? await pinnedHttpsRequest(currentUrl, fetchInit, pinnedRecord)
+      : await fetch(currentUrl, { ...fetchInit, redirect: 'manual' });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get('location');
       if (!location) {
@@ -269,6 +431,7 @@ async function downloadFileAsync(url, directory, name, retry, type, ctx) {
     const msg = err instanceof Error ? err.message : '';
     const isSecurityOrRedirectBlock = msg.startsWith('Blocked ') || msg.startsWith('Too many redirects');
     if (retry && !isSecurityOrRedirectBlock && (!client || !client.aborted)) {
+      await new Promise(r => setTimeout(r, 350));
       return await downloadFileAsync(url, directory, name, false, type, ctx);
     }
     return { failed: true, asset: null };
@@ -280,6 +443,9 @@ async function downloadFileAsync(url, directory, name, retry, type, ctx) {
     client?.emit('debug', `[Gens-Core]: Failed to download ${url} due to: ${response.status} ${response.statusText}`);
     const isRetryableHttp = response.status === 408 || response.status === 429 || response.status >= 500;
     if (retry && isRetryableHttp && (!client || !client.aborted)) {
+      const retryAfterSec = parseInt(response.headers.get('retry-after') || '0', 10);
+      const delayMs = retryAfterSec > 0 ? Math.min(2000, retryAfterSec * 1000) : 350;
+      await new Promise(r => setTimeout(r, delayMs));
       return await downloadFileAsync(url, directory, name, false, type, ctx);
     }
     return { failed: true, asset: null };
@@ -407,6 +573,7 @@ module.exports = {
   baseRequest,
   fetchText,
   downloadFileAsync,
+  writeFileAtomic,
   checkSum,
   verifyFileFast,
   isPrivateOrLocalHost,

@@ -9,6 +9,12 @@ const child = require('child_process');
 function parseVersion(versionStr) {
   if (!versionStr) return { major: 0, minor: 0, patch: 0 };
   const str = String(versionStr);
+  const snapMatch = str.match(/^(\d{2})w(\d{2})[a-z]$/i);
+  if (snapMatch) {
+    const year = parseInt(snapMatch[1], 10);
+    // 22w11a+ correspond à Minecraft 1.19+ ; les snapshots antérieurs (ex: 14w10a) sont < 1.19
+    return { major: 1, minor: year >= 22 ? 19 : 0, patch: 0 };
+  }
   const mcMatch = str.match(/(?:^|[^\d.])1\.(\d+)(?:\.(\d+))?/);
   if (mcMatch) {
     return {
@@ -74,10 +80,15 @@ function getOS(options) {
  * @returns {boolean}
  */
 function matchArch(currentArch, ruleArch) {
+  if (typeof ruleArch !== 'string' || !ruleArch) return false;
+  if (ruleArch === currentArch) return true;
+  if (!/^[a-zA-Z0-9_^$|()-]{1,32}$/.test(ruleArch)) {
+    return false;
+  }
   try {
     return new RegExp(ruleArch).test(currentArch);
   } catch (_) {
-    return ruleArch === currentArch;
+    return false;
   }
 }
 

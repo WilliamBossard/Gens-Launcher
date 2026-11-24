@@ -142,7 +142,7 @@ export function setup() {
                     sysLog(`Erreur téléchargement MAJ mrpack (${modFile.path}) : ${e?.message || e}`, true);
                 }
                 downloadedCount++;
-                window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+                window.updateLoadingPercent(totalToDownload > 0 ? Math.round((downloadedCount / totalToDownload) * 100) : 0, `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
         await Promise.all(workers);
@@ -223,8 +223,17 @@ export function setup() {
         }
         /** @type {any} */
         let newInst;
+        /** @type {{ version: any; loader: any; loaderVersion: any; modrinthId: any; modpackVersion: any } | null} */
+        let prevInstMeta = null;
         if (updateTargetInstIdx !== null) {
             newInst = store.allInstances[updateTargetInstIdx];
+            prevInstMeta = {
+                version: newInst.version,
+                loader: newInst.loader,
+                loaderVersion: newInst.loaderVersion,
+                modrinthId: newInst.modrinthId,
+                modpackVersion: newInst.modpackVersion,
+            };
             newInst.version = mcVer;
             newInst.loader = loaderType;
             newInst.loaderVersion = loaderVer;
@@ -313,11 +322,12 @@ export function setup() {
                     sysLog(`Erreur téléchargement fichier modpack: ${e.message}`, true);
                 }
                 downloadedCount++;
-                window.updateLoadingPercent(Math.round((downloadedCount / totalToDownload) * 100), `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
+                window.updateLoadingPercent(totalToDownload > 0 ? Math.round((downloadedCount / totalToDownload) * 100) : 0, `${t("msg_dl_mods_pack", "Téléchargement des mods")} (${downloadedCount}/${totalToDownload})...`);
             }
         });
         await Promise.all(workers);
         if (failedCount > 0 && updateTargetInstIdx !== null && modsBackupDir && (await window.existsSafe(modsBackupDir))) {
+            if (prevInstMeta) Object.assign(newInst, prevInstMeta);
             const modsDir = path.join(instDir, "mods");
             await fs.promises.rm(modsDir, { recursive: true, force: true }).catch(() => {});
             await fs.promises.rename(modsBackupDir, modsDir).catch(() => {});

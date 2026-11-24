@@ -151,7 +151,7 @@ function setupUpdater(context) {
                     mainLog("Erreur MAJ APT : " + stderr);
                     execFile(
                         'x-terminal-emulator',
-                        ['-e', 'bash', '-c', 'sudo apt update && sudo apt install gens-launcher; read -p "Appuyez sur Entree pour fermer..."'],
+                        ['-e', 'bash', '-c', 'sudo apt-get update && sudo apt-get install -y gens-launcher; read -p "Appuyez sur Entree pour fermer..."'],
                         (err2) => {
                             if (err2) {
                                 shell.openExternal("https://github.com/WilliamBossard/Gens-Launcher/releases/latest");
@@ -249,7 +249,7 @@ function setupUpdater(context) {
         }
     });
 
-    ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = val; });
+    ipcMain.on("set-auto-download", (_, val) => { autoUpdater.autoDownload = Boolean(val); });
     ipcMain.on("download-update", () => {
         if (isDebPackageInstallation()) {
             mainLog("[deb] Téléchargement ignoré (géré par APT).");

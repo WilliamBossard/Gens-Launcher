@@ -286,8 +286,12 @@ module.exports = function setupAuthHandlers(context) {
                 throw new Error("Domaine de skin non autorisé");
             }
             const skinRes = await fetch(safeSkinUrl.toString(), {
+                redirect: 'manual',
                 signal: AbortSignal.timeout(15000)
             });
+            if (skinRes.status >= 300 && skinRes.status < 400) {
+                throw new Error("Redirection HTTP refusée pour l'image skin");
+            }
             if (!skinRes.ok) throw new Error("Failed to download skin image");
             const MAX_SKIN_BYTES = 2 * 1024 * 1024;
             const contentLen = parseInt(skinRes.headers.get('content-length') || '0', 10);

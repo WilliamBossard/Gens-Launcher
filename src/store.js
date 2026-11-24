@@ -31,7 +31,7 @@ export const store = {
         enableNewsBanner: true,
         disableRPC: false,
         offlineMode: false,
-        fastSizeOnly: true,
+        fastSizeOnly: false,
         multiInstance: false,
         autoDownloadUpdates: false,
         totalInstancesCreated: 0,

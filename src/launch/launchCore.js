@@ -98,9 +98,9 @@ export async function writeInstanceMetaForCloud(inst, opts = {}) {
         config._cloudExportedAt = ts;
         config._localConfigUpdatedAt = ts;
 
-        await fs.promises.writeFile(metaPath, JSON.stringify(config, null, 2), 'utf8');
+        await window.safeWriteJSONAsync(metaPath, config);
         try {
-            await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
+            await window.safeWriteJSONAsync(path.join(instFolder, "instance.json"), inst);
         } catch (_) {}
         sysLog(`[HORIZON] Métadonnées d'instance écrites pour upload : "${inst.name}"`);
     } catch (/** @type {any} */ e) {
@@ -191,7 +191,7 @@ export async function mergeInstanceConfigFromDisk(instanceSafeName = null) {
                     sysLog(`[HORIZON] Config de "${inst.name}" mise à jour depuis le cloud ` +
                            `(exportée le ${new Date(cloudTs).toLocaleString()}).`);
                     try {
-                        await fs.promises.writeFile(path.join(instFolder, "instance.json"), JSON.stringify(inst, null, 2), 'utf8');
+                        await window.safeWriteJSONAsync(path.join(instFolder, "instance.json"), inst);
                     } catch (_) {}
                     if (loaderOrVerChanged && typeof window !== 'undefined' && window.showToast && window.t) {
                         const msg = window.t("msg_cloud_config_updated", `Configuration de "{name}" mise à jour depuis le Cloud.`).replace("{name}", inst.name);
@@ -309,7 +309,7 @@ export function getRequiredJavaVersion(mcVersion) {
     if (!mcVersion) return 21;
     let minor = 0;
     let patch = 0;
-    const mcMatch = mcVersion.match(/1\.(\d+)(?:\.(\d+))?/);
+    const mcMatch = mcVersion.match(/(?:^|[^\d.])1\.(\d+)(?:\.(\d+))?/);
     if (mcMatch) {
         minor = parseInt(mcMatch[1]) || 0;
         patch = parseInt(mcMatch[2]) || 0;
@@ -367,7 +367,14 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
                     if (typeof window.isValidVersionId === "function" && window.isValidVersionId(mcVersion)) {
                         const cacheDir = path.join(instancePath, "cache", "json");
                         await fs.promises.mkdir(cacheDir, { recursive: true });
-                        await fs.promises.writeFile(path.join(cacheDir, `${mcVersion}.json`), body, "utf8");
+                        const destJson = path.join(cacheDir, `${mcVersion}.json`);
+                        const tmpJson = `${destJson}.tmp.${Date.now()}`;
+                        try {
+                            await fs.promises.writeFile(tmpJson, body, "utf8");
+                            await fs.promises.rename(tmpJson, destJson);
+                        } finally {
+                            try { await fs.promises.unlink(tmpJson); } catch (_) {}
+                        }
                     }
                     const major = parsed?.javaVersion?.majorVersion;
                     if (typeof major === "number" && major >= 8 && major <= 99) {
@@ -419,12 +426,35 @@ export async function analyzeCrash(instanceName, exitCode = null) {
                 }
             } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in launchCore.js:", e); }
         }
+        let debugTail = "";
+        const debugLogPath = path.join(instDir, "logs", "debug.log");
+        if (!latestReport && await window.existsSafe(debugLogPath)) {
+            try {
+                debugTail = fs.promises.readTail
+                    ? await fs.promises.readTail(debugLogPath, 128 * 1024)
+                    : "";
+            } catch (_) {}
+        }
+        let hsErrLog = "";
+        try {
+            const instFiles = await fs.promises.readdir(instDir);
+            const hsFiles = instFiles.filter(f => /^hs_err_pid\d+\.log$/i.test(f));
+            if (hsFiles.length > 0) {
+                const hsStats = await Promise.all(hsFiles.map(async f => ({ file: f, stat: await fs.promises.stat(path.join(instDir, f)) })));
+                hsStats.sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
+                if (Date.now() - hsStats[0].stat.mtime.getTime() < 120000) {
+                    hsErrLog = fs.promises.readTail
+                        ? await fs.promises.readTail(path.join(instDir, hsStats[0].file), 64 * 1024)
+                        : await fs.promises.readFile(path.join(instDir, hsStats[0].file), 'utf8');
+                }
+            }
+        } catch (_) {}
         let uiLogs = "";
         const logOutput = document.getElementById("log-output");
         if (logOutput) {
             uiLogs = logOutput.textContent || "";
         }
-        const combinedLog = (latestReport + "\n\n" + logData + "\n\n" + uiLogs).substring(0, 200000);
+        const combinedLog = (latestReport + "\n\n" + hsErrLog + "\n\n" + logData + "\n\n" + debugTail + "\n\n" + uiLogs).substring(0, 240000);
         
         const classVerMatch = uiLogs.match(/class file version (\d+\.\d+).*?this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/) || combinedLog.match(/class file version (\d+\.\d+).*?this version of the Java Runtime only recognizes class file versions up to (\d+\.\d+)/);
         if (uiLogs.includes("UnsupportedClassVersionError") || combinedLog.includes("UnsupportedClassVersionError") || classVerMatch) {
@@ -503,12 +533,39 @@ export async function analyzeCrash(instanceName, exitCode = null) {
             result.logExcerpt = combinedLog.match(/.*(Failed to download file|SocketException).*/g)?.join('\n') || "Erreur réseau détectée";
             return result;
         }
-        const depMatch = combinedLog.match(/Missing or unsupported mandatory dependencies[\s\S]{0,200}/i) ||
+        if (combinedLog.includes("Duplicate mods found") || combinedLog.includes("Found a duplicate mod") || /Mod ID .* is duplicated/i.test(combinedLog)) {
+            result.cause = window.t("crash_dup_mod_cause", "Mod en double détecté");
+            result.action = window.t("crash_dup_mod_action", "Deux versions du même mod sont présentes dans votre dossier mods/. Supprimez l'exemplaire en trop.");
+            result.logExcerpt = combinedLog.match(/.*(?:Duplicate mods found|Found a duplicate mod|is duplicated).*/gi)?.slice(0, 5).join('\n') || "Duplicate mod";
+            return result;
+        }
+        if (/java\.util\.zip\.ZipException|Invalid CEN header|error in opening zip file/i.test(combinedLog)) {
+            result.cause = window.t("crash_corrupt_jar_cause", "Archive ou mod (.jar) corrompu");
+            result.action = window.t("crash_corrupt_jar_action", "Un fichier .jar téléchargé est incomplet ou corrompu. Supprimez le mod concerné et réinstallez-le.");
+            result.logExcerpt = combinedLog.match(/.*(?:ZipException|Invalid CEN header|error in opening zip file).*/gi)?.slice(0, 5).join('\n') || "Corrupt JAR";
+            return result;
+        }
+        if (/SessionLockException|Failed to check session lock/i.test(combinedLog)) {
+            result.cause = window.t("crash_world_lock_cause", "Monde verrouillé (session.lock)");
+            result.action = window.t("crash_world_lock_action", "Un autre processus utilise ce monde ou un crash précédent a laissé un verrou. Fermez toute autre instance Minecraft.");
+            result.logExcerpt = combinedLog.match(/.*(?:SessionLockException|session lock).*/gi)?.slice(0, 3).join('\n') || "session.lock";
+            return result;
+        }
+        const gpuDllMatch = hsErrLog.match(/Problematic frame:\s*\n?#\s*C\s+\[(nvoglv64\.dll|atio6axx\.dll|amdvlk64\.dll|igxelpicd64\.dll|ig9icd64\.dll|lwjgl_opengl\.dll)[^\]]*\]/i);
+        if (gpuDllMatch) {
+            result.cause = window.t("crash_gpu_dll_cause", "Crash natif du pilote graphique ({dll})").replace("{dll}", gpuDllMatch[1]);
+            result.action = window.t("crash_driver_action", "Mettez à jour vos pilotes graphiques. Si le problème persiste, désactivez les mods d'optimisation graphique ou shaders.");
+            result.logExcerpt = gpuDllMatch[0];
+            return result;
+        }
+        const depMatch = combinedLog.match(/Incompatible mods found![\s\S]{0,400}/i) ||
+            combinedLog.match(/Missing or unsupported mandatory dependencies[\s\S]{0,200}/i) ||
             combinedLog.match(/Could not find required mod: (.*?)\n/i) ||
+            combinedLog.match(/Mod '([^']+)' \([^)]+\) [^\n]* requires [^\n]+/i) ||
             combinedLog.match(/requires (.*?) of (.*?),/i);
         if (depMatch) {
-            result.cause = window.t("crash_dep_cause", "Dépendance de mod manquante");
-            result.action = window.t("crash_dep_action", "Un mod requiert un autre mod pour fonctionner. Lisez l'extrait pour savoir quel mod télécharger et l'ajouter via le gestionnaire de mods.");
+            result.cause = window.t("crash_dep_cause", "Incompatibilité ou dépendance de mod manquante");
+            result.action = window.t("crash_dep_action", "Un mod requiert une autre version ou une dépendance manquante. Vérifiez les versions de vos mods (ex. Sodium/Iris) dans le gestionnaire de mods.");
             result.logExcerpt = depMatch[0];
             return result;
         }
@@ -541,6 +598,23 @@ export async function analyzeCrash(instanceName, exitCode = null) {
         if (!suspectedMod) {
             const errMatch = logData.match(/Failed to load mod (.*?)\n/i);
             if (errMatch) suspectedMod = errMatch[1].trim();
+        }
+        if (!suspectedMod) {
+            const jarRefMatch = combinedLog.match(/\b([a-zA-Z0-9_\-]{3,})\.jar\b(?![^(\n]*minecraft)/i);
+            if (jarRefMatch && !/^(client|server|minecraft|forge|neoforge|fabric-loader|lwjgl)/i.test(jarRefMatch[1])) {
+                suspectedMod = jarRefMatch[1];
+            }
+        }
+        if (!suspectedMod) {
+            const pkgMatches = combinedLog.matchAll(/\bat\s+(?:com|net|org|dev|me|io)\.([a-zA-Z0-9_]{3,})\./g);
+            const IGNORED_PKGS = new Set(['minecraft', 'mojang', 'minecraftforge', 'neoforged', 'fabricmc', 'quiltmc', 'spongepowered', 'lwjgl', 'netty', 'apache', 'google', 'sun', 'ibm', 'oshi', 'slf4j', 'joptsimple']);
+            for (const m of pkgMatches) {
+                const pkg = m[1].toLowerCase();
+                if (!IGNORED_PKGS.has(pkg)) {
+                    suspectedMod = m[1];
+                    break;
+                }
+            }
         }
         if (suspectedMod) {
             const modName = suspectedMod;

@@ -80,7 +80,28 @@ export function setupServer() {
                 <div class="server-banner-status">
                     <div class="server-banner-online">[+] ${window.et("msg_online", "En ligne")}</div>
                     <div class="server-banner-players">${safePlayerCount(data.players?.online)} / ${safePlayerCount(data.players?.max)} ${window.et("lbl_players", "joueurs")}</div>
+                    <button id="btn-server-quickplay" class="btn-primary server-join-btn">${window.et("btn_join_server", "Rejoindre")}</button>
                 </div>`;
+                const qpBtn = banner.querySelector('#btn-server-quickplay');
+                if (qpBtn) {
+                    qpBtn.addEventListener('click', () => {
+                        if (store.selectedInstanceIdx === null) {
+                            window.showToast(window.t("msg_select_inst", "Sélectionnez une instance d'abord !"), "error");
+                            return;
+                        }
+                        if (store.selectedAccountIdx === null || !store.allAccounts[store.selectedAccountIdx]) {
+                            window.showToast(window.t("msg_err_no_account", "Veuillez ajouter un compte dans l'onglet Compte pour pouvoir jouer."), "error");
+                            return;
+                        }
+                        const inst = store.allInstances[store.selectedInstanceIdx];
+                        if (!inst) return;
+                        const verParts = String(inst.version || "").split(".");
+                        const minor = verParts[0] === "1" ? (parseInt(verParts[1], 10) || 20) : 99;
+                        const qpType = minor < 20 ? "legacy" : "multiplayer";
+                        window._pendingQuickPlay = { type: qpType, identifier: ip };
+                        document.getElementById("launch-btn")?.click();
+                    });
+                }
                 const motdBox = banner.querySelector('.server-banner-motd');
                 if (motdBox) {
                     if (motdNode) motdBox.replaceChildren(motdNode);

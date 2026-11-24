@@ -4,6 +4,7 @@ import { store } from "./store.js";
 import { setup as setupModrinth } from "./archives/modrinth.js";
 import { setup as setupCurseforge } from "./archives/curseforge.js";
 import { setup as setupExport } from "./archives/export.js";
+import { setup as setupPrism } from "./archives/prism.js";
 
 export function setupArchives() {
     window.handleImport = async (/** @type {HTMLInputElement} */ input) => {
@@ -46,4 +47,5 @@ export function setupArchives() {
     setupModrinth();
     setupCurseforge();
     setupExport();
+    setupPrism();
 }

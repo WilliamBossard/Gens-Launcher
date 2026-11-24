@@ -62,6 +62,11 @@ export function setupCloud() {
         return _sharedSettingsPromise;
     };
 
+    window.invalidateCloudCache = () => {
+        _sharedStatusPromise = null;
+        _sharedSettingsPromise = null;
+    };
+
     window.checkCloudAtStartup = async () => {
         const gs = /** @type {{offlineMode?: boolean}} */ (store.globalSettings);
         if (gs.offlineMode || !window.isTrulyOnline) return;

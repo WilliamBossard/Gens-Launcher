@@ -8,7 +8,7 @@ export const SEND_CHANNELS = [
 
 export const INVOKE_CHANNELS = [
   "ping-server", "login-microsoft", "refresh-microsoft", "get-horizon-settings",
-  "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "horizon:disconnect",
+  "save-horizon-settings", "check-horizon-status", "call-horizon", "install-horizon", "horizon:disconnect", "horizon:set-e2e-key", "horizon:get-e2e-key",
   "check-java", "scan-java-versions", "java:install-adoptium", "java:delete", "fetch-curseforge", "fetch-mojang-profile",
   "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game",
   "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut",
@@ -19,7 +19,7 @@ export const INVOKE_CHANNELS = [
   "fs:readFile", "fs:readTail", "fs:writeFile", "fs:readdir", "fs:stat", "fs:mkdir", "fs:rm",
   "fs:unlink", "fs:rename", "fs:cp", "fs:copyFile", "fs:chmod", "fs:appendFile",
   "fs:access", "fs:exists", "system:open-external", "system:open-path",
-  "system:show-item-in-folder", "system:clipboard-write-text", "system:get-mem-info", "hash-buffer",
+  "system:show-item-in-folder", "system:clipboard-write-text", "system:get-mem-info", "system:export-diagnostic", "hash-buffer",
   "nbt:parse"
 ] as const;
 

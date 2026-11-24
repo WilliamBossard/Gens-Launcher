@@ -9,10 +9,12 @@ const {
   baseRequest,
   fetchText,
   downloadFileAsync,
+  writeFileAtomic,
   checkSum,
   verifyFileFast
 } = require('./network-utils');
 const jvmUtils = require('./jvm-utils');
+const { resolveForgedWrapped } = require('./forge-wrapper');
 
 class Handler {
   /**
@@ -180,7 +182,7 @@ class Handler {
         if (!parsed || !parsed.versions) {
           throw new Error('Failed to fetch version_manifest.json from Mojang mirrors');
         }
-        await fs.promises.writeFile(path.join(cache, 'version_manifest.json'), manifestBody || '');
+        await writeFileAtomic(path.join(cache, 'version_manifest.json'), manifestBody || '');
         const desiredVersion = Object.values(parsed.versions).find((/** @type {any} */ version) => version.id === this.options.version.number);
         if (desiredVersion) {
           const versionBody = await this.fetchText(desiredVersion.url);
@@ -190,7 +192,7 @@ class Handler {
               throw new Error(`SHA-1 mismatch for version metadata ${this.options.version.number}`);
             }
           }
-          await fs.promises.writeFile(path.join(cache, `${this.options.version.number}.json`), versionBody);
+          await writeFileAtomic(path.join(cache, `${this.options.version.number}.json`), versionBody);
           this.version = JSON.parse(versionBody);
           return resolve(this.version);
         } else {
@@ -234,7 +236,7 @@ class Handler {
       }
     }
     await fs.promises.mkdir(this.options.directory, { recursive: true });
-    await fs.promises.writeFile(path.join(this.options.directory, `${this.options.version.number}.json`), JSON.stringify(this.version, null, 4));
+    await writeFileAtomic(path.join(this.options.directory, `${this.options.version.number}.json`), JSON.stringify(this.version, null, 4));
     return this.client.emit('debug', '[Gens-Core]: Downloaded version jar and wrote version json');
   }
 
@@ -578,141 +580,7 @@ class Handler {
    * @returns {Promise<any>}
    */
   async getForgedWrapped() {
-    let json = null
-    let installerJson = null
-    const versionPath = path.join(this.options.root, 'forge', `${this.version.id}`, 'version.json')
-    if (await existsAsync(versionPath)) {
-      try {
-        json = JSON.parse(await fs.promises.readFile(versionPath, 'utf8'))
-        if (!json.forgeWrapperVersion || !(json.forgeWrapperVersion === this.options.overrides.fw.version)) {
-          this.client.emit('debug', '[Gens-Core]: Old ForgeWrapper has generated this version JSON, re-generating')
-        } else {
-          if (this.isModernForge(json)) {
-            this.fwAddArgs()
-            this.options.forge = null
-          }
-          return json
-        }
-      } catch (e) {
-        console.warn(e)
-        this.client.emit('debug', '[Gens-Core]: Failed to parse Forge version JSON, re-generating')
-      }
-    }
-
-    this.client.emit('debug', '[Gens-Core]: Generating Forge version json, this might take a bit')
-    const zipFile = new Zip(this.options.forge)
-    const forgeTexts = await zipFile.readEntriesAsText(['version.json', 'install_profile.json'])
-    json = forgeTexts['version.json'] ?? null
-    if (forgeTexts['install_profile.json'] !== undefined) installerJson = forgeTexts['install_profile.json']
-
-    try {
-      json = JSON.parse(json || '{}')
-      if (installerJson) installerJson = JSON.parse(installerJson)
-    } catch (e) {
-      this.client.emit('debug', '[Gens-Core]: Failed to load json files for ForgeWrapper, using Vanilla instead')
-      return null
-    }
-    if (installerJson) {
-      json.mavenFiles
-        ? json.mavenFiles = json.mavenFiles.concat(installerJson.libraries)
-        : json.mavenFiles = installerJson.libraries
-    }
-
-    let jarEnding = 'universal'
-    if (this.isModernForge(json)) {
-      if (json.inheritsFrom !== '1.12.2') {
-        this.fwAddArgs()
-        const fwName = `ForgeWrapper-${this.options.overrides.fw.version}.jar`
-        const fwPathArr = ['io', 'github', 'zekerzhayard', 'ForgeWrapper', this.options.overrides.fw.version]
-        json.libraries.push({
-          name: fwPathArr.join(':'),
-          downloads: {
-            artifact: {
-              path: [...fwPathArr, fwName].join('/'),
-              url: `${this.options.overrides.fw.baseUrl}${this.options.overrides.fw.version}/${fwName}`,
-              sha1: this.options.overrides.fw.sh1,
-              size: this.options.overrides.fw.size
-            }
-          }
-        })
-        json.mainClass = 'io.github.zekerzhayard.forgewrapper.installer.Main'
-        jarEnding = 'launcher'
-
-        for (const library of (json.mavenFiles || [])) {
-          const lib = library.name.split(':')
-          if ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge'))) {
-            if (library.downloads?.artifact?.path && (!library.downloads.artifact.url)) {
-              const repoBase = lib[0] === 'net.neoforged' ? 'https://maven.neoforged.net/releases/' : this.options.overrides.url.mavenForge;
-              library.downloads.artifact.url = repoBase + library.downloads.artifact.path;
-            }
-            break
-          }
-        }
-      } else {
-        if (json.mavenFiles) {
-          for (const library in json.mavenFiles) {
-            const lib = json.mavenFiles[library]?.name?.split(':');
-            if (lib && ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge')))) {
-              delete json.mavenFiles[library];
-              break;
-            }
-          }
-        }
-      }
-    } else {
-      await pMap(json.libraries || [], 16, async (/** @type {any} */ library) => {
-        if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
-        const lib = library.name.split(':')
-        if ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge'))) return
-
-        let url = this.options.overrides.url.mavenForge
-        const name = `${lib[1]}-${lib[2]}.jar`
-
-        if (!library.url) {
-          if (library.serverreq || library.clientreq) {
-            url = this.options.overrides.url.defaultRepoForge
-          } else {
-            return
-          }
-        }
-        library.url = url
-        const downloadLink = `${url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`
-        await this.baseRequest(downloadLink, (error, response, body) => {
-          if (error) {
-            this.client.emit('debug', `[Gens-Core]: Failed checking request for ${downloadLink}`)
-          } else {
-            if (response.statusCode === 404) library.url = this.options.overrides.url.fallbackMaven
-          }
-        })
-      })
-    }
-    if (json.libraries && json.libraries[0] && json.libraries[0].downloads) {
-      const name = json.libraries[0].name
-      if ((name.includes('minecraftforge:forge') || name.includes('net.neoforged:neoforge')) && !name.includes('universal')) {
-        json.libraries[0].name = name + `:${jarEnding}`
-        json.libraries[0].downloads.artifact.path = json.libraries[0].downloads.artifact.path.replace('.jar', `-${jarEnding}.jar`)
-        const repoBase = name.includes('net.neoforged:') ? 'https://maven.neoforged.net/releases/' : this.options.overrides.url.mavenForge;
-        if (!json.libraries[0].downloads.artifact.url || !name.includes('net.neoforged:')) {
-          json.libraries[0].downloads.artifact.url = repoBase + json.libraries[0].downloads.artifact.path
-        }
-      }
-    } else if (json.libraries && json.libraries[0]) {
-      delete json.libraries[0]
-    }
-
-    json.libraries = this.cleanUp(json.libraries)
-    if (json.mavenFiles) json.mavenFiles = this.cleanUp(json.mavenFiles)
-
-    json.forgeWrapperVersion = this.options.overrides.fw.version
-
-    if (!(await existsAsync(path.join(this.options.root, 'forge', this.version.id)))) {
-      await fs.promises.mkdir(path.join(this.options.root, 'forge', this.version.id), { recursive: true })
-    }
-    await fs.promises.writeFile(versionPath, JSON.stringify(json, null, 4))
-
-    if (this.isModernForge(json)) this.options.forge = null
-
-    return json
+    return resolveForgedWrapped(this);
   }
 
   /**
