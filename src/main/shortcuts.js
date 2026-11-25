@@ -228,8 +228,9 @@ module.exports = function (context) {
 
     ipcMain.on("update-jump-list", async (event, instances) => {
         if (process.platform === 'win32' && Array.isArray(instances)) {
-            const tasks = await Promise.all(instances.map(async (/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
-                const safeName = sanitizeShortcutName(inst.name);
+            const rawTasks = await Promise.all(instances.map(async (/** @type {{ name: string; iconIcoPath?: string }} */ inst) => {
+                const safeName = sanitizeShortcutName(inst?.name);
+                if (!safeName) return null;
                 const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
                 let safeIconPath = appExecutable;
                 if (typeof inst.iconIcoPath === 'string' && inst.iconIcoPath.trim()) {
@@ -248,6 +249,7 @@ module.exports = function (context) {
                     description: `Démarrer l'instance ${safeName}`
                 };
             }));
+            const tasks = /** @type {Electron.Task[]} */ (rawTasks.filter(Boolean));
             app.setUserTasks(tasks);
         }
     });

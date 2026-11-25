@@ -47,6 +47,7 @@ module.exports = function setupSystemHandlers(context) {
             const worker = new Worker(path.join(__dirname, '..', 'workers', 'compress-worker.js'), {
                 workerData: { src, dest, exclude }
             });
+            if (typeof context.registerActiveWorker === 'function') context.registerActiveWorker(worker);
             timer = setTimeout(() => {
                 worker.terminate().catch(() => {});
                 resolve({ success: false, error: "Délai d'attente dépassé lors de la compression." });
@@ -104,6 +105,7 @@ module.exports = function setupSystemHandlers(context) {
             const worker = new Worker(workerPath, {
                 workerData: { archivePath, destDir, isWin: process.platform === "win32" }
             });
+            if (typeof context.registerActiveWorker === 'function') context.registerActiveWorker(worker);
             timer = setTimeout(() => {
                 worker.terminate().catch(() => {});
                 resolve({ success: false, error: "Délai d'attente dépassé lors de l'extraction." });
@@ -150,6 +152,49 @@ module.exports = function setupSystemHandlers(context) {
             mainLog(`[read-zip-text] Exception critique : ${msg}`);
             return { success: false };
         }
+    });
+
+    ipcMain.handle("read-zip-text-batch", async (event, { items, entryNames }) => {
+        const { openZip, readStreamBuffer } = require("./zip-utils");
+        if (!Array.isArray(items) || !Array.isArray(entryNames) || items.length > 500) {
+            return { success: false, results: {} };
+        }
+        const targets = new Set(entryNames.filter((/** @type {any} */ e) => typeof e === 'string'));
+        /** @type {Record<string, { success: boolean, text?: string, file?: string }>} */
+        const results = {};
+        const MAX_TEXT_BYTES = 10 * 1024 * 1024;
+        const BATCH_CONCURRENCY = 8;
+
+        for (let i = 0; i < items.length; i += BATCH_CONCURRENCY) {
+            const chunk = items.slice(i, i + BATCH_CONCURRENCY);
+            await Promise.all(chunk.map(async (/** @type {any} */ zipPath) => {
+                if (typeof zipPath !== 'string') return;
+                try {
+                    const safeZipPath = await validateSandboxPath(zipPath);
+                    assertRendererPathAllowed(safeZipPath, 'read');
+                    const zipfile = await openZip(safeZipPath);
+                    try {
+                        for await (const entry of zipfile) {
+                            if (targets.has(entry.filename)) {
+                                if (typeof entry.uncompressedSize === 'number' && entry.uncompressedSize > MAX_TEXT_BYTES) {
+                                    throw new Error('Entrée ZIP trop volumineuse');
+                                }
+                                const readStream = await entry.openReadStream();
+                                const buf = await readStreamBuffer(readStream, MAX_TEXT_BYTES);
+                                results[zipPath] = { success: true, text: buf.toString('utf8'), file: entry.filename };
+                                return;
+                            }
+                        }
+                        results[zipPath] = { success: false };
+                    } finally {
+                        await zipfile.close();
+                    }
+                } catch (_) {
+                    results[zipPath] = { success: false };
+                }
+            }));
+        }
+        return { success: true, results };
     });
 
     ipcMain.handle("extract-zip", async (event, { zipPath, destDir }) => {
@@ -353,14 +398,25 @@ module.exports = function setupSystemHandlers(context) {
                     basePaths.push(path.join(localAppData, "Programs", "Eclipse Adoptium"));
                 }
             } else if (process.platform === "linux") {
-                basePaths.push("/usr/lib/jvm", "/usr/java", "/opt/jdk");
+                const homeDir = require('os').homedir();
+                basePaths.push(
+                    "/usr/lib/jvm",
+                    "/usr/lib64/jvm",
+                    "/usr/java",
+                    "/opt/jdk",
+                    path.join(homeDir, ".sdkman", "candidates", "java"),
+                    path.join(homeDir, ".jdks")
+                );
             } else if (process.platform === "darwin") {
                 basePaths.push("/Library/Java/JavaVirtualMachines");
             }
 
-            const javaExeName = (process.platform === "win32") ? "javaw.exe" : "java";
+            const isWindows = process.platform === "win32";
+            const javaExeName = isWindows ? "javaw.exe" : "java";
             /** @type {string[]} */
             let foundPaths = [];
+            /** @type {string[]} */
+            let winJavaFallbackPaths = [];
 
             /**
              * @param {string} dir
@@ -381,8 +437,13 @@ module.exports = function setupSystemHandlers(context) {
                             if (stats.isSymbolicLink()) return;
                             if (stats.isDirectory()) {
                                 await findJavaAsync(full, depth + 1);
-                            } else if (entryName.toLowerCase() === javaExeName) {
-                                foundPaths.push(full);
+                            } else {
+                                const lowerName = entryName.toLowerCase();
+                                if (lowerName === javaExeName) {
+                                    foundPaths.push(full);
+                                } else if (isWindows && lowerName === "java.exe") {
+                                    winJavaFallbackPaths.push(full);
+                                }
                             }
                         } catch (errStat) {
                             const anyStat = /** @type {any} */ (errStat);
@@ -406,6 +467,14 @@ module.exports = function setupSystemHandlers(context) {
             });
             
             await Promise.all(searchPromises);
+            if (isWindows && winJavaFallbackPaths.length > 0) {
+                const javawDirs = new Set(foundPaths.map(p => path.dirname(p).toLowerCase()));
+                for (const fb of winJavaFallbackPaths) {
+                    if (!javawDirs.has(path.dirname(fb).toLowerCase())) {
+                        foundPaths.push(fb);
+                    }
+                }
+            }
             const uniquePaths = [...new Set(foundPaths)];
             _javaScanCache = uniquePaths;
             _javaScanCacheTime = Date.now();
@@ -503,6 +572,58 @@ module.exports = function setupSystemHandlers(context) {
         }
     });
 
+    const TRUSTED_EXTERNAL_DOMAINS = [
+        'github.com', 'modrinth.com', 'curseforge.com', 'minecraft.net',
+        'mojang.com', 'microsoft.com', 'live.com', 'discord.com', 'discord.gg',
+        'adoptium.net', 'neoforged.net', 'fabricmc.net', 'quiltmc.org',
+        'minecraftforge.net', 'optifine.net', 'irisshaders.dev', 'williambossard.github.io'
+    ];
+    const trustedDomainsFile = path.join(safeDataDir, 'trusted_external_domains.json');
+    /** @type {Set<string> | null} */
+    let _userTrustedDomains = null;
+
+    const loadUserTrustedDomains = async () => {
+        if (_userTrustedDomains) return _userTrustedDomains;
+        const set = new Set();
+        try {
+            const raw = await fs.promises.readFile(trustedDomainsFile, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                for (const d of parsed) {
+                    if (typeof d === 'string' && d.trim()) set.add(d.trim().toLowerCase());
+                }
+            }
+        } catch (_) {}
+        _userTrustedDomains = set;
+        return set;
+    };
+
+    /** @param {string} hostname */
+    const saveUserTrustedDomain = async (hostname) => {
+        const set = await loadUserTrustedDomains();
+        const h = hostname.toLowerCase();
+        if (set.has(h)) return;
+        if (set.size >= 200) {
+            const oldest = set.values().next().value;
+            if (oldest !== undefined) set.delete(oldest);
+        }
+        set.add(h);
+        try {
+            const { renameWithRetry } = require('./fs-utils');
+            const tmp = `${trustedDomainsFile}.tmp.${process.pid}.${Date.now()}`;
+            await fs.promises.writeFile(tmp, JSON.stringify([...set], null, 2), 'utf8');
+            await renameWithRetry(tmp, trustedDomainsFile);
+        } catch (_) {}
+    };
+
+    /** @param {string} hostname */
+    const isTrustedExternalHost = async (hostname) => {
+        const h = hostname.toLowerCase();
+        if (TRUSTED_EXTERNAL_DOMAINS.some(d => h === d || h.endsWith('.' + d))) return true;
+        const userSet = await loadUserTrustedDomains();
+        return userSet.has(h);
+    };
+
     ipcMain.handle("system:open-external", async (_, url) => {
         try {
             if (typeof url !== 'string') {
@@ -511,6 +632,27 @@ module.exports = function setupSystemHandlers(context) {
             const parsed = new URL(url);
             if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
                 return { success: false, error: "Seuls les liens HTTPS sans identifiants sont autorisés." };
+            }
+            if (!(await isTrustedExternalHost(parsed.hostname))) {
+                const { dialog } = require('electron');
+                const mw = getMainWindow();
+                const res = await dialog.showMessageBox(mw && !mw.isDestroyed() ? mw : /** @type {any} */ (undefined), {
+                    type: 'question',
+                    buttons: ['Annuler', 'Ouvrir le lien'],
+                    defaultId: 0,
+                    cancelId: 0,
+                    title: 'Ouvrir un lien externe',
+                    message: `Voulez-vous ouvrir ce site externe dans votre navigateur ?`,
+                    detail: parsed.href,
+                    checkboxLabel: `Toujours autoriser ${parsed.hostname}`,
+                    checkboxChecked: false
+                });
+                if (res.response !== 1) {
+                    return { success: false, error: "Ouverture annulée par l'utilisateur." };
+                }
+                if (res.checkboxChecked) {
+                    await saveUserTrustedDomain(parsed.hostname);
+                }
             }
             await shell.openExternal(parsed.href);
             return { success: true };
@@ -692,6 +834,7 @@ module.exports = function setupSystemHandlers(context) {
             const logsDir = path.join(safeDataDir, "logs");
             /** @type {Array<{ fullPath: string; relativePath: string }>} */
             const filesToPack = [];
+            tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "gens-diag-"));
             try {
                 const entries = await fs.promises.readdir(logsDir);
                 const statLogs = await Promise.all(
@@ -715,7 +858,6 @@ module.exports = function setupSystemHandlers(context) {
 
                 const userInfo = (() => { try { return os.userInfo(); } catch (_) { return { username: '' }; } })();
                 const homedir = (() => { try { return os.homedir(); } catch (_) { return ''; } })();
-                tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "gens-diag-"));
 
                 for (const logItem of [...mainLogs, ...gameLogs]) {
                     if (!logItem) continue;

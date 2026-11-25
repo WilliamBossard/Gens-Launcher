@@ -19,10 +19,10 @@ export function setupNews() {
 
         if (isCollapsed && !forceFetch) {
             container.style.display = "block";
-            const toggleText = store.currentLangObj?.btn_show || "Afficher";
+            const toggleText = window.escapeHTML(store.currentLangObj?.btn_show || "Afficher");
             container.innerHTML = `
             <div class="u-s289">
-                <div class="u-s090">${window.t("lbl_news", "Actualités Minecraft")}</div>
+                <div class="u-s090">${window.escapeHTML(window.t("lbl_news", "Actualités Minecraft"))}</div>
                 <button class="btn-secondary u-s050" id="btn-toggle-news">${toggleText}</button>
             </div>
             <div id="news-content-wrapper" class="is-hidden"></div>`;
@@ -44,26 +44,34 @@ export function setupNews() {
             if (!data || !Array.isArray(data.entries)) return;
             container.style.display = "block";
             
-            const toggleText = store.globalSettings.newsCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer");
+            const toggleText = window.escapeHTML(store.globalSettings.newsCollapsed ? (store.currentLangObj?.btn_show || "Afficher") : (store.currentLangObj?.btn_hide || "Masquer"));
             let html = `
             <div class="u-s289">
-                <div class="u-s090">${window.t("lbl_news", "Actualités Minecraft")}</div>
+                <div class="u-s090">${window.escapeHTML(window.t("lbl_news", "Actualités Minecraft"))}</div>
                 <button class="btn-secondary u-s050" id="btn-toggle-news">${toggleText}</button>
             </div>
             <div id="news-content-wrapper" class="${store.globalSettings.newsCollapsed ? 'is-hidden' : ''}">`;
             
             data.entries.slice(0, 6).forEach((/** @type {any} */ news) => {
-                const rawImgUrl = news.playPageImage?.url || "";
-                const imgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
-                const rawLink = news.readMoreLink || news.link || "";
-                const link = rawLink.startsWith("http") ? rawLink : (rawLink ? `https://minecraft.net${rawLink}` : "https://minecraft.net");
+                const rawImgUrl = typeof news.playPageImage?.url === "string" ? news.playPageImage.url.trim() : "";
+                const candidateImgUrl = rawImgUrl.startsWith("/") ? `https://launchercontent.mojang.com${rawImgUrl}` : rawImgUrl;
+                const imgUrl = /^https:\/\//i.test(candidateImgUrl) ? candidateImgUrl : "";
+                const rawLink = typeof (news.readMoreLink || news.link) === "string" ? (news.readMoreLink || news.link).trim() : "";
+                let link = "https://minecraft.net";
+                if (/^https:\/\//i.test(rawLink)) {
+                    link = rawLink;
+                } else if (/^http:\/\//i.test(rawLink)) {
+                    link = rawLink.replace(/^http:\/\//i, "https://");
+                } else if (rawLink.startsWith("/")) {
+                    link = `https://minecraft.net${rawLink}`;
+                }
                 const safeTitle = window.escapeHTML(news.title || "");
                 const safeCategory = window.escapeHTML(news.category || "");
                 const safeLink = window.escapeHTML(link);
                 const safeImgUrl = window.escapeHTML(imgUrl);
                 html += `
                 <div class="news-card" data-link="${safeLink}">
-                    <img src="${safeImgUrl}" class="news-img">
+                    ${safeImgUrl ? `<img src="${safeImgUrl}" class="news-img">` : ""}
                     <div class="news-content">
                         <div class="u-s290">${safeTitle}</div>
                         <div class="u-s291">${safeCategory}</div>

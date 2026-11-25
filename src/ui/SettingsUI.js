@@ -525,16 +525,28 @@ const sanitizeHtmlForCsp = (/** @type {any} */ html) => {
     if (typeof html !== "string") return html;
     try {
         const doc = new DOMParser().parseFromString(html, "text/html");
-        doc.querySelectorAll("script, iframe, object, embed, link[rel='import'], base, form, style, meta").forEach(el => el.remove());
+        doc.querySelectorAll("script, iframe, object, embed, link[rel='import'], base, form, style, meta, svg, math").forEach(el => el.remove());
         doc.querySelectorAll("*").forEach(el => {
             for (const attr of Array.from(el.attributes)) {
                 const name = attr.name.toLowerCase();
                 const val = attr.value.replace(/[\x00-\x20]/g, "").toLowerCase();
-                if (name.startsWith("on") || name === "srcdoc" || name === "xlink:href" || name === "style") {
+                if (name.startsWith("on") || name === "srcdoc" || name === "xlink:href" || name === "style" || name === "poster" || name === "srcset" || name === "ping") {
                     el.removeAttribute(attr.name);
-                } else if ((name === "href" || name === "src" || name === "action" || name === "formaction") &&
-                    (val.startsWith("javascript:") || val.startsWith("vbscript:") || val.startsWith("data:text/html") || val.startsWith("data:image/svg"))) {
-                    el.removeAttribute(attr.name);
+                } else if (name === "href" || name === "src" || name === "action" || name === "formaction") {
+                    const isAllowedScheme =
+                        val.startsWith("https://") ||
+                        val.startsWith("data:image/png;") ||
+                        val.startsWith("data:image/jpeg;") ||
+                        val.startsWith("data:image/jpg;") ||
+                        val.startsWith("data:image/webp;") ||
+                        val.startsWith("data:image/gif;") ||
+                        val.startsWith("data:image/bmp;") ||
+                        val.startsWith("./") ||
+                        val.startsWith("assets/") ||
+                        val.startsWith("#");
+                    if (!isAllowedScheme) {
+                        el.removeAttribute(attr.name);
+                    }
                 }
             }
         });

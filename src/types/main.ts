@@ -42,6 +42,7 @@ export interface MainContext {
   isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean;
   horizonMigrationPromise?: Promise<void>;
   shutdownHorizon?: (graceMs?: number) => Promise<void> | void;
+  registerActiveWorker?: (worker: any) => void;
   downloadFile?: (url: string, dest: string, options?: any) => Promise<{ success: true }>;
   invalidateJavaScanCache?: () => void;
   redactDiagnosticLog?: (rawText: string, info?: { homedir?: string; username?: string }) => string;

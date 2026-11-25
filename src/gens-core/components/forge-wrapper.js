@@ -33,7 +33,14 @@ async function resolveForgedWrapped(handler) {
 
   handler.client.emit('debug', '[Gens-Core]: Generating Forge version json, this might take a bit');
   const zipFile = new Zip(handler.options.forge);
-  const forgeTexts = await zipFile.readEntriesAsText(['version.json', 'install_profile.json']);
+  let forgeTexts;
+  try {
+    forgeTexts = await zipFile.readEntriesAsText(['version.json', 'install_profile.json'], { throwOnError: true });
+  } catch (zipErr) {
+    const errMsg = zipErr instanceof Error ? zipErr.message : String(zipErr);
+    handler.client.emit('debug', `[Gens-Core]: Corrupt or unreadable Forge archive (${errMsg})`);
+    throw new Error(`Archive Forge corrompue ou illisible : ${errMsg}`);
+  }
   json = forgeTexts['version.json'] ?? null;
   if (forgeTexts['install_profile.json'] !== undefined) installerJson = forgeTexts['install_profile.json'];
 
@@ -80,14 +87,11 @@ async function resolveForgedWrapped(handler) {
           break;
         }
       }
-    } else if (json.mavenFiles) {
-      for (const library in json.mavenFiles) {
-        const lib = json.mavenFiles[library]?.name?.split(':');
-        if (lib && ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge')))) {
-          delete json.mavenFiles[library];
-          break;
-        }
-      }
+    } else if (Array.isArray(json.mavenFiles)) {
+      json.mavenFiles = json.mavenFiles.filter((/** @type {any} */ entry) => {
+        const lib = entry?.name?.split(':');
+        return !(lib && ((lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) || (lib[0] === 'net.neoforged' && lib[1].includes('neoforge'))));
+      });
     }
   } else {
     await pMap(json.libraries || [], 16, async (/** @type {any} */ library) => {

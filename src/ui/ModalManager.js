@@ -17,10 +17,11 @@ export function showJavaTypeModal(version, t = window.t) {
             opacity: 0; transition: opacity 0.2s ease-in-out;
         `;
 
+        const esc = typeof window.escapeHTML === "function" ? window.escapeHTML : (/** @type {string} */ s) => String(s);
         modal.innerHTML = `
             <div class="u-s252">
                 <h3 class="u-s253">
-                    ${t("java_choice_title", "Installation de Java {version}").replace("{version}", String(version))}
+                    ${esc(t("java_choice_title", "Installation de Java {version}").replace("{version}", String(version)))}
                 </h3>
                 <p class="u-s254">
                     ${t("java_choice_desc", "Sélectionnez le type d'environnement à installer pour votre jeu :")}

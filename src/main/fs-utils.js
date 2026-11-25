@@ -48,7 +48,14 @@ function createSandboxValidator(sandboxDir) {
         if (typeof p !== 'string' || !p.trim()) {
             throw new Error('Chemin hors du sandbox GensLauncher');
         }
-        const absTarget = path.resolve(p);
+        const trimmed = p.trim();
+        if (/^[/\\]{2}/.test(trimmed)) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
+        const absTarget = path.resolve(trimmed);
+        if (isWin && absTarget.startsWith('\\\\')) {
+            throw new Error('Chemin hors du sandbox GensLauncher');
+        }
         const normTarget = norm(absTarget);
         const normSandbox = norm(absSandbox);
 

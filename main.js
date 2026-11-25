@@ -10,7 +10,7 @@ const os = require("os");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
-const { encryptText, decryptText, legacyDecryptText } = require('./src/main/crypto-utils');
+const { encryptText, decryptText } = require('./src/main/crypto-utils');
 
 /** @param {string} name */
 function sanitizeShortcutName(name) {
@@ -358,6 +358,9 @@ ipcMain.handle('system:get-mem-info', async () => ({
     freemem: os.freemem()
 }));
 
+/** @type {Set<any>} */
+const _activeWorkers = new Set();
+
 /** @type {import('./src/types/main').MainContext} */
 const context = {
     app, ipcMain,
@@ -369,7 +372,15 @@ const context = {
     horizonBinDir, horizonExePath, horizonVersionPath,
     horizonDir, horizonLegacyBinDir, horizonAuthDir, horizonMetaDir, horizonManifestsDir, horizonCacheDir,
     isWin, safeSend, mainSafeDir, mainResolveInstanceFolder,
-    assertPathUnderSandbox, assertPathUnderSandboxAsync, sanitizeShortcutName, isApprovedCopySource, horizonMigrationPromise, shell
+    assertPathUnderSandbox, assertPathUnderSandboxAsync, sanitizeShortcutName, isApprovedCopySource, horizonMigrationPromise, shell,
+    registerActiveWorker: (worker) => {
+        if (worker && typeof worker.terminate === 'function') {
+            _activeWorkers.add(worker);
+            if (typeof worker.once === 'function') {
+                worker.once('exit', () => _activeWorkers.delete(worker));
+            }
+        }
+    }
 };
 
 process.on('uncaughtException', (err) => {
@@ -473,7 +484,8 @@ function createWindow() {
         "https://mc-heads.net",
         "https://crafatar.com",
         "https://minotar.net",
-        "https://mineatar.io"
+        "https://mineatar.io",
+        "https://s.optifine.net"
     ].join(" ");
     const IMG_ALLOWLIST = [
         "'self'",
@@ -487,7 +499,8 @@ function createWindow() {
         "https://mc-heads.net",
         "https://crafatar.com",
         "https://minotar.net",
-        "https://mineatar.io"
+        "https://mineatar.io",
+        "https://s.optifine.net"
     ].join(" ");
     const rendererCSP = [
         "default-src 'self'",
@@ -1017,14 +1030,20 @@ app.on('before-quit', (event) => {
     try {
         if (rpc && typeof rpc.disconnect === 'function') rpc.disconnect();
     } catch (_) {}
-    if (!_quitCleanupDone && typeof context.shutdownHorizon === 'function') {
+    const workerCleanup = _activeWorkers.size > 0
+        ? Promise.allSettled([..._activeWorkers].map(w => Promise.resolve(w.terminate()).catch(() => {})))
+        : null;
+    if (!_quitCleanupDone && (typeof context.shutdownHorizon === 'function' || workerCleanup)) {
         try {
-            const shutdownPromise = context.shutdownHorizon();
-            if (shutdownPromise && typeof shutdownPromise.then === 'function') {
+            const shutdownPromise = typeof context.shutdownHorizon === 'function'
+                ? Promise.resolve(context.shutdownHorizon())
+                : Promise.resolve();
+            const combinedCleanup = workerCleanup ? Promise.allSettled([shutdownPromise, workerCleanup]) : shutdownPromise;
+            if (combinedCleanup && typeof combinedCleanup.then === 'function') {
                 _quitCleanupDone = true;
                 event.preventDefault();
                 Promise.race([
-                    shutdownPromise,
+                    combinedCleanup,
                     new Promise((resolve) => setTimeout(resolve, 3800))
                 ]).catch(() => {}).finally(async () => {
                     try {

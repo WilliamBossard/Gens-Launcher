@@ -80,46 +80,49 @@ export function setup() {
             }));
         }
 
-        const BATCH_SIZE = 8;
+        const BATCH_SIZE = 32;
         for (let i = 0; i < pendingZipReads.length; i += BATCH_SIZE) {
             const batch = pendingZipReads.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map(async ({ f, fullPath, fileKey }) => {
-                try {
-                    const res = await window.api.invoke("read-zip-text", {
-                        zipPath: fullPath,
-                        entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"]
-                    });
-
-                    /** @type {string[]} */
-                    let fileProvided = [];
-                    /** @type {string[]} */
-                    let fileReqs = [];
-                    if (res.success && res.text) {
-                        if (res.file.endsWith(".json")) {
-                            const json = JSON.parse(res.text);
-                            if (json.id) fileProvided.push(json.id);
-                            if (Array.isArray(json.provides)) json.provides.forEach((/** @type {string} */ p) => fileProvided.push(p));
-                            if (json.depends) fileReqs = Object.keys(json.depends);
-                        } else if (res.file.endsWith(".toml")) {
-                            const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
-                            if (idMatch) fileProvided.push(idMatch[1]);
-                            const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
-                            let m;
-                            while ((m = blockRegex.exec(res.text)) !== null) {
-                                fileReqs.push(m[1]);
+            try {
+                const batchRes = await window.api.invoke("read-zip-text-batch", {
+                    items: batch.map(b => b.fullPath),
+                    entryNames: ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml"]
+                });
+                const resultsMap = (batchRes?.success && batchRes.results) ? batchRes.results : {};
+                for (const { f, fullPath, fileKey } of batch) {
+                    try {
+                        const res = resultsMap[fullPath];
+                        /** @type {string[]} */
+                        let fileProvided = [];
+                        /** @type {string[]} */
+                        let fileReqs = [];
+                        if (res?.success && res.text) {
+                            if (res.file.endsWith(".json")) {
+                                const json = JSON.parse(res.text);
+                                if (json.id) fileProvided.push(json.id);
+                                if (Array.isArray(json.provides)) json.provides.forEach((/** @type {string} */ p) => fileProvided.push(p));
+                                if (json.depends) fileReqs = Object.keys(json.depends);
+                            } else if (res.file.endsWith(".toml")) {
+                                const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
+                                if (idMatch) fileProvided.push(idMatch[1]);
+                                const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
+                                let m;
+                                while ((m = blockRegex.exec(res.text)) !== null) {
+                                    fileReqs.push(m[1]);
+                                }
                             }
                         }
-                    }
 
-                    if (modCacheObj) {
-                        modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
-                    }
-                    cacheChanged = true;
+                        if (modCacheObj) {
+                            modCacheObj[fullPath] = { key: fileKey, provided: fileProvided, reqs: fileReqs };
+                        }
+                        cacheChanged = true;
 
-                    fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
-                    if (fileReqs.length > 0) reqs[f] = fileReqs;
-                } catch (e) {}
-            }));
+                        fileProvided.forEach(p => provided.add(String(p).toLowerCase()));
+                        if (fileReqs.length > 0) reqs[f] = fileReqs;
+                    } catch (e) {}
+                }
+            } catch (e) {}
             await yieldUI();
         }
         

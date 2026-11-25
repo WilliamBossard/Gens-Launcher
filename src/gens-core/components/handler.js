@@ -677,14 +677,16 @@ class Handler {
       if (classJson.mavenFiles) {
         await this.downloadToDirectory(libraryDirectory, classJson.mavenFiles, 'classes-maven-custom')
       }
-      libs = await this.downloadToDirectory(libraryDirectory, classJson.libraries, 'classes-custom')
+      if (Array.isArray(classJson.libraries)) {
+        libs = await this.downloadToDirectory(libraryDirectory, classJson.libraries, 'classes-custom')
+      }
     }
 
     const parsed = this.version.libraries.filter((/** @type {any} */ lib) => {
       if (lib.downloads && lib.downloads.artifact && !this.parseRule(lib)) {
         /** @param {any} n */
         const getLibIdentity = (n) => { const p = String(n || '').split(':'); return `${p[0] || ''}:${p[1] || ''}:${p[3] || ''}`; };
-        if (!classJson || !classJson.libraries.some((/** @type {any} */ l) => l && getLibIdentity(l.name) === getLibIdentity(lib.name))) {
+        if (!classJson || !Array.isArray(classJson.libraries) || !classJson.libraries.some((/** @type {any} */ l) => l && getLibIdentity(l.name) === getLibIdentity(lib.name))) {
           return true
         }
       }

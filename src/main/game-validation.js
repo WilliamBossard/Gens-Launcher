@@ -393,7 +393,13 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
                 throw new Error(`Type quickPlay non autorisé : ${opts.quickPlay.type}`);
             }
             const id = String(opts.quickPlay.identifier || '').trim();
-            if (!id || id.length > 255 || /[\s\x00-\x1f]/.test(id)) {
+            const isSingleplayer = opts.quickPlay.type === 'singleplayer';
+            const invalidId = !id || id.length > 255 || (
+                isSingleplayer
+                    ? (/[\r\n\t\x00-\x1f/\\]/.test(id) || id === '.' || id === '..' || id.includes('..'))
+                    : /[\s\x00-\x1f]/.test(id)
+            );
+            if (invalidId) {
                 throw new Error('Identifiant quickPlay invalide.');
             }
             opts.quickPlay.identifier = id;

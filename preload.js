@@ -421,7 +421,7 @@ const validInvokeChannels = [
     "check-java", "scan-java-versions", "java:install-adoptium", "java:delete", "fetch-curseforge", "fetch-mojang-profile",
     "fetch-mojang-raw-skin", "extract-tar", "get-still-running", "force-stop-game",
     "check-for-updates", "check-shortcut-exists", "delete-desktop-shortcut",
-    "create-desktop-shortcut", "compress-folder", "read-zip-text", "extract-zip",
+    "create-desktop-shortcut", "compress-folder", "read-zip-text", "read-zip-text-batch", "extract-zip",
     "search-modrinth", "upload-mojang-skin", "reconnect-discord", "download-file-stream",
     "copy-image-to-sandbox", "copy-file-to-sandbox", "delete-msa-cache", "hash-file",
     "check-internet", "do-deb-update", "run-forge-installer", "duplicate-instance-folder", "get-folder-size",

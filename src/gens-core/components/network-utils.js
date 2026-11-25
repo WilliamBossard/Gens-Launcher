@@ -239,16 +239,17 @@ function pinnedHttpsRequest(urlStr, fetchInit, pinnedRecord) {
     const onAbort = () => {
       req.destroy(new Error('The operation was aborted'));
     };
+    req.on('error', reject);
     if (signal) {
       if (signal.aborted) {
-        onAbort();
+        const abortErr = new Error('The operation was aborted');
+        req.destroy(abortErr);
+        reject(abortErr);
         return;
       }
       signal.addEventListener('abort', onAbort, { once: true });
       req.on('close', () => signal.removeEventListener('abort', onAbort));
     }
-
-    req.on('error', reject);
     if (fetchInit.body != null && typeof fetchInit.body === 'string') {
       req.write(fetchInit.body);
     } else if (fetchInit.body != null && Buffer.isBuffer(fetchInit.body)) {

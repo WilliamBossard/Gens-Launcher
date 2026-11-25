@@ -344,11 +344,13 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
             } else {
                 if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
                 if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+                window.setUIState();
                 return;
             }
         } else if (!javaExists || isVersionIncompatible) {
             if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            window.setUIState();
             return;
         }
     }
@@ -548,6 +550,7 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
             sysLog("Erreur Fabric: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_fabric", "Erreur Fabric : ") + e.message, "error");
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            window.setUIState();
             return;
         }
     } else if (inst.loader === "quilt") {
@@ -604,6 +607,7 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
             sysLog("Erreur Quilt: " + e, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_quilt", "Erreur Quilt : ") + e.message, "error");
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            window.setUIState();
             return;
         }
     } else if (inst.loader === "forge" || inst.loader === "neoforge") {
@@ -621,12 +625,14 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
         if (!inst.loaderVersion) {
             if (ui.showToast) ui.showToast(window.t("msg_err_no_loader_version", `Version exacte de ${inst.loader} manquante.`), "error");
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            window.setUIState();
             return;
         }
         if (!/^[\w.\-]+$/.test(inst.loaderVersion)) {
             sysLog(`Version de loader invalide ou dangereuse : "${inst.loaderVersion}"`, true);
             if (ui.showToast) ui.showToast(window.t("msg_err_no_loader_version", `Version de ${inst.loader} invalide.`), "error");
             if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+            window.setUIState();
             return;
         }
 
@@ -691,6 +697,22 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
                     if (shaRes.ok) expectedSha1 = (await shaRes.text()).trim().toLowerCase().split(/\s/)[0];
                 } catch (/** @type {any} */ e) { sysLog("Hash SHA1 non disponible : " + e.message, true); }
 
+                if ((!expectedSha1 || !/^[a-f0-9]{40}$/i.test(expectedSha1)) && inst.loader === "forge") {
+                    const legacyVer = `${inst.version}-${inst.loaderVersion}-${inst.version}`;
+                    const legacyDlUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${legacyVer}/forge-${legacyVer}-installer.jar`;
+                    const legacyShaUrl = `${legacyDlUrl}.sha1`;
+                    try {
+                        const shaRes2 = await window.fetchWithTimeout(legacyShaUrl);
+                        if (shaRes2.ok) {
+                            const cand = (await shaRes2.text()).trim().toLowerCase().split(/\s/)[0];
+                            if (/^[a-f0-9]{40}$/i.test(cand)) {
+                                expectedSha1 = cand;
+                                downloadUrl = legacyDlUrl;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
                 if (!expectedSha1 || !/^[a-f0-9]{40}$/i.test(expectedSha1)) {
                     throw new Error(`Empreinte SHA1 officielle indisponible pour ${inst.loader} ${inst.loaderVersion}. Installation annulée par sécurité.`);
                 }
@@ -732,6 +754,8 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
                 if (ui.showToast) ui.showToast(window.t("msg_err_install_loader", "Impossible d'installer le chargeur pour cette version."), "error");
                 if (ui.setStatusText) ui.setStatusText(window.t("status_ready", "Prêt"));
                 if (ui.setProgressBar) ui.setProgressBar(-1);
+                if (ui.abortAutoLaunch) ui.abortAutoLaunch();
+                window.setUIState();
                 return;
             }
         }
@@ -746,7 +770,8 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
                         rootPath: instancePath
                     });
                     if (res.err) {
-                        sysLog(`Installation Forge échouée : ${res.err}`, true);
+                        sysLog(`Installation ${inst.loader} échouée : ${res.err}`, true);
+                        if (ui.showToast) ui.showToast(window.t("msg_warn_forge_fallback", `Installeur ${inst.loader} en échec (${res.err}), tentative de lancement direct...`), "warning");
                         opts.forge = installerPath;
                     } else {
                         sysLog(`Installation Forge terminée.`);

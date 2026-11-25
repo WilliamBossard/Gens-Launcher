@@ -185,11 +185,15 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                 }
                 const dest = path.join(destDir, entryName);
                 const resDest = path.resolve(dest);
-                if (!resDest.startsWith(resolvedTarget + path.sep) && resDest !== resolvedTarget) {
+                const normResDest = isWin ? resDest.toLowerCase() : resDest;
+                const normResolvedTarget = isWin ? resolvedTarget.toLowerCase() : resolvedTarget;
+                const isDirEntry = /\/$/.test(entryName);
+                const isInside = normResDest.startsWith(normResolvedTarget + path.sep);
+                if (!isInside && !(isDirEntry && normResDest === normResolvedTarget)) {
                     port.postMessage({ type: 'log', message: "ZIP SLIP bloqué dans extract-worker : " + entryName });
                     continue;
                 }
-                if (/\/$/.test(entryName)) {
+                if (isDirEntry) {
                     await ensureSafeVerifiedDir(resDest);
                     dirProcessed++;
                 } else {

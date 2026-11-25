@@ -133,6 +133,10 @@ module.exports = function setupGameHandlers(context) {
             };
             hardTimer = setTimeout(done, 5000);
             if (proc) {
+                if (proc.exitCode !== null || proc.signalCode !== null) {
+                    done();
+                    return;
+                }
                 proc.once('exit', done);
                 proc.once('close', done);
             }
@@ -271,6 +275,7 @@ module.exports = function setupGameHandlers(context) {
                 const fetchOptions = {
                     method: safeMethod,
                     headers,
+                    redirect: "manual",
                     signal: controller.signal
                 };
                 if (body && safeMethod === "POST") {
@@ -278,6 +283,9 @@ module.exports = function setupGameHandlers(context) {
                     fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
                 }
                 const response = await fetch(finalUrl.href, fetchOptions);
+                if (response.status >= 300 && response.status < 400) {
+                    throw new Error(`Redirection HTTP non autorisée (${response.status})`);
+                }
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const parsed = await response.json();
                 return { success: true, data: parsed };
@@ -306,8 +314,12 @@ module.exports = function setupGameHandlers(context) {
             try {
                 const response = await fetch(finalUrl.toString(), {
                     headers: { "User-Agent": `WilliamBossard/Gens-Launcher (wbossard@free.fr)`, "Accept": "application/json" },
+                    redirect: "manual",
                     signal: controller.signal
                 });
+                if (response.status >= 300 && response.status < 400) {
+                    throw new Error(`Redirection HTTP non autorisée (${response.status})`);
+                }
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const parsed = await response.json();
                 return { success: true, data: parsed };
@@ -325,6 +337,9 @@ module.exports = function setupGameHandlers(context) {
     });
 
     ipcMain.handle("force-stop-game", async (_, instanceId) => {
+        if (typeof instanceId !== 'string' || !instanceId.trim()) {
+            return { success: false, error: "Identifiant d'instance invalide." };
+        }
         const clientData = activeMinecraftClients.get(instanceId);
         if (clientData) {
             if (clientData.process) {
@@ -416,6 +431,7 @@ module.exports = function setupGameHandlers(context) {
             } catch (sandboxErr) {
                 const err = sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr);
                 mainLog(`[Sécurité] launch-game bloqué : ${err}`);
+                sendToWindow("mc-data", { instanceId: opts.instanceId, data: `[Sécurité] Lancement bloqué : ${err}` });
                 sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
                 return;
             }
@@ -423,6 +439,7 @@ module.exports = function setupGameHandlers(context) {
                 const javaCheck = await validateJavaExecutable(opts.javaPath);
                 if (!javaCheck.ok) {
                     mainLog(`[Sécurité] launch-game javaPath bloqué : ${javaCheck.message}`);
+                    sendToWindow("mc-data", { instanceId: opts.instanceId, data: `[Sécurité] Exécutable Java bloqué : ${javaCheck.message}` });
                     sendToWindow("mc-close", { instanceId: opts.instanceId, code: 1 });
                     return;
                 }

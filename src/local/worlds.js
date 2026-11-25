@@ -57,12 +57,22 @@ export function setup() {
         });
     };
 
+    /** @param {string} name */
+    const safeSegment = (name) => {
+        if (typeof name !== 'string') return '';
+        const base = path.basename(name);
+        if (!base || base === '.' || base === '..' || base !== name) return '';
+        return base;
+    };
+
     window.importOfficialWorld = async (/** @type {string} */ folderName) => {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const mcDir = path.join(getMinecraftSavesDir(), folderName);
-        const targetDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", folderName);
+        const safeFolder = safeSegment(folderName);
+        if (!safeFolder) return;
+        const mcDir = path.join(getMinecraftSavesDir(), safeFolder);
+        const targetDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", safeFolder);
         window.showLoading(t("msg_copy", "Copie en cours..."));
         await yieldUI();
         try {
@@ -192,12 +202,14 @@ export function setup() {
         if (store.selectedInstanceIdx === null) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
+        const safeFolder = safeSegment(folderName);
+        if (!safeFolder) return;
         const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
-        const src = path.join(savesDir, folderName);
-        let destName = folderName + t("lbl_copy_suffix", " - Copie");
+        const src = path.join(savesDir, safeFolder);
+        let destName = safeFolder + t("lbl_copy_suffix", " - Copie");
         let counter = 2;
         while (await window.existsSafe(path.join(savesDir, destName))) {
-            destName = `${folderName}${t("lbl_copy_suffix", " - Copie")} (${counter})`;
+            destName = `${safeFolder}${t("lbl_copy_suffix", " - Copie")} (${counter})`;
             counter++;
         }
         const dest = path.join(savesDir, destName);
@@ -225,8 +237,10 @@ export function setup() {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
+            const safeFolder = safeSegment(folderName);
+            if (!safeFolder) return;
             const savesDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves");
-            const src = path.join(savesDir, folderName);
+            const src = path.join(savesDir, safeFolder);
             window.showLoading(t("msg_deleting", "Suppression en cours..."));
             await yieldUI();
             try {
@@ -249,11 +263,13 @@ export function setup() {
             return;
         }
         const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
+        const safeFolder = safeSegment(folderName);
+        if (!safeFolder) return;
         const savesDir = path.join(instDir, "saves");
         const backupDir = path.join(instDir, "backups");
-        const src = path.join(savesDir, folderName);
+        const src = path.join(savesDir, safeFolder);
         if (!(await window.existsSafe(backupDir))) await fs.promises.mkdir(backupDir, { recursive: true });
-        const zipPath = path.join(backupDir, `${folderName}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`);
+        const zipPath = path.join(backupDir, `${safeFolder}_backup_${new Date().toISOString().replace(/[:\.]/g, "-")}.zip`);
         window.showLoading(t("msg_backup", "Création de la sauvegarde..."));
         await yieldUI();
         try {
@@ -334,11 +350,14 @@ export function setup() {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
+            const safeFolder = safeSegment(folderName);
+            const safeZip = safeSegment(zipName);
+            if (!safeFolder || !safeZip) return;
             const instDir = path.join(store.instancesRoot, window.safeDir(inst.name));
             const savesDir = path.join(instDir, "saves");
             const backupDir = path.join(instDir, "backups");
-            const targetWorldDir = path.join(savesDir, folderName);
-            const zipPath = path.join(backupDir, zipName);
+            const targetWorldDir = path.join(savesDir, safeFolder);
+            const zipPath = path.join(backupDir, safeZip);
             window.showLoading(t("msg_restore_loading", "Restauration de la sauvegarde..."));
             await yieldUI();
             const stamp = Date.now();

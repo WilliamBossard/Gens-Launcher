@@ -110,10 +110,12 @@ class Zip {
         const resDest = path.resolve(destPath);
         const normResDest = isWin ? resDest.toLowerCase() : resDest;
         const normResolvedTarget = isWin ? resolvedTarget.toLowerCase() : resolvedTarget;
-        if (!normResDest.startsWith(normResolvedTarget + path.sep) && normResDest !== normResolvedTarget) {
+        const isDirEntry = entryName.endsWith('/');
+        const isInside = normResDest.startsWith(normResolvedTarget + path.sep);
+        if (!isInside && !(isDirEntry && normResDest === normResolvedTarget)) {
           throw new Error(`Zip slip path traversal blocked: ${entryName}`);
         }
-        if (entryName.endsWith('/')) {
+        if (isDirEntry) {
           await ensureDir(resDest);
         } else {
           if (typeof entry.uncompressedSize === 'number' && byteState.totalBytes + entry.uncompressedSize > MAX_TOTAL_BYTES) {
@@ -171,9 +173,10 @@ class Zip {
   /**
    * Lit plusieurs entrées texte en un seul parcours de l'archive ZIP.
    * @param {string[]} fileNames
+   * @param {{ throwOnError?: boolean }} [options]
    * @returns {Promise<Record<string, string>>}
    */
-  async readEntriesAsText(fileNames) {
+  async readEntriesAsText(fileNames, options = {}) {
     /** @type {Record<string, string>} */
     const result = {};
     const pending = new Set(fileNames);
@@ -193,7 +196,9 @@ class Zip {
       } finally {
         await zipfile.close();
       }
-    } catch (_) {}
+    } catch (err) {
+      if (options && options.throwOnError) throw err;
+    }
     return result;
   }
 

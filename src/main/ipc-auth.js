@@ -9,6 +9,9 @@ module.exports = function setupAuthHandlers(context) {
     const { ipcMain, getMainWindow, safeDataDir, mainLog, path, fs, crypto, assertPathUnderSandbox } = context;
     const { encryptText, decryptText } = require("./crypto-utils");
 
+    /** @param {any} token */
+    const isValidBearerToken = (token) => typeof token === 'string' && token.length > 0 && token.length <= 8192 && !/[\r\n\0]/.test(token);
+
     let isAuthRunning = false;
     /** @type {any} */
     let activeMicrosoftAuthFlow = null;
@@ -80,6 +83,9 @@ module.exports = function setupAuthHandlers(context) {
 
     ipcMain.handle("upload-mojang-skin", async (_, { accessToken, skinData, variant }) => {
         try {
+            if (!isValidBearerToken(accessToken)) {
+                return { success: false, error: "Jeton d'accès invalide." };
+            }
             const buf = Buffer.isBuffer(skinData) ? skinData : Buffer.from(skinData || []);
             if (buf.length < 8 || buf.length > 2 * 1024 * 1024) {
                 return { success: false, error: "Taille du fichier skin invalide (max 2 Mo)." };
@@ -227,6 +233,9 @@ module.exports = function setupAuthHandlers(context) {
             const getHttps = (url) => url ? url.replace('http://', 'https://') : null;
 
             if (token) {
+                if (!isValidBearerToken(token)) {
+                    return { success: false, error: "Jeton d'accès invalide." };
+                }
                 const res = await fetch("https://api.minecraftservices.com/minecraft/profile", {
                     headers: { "Authorization": `Bearer ${token}` },
                     signal: AbortSignal.timeout(15000)
@@ -261,6 +270,9 @@ module.exports = function setupAuthHandlers(context) {
         try {
             let activeUuid = uuid;
             if (!activeUuid && name) {
+                if (typeof name !== "string" || !/^[a-zA-Z0-9_]{1,16}$/.test(name)) {
+                    throw new Error("Nom de joueur invalide");
+                }
                 const res = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`, {
                     signal: AbortSignal.timeout(15000)
                 });

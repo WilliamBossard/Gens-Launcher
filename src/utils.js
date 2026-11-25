@@ -248,7 +248,7 @@ window.appendLog = (/** @type {string} */ html) => {
         logOutput.removeChild(logOutput.firstChild);
     }
     const consoleContainer = document.getElementById("console-container");
-    const isConsoleVisible = !consoleContainer || (consoleContainer.style.display !== "none" && getComputedStyle(consoleContainer).display !== "none");
+    const isConsoleVisible = !consoleContainer || (consoleContainer.style.display !== "none" && !consoleContainer.classList.contains("hidden"));
     if (isConsoleVisible) {
         logOutput.scrollTop = logOutput.scrollHeight;
     }

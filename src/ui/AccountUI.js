@@ -517,7 +517,7 @@ export function setupAccountUI() {
         try {
             let finalUrl = urlToExport;
             if (!urlToExport.startsWith("data:")) {
-                const res = await fetch(urlToExport);
+                const res = await fetch(urlToExport, { signal: AbortSignal.timeout(15000) });
                 if (!res.ok) throw new Error("Impossible de récupérer le skin");
                 const blob = await res.blob();
                 finalUrl = URL.createObjectURL(blob);
@@ -600,7 +600,13 @@ export function setupAccountUI() {
             } catch (err) { console.warn("Face extraction error:", err); }
                 if (window.updateAccountDropdown) window.updateAccountDropdown();
                 if (window.renderAccountManager) window.renderAccountManager();
-                setTimeout(() => window.openSkinModal(), 1000);
+                const expectedRow = store.uiSelectedAccRow;
+                setTimeout(() => {
+                    const skinModal = document.getElementById("modal-skin");
+                    if (skinModal && skinModal.style.display !== "none" && store.uiSelectedAccRow === expectedRow) {
+                        window.openSkinModal();
+                    }
+                }, 1000);
             } else {
                 if (window.showToast) window.showToast(t("msg_err_skin_upload", "Erreur: ") + res.error, "error");
             }

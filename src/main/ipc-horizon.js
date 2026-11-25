@@ -1197,8 +1197,8 @@ module.exports = function setupHorizonHandlers(context) {
 
     ipcMain.handle('horizon:set-e2e-key', async (event, payload = {}) => {
         const passphrase = typeof payload === 'string' ? payload.trim() : String(payload?.passphrase || '').trim();
-        if (passphrase && passphrase.length < 4) {
-            return { success: false, error: "La passphrase E2E doit contenir au moins 4 caractères." };
+        if (passphrase && passphrase.length < 12) {
+            return { success: false, error: "La passphrase E2E doit contenir au moins 12 caractères." };
         }
         const res = await runHorizonE2EKeyOp({
             args: ['--set-e2e-key'],

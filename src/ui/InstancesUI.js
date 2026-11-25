@@ -33,9 +33,17 @@ export function invalidateScreenshotCache(instName) {
 export function setupInstances() {
     /** @type {(id: string) => any} */
     const $ = (id) => document.getElementById(id);
+    /** @type {Map<string, { versions: string[], expiresAt: number }>} */
+    const _loaderVersionsCache = new Map();
+    const LOADER_CACHE_TTL_MS = 5 * 60 * 1000;
     /** @param {string} loader
  * @param {string} mcVer */
 async function fetchLoaderVersions(loader, mcVer) {
+        const cacheKey = `${loader}:${mcVer}`;
+        const cached = _loaderVersionsCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.versions;
+        }
         const sortSemverDesc = (/** @type {string} */ a, /** @type {string} */ b) => {
             const [mainA, ...restA] = a.split('-');
             const [mainB, ...restB] = b.split('-');
@@ -75,17 +83,23 @@ async function fetchLoaderVersions(loader, mcVer) {
             ? window.fetchWithTimeout(u, { timeout: 10000, ...(opts || {}) })
             : fetch(u, opts);
 
+        /** @param {string[]} list */
+        const cacheAndReturn = (list) => {
+            _loaderVersionsCache.set(cacheKey, { versions: list, expiresAt: Date.now() + LOADER_CACHE_TTL_MS });
+            return list;
+        };
+
         if (loader === "fabric") {
             const res = await fetchFn(`https://meta.fabricmc.net/v2/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Fabric API HTTP ${res.status}`);
-            return (await res.json()).map((/** @type {any} */ d) => d.loader.version);
+            return cacheAndReturn((await res.json()).map((/** @type {any} */ d) => d.loader.version));
         }
         if (loader === "quilt") {
             const res = await fetchFn(`https://meta.quiltmc.org/v3/versions/loader/${mcVer}`);
             if (!res.ok) throw new Error(`Quilt API HTTP ${res.status}`);
             const data = await res.json();
             const versions = data.map((/** @type {any} */ d) => d.loader.version);
-            return versions.sort(sortSemverDesc);
+            return cacheAndReturn(versions.sort(sortSemverDesc));
         }
         if (loader === "forge") {
             try {
@@ -93,7 +107,7 @@ async function fetchLoaderVersions(loader, mcVer) {
                 if (res.ok) {
                     const all = await res.json();
                     const vers = all[mcVer] || [];
-                    if (vers.length > 0) return vers.map((/** @type {any} */ v) => v.split('-').pop()).sort(sortSemverDesc);
+                    if (vers.length > 0) return cacheAndReturn(vers.map((/** @type {any} */ v) => v.split('-').pop()).sort(sortSemverDesc));
                 }
             } catch (_) { /* fallback to mirror below */ }
             try {
@@ -101,7 +115,7 @@ async function fetchLoaderVersions(loader, mcVer) {
                 if (mirrorRes.ok) {
                     const data = await mirrorRes.json();
                     if (Array.isArray(data)) {
-                        return data.map((/** @type {any} */ item) => item.version).filter(Boolean).sort(sortSemverDesc);
+                        return cacheAndReturn(data.map((/** @type {any} */ item) => item.version).filter(Boolean).sort(sortSemverDesc));
                     }
                 }
             } catch (_) {}
@@ -109,14 +123,19 @@ async function fetchLoaderVersions(loader, mcVer) {
         }
         if (loader === "neoforge") {
             const parts = mcVer.split(".");
-            const p1 = parts.length > 2 ? parts[1] : parts[0];
-            const p2 = parts.length > 2 ? parts[2] : (parts[1] || "0");
-            const prefix = p1 + "." + p2 + ".";
+            let prefix;
+            if (parts[0] === "1") {
+                const p1 = parts[1] || "0";
+                const p2 = parts[2] || "0";
+                prefix = `${p1}.${p2}.`;
+            } else {
+                prefix = `${parts[0]}.${parts[1] || "0"}.`;
+            }
             const neoRes = await fetchFn("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
             if (!neoRes.ok) throw new Error(`NeoForge API HTTP ${neoRes.status}`);
             const neoDoc = new DOMParser().parseFromString(await neoRes.text(), "text/xml");
             const allVers = Array.from(neoDoc.querySelectorAll("version")).map(v => v.textContent || "");
-            return allVers.filter((/** @type {string} */ v) => v.startsWith(prefix)).sort(sortSemverDesc);
+            return cacheAndReturn(allVers.filter((/** @type {string} */ v) => v.startsWith(prefix)).sort(sortSemverDesc));
         }
         return [];
     }
@@ -154,14 +173,20 @@ async function fetchLoaderVersions(loader, mcVer) {
         const container = $('loader-version-container');
         const select = $('new-loader-version');
         if (!select) return;
-        select.innerHTML = "<option>" + t("msg_loading", "Chargement...") + "</option>";
+        select.innerHTML = "";
+        const loadingOpt = document.createElement("option");
+        loadingOpt.textContent = t("msg_loading", "Chargement...");
+        select.appendChild(loadingOpt);
         if (loader === "vanilla") { if (container) container.style.display = "none"; return; }
         if (container) container.style.display = "block";
         try {
             const versions = await fetchLoaderVersions(loader, mcVer);
             select.innerHTML = "";
             if (versions.length === 0) {
-                select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
+                const emptyOpt = document.createElement("option");
+                emptyOpt.value = "";
+                emptyOpt.textContent = t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer);
+                select.appendChild(emptyOpt);
             } else {
                 const frag = document.createDocumentFragment();
                 versions.forEach((/** @type {string} */ v) => {
@@ -172,7 +197,11 @@ async function fetchLoaderVersions(loader, mcVer) {
                 select.appendChild(frag);
             }
         } catch(e) {
-            select.innerHTML = `<option value="">${t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer)}</option>`;
+            select.innerHTML = "";
+            const errOpt = document.createElement("option");
+            errOpt.value = "";
+            errOpt.textContent = t("msg_loader_incompat_ver", `${loader} — Incompatible avec MC ${mcVer}`).replace("{ver}", mcVer);
+            select.appendChild(errOpt);
         }
     };
     window.selectInstance = async (/** @type {number} */ i) => {
