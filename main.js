@@ -49,7 +49,7 @@ let tray = null;
 /** @type {string | null} */
 let linuxUpdatePath = null;
 let globalOfflineMode = false;
-ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = val; });
+ipcMain.on("set-offline-mode", (_, val) => { globalOfflineMode = Boolean(val); });
 const safeDataDir = path.join(app.getPath("appData"), "GensLauncher");
 const logsDir = path.join(safeDataDir, "logs");
 const logPath = path.join(logsDir, `main-process_${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
@@ -874,6 +874,7 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
 
 ipcMain.on("set-taskbar-progress", (_, val) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (typeof val !== 'number' || !Number.isFinite(val)) return;
     mainWindow.setProgressBar(val < 0 ? -1 : val / 100);
 });
 ipcMain.on("hide-window", () => {

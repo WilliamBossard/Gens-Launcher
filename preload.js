@@ -485,6 +485,7 @@ contextBridge.exposeInMainWorld("api", {
         return ipcRenderer.invoke(channel, data);
     },
     on: (/** @type {any} */ channel, /** @type {any} */ func) => {
+        if (typeof func !== 'function') return;
         if (validReceiveChannels.includes(channel)) {
             const subscription = (/** @type {any} */ event, /** @type {any[]} */ ...args) => func(...args);
             ipcRenderer.on(channel, subscription);

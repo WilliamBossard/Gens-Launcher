@@ -12,6 +12,9 @@ function parseVersion(versionStr) {
   const snapMatch = str.match(/^(\d{2})w(\d{2})[a-z]$/i);
   if (snapMatch) {
     const year = parseInt(snapMatch[1], 10);
+    if (year >= 26) {
+      return { major: year, minor: 0, patch: 0 };
+    }
     // 22w11a+ correspond à Minecraft 1.19+ ; les snapshots antérieurs (ex: 14w10a) sont < 1.19
     return { major: 1, minor: year >= 22 ? 19 : 0, patch: 0 };
   }

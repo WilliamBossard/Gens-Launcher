@@ -775,7 +775,10 @@ class Handler {
    */
   async extractPackage(options = this.options) {
     if (options.clientPackage.startsWith('http')) {
-      await this.downloadAsync(options.clientPackage, options.root, 'clientPackage.zip', true, 'client-package')
+      const dlRes = await this.downloadAsync(options.clientPackage, options.root, 'clientPackage.zip', true, 'client-package')
+      if (!dlRes || dlRes.failed) {
+        throw new Error(`Impossible de télécharger clientPackage : ${options.clientPackage}`);
+      }
       options.clientPackage = path.join(options.root, 'clientPackage.zip')
     }
     await new Zip(options.clientPackage).extractAllTo(options.root, true)

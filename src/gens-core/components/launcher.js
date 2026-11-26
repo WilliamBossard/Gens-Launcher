@@ -104,15 +104,16 @@ class MCLCore extends EventEmitter {
       jvm = jvm.concat(jvmArgs)
 
       if (this.options.customArgs) jvm = jvm.concat(this.options.customArgs)
-      if (this.options.overrides.logj4ConfigurationFile) {
-        jvm.push(`-Dlog4j.configurationFile=${path.resolve(this.options.overrides.logj4ConfigurationFile)}`)
+      const log4jConfig = this.options.overrides.log4jConfigurationFile || this.options.overrides.logj4ConfigurationFile;
+      if (log4jConfig) {
+        jvm.push(`-Dlog4j.configurationFile=${path.resolve(log4jConfig)}`)
       }
       // https://help.minecraft.net/hc/en-us/articles/4416199399693-Security-Vulnerability-in-Minecraft-Java-Edition
       const parsedVer = this.handler.parseVersion(versionFile.id)
       if (parsedVer.major === 1 && parsedVer.minor === 18 && parsedVer.patch === 0) jvm.push('-Dlog4j2.formatMsgNoLookups=true')
       if (parsedVer.major === 1 && parsedVer.minor === 17) jvm.push('-Dlog4j2.formatMsgNoLookups=true')
       if (parsedVer.major === 1 && parsedVer.minor < 17) {
-        if (!this.options.overrides.logj4ConfigurationFile) {
+        if (!log4jConfig) {
           const configPath = path.resolve(this.options.overrides.cwd || this.options.root)
           const xmlName = parsedVer.minor >= 12 ? 'log4j2_112-116.xml' : (parsedVer.minor >= 7 ? 'log4j2_17-111.xml' : null);
           if (xmlName) {

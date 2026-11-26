@@ -297,8 +297,8 @@ export async function performAutoBackup(inst, mode, ui) {
         sysLog(`Auto-backup erreur: ${e.message}`, true); 
     } finally { 
         inst._backupRunning = false; 
+        if (ui && ui.hideLoading) ui.hideLoading();
     }
-    if (ui && ui.hideLoading) ui.hideLoading();
 }
 
 /**

@@ -1063,6 +1063,9 @@ window.refreshHorizonQuota = async () => {
         </div>`;
     } else {
         el.innerHTML = window._lastQuotaHtml;
+        el.querySelector("#btn-refresh-quota")?.addEventListener("click", () => {
+            window.refreshHorizonQuota();
+        });
     }
     await window.api.invoke("call-horizon", ["--quota"]);
 };

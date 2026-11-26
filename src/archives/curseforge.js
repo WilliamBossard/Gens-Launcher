@@ -406,7 +406,7 @@ export function setup() {
                     await fs.promises.cp(path.join(srcOverrides, item), destPath, { recursive: true, force: true });
                 }
             }
-            const filesToDownload = manifest.files;
+            const filesToDownload = Array.isArray(manifest.files) ? manifest.files : [];
             const total = filesToDownload.length;
             window.showLoading(t("msg_dl_mods_pack", "Téléchargement des mods") + ` (0/${total})...`, 0);
             await downloadCurseForgeFiles({
@@ -670,22 +670,26 @@ export function setup() {
             };
             const instDir = path.join(store.instancesRoot, window.safeDir(finalName));
             if (!(await window.existsSafe(instDir))) await fs.promises.mkdir(instDir, { recursive: true });
+            const BLOCKED_ZIP_IMPORT_ITEMS = new Set(["instance.json", "instance.lock", "gens"]);
             const filesDir = path.join(extractRoot, "files");
+            const resolvedInstDir = path.resolve(instDir);
             if (await window.existsSafe(filesDir)) {
                 const items = await fs.promises.readdir(filesDir);
                 for (let item of items) {
-                    const destPath = path.join(instDir, item);
+                    if (BLOCKED_ZIP_IMPORT_ITEMS.has(item.toLowerCase())) continue;
+                    const destPath = path.resolve(resolvedInstDir, item);
+                    if (!window.isPathInsideDir(destPath, resolvedInstDir)) continue;
                     if (await window.existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
                     await fs.promises.rename(path.join(filesDir, item), destPath);
                 }
             } else {
                 const items = await fs.promises.readdir(extractRoot);
                 for (let item of items) {
-                    if (item !== "instance.json") {
-                        const destPath = path.join(instDir, item);
-                        if (await window.existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
-                        await fs.promises.rename(path.join(extractRoot, item), destPath);
-                    }
+                    if (BLOCKED_ZIP_IMPORT_ITEMS.has(item.toLowerCase())) continue;
+                    const destPath = path.resolve(resolvedInstDir, item);
+                    if (!window.isPathInsideDir(destPath, resolvedInstDir)) continue;
+                    if (await window.existsSafe(destPath)) await fs.promises.rm(destPath, { recursive: true, force: true });
+                    await fs.promises.rename(path.join(extractRoot, item), destPath);
                 }
             }
             instData._localConfigUpdatedAt = Date.now();

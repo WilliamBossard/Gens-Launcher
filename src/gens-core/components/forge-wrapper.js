@@ -132,8 +132,6 @@ async function resolveForgedWrapped(handler) {
         json.libraries[0].downloads.artifact.url = repoBase + json.libraries[0].downloads.artifact.path;
       }
     }
-  } else if (json.libraries && json.libraries[0]) {
-    delete json.libraries[0];
   }
 
   json.libraries = handler.cleanUp(json.libraries);

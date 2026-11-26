@@ -53,8 +53,12 @@ export function setup() {
         if (!inst) return;
         const dpDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", worldName, "datapacks");
         if (!window.isPathInsideDir(dpDir, path.join(store.instancesRoot, window.safeDir(inst.name), "saves"))) return;
-        const nextName = isEnabled ? filename.replace(/\.disabled$/, "") : (filename.endsWith(".disabled") ? filename : `${filename}.disabled`);
-        await fs.promises.rename(path.join(dpDir, filename), path.join(dpDir, nextName));
+        const safeFile = path.basename(filename);
+        const srcPath = path.join(dpDir, safeFile);
+        const nextName = isEnabled ? safeFile.replace(/\.disabled$/, "") : (safeFile.endsWith(".disabled") ? safeFile : `${safeFile}.disabled`);
+        const destPath = path.join(dpDir, nextName);
+        if (!window.isPathInsideDir(srcPath, dpDir) || !window.isPathInsideDir(destPath, dpDir)) return;
+        await fs.promises.rename(srcPath, destPath);
     };
 
     /**
@@ -67,7 +71,8 @@ export function setup() {
         if (!inst) return;
         const dpDir = path.join(store.instancesRoot, window.safeDir(inst.name), "saves", worldName, "datapacks");
         if (!window.isPathInsideDir(dpDir, path.join(store.instancesRoot, window.safeDir(inst.name), "saves"))) return;
-        const target = path.join(dpDir, filename);
+        const target = path.join(dpDir, path.basename(filename));
+        if (!window.isPathInsideDir(target, dpDir)) return;
         if (await window.existsSafe(target)) {
             await fs.promises.unlink(target);
         }

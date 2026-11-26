@@ -187,9 +187,9 @@ module.exports = function (context) {
                 return { success: true, updated: alreadyExists };
             } else if (process.platform === 'darwin') {
                 const shortcutPath = path.join(desktopPath, `${safeName}.app`);
-                const escapedAppExec = String(appExecutable).replace(/[\\"$`]/g, '\\$&');
-                const safeArg = escapedInstanceName.replace(/[\\"$`]/g, '\\$&');
-                const script = `do shell script "\\"${escapedAppExec}\\" \\"--auto-launch=${safeArg}\\" > /dev/null 2>&1 &"`;
+                const escapedAppExec = String(appExecutable).replace(/[\\"]/g, '\\$&');
+                const safeArg = escapedInstanceName.replace(/[\\"]/g, '\\$&');
+                const script = `do shell script "${'\\"'}${escapedAppExec}${'\\"'} ${'\\"'}${`--auto-launch=${safeArg}`}${'\\"'} > /dev/null 2>&1 &"`;
                 const { execFile } = require('child_process');
 
                 await new Promise((resolve, reject) => {

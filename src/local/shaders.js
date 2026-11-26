@@ -43,23 +43,27 @@ export function setup() {
     };
 
     window.toggleShader = async (/** @type {string} */ filename, /** @type {boolean} */ isEnabled) => {
-        if (store.selectedInstanceIdx === null) return;
+        if (store.selectedInstanceIdx === null || !filename) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
-        await fs.promises.rename(
-            path.join(targetPath, filename),
-            path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
-        );
+        const shaderDir = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
+        const safeFile = path.basename(filename);
+        const srcPath = path.join(shaderDir, safeFile);
+        const destPath = path.join(shaderDir, isEnabled ? safeFile.replace(".disabled", "") : safeFile + ".disabled");
+        if (!window.isPathInsideDir(srcPath, shaderDir) || !window.isPathInsideDir(destPath, shaderDir)) return;
+        await fs.promises.rename(srcPath, destPath);
         window.renderShadersManager();
     };
 
     window.deleteShader = async (/** @type {string} */ filename) => {
+        if (!filename) return;
         if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce shader ?"), true)) {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
-            const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks", filename);
+            const shaderDir = path.join(store.instancesRoot, window.safeDir(inst.name), "shaderpacks");
+            const targetPath = path.join(shaderDir, path.basename(filename));
+            if (!window.isPathInsideDir(targetPath, shaderDir)) return;
             try {
                 if (await window.existsSafe(targetPath)) {
                     await fs.promises.unlink(targetPath);

@@ -15,6 +15,7 @@ const { pipeStreams } = require('./zip-utils');
  *   downloadFile?: any;
  *   validateSandboxPath: (p: string) => Promise<string>;
  *   invalidateJavaScanCache?: () => void;
+ *   registerActiveWorker?: (worker: any) => void;
  * }} deps
  */
 function setupJavaInstallerHandlers({
@@ -26,7 +27,8 @@ function setupJavaInstallerHandlers({
     crypto,
     downloadFile,
     validateSandboxPath,
-    invalidateJavaScanCache
+    invalidateJavaScanCache,
+    registerActiveWorker
 }) {
     let _javaInstallInProgress = false;
 
@@ -59,6 +61,7 @@ function setupJavaInstallerHandlers({
                     allowInternalSymlinks
                 }
             });
+            if (typeof registerActiveWorker === 'function') registerActiveWorker(worker);
             timer = setTimeout(() => {
                 worker.terminate().catch(() => {});
                 resolve({ success: false, error: "Délai d'attente dépassé lors de l'extraction de Java." });

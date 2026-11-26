@@ -185,8 +185,9 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                 }
                 const dest = path.join(destDir, entryName);
                 const resDest = path.resolve(dest);
-                const normResDest = isWin ? resDest.toLowerCase() : resDest;
-                const normResolvedTarget = isWin ? resolvedTarget.toLowerCase() : resolvedTarget;
+                const effectiveIsWin = isWin || process.platform === 'win32';
+                const normResDest = effectiveIsWin ? resDest.toLowerCase() : resDest;
+                const normResolvedTarget = effectiveIsWin ? resolvedTarget.toLowerCase() : resolvedTarget;
                 const isDirEntry = /\/$/.test(entryName);
                 const isInside = normResDest.startsWith(normResolvedTarget + path.sep);
                 if (!isInside && !(isDirEntry && normResDest === normResolvedTarget)) {

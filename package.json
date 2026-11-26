@@ -24,15 +24,15 @@
     "electron-updater": "^6.8.12"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
-    "electron": "^45.4.1",
+    "@types/node": "^26.6.11",
+    "electron": "^45.5.0",
     "electron-builder": "^26.18.1",
     "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.gens.launcher",
     "productName": "Gens Launcher",
-    "electronVersion": "45.4.1",
+    "electronVersion": "45.5.0",
     "directories": {
       "output": "dist"
     },

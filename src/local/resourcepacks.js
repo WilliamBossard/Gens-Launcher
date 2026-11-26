@@ -43,23 +43,27 @@ export function setup() {
     };
 
     window.toggleResourcePack = async (/** @type {string} */ filename, /** @type {boolean} */ isEnabled) => {
-        if (store.selectedInstanceIdx === null) return;
+        if (store.selectedInstanceIdx === null || !filename) return;
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
-        const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
-        await fs.promises.rename(
-            path.join(targetPath, filename),
-            path.join(targetPath, isEnabled ? filename.replace(".disabled", "") : filename + ".disabled")
-        );
+        const rpDir = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
+        const safeFile = path.basename(filename);
+        const srcPath = path.join(rpDir, safeFile);
+        const destPath = path.join(rpDir, isEnabled ? safeFile.replace(".disabled", "") : safeFile + ".disabled");
+        if (!window.isPathInsideDir(srcPath, rpDir) || !window.isPathInsideDir(destPath, rpDir)) return;
+        await fs.promises.rename(srcPath, destPath);
         window.renderResourcePacksManager();
     };
 
     window.deleteResourcePack = async (/** @type {string} */ filename) => {
+        if (!filename) return;
         if (await window.showCustomConfirm(t("msg_delete_confirm", "Supprimer ce pack ?"), true)) {
             if (store.selectedInstanceIdx === null) return;
             const inst = store.allInstances[store.selectedInstanceIdx];
             if (!inst) return;
-            const targetPath = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks", filename);
+            const rpDir = path.join(store.instancesRoot, window.safeDir(inst.name), "resourcepacks");
+            const targetPath = path.join(rpDir, path.basename(filename));
+            if (!window.isPathInsideDir(targetPath, rpDir)) return;
             try {
                 if (await window.existsSafe(targetPath)) {
                     await fs.promises.unlink(targetPath);

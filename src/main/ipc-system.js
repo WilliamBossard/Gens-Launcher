@@ -226,6 +226,7 @@ module.exports = function setupSystemHandlers(context) {
                         collectFailedEntries: true
                     }
                 });
+                if (typeof context.registerActiveWorker === 'function') context.registerActiveWorker(worker);
                 timer = setTimeout(() => {
                     worker.terminate().catch(() => {});
                     resolve({ success: false, error: "Délai d'attente dépassé lors de l'extraction ZIP." });

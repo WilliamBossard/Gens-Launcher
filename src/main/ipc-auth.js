@@ -128,11 +128,19 @@ module.exports = function setupAuthHandlers(context) {
         }
     });
 
+    /** @type {Map<string, Promise<any>>} */
+    const inFlightRefreshes = new Map();
+
     ipcMain.handle("refresh-microsoft", async (_, sessionLabel) => {
+        if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
+            return { success: false, error: "Identifiant de session invalide." };
+        }
+        const existing = inFlightRefreshes.get(sessionLabel);
+        if (existing) {
+            return existing;
+        }
+        const refreshPromise = (async () => {
         try {
-            if (typeof sessionLabel !== "string" || !/^gens-[0-9a-f-]{36}$/i.test(sessionLabel)) {
-                return { success: false, error: "Identifiant de session invalide." };
-            }
             const MicrosoftAuth = require("../gens-core/components/auth.js");
             const cacheFile = path.join(safeDataDir, "msa-cache", sessionLabel + '.json');
             
@@ -192,6 +200,13 @@ module.exports = function setupAuthHandlers(context) {
             const msg = err instanceof Error ? err.message : String(err);
             mainLog("Erreur refresh token (Reconnexion requise) : " + msg);
             return { success: false, error: msg };
+        }
+        })();
+        inFlightRefreshes.set(sessionLabel, refreshPromise);
+        try {
+            return await refreshPromise;
+        } finally {
+            inFlightRefreshes.delete(sessionLabel);
         }
     });
 

@@ -426,11 +426,15 @@ export function setupLauncher() {
                                     const targetMod = analysis.mod.toLowerCase().replace(/[^a-z0-9]/g, "");
                                     let disabledCount = 0;
                                     if (targetMod.length >= 3) {
+                                        const rawModNorm = analysis.mod.toLowerCase().trim();
+                                        const escMod = rawModNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                        const strictModRe = new RegExp(`^${escMod}(?:[-_.](?:v?\\d|mc|fabric|forge|neoforge|quilt)|$)`, 'i');
                                         for (const f of files) {
                                             if (!f.endsWith(".jar")) continue;
-                                            const baseNoJar = f.slice(0, -4).toLowerCase().replace(/[^a-z0-9]/g, "");
+                                            const rawBase = f.slice(0, -4);
+                                            const baseNoJar = rawBase.toLowerCase().replace(/[^a-z0-9]/g, "");
                                             if (!baseNoJar || baseNoJar.length < 3) continue;
-                                            if (baseNoJar === targetMod || (targetMod.length >= 4 && (baseNoJar.startsWith(targetMod) || baseNoJar.endsWith(targetMod)))) {
+                                            if (baseNoJar === targetMod || strictModRe.test(rawBase)) {
                                                 await fs.promises.rename(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
                                                 disabledCount++;
                                             }

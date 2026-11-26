@@ -704,7 +704,8 @@ module.exports = function setupGameHandlers(context) {
         crypto: context.crypto,
         downloadFile: context.downloadFile,
         validateSandboxPath,
-        invalidateJavaScanCache: () => context.invalidateJavaScanCache?.()
+        invalidateJavaScanCache: () => context.invalidateJavaScanCache?.(),
+        registerActiveWorker: context.registerActiveWorker
     });
 
     ipcMain.handle("check-internet", async () => {

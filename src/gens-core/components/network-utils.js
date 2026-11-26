@@ -74,11 +74,10 @@ async function pMap(array, limit, asyncCallback) {
     });
     results.push(p);
     if (limit <= array.length) {
-      const e = p.finally(() => {
+      const e = p.catch(() => {}).finally(() => {
         const index = executing.indexOf(e);
         if (index !== -1) executing.splice(index, 1);
       });
-      e.catch(() => {});
       executing.push(e);
       if (executing.length >= limit) {
         await Promise.race(executing);

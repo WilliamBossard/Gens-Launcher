@@ -202,6 +202,9 @@ function setupUpdater(context) {
                     }, 10000);
                     req.on('response', (res) => {
                         let data = '';
+                        res.on('error', (err) => {
+                            finish({ success: false, error: err instanceof Error ? err.message : String(err) });
+                        });
                         res.on('data', (c) => {
                             if (data.length < 512 * 1024) data += c;
                         });

@@ -111,7 +111,7 @@ export function setup() {
                 }
             }
 
-            const BLOCKED_ITEMS = new Set(["mmc-pack.json", "instance.cfg", ".packignore", "instance.json", "instance.lock"]);
+            const BLOCKED_ITEMS = new Set(["mmc-pack.json", "instance.cfg", ".packignore", "instance.json", "instance.lock", "gens", "saves", "resourcepacks"]);
             const entries = await fs.promises.readdir(contentSrc);
             for (const item of entries) {
                 if (BLOCKED_ITEMS.has(item.toLowerCase())) continue;

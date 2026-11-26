@@ -340,6 +340,9 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
             if (newJava) {
                 jPath = newJava;
                 inst.javaPath = newJava;
+                javaToTest = (newJava === "javaw" || newJava === "java") ? "java" : newJava;
+                if (javaToTest.toLowerCase().endsWith("javaw.exe")) javaToTest = javaToTest.slice(0, -9) + "java.exe";
+                else if (javaToTest.toLowerCase().endsWith("javaw")) javaToTest = javaToTest.slice(0, -5) + "java";
                 window.safeWriteJSONAsync(store.instanceFile, store.allInstances);
             } else {
                 if (ui.setStatusText) ui.setStatusText(window.t("msg_err_java", "Erreur Java"));
@@ -640,18 +643,25 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
         const hasInstallers = await window.existsSafe(installersDir);
         if (!hasInstallers) await fs.promises.mkdir(installersDir, { recursive: true });
 
-        const installerName = `${inst.loader}-${inst.loaderVersion}-installer.jar`;
+        const installerName = `${inst.loader}-${inst.version}-${inst.loaderVersion}-installer.jar`;
         const installerPath = path.join(installersDir, installerName);
+
+        /** @param {string} dirName */
+        const matchesLoaderProfileDir = (dirName) => {
+            const lower = dirName.toLowerCase();
+            if (!lower.includes(inst.loader)) return false;
+            if (inst.loader === "neoforge" && inst.loaderVersion) {
+                return dirName.includes(inst.loaderVersion);
+            }
+            return dirName.includes(inst.version) && (!inst.loaderVersion || dirName.includes(inst.loaderVersion));
+        };
 
         let needsInstall = true;
         const versionsDir = path.join(instancePath, "versions");
         const hasVersionsDir = await window.existsSafe(versionsDir);
         if (hasVersionsDir) {
             const subDirs = await fs.promises.readdir(versionsDir);
-            const forgeDir = subDirs.find((/** @type {string} */ d) => {
-                const lower = d.toLowerCase();
-                return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
-            });
+            const forgeDir = subDirs.find(matchesLoaderProfileDir);
             if (forgeDir) {
                 const customJsonFile = path.join(versionsDir, forgeDir, `${forgeDir}.json`);
                 const hasCustomJson = await window.existsSafe(customJsonFile);
@@ -778,10 +788,7 @@ export async function launchInstance(inst, acc, ui, extraOpts = {}) {
                         const instVersionsDir = path.join(instancePath, "versions");
                         if (await window.existsSafe(instVersionsDir)) {
                             const instSubDirs = await fs.promises.readdir(instVersionsDir);
-                            const forgeDir = instSubDirs.find((/** @type {string} */ d) => {
-                                const lower = d.toLowerCase();
-                                return lower.includes(inst.loader) && d.includes(inst.version) && (!inst.loaderVersion || d.includes(inst.loaderVersion));
-                            });
+                            const forgeDir = instSubDirs.find(matchesLoaderProfileDir);
                             if (forgeDir) {
                                 opts.version.custom = forgeDir;
                             } else {
