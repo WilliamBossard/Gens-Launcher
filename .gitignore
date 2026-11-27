@@ -1,5 +1,5 @@
 node_modules/
-instances/
+/instances/
 instances.json
 accounts.json
 *.log
