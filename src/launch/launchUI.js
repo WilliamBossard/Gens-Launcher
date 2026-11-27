@@ -114,14 +114,14 @@ export function setupLauncher() {
             if (perc === lastProgressPerc && payload.task < payload.total) return;
             lastProgressPerc = perc;
             const displayTxt = perc === 100 ? t("msg_verifying", "Vérification...") : `${t("msg_dl", "Téléchargement :")} ${perc}%`;
-            const pBar = document.getElementById("progress-bar");
-            if (pBar) pBar.style.width = perc + "%";
+            const pBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("progress-bar"));
+            if (pBar) pBar.value = perc;
             const sText = document.getElementById("status-text");
             if (sText) sText.innerText = displayTxt;
             const autoStatus = document.getElementById("auto-status-text");
             if (autoStatus) autoStatus.innerText = displayTxt;
-            const autoBar = document.getElementById("auto-progress-bar");
-            if (autoBar) autoBar.style.width = perc + "%";
+            const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
+            if (autoBar) autoBar.value = perc;
             window.api.send("set-taskbar-progress", perc);
             if (perc % 10 === 0 && perc !== lastLogPerc) {
                 lastLogPerc = perc;
@@ -160,10 +160,10 @@ export function setupLauncher() {
         if (store.selectedInstanceIdx === null) return;
         const selectedInst = store.allInstances[store.selectedInstanceIdx];
         if (selectedInst && selectedInst.name === instanceId) {
-            const pBar = document.getElementById("progress-bar");
-            if (pBar) pBar.style.width = "0%";
-            const autoBar = document.getElementById("auto-progress-bar");
-            if (autoBar) autoBar.style.width = "0%";
+            const pBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("progress-bar"));
+            if (pBar) pBar.value = 0;
+            const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
+            if (autoBar) autoBar.value = 0;
             window.api.send("set-taskbar-progress", -1);
             const statusText = document.getElementById("status-text");
             if (statusText) statusText.innerText = t("msg_game_running", "Jeu en cours d'exécution...");
@@ -319,8 +319,8 @@ export function setupLauncher() {
                 }
                 const statusEl = document.getElementById("status-text");
                 if (statusEl) statusEl.innerText = t("status_ready", "Prêt");
-                const pBar = document.getElementById("progress-bar");
-                if (pBar) pBar.style.width = "0%";
+                const pBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("progress-bar"));
+                if (pBar) pBar.value = 0;
                 window.selectInstance(store.selectedInstanceIdx);
             }
         }
@@ -514,8 +514,8 @@ export function setupLauncher() {
                             if (overlay) overlay.style.display = "flex";
                             window.api.send("show-window");
                             setAutoStatus(t("msg_cloud_up", "Sauvegarde sur le Cloud..."));
-                            const autoBar = document.getElementById("auto-progress-bar");
-                            if (autoBar) autoBar.style.width = "0%";
+                            const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
+                            if (autoBar) autoBar.value = 0;
                         } else {
                             const statusEl = document.getElementById("status-text");
                             if (statusEl) statusEl.innerText = t("msg_cloud_up", "Sauvegarde sur le Cloud en cours...");
@@ -539,8 +539,8 @@ export function setupLauncher() {
                         if (!isAutoClose) {
                             const statusEl = document.getElementById("status-text");
                             if (statusEl) statusEl.innerText = t("status_ready", "Prêt");
-                            const pBar = document.getElementById("progress-bar");
-                            if (pBar) pBar.style.width = "0%";
+                            const pBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("progress-bar"));
+                            if (pBar) pBar.value = 0;
                         }
                     }
                 }
@@ -582,16 +582,11 @@ export function setupLauncher() {
                 if (el) el.innerText = text;
             },
             setProgressBar: (/** @type {number} */ perc) => {
-                const el = document.getElementById("progress-bar");
-                if (el) {
-                    if (perc < 0) el.style.width = "0%";
-                    else el.style.width = perc + "%";
-                }
-                const autoBar = document.getElementById("auto-progress-bar");
-                if (autoBar) {
-                    if (perc < 0) autoBar.style.width = "0%";
-                    else autoBar.style.width = perc + "%";
-                }
+                const clamped = perc < 0 ? 0 : Math.min(100, perc);
+                const el = /** @type {HTMLProgressElement | null} */ (document.getElementById("progress-bar"));
+                if (el) el.value = clamped;
+                const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
+                if (autoBar) autoBar.value = clamped;
                 window.api.send("set-taskbar-progress", perc);
             },
             showToast: (/** @type {string} */ msg, /** @type {any} */ type) => window.showToast(msg, type),

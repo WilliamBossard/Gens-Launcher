@@ -29,8 +29,7 @@ export function createCurseForgeBuilderCard(mod, builderSelectedMods) {
         : `<div class="u-s277"></div>`;
 
     const card = document.createElement("div");
-    card.className = "catalog-card";
-    card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
+    card.className = "catalog-card catalog-card-builder";
     card.innerHTML = `
         ${iconHtml}
         <div class="u-s278">

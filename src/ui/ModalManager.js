@@ -9,13 +9,7 @@ export function showJavaTypeModal(version, t = window.t) {
     return new Promise((resolve) => {
         const modal = document.createElement("div");
         modal.id = "modal-java-choice";
-        modal.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 99999; font-family: sans-serif; color: var(--text, #fff);
-            opacity: 0; transition: opacity 0.2s ease-in-out;
-        `;
+        modal.className = "dynamic-modal-backdrop";
 
         const esc = typeof window.escapeHTML === "function" ? window.escapeHTML : (/** @type {string} */ s) => String(s);
         modal.innerHTML = `
@@ -108,13 +102,7 @@ export function showE2EKeyPromptModal(reasonCode, t = window.t) {
     return new Promise((resolve) => {
         const modal = document.createElement("div");
         modal.id = "modal-e2e-key-prompt";
-        modal.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(5px);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 99999; font-family: sans-serif; color: var(--text, #fff);
-            opacity: 0; transition: opacity 0.2s ease-in-out;
-        `;
+        modal.className = "dynamic-modal-backdrop is-dark";
 
         const esc = window.escapeHTML ? window.escapeHTML : (/** @type {string} */ s) => String(s);
         const title = esc(t("horizon_e2e_modal_title", "Clé de déchiffrement E2E requise"));

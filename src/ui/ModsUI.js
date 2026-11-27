@@ -1075,8 +1075,7 @@ if (!isDependency) {
                         : `<div class="u-s277"></div>`;
                     
                     const card = document.createElement("div");
-                    card.className = "catalog-card";
-                    card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
+                    card.className = "catalog-card catalog-card-builder";
                     card.innerHTML = `
                         ${iconHtml}
                         <div class="u-s278">
@@ -1179,7 +1178,7 @@ if (!isDependency) {
             const safeId = window.escapeHTML(mod.id);
             const safeName = window.escapeHTML(mod.name);
             const item = document.createElement("div");
-            item.style.cssText = "display:flex; flex-direction:column; background:rgba(0,0,0,0.2); border:1px solid var(--border); padding:8px; border-radius:4px; gap:4px;";
+            item.className = "builder-selected-item";
             item.innerHTML = `
                 <div class="u-s285">
                     <span title="${safeName}" class="u-s286">${safeName}</span>

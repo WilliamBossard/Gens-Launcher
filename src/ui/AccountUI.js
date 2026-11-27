@@ -203,6 +203,12 @@ export function setupAccountUI() {
                 htmlEl.classList.toggle('selected', idx === index);
             });
         }
+        const btnUse = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-use-acc"));
+        const btnDel = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-del-acc"));
+        const btnSkin = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-skin-acc"));
+        if (btnUse) btnUse.disabled = (store.uiSelectedAccRow === null || store.uiSelectedAccRow === store.selectedAccountIdx);
+        if (btnDel) btnDel.disabled = (store.uiSelectedAccRow === null);
+        if (btnSkin) btnSkin.disabled = (store.uiSelectedAccRow === null);
     };
     window.useSelectedRow = async () => {
         if (store.uiSelectedAccRow !== null) {

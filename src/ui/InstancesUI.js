@@ -939,9 +939,7 @@ async function fetchLoaderVersions(loader, mcVer) {
         defaultGalleryIcons.forEach(icon => {
             const img = document.createElement("img");
             img.src = icon;
-            img.style.cssText = "width:64px;height:64px;cursor:pointer;border:2px solid transparent;border-radius:4px;";
-            img.addEventListener("mouseover", () => img.style.borderColor = "var(--accent)");
-            img.addEventListener("mouseout",  () => img.style.borderColor = "transparent");
+            img.className = "icon-gallery-thumb";
             img.addEventListener("click",     () => window.selectGalleryIcon(icon));
             grid.appendChild(img);
         });

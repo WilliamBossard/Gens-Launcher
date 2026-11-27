@@ -428,9 +428,9 @@ window.showLoading = (text = "", percent = null) => {
     const overlay = document.getElementById("loading-overlay");
     if (overlay) overlay.style.display = "flex";
     const autoStatus = document.getElementById("auto-status-text");
-    const autoBar = document.getElementById("auto-progress-bar");
+    const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
     if (autoStatus) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-    if (autoBar && percent !== null) autoBar.style.width = percent + "%";
+    if (autoBar && percent !== null) autoBar.value = Math.max(0, Math.min(100, percent));
 };
 window.updateLoadingPercent = (percent, text = null) => {
     const pctEl = document.getElementById("loading-percent");
@@ -440,9 +440,9 @@ window.updateLoadingPercent = (percent, text = null) => {
         if (txtEl) txtEl.innerText = text;
     }
     const autoStatus = document.getElementById("auto-status-text");
-    const autoBar = document.getElementById("auto-progress-bar");
+    const autoBar = /** @type {HTMLProgressElement | null} */ (document.getElementById("auto-progress-bar"));
     if (autoStatus && text !== null) autoStatus.innerText = text + (percent !== null ? " " + percent + "%" : "");
-    if (autoBar && percent !== null) autoBar.style.width = percent + "%";
+    if (autoBar && percent !== null) autoBar.value = Math.max(0, Math.min(100, percent));
 };
 window.hideLoading = () => {
     const overlay = document.getElementById("loading-overlay");

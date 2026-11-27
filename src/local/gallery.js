@@ -27,7 +27,7 @@ export function setup() {
                     const fileUrl = window.pathToFileUrl ? window.pathToFileUrl(fullPath.replace(/\\/g, "/")) : `file:///${encodeURI(fullPath.replace(/\\/g, "/"))}`;
                     const safeF = window.escapeHTML(f);
                     const card = document.createElement("div");
-                    card.style.cssText = "position:relative;border:1px solid var(--border);border-radius:4px;overflow:hidden;aspect-ratio:16/9;background:#000;";
+                    card.className = "gallery-screen-card";
                     card.innerHTML = `
                         <img src="${window.escapeHTML(fileUrl)}" loading="lazy" decoding="async" class="screen-open-btn u-s219">
                         <div class="u-s220">${safeF}</div>

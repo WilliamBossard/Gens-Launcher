@@ -380,7 +380,7 @@
     </div>
 
     <div class="statusbar">
-      <div id="progress-bar"></div>
+      <progress id="progress-bar" max="100" value="0"></progress>
       <div class="status-left">
         <span id="status-text" data-i18n="status_ready">Prêt</span>
       </div>
@@ -2573,9 +2573,12 @@
 
         <div
          class="u-s203">
-          <div
+          <progress
             id="auto-progress-bar"
-           class="u-s204"></div>
+            class="u-s204"
+            max="100"
+            value="0"
+          ></progress>
         </div>
 
         <div
