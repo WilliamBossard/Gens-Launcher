@@ -252,9 +252,14 @@ class MCLCore extends EventEmitter {
         shell: false,
         windowsHide: Boolean(this.options.spawnOptions?.windowsHide)
       })
+    let closeEmitted = false;
     minecraft.on('error', (err) => {
       /** @type {any} */ (minecraft)._spawnError = err
       this.emit('debug', `[Gens-Core]: Failed to spawn Java process: ${err.message}`)
+      if (!closeEmitted) {
+        closeEmitted = true;
+        this.emit('close', -1);
+      }
     })
     const { StringDecoder } = require('string_decoder');
     const stdoutDecoder = new StringDecoder('utf8');
@@ -272,7 +277,10 @@ class MCLCore extends EventEmitter {
       if (remOut) this.emit('data', remOut);
       const remErr = stderrDecoder.end();
       if (remErr) this.emit('data', remErr);
-      this.emit('close', code);
+      if (!closeEmitted) {
+        closeEmitted = true;
+        this.emit('close', code);
+      }
     });
     if (isDetached) minecraft.unref();
     return minecraft

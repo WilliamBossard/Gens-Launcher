@@ -322,14 +322,14 @@ function normalizeCopySourcePath(p) {
  * @param {number | undefined} senderId
  * @param {string} srcPath
  */
-function isApprovedCopySource(senderId, srcPath) {
+async function isApprovedCopySource(senderId, srcPath) {
     if (typeof srcPath !== 'string' || !srcPath.trim()) return false;
     if (typeof senderId === 'number') {
         const set = _approvedCopySourcesBySender.get(senderId);
         if (set && set.has(normalizeCopySourcePath(srcPath))) return true;
     }
     try {
-        assertPathUnderSandbox(srcPath);
+        await assertPathUnderSandboxAsync(srcPath);
         return true;
     } catch {
         return false;
@@ -804,7 +804,7 @@ ipcMain.handle("copy-image-to-sandbox", async (event, { srcPath, destName, subDi
         if (typeof srcPath !== 'string' || !srcPath.trim()) {
             return { success: false, error: "Chemin source invalide." };
         }
-        if (!isApprovedCopySource(event?.sender?.id, srcPath)) {
+        if (!(await isApprovedCopySource(event?.sender?.id, srcPath))) {
             mainLog(`[Sécurité] copy-image-to-sandbox refusé pour source non approuvée : ${srcPath}`);
             return { success: false, error: "EACCES: Source non autorisée (doit provenir d'un sélecteur ou glisser-déposer)." };
         }

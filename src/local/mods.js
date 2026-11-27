@@ -105,10 +105,20 @@ export function setup() {
                             } else if (res.file.endsWith(".toml")) {
                                 const idMatch = res.text.match(/modId\s*=\s*"([^"]+)"/);
                                 if (idMatch) fileProvided.push(idMatch[1]);
-                                const blockRegex = /\[\[dependencies\.[^\]]+\]\][\s\S]*?modId\s*=\s*"([^"]+)"/g;
-                                let m;
-                                while ((m = blockRegex.exec(res.text)) !== null) {
-                                    fileReqs.push(m[1]);
+                                let inDepBlock = false;
+                                for (const rawLine of res.text.split(/\r?\n/)) {
+                                    const line = rawLine.trim();
+                                    if (line.startsWith('[')) {
+                                        inDepBlock = /^\[\[dependencies\.[^\]]+\]\]/.test(line);
+                                        continue;
+                                    }
+                                    if (inDepBlock) {
+                                        const depMatch = line.match(/^modId\s*=\s*"([^"]+)"/);
+                                        if (depMatch) {
+                                            fileReqs.push(depMatch[1]);
+                                            inDepBlock = false;
+                                        }
+                                    }
                                 }
                             }
                         }

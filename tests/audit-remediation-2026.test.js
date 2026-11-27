@@ -301,3 +301,50 @@ test('Audit 2026-11: quickPlay singleplayer allows spaces while blocking travers
     assert.throws(() => validateLaunchOverrides({ quickPlay: { type: 'singleplayer', identifier: '../escape' } }), /quickPlay/i);
     assert.throws(() => validateLaunchOverrides({ quickPlay: { type: 'multiplayer', identifier: 'play.example.com bad' } }), /quickPlay/i);
 });
+
+test('Audit 2026-11 Lot 1-2: renderer path guard blocks trust/cache files, validateLaunchOverrides blocks msa-cache, and darwin arm64 asset selection', () => {
+    const { createRendererPathGuard, createSandboxValidator } = require('../src/main/fs-utils');
+    const { createGameValidators } = require('../src/main/game-validation');
+    const setupHorizonHandlers = require('../src/main/ipc-horizon');
+
+    const safeDir = path.join(os.tmpdir(), 'gens_remed_guard_test');
+    const guard = createRendererPathGuard(safeDir);
+    for (const rel of ['trusted_external_domains.json', 'github_release_cache.json', path.join('horizon', 'horizon_version.json')]) {
+        const target = path.join(safeDir, rel);
+        assert.throws(() => guard(target, 'read'), /politique de sécurité/i);
+        assert.throws(() => guard(target, 'write'), /politique de sécurité/i);
+        assert.throws(() => guard(target, 'delete'), /politique de sécurité/i);
+    }
+
+    const assertSandbox = createSandboxValidator(safeDir);
+    const { validateLaunchOverrides } = createGameValidators({
+        path, fs, os, safeDataDir: safeDir, assertPathUnderSandbox: assertSandbox
+    });
+    assert.throws(() => validateLaunchOverrides({
+        overrides: { directory: path.join(safeDir, 'msa-cache') }
+    }), /politique de sécurité/i);
+    assert.throws(() => validateLaunchOverrides({
+        overrides: { classes: [path.join(safeDir, 'horizon', 'auth', 'tokens.enc')] }
+    }), /politique de sécurité/i);
+    assert.doesNotThrow(() => validateLaunchOverrides({
+        overrides: { log4jConfigurationFile: path.join(safeDir, 'instances', 'Test', 'log4j2.xml') }
+    }));
+
+    const ctx = {
+        app: { isPackaged: false, getPath: () => safeDir },
+        ipcMain: { handle: () => {}, on: () => {} },
+        getMainWindow: () => null,
+        safeDataDir: safeDir,
+        mainLog: () => {},
+        path, fs, execFile: () => {},
+        spawn: () => {},
+        safeSend: () => {}
+    };
+    setupHorizonHandlers(ctx);
+    const assets = [
+        { name: 'Horizon-macos-x64' },
+        { name: 'Horizon-macos-arm64' }
+    ];
+    assert.equal(ctx.findCompatibleHorizonAsset(assets, 'darwin', 'arm64')?.name, 'Horizon-macos-arm64');
+    assert.equal(ctx.findCompatibleHorizonAsset(assets, 'darwin', 'x64')?.name, 'Horizon-macos-x64');
+});

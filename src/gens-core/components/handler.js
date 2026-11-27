@@ -230,7 +230,7 @@ class Handler {
           throw new Error(`Failed to download client jar (${dlRes.asset?.url || this.version.downloads.client.url})`);
         }
         if (clientSha1 && !(await this.checkSum(clientSha1, jarPath))) {
-          try { await fs.promises.unlink(jarPath); } catch (_) {}
+          try { await fs.promises.unlink(jarPath); } catch (_) { }
           throw new Error(`Client jar SHA-1 verification failed for ${this.options.version.number}`);
         }
       }
@@ -293,7 +293,7 @@ class Handler {
       }
       const expectedIdxSha1 = this.version?.assetIndex?.sha1
       if (expectedIdxSha1 && !(await this.checkSum(expectedIdxSha1, indexJsonPath))) {
-        try { await fs.promises.unlink(indexJsonPath) } catch (_) {}
+        try { await fs.promises.unlink(indexJsonPath) } catch (_) { }
         throw new Error(`Asset index SHA-1 verification failed for ${assetId}.json`)
       }
     }
@@ -351,7 +351,8 @@ class Handler {
     })
 
 
-    if (this.isLegacy()) { counter = 0;
+    if (this.isLegacy()) {
+      counter = 0;
       if (await existsAsync(path.join(assetDirectory, 'legacy'))) {
         this.client.emit('debug', '[Gens-Core]: The \'legacy\' directory is no longer used as Minecraft looks ' +
           'for the resouces folder regardless of what is passed in the assetDirecotry launch option. I\'d ' +
@@ -486,10 +487,11 @@ class Handler {
       let extractQueue = Promise.resolve();
       const serializeExtract = (/** @type {() => Promise<void>} */ fn) => {
         const next = extractQueue.then(fn, fn);
-        extractQueue = next.catch(() => {});
+        extractQueue = next.catch(() => { });
         return next;
       };
 
+      let extractedAnyOffline = false;
       await pMap(stat, 16, async (/** @type {any} */ native) => {
         if (this.client && this.client.aborted) throw new Error("Launch aborted by user");
         if (!native) return
@@ -499,9 +501,10 @@ class Handler {
           if (await existsAsync(nativeFile)) {
             try {
               await serializeExtract(() => new Zip(nativeFile).extractAllTo(nativeDirectory, true, { skipMetaInf: true }))
+              extractedAnyOffline = true
             } finally {
               if (await existsAsync(nativeFile)) {
-                try { await fs.promises.unlink(nativeFile) } catch (_) {}
+                try { await fs.promises.unlink(nativeFile) } catch (_) { }
               }
             }
           }
@@ -527,7 +530,7 @@ class Handler {
           throw e
         } finally {
           if (await existsAsync(nativeFile)) {
-            try { await fs.promises.unlink(nativeFile) } catch (_) {}
+            try { await fs.promises.unlink(nativeFile) } catch (_) { }
           }
         }
         counter++
@@ -537,7 +540,7 @@ class Handler {
           total: stat.length
         })
       })
-      if (nativesAllOk && !this.options.offline) {
+      if (nativesAllOk && (!this.options.offline || extractedAnyOffline)) {
         await fs.promises.writeFile(stampFile, Date.now().toString(), 'utf8');
         this.client.emit('debug', '[Gens-Core]: Downloaded and extracted natives')
       }
@@ -608,6 +611,9 @@ class Handler {
         name = library.downloads.artifact.path.split('/')[library.downloads.artifact.path.split('/').length - 1]
         jarPath = path.join(directory, this.popString(library.downloads.artifact.path))
       } else {
+        if (lib.length < 3 || !lib[0] || !libNameClean || !libVersionClean) {
+          throw new Error(`Invalid Maven coordinate for library: ${library.name}`)
+        }
         name = `${libNameClean}-${libVersionClean}${libClassifier}.jar`
         jarPath = path.join(directory, `${lib[0].replace(/\./g, '/')}/${libNameClean}/${libVersionClean}`)
       }

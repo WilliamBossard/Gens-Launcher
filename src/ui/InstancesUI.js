@@ -4,32 +4,13 @@ import { sysLog, yieldUI } from "../utils.js";
 import { updateRPC } from "../discord.js";
 import { resetLogLineCount, clearConsoleLogBuffer } from "../launch/launchUI.js";
 import { writeInstanceMetaForCloud } from "../launch/launchCore.js";
+import { getCachedScreenshot as _getCachedScreenshotImpl, invalidateScreenshotCache, sortSemverDesc } from "./instances/InstanceHelpers.js";
 const fs = window.api.fs;
 const path = window.api.path;
 const shell = window.api.shell;
-const _screenshotCache = new Map();
-const SCREENSHOT_CACHE_TTL = 86400000; 
 /** @param {any} inst */
-async function getCachedScreenshot(inst) {
-    const safeDir = path.join(store.instancesRoot, window.safeDir(inst.name), "screenshots");
-    const cached = _screenshotCache.get(inst.name);
-    if (cached && cached.dir === safeDir && (Date.now() - cached.ts) < SCREENSHOT_CACHE_TTL) {
-        return cached.file;
-    }
-    let file = null;
-    try {
-        if (await fs.promises.exists(safeDir)) {
-            const files = (await fs.promises.readdir(safeDir)).filter(f => f.endsWith(".png") || f.endsWith(".jpg"));
-            if (files.length > 0) file = path.join(safeDir, files[Math.floor(Math.random() * files.length)]);
-        }
-    } catch (/** @type {any} */ e) { if (e && e.code !== 'ENOENT') console.warn("Ignored error in InstancesUI.js:", e); }
-    _screenshotCache.set(inst.name, { dir: safeDir, file, ts: Date.now() });
-    return file;
-}
-/** @param {string} instName */
-export function invalidateScreenshotCache(instName) {
-    _screenshotCache.delete(instName);
-}
+const getCachedScreenshot = (inst) => _getCachedScreenshotImpl(inst, store.instancesRoot);
+export { invalidateScreenshotCache };
 export function setupInstances() {
     /** @type {(id: string) => any} */
     const $ = (id) => document.getElementById(id);
@@ -44,40 +25,6 @@ async function fetchLoaderVersions(loader, mcVer) {
         if (cached && cached.expiresAt > Date.now()) {
             return cached.versions;
         }
-        const sortSemverDesc = (/** @type {string} */ a, /** @type {string} */ b) => {
-            const [mainA, ...restA] = a.split('-');
-            const [mainB, ...restB] = b.split('-');
-            const preA = restA.join('-');
-            const preB = restB.join('-');
-            
-            const pa = mainA.split('.').map(Number);
-            const pb = mainB.split('.').map(Number);
-            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-                const na = pa[i] || 0;
-                const nb = pb[i] || 0;
-                if (na !== nb) return nb - na;
-            }
-            
-            if (!preA && preB) return -1;
-            if (preA && !preB) return 1;
-            if (!preA && !preB) return 0;
-            
-            const prePa = preA.split('.');
-            const prePb = preB.split('.');
-            for (let i = 0; i < Math.max(prePa.length, prePb.length); i++) {
-                const va = prePa[i] || "";
-                const vb = prePb[i] || "";
-                const numA = parseInt(va);
-                const numB = parseInt(vb);
-                if (!isNaN(numA) && !isNaN(numB)) {
-                    if (numA !== numB) return numB - numA;
-                } else if (va !== vb) {
-                    return va > vb ? -1 : 1;
-                }
-            }
-            return 0;
-        };
-
         /** @type {(u: string, opts?: any) => Promise<any>} */
         const fetchFn = (u, opts = undefined) => typeof window !== 'undefined' && typeof window.fetchWithTimeout === 'function'
             ? window.fetchWithTimeout(u, { timeout: 10000, ...(opts || {}) })

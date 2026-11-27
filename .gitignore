@@ -9,3 +9,5 @@ website/
 tests/GensLauncher/
 scratch/
 .vscode
+test-results/
+playwright-report/

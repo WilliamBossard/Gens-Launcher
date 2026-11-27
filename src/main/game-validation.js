@@ -182,10 +182,11 @@ function assertAllowedLaunchHttpsUrl(urlStr, label, allowedDomains = ALLOWED_LOA
 }
 
 /**
- * @param {{ path: typeof import('path'); fs: typeof import('fs'); os: typeof import('os'); safeDataDir: string; assertPathUnderSandbox: (p: string) => string }} deps
+ * @param {{ path: typeof import('path'); fs: typeof import('fs'); os: typeof import('os'); safeDataDir: string; assertPathUnderSandbox: (p: string) => string; assertPathUnderSandboxAsync?: (p: string) => Promise<string> }} deps
  */
-function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbox }) {
+function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbox, assertPathUnderSandboxAsync }) {
     const assertRendererPathAllowed = createRendererPathGuard(safeDataDir);
+    const resolveSandboxAsync = assertPathUnderSandboxAsync || (async (/** @type {string} */ p) => assertPathUnderSandbox(p));
     /** @param {string} javaPath */
     async function validateJavaExecutable(javaPath) {
         if (typeof javaPath !== 'string' || !javaPath.trim()) {
@@ -198,6 +199,24 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
         const baseName = path.basename(trimmedJavaPath).toLowerCase().trim();
         if (!VALID_JAVA_NAMES.has(baseName)) {
             return { ok: false, message: 'Chemin Java invalide bloqué.' };
+        }
+        if (VALID_JAVA_NAMES.has(trimmedJavaPath.toLowerCase())) {
+            const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+            for (const dir of pathEntries) {
+                const candidate = path.join(dir, trimmedJavaPath);
+                try {
+                    const st = await fs.promises.stat(candidate);
+                    if (st.isFile()) {
+                        const realCandidate = await fs.promises.realpath(candidate);
+                        const parentName = path.basename(path.dirname(realCandidate)).toLowerCase().trim();
+                        if (parentName !== 'bin') {
+                            return { ok: false, message: "L'exécutable Java trouvé dans PATH doit résider dans un dossier bin/ valide." };
+                        }
+                        break;
+                    }
+                } catch (_) {}
+            }
+            return { ok: true };
         }
         if (!VALID_JAVA_NAMES.has(trimmedJavaPath.toLowerCase())) {
             if (!path.isAbsolute(trimmedJavaPath)) {
@@ -229,7 +248,7 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
             const norm = (s) => isWin ? s.toLowerCase() : s;
             const home = os.homedir();
             let realTmpDir = os.tmpdir();
-            try { realTmpDir = fs.realpathSync(realTmpDir); } catch (_) {}
+            try { realTmpDir = await fs.promises.realpath(realTmpDir); } catch (_) {}
             const blockedDirs = [
                 os.tmpdir(),
                 realTmpDir,
@@ -339,17 +358,28 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
      * @param {any} opts
      */
     function validateLaunchOverrides(opts) {
-        const SANDBOX_OVERRIDE_KEYS = [
-            'directory', 'minecraftJar', 'assetRoot', 'libraryRoot',
-            'versionJson', 'logj4ConfigurationFile', 'cwd', 'gameDirectory', 'natives'
+        const SANDBOX_OVERRIDE_WRITE_KEYS = [
+            'directory', 'assetRoot', 'libraryRoot', 'cwd', 'gameDirectory', 'natives'
+        ];
+        const SANDBOX_OVERRIDE_READ_KEYS = [
+            'minecraftJar', 'versionJson', 'log4jConfigurationFile'
         ];
         if (opts.overrides != null) {
             if (typeof opts.overrides !== 'object' || Array.isArray(opts.overrides)) {
                 throw new Error('opts.overrides invalide.');
             }
-            for (const key of SANDBOX_OVERRIDE_KEYS) {
+            for (const key of SANDBOX_OVERRIDE_WRITE_KEYS) {
                 if (typeof opts.overrides[key] === 'string' && opts.overrides[key].trim()) {
-                    opts.overrides[key] = assertPathUnderSandbox(opts.overrides[key]);
+                    const resolved = assertPathUnderSandbox(opts.overrides[key]);
+                    assertRendererPathAllowed(resolved, 'write');
+                    opts.overrides[key] = resolved;
+                }
+            }
+            for (const key of SANDBOX_OVERRIDE_READ_KEYS) {
+                if (typeof opts.overrides[key] === 'string' && opts.overrides[key].trim()) {
+                    const resolved = assertPathUnderSandbox(opts.overrides[key]);
+                    assertRendererPathAllowed(resolved, 'read');
+                    opts.overrides[key] = resolved;
                 }
             }
             if (opts.overrides.assetIndex != null && String(opts.overrides.assetIndex).trim()) {
@@ -359,7 +389,11 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
                 if (!Array.isArray(opts.overrides.classes)) {
                     throw new Error('opts.overrides.classes doit être un tableau.');
                 }
-                opts.overrides.classes = opts.overrides.classes.map((/** @type {any} */ c) => assertPathUnderSandbox(String(c)));
+                opts.overrides.classes = opts.overrides.classes.map((/** @type {any} */ c) => {
+                    const resolved = assertPathUnderSandbox(String(c));
+                    assertRendererPathAllowed(resolved, 'read');
+                    return resolved;
+                });
             }
             for (const urlKey of ['url', 'fw']) {
                 const sub = opts.overrides[urlKey];
@@ -381,7 +415,9 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
             if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(cp)) {
                 assertAllowedLaunchHttpsUrl(cp, 'clientPackage', ALLOWED_CLIENT_PACKAGE_DOMAINS);
             } else {
-                opts.clientPackage = assertPathUnderSandbox(cp);
+                const resolved = assertPathUnderSandbox(cp);
+                assertRendererPathAllowed(resolved, 'read');
+                opts.clientPackage = resolved;
             }
         }
         if (opts.quickPlay != null) {
@@ -404,7 +440,106 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
             }
             opts.quickPlay.identifier = id;
             if (opts.quickPlay.path != null && String(opts.quickPlay.path).trim()) {
-                opts.quickPlay.path = assertPathUnderSandbox(String(opts.quickPlay.path).trim());
+                const resolved = assertPathUnderSandbox(String(opts.quickPlay.path).trim());
+                assertRendererPathAllowed(resolved, 'read');
+                opts.quickPlay.path = resolved;
+            }
+        }
+    }
+
+    /**
+     * Version asynchrone de validateLaunchOverrides utilisant assertPathUnderSandboxAsync
+     * pour éviter tout realpathSync sur le thread principal Electron.
+     * @param {any} opts
+     */
+    async function validateLaunchOverridesAsync(opts) {
+        const SANDBOX_OVERRIDE_WRITE_KEYS = [
+            'directory', 'assetRoot', 'libraryRoot', 'cwd', 'gameDirectory', 'natives'
+        ];
+        const SANDBOX_OVERRIDE_READ_KEYS = [
+            'minecraftJar', 'versionJson', 'log4jConfigurationFile'
+        ];
+        if (opts.overrides != null) {
+            if (typeof opts.overrides !== 'object' || Array.isArray(opts.overrides)) {
+                throw new Error('opts.overrides invalide.');
+            }
+            for (const key of SANDBOX_OVERRIDE_WRITE_KEYS) {
+                if (typeof opts.overrides[key] === 'string' && opts.overrides[key].trim()) {
+                    const resolved = await resolveSandboxAsync(opts.overrides[key]);
+                    assertRendererPathAllowed(resolved, 'write');
+                    opts.overrides[key] = resolved;
+                }
+            }
+            for (const key of SANDBOX_OVERRIDE_READ_KEYS) {
+                if (typeof opts.overrides[key] === 'string' && opts.overrides[key].trim()) {
+                    const resolved = await resolveSandboxAsync(opts.overrides[key]);
+                    assertRendererPathAllowed(resolved, 'read');
+                    opts.overrides[key] = resolved;
+                }
+            }
+            if (opts.overrides.assetIndex != null && String(opts.overrides.assetIndex).trim()) {
+                opts.overrides.assetIndex = validateSafeSegment(opts.overrides.assetIndex, 'opts.overrides.assetIndex');
+            }
+            if (opts.overrides.classes != null) {
+                if (!Array.isArray(opts.overrides.classes)) {
+                    throw new Error('opts.overrides.classes doit être un tableau.');
+                }
+                const resolvedClasses = [];
+                for (const c of opts.overrides.classes) {
+                    const resolved = await resolveSandboxAsync(String(c));
+                    assertRendererPathAllowed(resolved, 'read');
+                    resolvedClasses.push(resolved);
+                }
+                opts.overrides.classes = resolvedClasses;
+            }
+            for (const urlKey of ['url', 'fw']) {
+                const sub = opts.overrides[urlKey];
+                const domainAllowlist = urlKey === 'fw' ? ALLOWED_FW_DOMAINS : ALLOWED_LOADER_META_DOMAINS;
+                if (sub != null) {
+                    if (typeof sub !== 'object' || Array.isArray(sub)) {
+                        throw new Error(`opts.overrides.${urlKey} invalide.`);
+                    }
+                    for (const [k, v] of Object.entries(sub)) {
+                        if (typeof v === 'string' && v.trim() && (k === 'baseUrl' || /^https?:\/\//i.test(v) || v.includes('://'))) {
+                            assertAllowedLaunchHttpsUrl(v.trim(), `${urlKey}.${k}`, domainAllowlist);
+                        }
+                    }
+                }
+            }
+        }
+        if (opts.clientPackage != null && String(opts.clientPackage).trim()) {
+            const cp = String(opts.clientPackage).trim();
+            if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(cp)) {
+                assertAllowedLaunchHttpsUrl(cp, 'clientPackage', ALLOWED_CLIENT_PACKAGE_DOMAINS);
+            } else {
+                const resolved = await resolveSandboxAsync(cp);
+                assertRendererPathAllowed(resolved, 'read');
+                opts.clientPackage = resolved;
+            }
+        }
+        if (opts.quickPlay != null) {
+            if (typeof opts.quickPlay !== 'object' || Array.isArray(opts.quickPlay)) {
+                throw new Error('opts.quickPlay invalide.');
+            }
+            const VALID_QP_TYPES = new Set(['singleplayer', 'multiplayer', 'realms', 'legacy']);
+            if (!VALID_QP_TYPES.has(opts.quickPlay.type)) {
+                throw new Error(`Type quickPlay non autorisé : ${opts.quickPlay.type}`);
+            }
+            const id = String(opts.quickPlay.identifier || '').trim();
+            const isSingleplayer = opts.quickPlay.type === 'singleplayer';
+            const invalidId = !id || id.length > 255 || (
+                isSingleplayer
+                    ? (/[\r\n\t\x00-\x1f/\\]/.test(id) || id === '.' || id === '..' || id.includes('..'))
+                    : /[\s\x00-\x1f]/.test(id)
+            );
+            if (invalidId) {
+                throw new Error('Identifiant quickPlay invalide.');
+            }
+            opts.quickPlay.identifier = id;
+            if (opts.quickPlay.path != null && String(opts.quickPlay.path).trim()) {
+                const resolved = await resolveSandboxAsync(String(opts.quickPlay.path).trim());
+                assertRendererPathAllowed(resolved, 'read');
+                opts.quickPlay.path = resolved;
             }
         }
     }
@@ -414,7 +549,8 @@ function createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbo
         validateSafeSegment,
         validateCustomJvmArgs,
         validateCustomLaunchArgs,
-        validateLaunchOverrides
+        validateLaunchOverrides,
+        validateLaunchOverridesAsync
     };
 }
 

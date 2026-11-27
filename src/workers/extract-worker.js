@@ -113,7 +113,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
     if (!parentPort) return { success: false, error: "Aucun port parent" };
     const port = parentPort;
 
-    if (mode === 'zip' || (isWin && archivePath.endsWith(".zip"))) {
+    if (mode === 'zip' || (!mode && archivePath.toLowerCase().endsWith(".zip"))) {
         const { openZip, pipeStreams } = require("../main/zip-utils");
         /** @type {any} */
         let zipfile;
@@ -121,7 +121,8 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
             zipfile = await openZip(archivePath);
             await fs.promises.mkdir(destDir, { recursive: true });
             const realTarget = await fs.promises.realpath(path.resolve(destDir));
-            const normTarget = process.platform === 'win32' ? realTarget.toLowerCase() : realTarget;
+            const isCaseInsensitiveFs = process.platform === 'win32' || process.platform === 'darwin';
+            const normTarget = isCaseInsensitiveFs ? realTarget.toLowerCase() : realTarget;
             const total = zipfile.entryCount;
             if (total > MAX_EXTRACT_ENTRIES) {
                 throw new Error(`Protection zip-bomb : trop d'entrées (${total} > ${MAX_EXTRACT_ENTRIES}).`);
@@ -142,7 +143,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
             /** @param {string} dirToVerify */
             const ensureSafeVerifiedDir = async (dirToVerify) => {
                 const resolvedDir = path.resolve(dirToVerify);
-                const normDir = process.platform === 'win32' ? resolvedDir.toLowerCase() : resolvedDir;
+                const normDir = isCaseInsensitiveFs ? resolvedDir.toLowerCase() : resolvedDir;
                 if (verifiedParentDirs.has(normDir)) return;
                 // Vérifie le plus proche ancêtre existant AVANT mkdir pour empêcher toute création hors cible via symlink
                 let cur = resolvedDir;
@@ -151,7 +152,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                         const realCur = await fs.promises.realpath(cur);
                         const relTail = path.relative(cur, resolvedDir);
                         const projectedReal = relTail ? path.join(realCur, relTail) : realCur;
-                        const normProjected = process.platform === 'win32' ? projectedReal.toLowerCase() : projectedReal;
+                        const normProjected = isCaseInsensitiveFs ? projectedReal.toLowerCase() : projectedReal;
                         if (!normProjected.startsWith(normTarget + path.sep) && normProjected !== normTarget) {
                             throw new Error(`Évasion par symlink détectée avant création de ${resolvedDir}`);
                         }
@@ -165,7 +166,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                 }
                 await fs.promises.mkdir(resolvedDir, { recursive: true });
                 const realDir = await fs.promises.realpath(resolvedDir);
-                const normRealDir = process.platform === 'win32' ? realDir.toLowerCase() : realDir;
+                const normRealDir = isCaseInsensitiveFs ? realDir.toLowerCase() : realDir;
                 if (!normRealDir.startsWith(normTarget + path.sep) && normRealDir !== normTarget) {
                     throw new Error(`Évasion par symlink détectée dans le répertoire ${resolvedDir}`);
                 }
@@ -185,7 +186,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                 }
                 const dest = path.join(destDir, entryName);
                 const resDest = path.resolve(dest);
-                const effectiveIsWin = isWin || process.platform === 'win32';
+                const effectiveIsWin = isWin || isCaseInsensitiveFs;
                 const normResDest = effectiveIsWin ? resDest.toLowerCase() : resDest;
                 const normResolvedTarget = effectiveIsWin ? resolvedTarget.toLowerCase() : resolvedTarget;
                 const isDirEntry = /\/$/.test(entryName);
@@ -198,7 +199,7 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     await ensureSafeVerifiedDir(resDest);
                     dirProcessed++;
                 } else {
-                    const dedupKey = process.platform === 'win32' ? resDest.toLowerCase() : resDest;
+                    const dedupKey = isCaseInsensitiveFs ? resDest.toLowerCase() : resDest;
                     dedupedFiles.set(dedupKey, {
                         entry,
                         entryName,
@@ -302,9 +303,10 @@ async function extractArchive({ archivePath, destDir, isWin = false, mode, colle
                     return reject(new Error("Protection archive : taille décompressée maximale dépassée."));
                 }
                 const p = tarLineMatch[2].trim();
-                const arrowIdx = p.indexOf(' -> ');
+                const arrowIdx = (typeChar === 'l' || typeChar === 'h') ? p.indexOf(' -> ') : -1;
                 const cleanPath = arrowIdx >= 0 ? p.slice(0, arrowIdx) : p;
-                if (cleanPath.includes("..") || cleanPath.startsWith("/") || cleanPath.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(cleanPath)) {
+                const segments = cleanPath.replace(/\\/g, '/').split('/');
+                if (segments.includes("..") || cleanPath.startsWith("/") || cleanPath.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(cleanPath)) {
                     port.postMessage({ type: 'log', message: "TAR SLIP bloqué : " + cleanPath });
                     return reject(new Error("Archive malveillante détectée (Path Traversal)."));
                 }

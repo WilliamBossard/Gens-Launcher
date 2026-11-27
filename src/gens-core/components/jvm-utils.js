@@ -1,4 +1,5 @@
 // @ts-check
+const fs = require('fs');
 const path = require('path');
 const child = require('child_process');
 
@@ -85,6 +86,7 @@ function getOS(options) {
 function matchArch(currentArch, ruleArch) {
   if (typeof ruleArch !== 'string' || !ruleArch) return false;
   if (ruleArch === currentArch) return true;
+  if (currentArch === 'arm64' && ruleArch === 'aarch64') return true;
   if (!/^[a-zA-Z0-9_^$|()-]{1,32}$/.test(ruleArch)) {
     return false;
   }
@@ -162,10 +164,15 @@ function checkJava(java, client) {
   return new Promise(resolve => {
     let javaConsole = java;
     if (typeof javaConsole === 'string' && process.platform === 'win32') {
-      if (javaConsole.toLowerCase().endsWith('javaw.exe')) {
-        javaConsole = javaConsole.slice(0, -9) + 'java.exe';
-      } else if (javaConsole.toLowerCase().endsWith('javaw')) {
-        javaConsole = javaConsole.slice(0, -5) + 'java';
+      const lower = javaConsole.toLowerCase();
+      if (lower.endsWith('javaw.exe') || lower.endsWith('javaw')) {
+        if ((javaConsole.includes('\\') || javaConsole.includes('/')) && !fs.existsSync(javaConsole)) {
+          resolve({ run: false, message: new Error(`Java executable not found: ${javaConsole}`) });
+          return;
+        }
+        javaConsole = lower.endsWith('javaw.exe')
+          ? javaConsole.slice(0, -9) + 'java.exe'
+          : javaConsole.slice(0, -5) + 'java';
       }
     }
 

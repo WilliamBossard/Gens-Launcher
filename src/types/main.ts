@@ -39,7 +39,7 @@ export interface MainContext {
   assertPathUnderSandbox: (p: string) => string;
   assertPathUnderSandboxAsync?: (p: string) => Promise<string>;
   sanitizeShortcutName: (name: string) => string;
-  isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean;
+  isApprovedCopySource?: (senderId: number | undefined, p: string) => boolean | Promise<boolean>;
   horizonMigrationPromise?: Promise<void>;
   shutdownHorizon?: (graceMs?: number) => Promise<void> | void;
   registerActiveWorker?: (worker: any) => void;

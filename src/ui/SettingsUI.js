@@ -3,6 +3,7 @@ import { store } from "../store.js";
 import { sysLog, yieldUI } from "../utils.js";
 import { showJavaTypeModal } from "./ModalManager.js";
 import { mergeInstanceConfigFromDisk, writeInstanceMetaForCloud } from "../launch/launchCore.js";
+import { hasSystemJavaForVersion } from "./settings/JavaScanner.js";
 const fs = window.api.fs;
 const path = window.api.path;
 /** @type {(id: string) => any} */
@@ -27,15 +28,7 @@ export function setupSettings() {
                 try {
                     if (!cachedScanRes) cachedScanRes = await window.api.invoke("scan-java-versions"); const res = cachedScanRes;
                     if (res && res.success) {
-                        isSystemInstalled = res.paths.some((/** @type {any} */ p) => {
-                            const pLower = p.toLowerCase();
-                            
-                            if (v === 8) {
-                                return pLower.includes("1.8.0") || pLower.includes("jre8") || pLower.includes("jdk8") || pLower.includes("jdk-8") || pLower.includes("jre-8");
-                            } else {
-                                return pLower.includes(`jdk-${v}`) || pLower.includes(`jre-${v}`) || pLower.includes(`jdk${v}`) || pLower.includes(`jre${v}`);
-                            }
-                        });
+                        isSystemInstalled = hasSystemJavaForVersion(res.paths, v);
                     }
                 } catch (/** @type {any} */ err) { if (err.code !== 'ENOENT') console.error("[GensLauncher] Erreur interceptée: " + err.message); }
             }

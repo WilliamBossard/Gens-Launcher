@@ -20,8 +20,9 @@ module.exports = function setupGameHandlers(context) {
         validateSafeSegment,
         validateCustomJvmArgs,
         validateCustomLaunchArgs,
-        validateLaunchOverrides
-    } = createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbox });
+        validateLaunchOverrides,
+        validateLaunchOverridesAsync
+    } = createGameValidators({ path, fs, os, safeDataDir, assertPathUnderSandbox, assertPathUnderSandboxAsync });
 
     /** @type {Map<string, { launcher?: any; process?: any; closeLogStream?: () => void }> } */
     const activeMinecraftClients = new Map();
@@ -425,7 +426,7 @@ module.exports = function setupGameHandlers(context) {
                     }
                     assertRendererPathAllowed(opts.logFilePath, 'write');
                 }
-                validateLaunchOverrides(opts);
+                await validateLaunchOverridesAsync(opts);
                 if (opts.customArgs !== undefined) opts.customArgs = validateCustomJvmArgs(opts.customArgs);
                 if (opts.customLaunchArgs !== undefined) opts.customLaunchArgs = validateCustomLaunchArgs(opts.customLaunchArgs);
             } catch (sandboxErr) {

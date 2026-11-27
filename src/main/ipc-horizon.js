@@ -368,10 +368,10 @@ module.exports = function setupHorizonHandlers(context) {
     }
 
     const horizonInitPromise = (async () => {
-        if (context.horizonMigrationPromise) {
-            await context.horizonMigrationPromise;
-        }
         try {
+            if (context.horizonMigrationPromise) {
+                await context.horizonMigrationPromise;
+            }
             if (await existsSafe(githubCacheFile)) {
                 const parsed = JSON.parse(await fs.promises.readFile(githubCacheFile, 'utf8'));
                 const hmacKey = await getSealHmacKey();
@@ -440,10 +440,21 @@ module.exports = function setupHorizonHandlers(context) {
             return exeAssets.find(a => !a.name.toLowerCase().includes('arm64')) || exeAssets[0] || null;
         }
         if (platform === 'darwin') {
-            return assets.find(a => {
-                const n = a.name.toLowerCase();
+            const macAssets = assets.filter(a => {
+                const n = typeof a?.name === 'string' ? a.name.toLowerCase() : '';
                 return (n.includes('macos') || n.includes('darwin') || n.includes('mac')) && !n.endsWith('.sha256');
-            }) || assets.find(a => !path.extname(a.name));
+            });
+            if (arch === 'arm64') {
+                const armMac = macAssets.find(a => {
+                    const n = a.name.toLowerCase();
+                    return n.includes('arm64') || n.includes('aarch64');
+                });
+                if (armMac) return armMac;
+            }
+            return macAssets.find(a => {
+                const n = a.name.toLowerCase();
+                return !n.includes('arm64') && !n.includes('aarch64');
+            }) || macAssets[0] || assets.find(a => !path.extname(a.name));
         }
         // Linux : Détection automatique de l'architecture ARM64 vs x86_64
         if (arch === 'arm64') {
@@ -763,10 +774,11 @@ module.exports = function setupHorizonHandlers(context) {
         const isSafeCommand = _lockArgs.length > 0 && ALLOWED_COMMANDS.includes(_lockArgs[0]);
         // AUDIT-11 : validation durcie des arguments — les arguments positionnels (noms d'instance) n'acceptent plus '/' ni '.'
         const isSafeChars = _lockArgs.every((arg, i) => {
+            if (typeof arg !== 'string') return false;
             if (i === 0) return ALLOWED_COMMANDS.includes(arg); // commande principale déjà validée ci-dessus
             if (arg.startsWith('--')) return !arg.includes('..') && /^--[a-zA-Z\-]+(=[a-zA-Z0-9_\-\.]+)?$/.test(arg); // flags booléens ou avec valeur
-            // Argument positionnel (nom d'instance) : pas de tiret en tête, pas de slash, pas de point, pas de ..
-            return !arg.startsWith('-') && /^[a-zA-Z0-9_\-\u00C0-\u017F ]+$/.test(arg) && !arg.includes('..');
+            // Argument positionnel (nom d'instance) : pas de tiret en tête, pas de slash, pas de ..
+            return !arg.startsWith('-') && /^[\p{L}\p{N}_\- '().]+$/u.test(arg) && !arg.includes('..');
         });
         
         if (!isSafeCommand || !isSafeChars) {
@@ -1160,6 +1172,10 @@ module.exports = function setupHorizonHandlers(context) {
 
                 child.stdout.on('data', (d) => {
                     if (out.length < 64 * 1024) out += d.toString();
+                });
+                let errOut = '';
+                child.stderr?.on('data', (d) => {
+                    if (errOut.length < 8 * 1024) errOut += d.toString();
                 });
                 child.on('error', (err) => finish({ success: false, error: err.message }));
                 child.on('close', (code) => {

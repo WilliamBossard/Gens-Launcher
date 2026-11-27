@@ -26,14 +26,14 @@ export function setup() {
                             }
                         }
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
             const serverEntries = (inst.servers || []).map((/** @type {string} */ ip) => {
                 const preserved = existingByIp.get(ip);
                 if (preserved) return preserved;
                 return {
                     name: { type: "string", value: ip },
-                    ip:   { type: "string", value: ip }
+                    ip: { type: "string", value: ip }
                 };
             });
             const nbtRoot = {
@@ -50,7 +50,7 @@ export function setup() {
                 }
             };
             await fs.promises.writeFile(datPath, window.api.nbt.write(nbtRoot));
-        } catch(/** @type {any} */ e) {
+        } catch (/** @type {any} */ e) {
             sysLog("Erreur sync servers.dat : " + (e.message || e), true);
         }
     }
@@ -100,7 +100,7 @@ export function setup() {
         const inst = store.allInstances[store.selectedInstanceIdx];
         if (!inst) return;
         if (inst.autoConnect === ip) {
-            inst.autoConnect = null; 
+            inst.autoConnect = null;
         } else {
             inst.autoConnect = ip;
         }
@@ -121,8 +121,15 @@ export function setup() {
             if (!inst.servers) inst.servers = [];
             let changed = false;
             for (const entry of entries) {
-                const ip = entry?.ip?.value || entry?.host?.value || "";
-                if (ip && !inst.servers.includes(ip)) {
+                const rawIp = entry?.ip?.value || entry?.host?.value || "";
+                const ip = typeof rawIp === "string" ? rawIp.trim() : "";
+                if (!ip || !/^[a-zA-Z0-9.\-]+(:\d{1,5})?$/.test(ip)) continue;
+                const portMatch = ip.match(/:(\d+)$/);
+                if (portMatch) {
+                    const port = parseInt(portMatch[1], 10);
+                    if (port < 1 || port > 65535) continue;
+                }
+                if (!inst.servers.includes(ip)) {
                     inst.servers.push(ip);
                     changed = true;
                 }
@@ -197,7 +204,7 @@ export function setup() {
         _pingAbortController = controller;
         const signal = controller.signal;
         const instName = inst.name;
-        const servers  = [...inst.servers];
+        const servers = [...inst.servers];
 
         const isOffline = store.globalSettings.offlineMode || !window.isTrulyOnline;
         if (isOffline) {
@@ -248,7 +255,7 @@ export function setup() {
             for (let i = 0; i < servers.length; i++) {
                 if (signal.aborted) break;
                 pingPromises.push(pingOne(servers[i], i));
-                await new Promise(r => setTimeout(r, 200)); 
+                await new Promise(r => setTimeout(r, 200));
             }
             await Promise.allSettled(pingPromises);
         } finally {

@@ -111,6 +111,7 @@ module.exports = function setupAuthHandlers(context) {
                         "Authorization": `Bearer ${accessToken}`
                     },
                     body: formData,
+                    redirect: "manual",
                     signal: controller.signal
                 });
                 if (res.ok) {

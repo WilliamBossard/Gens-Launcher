@@ -368,7 +368,7 @@ export async function detectRequiredJavaVersion(inst, instancePath) {
                         const cacheDir = path.join(instancePath, "cache", "json");
                         await fs.promises.mkdir(cacheDir, { recursive: true });
                         const destJson = path.join(cacheDir, `${mcVersion}.json`);
-                        const tmpJson = `${destJson}.tmp.${Date.now()}`;
+                        const tmpJson = `${destJson}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
                         try {
                             await fs.promises.writeFile(tmpJson, body, "utf8");
                             await fs.promises.rename(tmpJson, destJson);

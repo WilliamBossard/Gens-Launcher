@@ -175,7 +175,12 @@ function createRendererPathGuard(safeDataDir) {
     const BLOCKED_BOTH_FILES = new Set([
         '.secret_key',
         '.key_salt',
-        'horizon_seal.key'
+        'horizon_seal.key',
+        'trusted_external_domains.json',
+        'github_release_cache.json'
+    ]);
+    const BLOCKED_BOTH_REL_PATHS = new Set([
+        path.join('horizon', 'horizon_version.json')
     ]);
     const BLOCKED_BOTH_SUBDIRS = [
         'msa-cache',
@@ -222,7 +227,7 @@ function createRendererPathGuard(safeDataDir) {
         if (parts.length === 0) return;
 
         // 1. Secrets strictement réservés au Main Process (lecture + écriture interdites)
-        if (parts.length === 1 && BLOCKED_BOTH_FILES.has(parts[0])) {
+        if ((parts.length === 1 && BLOCKED_BOTH_FILES.has(parts[0])) || BLOCKED_BOTH_REL_PATHS.has(relLower)) {
             deny('fichier secret réservé au Main Process');
         }
         for (const sub of BLOCKED_BOTH_SUBDIRS) {

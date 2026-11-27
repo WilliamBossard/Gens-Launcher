@@ -305,7 +305,7 @@ module.exports = function setupSystemHandlers(context) {
             if (typeof srcPath !== 'string' || !srcPath.trim()) {
                 return { success: false, error: "Chemin source invalide." };
             }
-            if (typeof context.isApprovedCopySource === 'function' && !context.isApprovedCopySource(event?.sender?.id, srcPath)) {
+            if (typeof context.isApprovedCopySource === 'function' && !(await context.isApprovedCopySource(event?.sender?.id, srcPath))) {
                 mainLog(`[Sécurité] copy-file-to-sandbox refusé pour source non approuvée : ${srcPath}`);
                 return { success: false, error: "EACCES: Source non autorisée (doit provenir d'un sélecteur ou glisser-déposer)." };
             }

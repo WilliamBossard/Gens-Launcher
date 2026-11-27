@@ -47,7 +47,7 @@ async function writeFileAtomic(filePath, data, encoding = 'utf8') {
     }
     if (!renamed && lastErr) throw lastErr;
   } finally {
-    try { await fs.promises.unlink(tmpPath); } catch (_) {}
+    try { await fs.promises.unlink(tmpPath); } catch (_) { }
   }
 }
 
@@ -74,7 +74,7 @@ async function pMap(array, limit, asyncCallback) {
     });
     results.push(p);
     if (limit <= array.length) {
-      const e = p.catch(() => {}).finally(() => {
+      const e = p.catch(() => { }).finally(() => {
         const index = executing.indexOf(e);
         if (index !== -1) executing.splice(index, 1);
       });
@@ -89,7 +89,7 @@ async function pMap(array, limit, asyncCallback) {
   if (firstRejected) {
     throw firstRejected.reason;
   }
-  return settled.map((s) => /** @type {PromiseFulfilledResult<R>} */ (s).value);
+  return settled.map((s) => /** @type {PromiseFulfilledResult<R>} */(s).value);
 }
 
 /**
@@ -249,10 +249,14 @@ function pinnedHttpsRequest(urlStr, fetchInit, pinnedRecord) {
       signal.addEventListener('abort', onAbort, { once: true });
       req.on('close', () => signal.removeEventListener('abort', onAbort));
     }
-    if (fetchInit.body != null && typeof fetchInit.body === 'string') {
-      req.write(fetchInit.body);
-    } else if (fetchInit.body != null && Buffer.isBuffer(fetchInit.body)) {
-      req.write(fetchInit.body);
+    if (fetchInit.body != null) {
+      if (typeof fetchInit.body === 'string' || Buffer.isBuffer(fetchInit.body)) {
+        req.write(fetchInit.body);
+      } else if (fetchInit.body instanceof Uint8Array) {
+        req.write(Buffer.from(fetchInit.body.buffer, fetchInit.body.byteOffset, fetchInit.body.byteLength));
+      } else if (fetchInit.body instanceof URLSearchParams) {
+        req.write(fetchInit.body.toString());
+      }
     }
     req.end();
   });
@@ -280,7 +284,7 @@ async function fetchWithSafeRedirects(rawUrl, init = {}, client = null, maxRedir
       if (!location) {
         throw new Error(`Redirect (${res.status}) without Location header`);
       }
-      try { await res.body?.cancel(); } catch (_) {}
+      try { await res.body?.cancel(); } catch (_) { }
       currentUrl = new URL(location, currentUrl).toString();
       continue;
     }
@@ -319,7 +323,7 @@ async function fetchText(url) {
     if (!res.ok) throw new Error(res.statusText);
     const cl = parseInt(res.headers?.get?.('content-length') || '0', 10) || 0;
     if (cl > MAX_TEXT_BYTES) {
-      try { await res.body?.cancel(); } catch (_) {}
+      try { await res.body?.cancel(); } catch (_) { }
       throw new Error(`Response too large (${cl} bytes > ${MAX_TEXT_BYTES})`);
     }
     const text = await res.text();
@@ -439,7 +443,7 @@ async function downloadFileAsync(url, directory, name, retry, type, ctx) {
 
   if (!response.ok) {
     clearTimeout(timeoutId);
-    try { await response.body?.cancel?.(); } catch (_) {}
+    try { await response.body?.cancel?.(); } catch (_) { }
     client?.emit('debug', `[Gens-Core]: Failed to download ${url} due to: ${response.status} ${response.statusText}`);
     const isRetryableHttp = response.status === 408 || response.status === 429 || response.status >= 500;
     if (retry && isRetryableHttp && (!client || !client.aborted)) {
@@ -460,10 +464,10 @@ async function downloadFileAsync(url, directory, name, retry, type, ctx) {
   if (!response.body) {
     clearTimeout(timeoutId);
     dest.destroy();
-    try { await fs.promises.unlink(tmpPath); } catch (_) {}
+    try { await fs.promises.unlink(tmpPath); } catch (_) { }
     return { failed: true, asset: null };
   }
-  const bodyStream = Readable.fromWeb(/** @type {any} */ (response.body));
+  const bodyStream = Readable.fromWeb(/** @type {any} */(response.body));
 
   bodyStream.on('data', (/** @type {Buffer} */ chunk) => {
     resetInactivityTimer();
@@ -503,7 +507,7 @@ async function downloadFileAsync(url, directory, name, retry, type, ctx) {
     return { failed: false, asset: null };
   } catch (_) {
     clearTimeout(timeoutId);
-    try { if (await existsAsync(tmpPath)) await fs.promises.unlink(tmpPath); } catch (_) {}
+    try { if (await existsAsync(tmpPath)) await fs.promises.unlink(tmpPath); } catch (_) { }
     if (retry && (!client || !client.aborted)) {
       return await downloadFileAsync(url, directory, name, false, type, ctx);
     }

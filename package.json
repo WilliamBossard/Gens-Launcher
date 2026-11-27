@@ -12,6 +12,7 @@
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch",
+    "test:e2e": "playwright test tests/e2e",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
@@ -24,6 +25,7 @@
     "electron-updater": "^6.8.12"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.11",
     "electron": "^45.5.0",
     "electron-builder": "^26.18.1",

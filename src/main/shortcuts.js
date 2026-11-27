@@ -41,7 +41,7 @@ module.exports = function (context) {
                     try {
                         await fs.promises.unlink(appsPath);
                         removed = true;
-                    } catch (_) {}
+                    } catch (_) { }
                 }
             }
             return removed ? { success: true } : { success: false, reason: 'not_found' };
@@ -137,7 +137,7 @@ module.exports = function (context) {
             }
             const alreadyExists = await fs.promises.access(
                 path.join(desktopPath, `${safeName}.${process.platform === 'win32' ? 'lnk' : process.platform === 'linux' ? 'desktop' : 'app'}`)
-            ).then(()=>true).catch(()=>false);
+            ).then(() => true).catch(() => false);
             const appExecutable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : process.execPath;
             const escapedInstanceName = encodeURIComponent(instanceName);
             if (process.platform === 'win32') {
@@ -193,19 +193,19 @@ module.exports = function (context) {
                 const { execFile } = require('child_process');
 
                 await new Promise((resolve, reject) => {
-                    execFile('osacompile', ['-e', script, '-o', shortcutPath], (err) => {
+                    execFile('osacompile', ['-e', script, '-o', shortcutPath], { timeout: 15000 }, (err) => {
                         if (err) reject(err);
                         else resolve(undefined);
                     });
                 });
 
-                if (finalIconPath && finalIconPath.endsWith('.png')) {
+                if (finalIconPath && finalIconPath.toLowerCase().endsWith('.png')) {
                     const appletIcns = path.join(shortcutPath, "Contents", "Resources", "applet.icns");
                     await new Promise((resolve) => {
-                        execFile('sips', ['-s', 'format', 'icns', finalIconPath, '--out', appletIcns], () => resolve(undefined));
+                        execFile('sips', ['-s', 'format', 'icns', finalIconPath, '--out', appletIcns], { timeout: 15000 }, () => resolve(undefined));
                     });
                     await new Promise((resolve) => {
-                        execFile('touch', [shortcutPath], () => resolve(undefined));
+                        execFile('touch', [shortcutPath], { timeout: 10000 }, () => resolve(undefined));
                     });
                 }
                 return { success: true, updated: alreadyExists };

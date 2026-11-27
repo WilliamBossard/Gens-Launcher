@@ -3,6 +3,7 @@ import { store } from "../store.js";
 import { sysLog } from "../utils.js";
 import { getCurseForgeCdnUrls } from "../archives/curseforge.js";
 import { detectModCompatibilityConflicts, findModCompatibilityIssues, normalizeModVersionString } from "../local/modCompatibility.js";
+import { createCurseForgeBuilderCard, renderCatalogProgressive } from "./mods/ModCatalogRenderer.js";
 const fs = window.api.fs;
 const path = window.api.path;
 /** @type {(id: string) => any} */
@@ -1125,37 +1126,10 @@ if (!isDependency) {
                     return;
                 }
                 
-                data.data.forEach((/** @type {any} */ mod) => {
-                    if (!mod.id) return;
-                    const safeId = window.escapeHTML(mod.id.toString());
-                    const safeTitle = window.escapeHTML(mod.name);
-                    const safeDesc = window.escapeHTML(mod.summary || "");
-                    const safeAuthor = window.escapeHTML(mod.authors && mod.authors[0] ? mod.authors[0].name : "");
-                    const downloads = mod.downloadCount >= 1000000
-                        ? (mod.downloadCount / 1000000).toFixed(1) + "M DLs"
-                        : (mod.downloadCount >= 1000 ? (mod.downloadCount / 1000).toFixed(0) + "k DLs" : mod.downloadCount + " DLs");
-                    const isAdded = builderSelectedMods.some(m => m.id === safeId);
-                    const btnHtml = isAdded
-                        ? `<button class="btn-secondary u-s273" disabled>${t("btn_added", "Ajouté")}</button>`
-                        : `<button class="btn-primary builder-add-btn u-s274">${t("btn_add_to_pack", "Ajouter")}</button>`;
-                    const rawThumb = (mod.logo && mod.logo.thumbnailUrl) ? String(mod.logo.thumbnailUrl) : "";
-                    const iconUrl = /^https:\/\//i.test(rawThumb) ? window.escapeHTML(rawThumb) : "";
-                    const iconHtml = iconUrl
-                        ? `<img src="${iconUrl}" alt="" loading="lazy" class="u-s276">`
-                        : `<div class="u-s277"></div>`;
-                    
-                    const card = document.createElement("div");
-                    card.className = "catalog-card";
-                    card.style.cssText = "background: rgba(0,0,0,0.2); padding: 10px; gap: 10px; align-items: flex-start;";
-                    card.innerHTML = `
-                        ${iconHtml}
-                        <div class="u-s278">
-                            <div class="u-s279">${safeTitle}</div>
-                            <div class="u-s283">${safeAuthor} — ${downloads} (CurseForge)</div>
-                            <div class="u-s281">${safeDesc}</div>
-                            <div class="btn-container u-s282" data-mod-id="${safeId}">${btnHtml}</div>
-                        </div>`;
-                    resDiv.appendChild(card);
+                renderCatalogProgressive(resDiv, data.data, (mod) => {
+                    const rawThumb = (mod?.logo && mod.logo.thumbnailUrl) ? String(mod.logo.thumbnailUrl) : "";
+                    const safeMod = rawThumb && !/^https:\/\//i.test(rawThumb) ? { ...mod, logo: { ...mod.logo, thumbnailUrl: "" } } : mod;
+                    return createCurseForgeBuilderCard(safeMod, builderSelectedMods);
                 });
             }
             

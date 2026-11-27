@@ -14,11 +14,15 @@ function setupUpdater(context) {
 
     const fs = require('fs');
 
+    /** @type {boolean | null} */
+    let _isDebPackageCache = null;
+
     function isDebPackageInstallation() {
         if (process.platform !== 'linux' || process.env.APPIMAGE || process.env.FLATPAK_ID || process.env.SNAP) {
             return false;
         }
         if (!app.isPackaged) return false;
+        if (_isDebPackageCache !== null) return _isDebPackageCache;
         const debMarkers = [
             '/var/lib/dpkg/info/gens-launcher.list',
             '/var/lib/dpkg/info/gens-launcher:amd64.list',
@@ -28,9 +32,13 @@ function setupUpdater(context) {
         ];
         for (const marker of debMarkers) {
             try {
-                if (fs.existsSync(marker)) return true;
-            } catch (_) {}
+                if (fs.existsSync(marker)) {
+                    _isDebPackageCache = true;
+                    return true;
+                }
+            } catch (_) { }
         }
+        _isDebPackageCache = false;
         return false;
     }
 
@@ -114,9 +122,9 @@ function setupUpdater(context) {
             return { success: false, error: msg };
         } finally {
             if (tmpKeyDir) {
-                try { await fs.promises.rm(tmpKeyDir, { recursive: true, force: true }); } catch (_) {}
+                try { await fs.promises.rm(tmpKeyDir, { recursive: true, force: true }); } catch (_) { }
             } else if (tmpKeyFile) {
-                try { await fs.promises.unlink(tmpKeyFile); } catch (_) {}
+                try { await fs.promises.unlink(tmpKeyFile); } catch (_) { }
             }
         }
     });
@@ -142,7 +150,7 @@ function setupUpdater(context) {
             }
             mainLog("MAJ Linux .deb : lancement via pkexec apt-get update && install...");
             const { execFile } = require('child_process');
-            execFile('pkexec', ['sh', '-c', 'apt-get update -qq && apt-get install -y gens-launcher'], (err, stdout, stderr) => {
+            execFile('pkexec', ['sh', '-c', 'apt-get update -qq && apt-get install -y gens-launcher'], { timeout: 180000 }, (err, stdout, stderr) => {
                 if (!err) {
                     mainLog("Mise à jour APT réussie. Relancement...");
                     app.relaunch();
@@ -197,7 +205,7 @@ function setupUpdater(context) {
                         resolve(result);
                     };
                     reqTimeout = setTimeout(() => {
-                        try { req.abort(); } catch (_) {}
+                        try { req.abort(); } catch (_) { }
                         finish({ success: false, error: 'Délai dépassé lors de la vérification des mises à jour.' });
                     }, 10000);
                     req.on('response', (res) => {
@@ -206,7 +214,12 @@ function setupUpdater(context) {
                             finish({ success: false, error: err instanceof Error ? err.message : String(err) });
                         });
                         res.on('data', (c) => {
-                            if (data.length < 512 * 1024) data += c;
+                            if (data.length + c.length > 512 * 1024) {
+                                try { req.abort(); } catch (_) { }
+                                finish({ success: false, error: 'Réponse GitHub API trop volumineuse (> 512 Ko).' });
+                                return;
+                            }
+                            data += c;
                         });
                         res.on('end', () => {
                             if (res.statusCode !== 200) {
@@ -223,7 +236,7 @@ function setupUpdater(context) {
                                     getMainWindow()?.webContents.send('update-msg', { key: 'msg_up_to_date', text: 'Gens Launcher est à jour !', type: 'success' });
                                     finish({ success: true, version: null });
                                 }
-                            } catch(e) {
+                            } catch (e) {
                                 const error = e instanceof Error ? e.message : String(e);
                                 finish({ success: false, error });
                             }
@@ -235,20 +248,20 @@ function setupUpdater(context) {
                     });
                     req.end();
                 });
-            } catch(e) {
+            } catch (e) {
                 isManualUpdateCheck = false;
                 const error = e instanceof Error ? e.message : String(e);
                 return { success: false, error };
             }
         }
-        try { 
-            const result = await autoUpdater.checkForUpdates(); 
+        try {
+            const result = await autoUpdater.checkForUpdates();
             isManualUpdateCheck = false;
-            return { success: true, version: result?.updateInfo?.version || null }; 
-        } catch (e) { 
+            return { success: true, version: result?.updateInfo?.version || null };
+        } catch (e) {
             isManualUpdateCheck = false;
             const error = e instanceof Error ? e.message : String(e);
-            return { success: false, error }; 
+            return { success: false, error };
         }
     });
 
@@ -266,9 +279,9 @@ function setupUpdater(context) {
     });
 
     autoUpdater.on("update-available", (info) => { getMainWindow()?.webContents.send("update-available-prompt", info); });
-    autoUpdater.on("update-not-available", () => { 
+    autoUpdater.on("update-not-available", () => {
         if (isManualUpdateCheck) {
-            getMainWindow()?.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" }); 
+            getMainWindow()?.webContents.send("update-msg", { key: "msg_up_to_date", text: "Gens Launcher est à jour !", type: "success" });
         }
     });
     autoUpdater.on("download-progress", (progress) => { getMainWindow()?.webContents.send("update-progress", Math.round(progress.percent)); });

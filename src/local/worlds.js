@@ -7,13 +7,13 @@ const path = window.api.path;
 export function setup() {
     function getMinecraftSavesDir() {
         const platform = window.api.platform;
-        const os       = window.api.os;
+        const os = window.api.os;
         if (platform === "win32") {
             return path.join(window.api.appData, ".minecraft", "saves");
         } else if (platform === "darwin") {
             return path.join(os.userInfo().homedir || window.api.appData.replace(/\/Library.*/, ""), "Library", "Application Support", "minecraft", "saves");
         } else {
-            return path.join(os.userInfo().homedir || path.join(window.api.appData, "..", ".."), ".minecraft", "saves");
+            return path.join(os.userInfo().homedir || path.join(window.api.appData, ".."), ".minecraft", "saves");
         }
     }
 
@@ -179,7 +179,7 @@ export function setup() {
                 if (htmlBtn.dataset.folder) window.backupSingleWorld(htmlBtn.dataset.folder);
             });
         });
-        listDiv.querySelectorAll(".btn-copy-world").forEach(btn  => {
+        listDiv.querySelectorAll(".btn-copy-world").forEach(btn => {
             const htmlBtn = /** @type {HTMLElement} */ (btn);
             htmlBtn.addEventListener("click", () => {
                 if (htmlBtn.dataset.folder) window.copySingleWorld(htmlBtn.dataset.folder);
@@ -368,7 +368,7 @@ export function setup() {
                 if (exRes && !exRes.success) throw new Error(exRes.error || "Erreur d'extraction ZIP");
                 let extractedWorld = path.join(tmpExtractDir, folderName);
                 let isDirect = false;
-                
+
                 if (await window.existsSafe(path.join(tmpExtractDir, "level.dat"))) {
                     extractedWorld = tmpExtractDir;
                     isDirect = true;
@@ -398,12 +398,12 @@ export function setup() {
                     await fs.promises.rename(extractedWorld, targetWorldDir);
                 } catch (swapErr) {
                     if (hadTarget && (await window.existsSafe(oldBackupDir)) && !(await window.existsSafe(targetWorldDir))) {
-                        try { await fs.promises.rename(oldBackupDir, targetWorldDir); } catch (_) {}
+                        try { await fs.promises.rename(oldBackupDir, targetWorldDir); } catch (_) { }
                     }
                     throw swapErr;
                 }
                 if (hadTarget && (await window.existsSafe(oldBackupDir))) {
-                    try { await fs.promises.rm(oldBackupDir, { recursive: true, force: true }); } catch (_) {}
+                    try { await fs.promises.rm(oldBackupDir, { recursive: true, force: true }); } catch (_) { }
                 }
                 if (!isDirect && (await window.existsSafe(tmpExtractDir))) {
                     await fs.promises.rm(tmpExtractDir, { recursive: true, force: true });
@@ -411,10 +411,10 @@ export function setup() {
                 window.showToast(t("msg_restore_success", "Monde restauré avec succès !"), "success");
                 const modal = document.getElementById("modal-restore");
                 if (modal) modal.style.display = "none";
-                window.openWorldsModal(); 
+                window.openWorldsModal();
             } catch (/** @type {any} */ e) {
                 if (await window.existsSafe(tmpExtractDir)) {
-                    try { await fs.promises.rm(tmpExtractDir, { recursive: true, force: true }); } catch (_) {}
+                    try { await fs.promises.rm(tmpExtractDir, { recursive: true, force: true }); } catch (_) { }
                 }
                 window.showToast(t("msg_restore_err", "Erreur lors de la restauration : ") + e.message, "error");
             }

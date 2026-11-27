@@ -414,6 +414,9 @@ module.exports = function setupFsHandlers(context) {
     ipcMain.handle('fs:access', async (_, p, mode) => {
         try {
             const safePath = await assertReadPath(p, false, true);
+            if (mode !== undefined && (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 7)) {
+                throw new Error(`Mode access invalide bloqué (${String(mode)}).`);
+            }
             await fs.promises.access(safePath, mode);
             return { ok: true };
         } catch (err) {
