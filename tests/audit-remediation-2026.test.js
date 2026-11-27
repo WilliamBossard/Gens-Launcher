@@ -307,7 +307,7 @@ test('Audit 2026-11 Lot 1-2: renderer path guard blocks trust/cache files, valid
     const { createGameValidators } = require('../src/main/game-validation');
     const setupHorizonHandlers = require('../src/main/ipc-horizon');
 
-    const safeDir = path.join(os.tmpdir(), 'gens_remed_guard_test');
+    const safeDir = path.join(fs.realpathSync(os.tmpdir()), 'gens_remed_guard_test');
     const guard = createRendererPathGuard(safeDir);
     for (const rel of ['trusted_external_domains.json', 'github_release_cache.json', path.join('horizon', 'horizon_version.json')]) {
         const target = path.join(safeDir, rel);

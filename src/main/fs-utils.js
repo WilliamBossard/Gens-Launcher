@@ -40,6 +40,18 @@ function createSandboxValidator(sandboxDir) {
             cachedRealSandbox = fs.realpathSync(absSandbox);
             return cachedRealSandbox;
         } catch (_) {
+            // Si le sandbox n'existe pas encore (ex. /var -> /private/var sur macOS),
+            // résoudre le plus proche ancêtre existant pour rester cohérent avec realTarget.
+            let cur = path.dirname(absSandbox);
+            while (cur && cur !== path.dirname(cur)) {
+                try {
+                    const realCur = fs.realpathSync(cur);
+                    const relTail = path.relative(cur, absSandbox);
+                    return relTail ? path.join(realCur, relTail) : realCur;
+                } catch {
+                    cur = path.dirname(cur);
+                }
+            }
             return absSandbox;
         }
     }
