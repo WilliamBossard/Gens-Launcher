@@ -1,91 +1,66 @@
-# Modules Natifs Gens-Core (Zéro Dépendance)
+# Modules Natifs Rust (Core)
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/D%C3%A9pendances-0%25%20Bloatware-green.svg" alt="Dépendances" />
-  <img src="https://img.shields.io/badge/Modules-100%25%20In--House-blue.svg" alt="Modules" />
-  <img src="https://img.shields.io/badge/S%C3%A9curit%C3%A9-Surface%20d'Attaque%20Minimale-orange.svg" alt="Sécurité" />
+  <img src="https://img.shields.io/badge/Langage-Rust%202024-orange.svg" alt="Rust 2024" />
+  <img src="https://img.shields.io/badge/Modules-100%25%20Internes-blue.svg" alt="Modules Internes" />
+  <img src="https://img.shields.io/badge/S%C3%A9curit%C3%A9-Surface%20Minimale-green.svg" alt="Sécurité" />
 </div>
 
-Afin de réduire drastiquement le poids de l'exécutable, d'accélérer les temps de chargement et de supprimer les vulnérabilités liées à la chaîne d'approvisionnement (*Supply Chain Attacks*), Gens-Launcher bannit les bibliothèques tierces volumineuses au profit de modules **100 % natifs développés en interne** dans `src/gens-core/components/` (tous intégralement vérifiés par TypeScript via `// @ts-check`).
+Pour réduire la taille du binaire (~11 Mo), limiter la chaîne de dépendances et maximiser les performances I/O, Gens-Launcher implémente ses protocoles Minecraft et système en **modules Rust purs** dans `src-tauri/src/`.
 
 ---
 
-## 1. Module Discord Rich Presence Natif (`discord.js`)
+## 1. Discord Rich Presence Natif (`src-tauri/src/discord.rs`)
 
-Plutôt que d'importer `@xhayper/discord-rpc` ou le SDK Discord officiel (qui pèsent plusieurs mégaoctets et multiplient les dépendances transitives), Gens-Launcher intègre son propre client RPC basé sur les **Named Pipes** du système d'exploitation :
+Client RPC pur Rust sans crate externe, communiquant directement en IPC OS :
 
-- **Protocole Bas Niveau :**
-  - **Windows :** Connexion directe sur `\\?\pipe\discord-ipc-0..9`.
-  - **Linux / macOS :** Connexion par socket Unix sur `$XDG_RUNTIME_DIR/discord-ipc-0..9` ou `/tmp/discord-ipc-0..9`.
-- **Analyseur de Trame Binaire (IPC Framer) :** Encode les opcodes RPC (`HANDSHAKE = 0`, `FRAME = 1`, `CLOSE = 2`) directement avec des Buffers natifs Node.js.
-- **Rate-Limiter Intégré :** Régule les mises à jour de statut sur une fenêtre de 15 secondes conformément aux quotas Discord.
-- **Gestion Propre des Déconnexions :** Nettoie immédiatement les timers et sockets lors d'un `disconnect()` et bloque toute reconnexion automatique en mode hors-ligne.
+- **Windows :** Named Pipes (`\\.\pipe\discord-ipc-0..9`).
+- **Linux / macOS :** Sockets Unix (`$XDG_RUNTIME_DIR/discord-ipc-0..9` ou `/tmp/discord-ipc-0..9`).
+- **Protocole & Résilience :** Gère `HANDSHAKE` (0), `FRAME` (1), `CLOSE` (2), `PING` (3) → `PONG` (4), applique la limite de 15 s de Discord et un backoff exponentiel plafonné à 10 tentatives.
 
 ---
 
-## 2. Analyseur et Constructeur Binaire NBT (`nbt.js`)
+## 2. Parseur Binaire NBT (`src-tauri/src/nbt.rs`)
 
-Le format NBT (*Named Binary Tag*) est le standard binaire utilisé par Minecraft pour stocker les mondes, les inventaires et la liste des serveurs multijoueur (`servers.dat`).
+Parseur NBT pur Rust utilisant `flate2` (fichiers GZIP comme `level.dat`) et les flux non compressés (`servers.dat`) :
 
-Gens-Launcher remplace `prismarine-nbt` par une implémentation légère basée sur l'API native `node:zlib` :
-
-- **Compression GZIP :** Détection automatique de l'en-tête GZIP ou lecture non compressée.
-- **Types Supportés :** `TAG_End` (0), `TAG_Byte` (1), `TAG_Short` (2), `TAG_Int` (3), `TAG_Long` (4), `TAG_Float` (5), `TAG_Double` (6), `TAG_Byte_Array` (7), `TAG_String` (8), `TAG_List` (9), `TAG_Compound` (10), `TAG_Int_Array` (11), `TAG_Long_Array` (12).
-- **Entiers 64 bits (`TAG_Long`) :** Manipulation sans perte sous forme de paires 32 bits signées `[hi, lo]`.
-- **Édition Sécurisée de `servers.dat` :** Permet à l'interface de lire, réordonner et insérer des serveurs favoris sans jamais corrompre la structure du fichier du joueur.
+- Supporte les 13 types de tags NBT (`TAG_End` à `TAG_Long_Array`).
+- Applique des limites strictes de taille d'entrée (5 Mio), de tableaux, de chaînes et de profondeur d'imbrication pour éviter tout OOM ou dépassement de pile.
 
 ---
 
-## 3. Authentification Microsoft Native (`auth.js`)
+## 3. Authentification Microsoft OAuth2 & Proxy Mojang (`src-tauri/src/network.rs`)
 
-L'authentification officielle Microsoft a été réécrite de zéro sans dépendance OAuth externe :
+Implémenté nativement avec `reqwest` (`rustls`, sans dépendance OpenSSL) :
 
 ```text
-[ Étape 1 : Device Code ]
-POST https://login.live.com/oauth20_connect.srf
-  -> Obtention de user_code, device_code et verification_uri
-
-[ Étape 2 : Polling du Jeton OAuth2 ]
-POST https://login.live.com/oauth20_token.srf
-  -> Échange du device_code contre refresh_token et access_token
-  -> Gestion native de authorization_pending, slow_down et des micro-coupures réseau
-
-[ Étape 3 : Authentification Xbox Live (XBL) ]
-POST https://user.auth.xboxlive.com/user/authenticate
-  -> Obtention du token XBL et du UserHash (uhs)
-
-[ Étape 4 : Autorisation XSTS (Minecraft Services) ]
-POST https://xsts.auth.xboxlive.com/xsts/authorize
-  -> Obtention du token XSTS
-
-[ Étape 5 : Jeton d'Accès Minecraft ]
-POST https://api.minecraftservices.com/authentication/login_with_xbox
-  -> Obtention du bearer token Minecraft officiel
-
-[ Étape 6 : Profil Joueur & UUID ]
-GET https://api.minecraftservices.com/minecraft/profile
-  -> Récupération de l'UUID officiel, du pseudonyme et des skins/capes
+[ Étape 1 ] POST login.live.com/oauth20_connect.srf   -> Device Code & URL de vérification
+[ Étape 2 ] POST login.live.com/oauth20_token.srf     -> Jetons OAuth2 access & refresh
+[ Étape 3 ] POST user.auth.xboxlive.com/user/authenticate -> Jeton Xbox Live (XBL)
+[ Étape 4 ] POST xsts.auth.xboxlive.com/xsts/authorize    -> Jeton XSTS
+[ Étape 5 ] POST api.minecraftservices.com/authentication/login_with_xbox -> Jeton MC
+[ Étape 6 ] GET  api.minecraftservices.com/minecraft/profile -> UUID, skin & capes
 ```
 
-- **Sécurité :** Tous les flux transitent exclusivement via HTTPS avec validation stricte des certificats TLS.
-- **Rafraîchissement Silencieux :** Le `refresh_token` est stocké chiffré et renouvelé automatiquement via `flowRefresh()`.
+- Supporte l'annulation instantanée via `AtomicBool`, le rafraîchissement silencieux des jetons et le proxy Mojang sans restriction CORS.
 
 ---
 
-## 4. Ping Serveur Minecraft Natif (`ping.js`)
+## 4. Server List Ping Natif (`src-tauri/src/ping.rs`)
 
-Interroge l'état en direct des serveurs Minecraft (MOTD, nombre de joueurs connectés, version du protocole et icône base64) directement en TCP :
+Interroge les serveurs Minecraft (MOTD, joueurs en ligne, version, favicon) en TCP asynchrone via Tokio :
 
-- **Résolution DNS SRV :** Résout automatiquement les enregistrements `_minecraft._tcp.<host>` avec un délai de repli de 1,5 seconde.
-- **Encodage VarInt :** Encode et décode les VarInts et chaînes UTF-8 du protocole Minecraft pour le paquet `0x00` (Handshake + Status Request).
-- **Support IPv4 / IPv6 & Ports Personnalisés :** Analyse complète des adresses IPv6 entre crochets et des ports dédiés.
+- **Protection Anti-SSRF :** Bloque les adresses loopback, privées RFC 1918, CGNAT (`100.64.0.0/10`), link-local, multicast et IPv6 mappées IPv4.
+- **Framing VarInt :** Plafonne les paquets à 2 Mio et parse IPv4, IPv6 entre crochets et ports personnalisés.
+- **Rendu MOTD anti-XSS :** Échappe les entités HTML et convertit les codes `§` en classes CSS sûres.
 
 ---
 
-## 5. Moteur de Lancement (`launcher.js` & `handler.js`)
+## 5. Moteur de Lancement Minecraft (`src-tauri/src/game.rs`)
 
-Prépare et exécute le processus Java de Minecraft :
+Moteur natif Rust prenant en charge **Vanilla, Fabric, Quilt, Forge et NeoForge** :
 
-- **Vérification Rapide & SHA-1 :** Contrôle la taille et l'empreinte SHA-1 des bibliothèques et assets (`verifyFileFast` & `checkSum`) avec téléchargement parallèle borné (`pMap`).
-- **Assemblage du Classpath & Arguments JVM :** Construction dynamique du `-cp` et des arguments JVM (`getJVMArgs`), avec prise en charge des versions modernes de Minecraft (26.x / 27.x et `-XX:StackShadowPages=32`) ainsi que de ForgeWrapper.
-- **Extraction Sécurisée :** Utilise `yauzl-promise` avec vérification stricte des chemins de sortie pour empêcher toute attaque Zip Slip.
+- **Téléchargements parallèles & intégrité :** Sémaphores Tokio pour téléchargements concurrents avec vérification SHA-1/SHA-256 et retries automatiques.
+- **Règles Mojang & Architectures :** Évalue les règles OS/arch (`^x86$`, `arm64`, `darwin`, `linux`, `windows`), gère les versions modernes (`26.x`, `27.x`) et intègre ForgeWrapper.
+- **Gestion des runtimes Java :** Scanner JDK/JRE avec cache TTL 5 min et installeur Adoptium Temurin vérifié par SHA-256.
+- **Extraction d'archives pure Rust (`src-tauri/src/archive.rs`) :** Extrait `.zip` et `.tar.gz` (USTAR / GNU LongName / PAX) avec protections Zip-Slip, Tar-Slip, anti-symlink et anti-Zip-Bomb.

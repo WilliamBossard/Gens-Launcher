@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gens Launcher",
+  "version": "1.9.4",
+  "identifier": "com.gens.launcher",
+  "build": {
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: https://*.modrinth.com https://*.forgecdn.net https://*.cursecdn.net https://*.minecraft.net https://*.mojang.com https://*.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net https://mineatar.io https://s.optifine.net; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost https://api.modrinth.com https://cdn.modrinth.com https://api.curseforge.com https://edge.forgecdn.net https://mediafilez.forgecdn.net https://piston-meta.mojang.com https://launchermeta.mojang.com https://launchercontent.mojang.com https://api.mojang.com https://sessionserver.mojang.com https://api.minecraftservices.com https://textures.minecraft.net https://meta.fabricmc.net https://meta.quiltmc.org https://files.minecraftforge.net https://maven.minecraftforge.net https://maven.neoforged.net https://bmclapi2.bangbang93.com https://api.adoptium.net https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://mc-heads.net https://crafatar.com https://minotar.net https://mineatar.io https://s.optifine.net; font-src 'self' data:; frame-src 'none'; child-src 'none'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none';",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/GensLauncher/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../frontend/assets/icon.ico",
+      "../frontend/assets/icon-256.png"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
+  }
+}

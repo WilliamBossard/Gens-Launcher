@@ -1,85 +1,85 @@
-# Architecture Globale du Système
+# Architecture Système Globale
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/Runtime-Electron-blue.svg" alt="Electron" />
-  <img src="https://img.shields.io/badge/Node.js-24+-green.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/Modèle-Processus%20Isolés-orange.svg" alt="Processus" />
+  <img src="https://img.shields.io/badge/Runtime-Rust%20%2B%20Tauri%20v2-orange.svg" alt="Rust + Tauri v2" />
+  <img src="https://img.shields.io/badge/Async-Tokio-blue.svg" alt="Tokio" />
+  <img src="https://img.shields.io/badge/Mod%C3%A8le-WebView%20Isol%C3%A9e-green.svg" alt="WebView Isolée" />
 </div>
 
-Gens-Launcher est l'interface graphique officielle (GUI) de l'écosystème Gens. Conçu sur **Electron**, son rôle principal est d'orchestrer :
+Gens-Launcher est l'interface graphique officielle (GUI) de l'écosystème Gens. Construit sur **Rust + Tauri v2**, son rôle principal est d'orchestrer :
 
-1. L'authentification sécurisée des joueurs via l'API Microsoft / Xbox.
-2. Le téléchargement, la vérification d'intégrité et le lancement du jeu Minecraft via le moteur interne `gens-core`.
-3. La communication asynchrone avec **Gens-Horizon**, le moteur déporté de synchronisation cloud différentielle.
+1. L'authentification sécurisée des joueurs via les APIs Microsoft et Xbox Live.
+2. La vérification des assets, le téléchargement des dépendances et le lancement de Minecraft nativement en Rust (`src-tauri/src/game.rs`).
+3. L'exécution asynchrone et la communication avec **Gens-Horizon**, le moteur de synchronisation cloud différentielle.
 
 ---
 
-## Modèle de Processus Isolés
+## Modèle de Séparation Stricte
 
-L'architecture respecte scrupuleusement le paradigme natif d'Electron en scindant l'application en trois royaumes étanches :
+L'architecture sépare strictement les opérations système privilégiées de l'interface utilisateur en trois couches isolées :
 
 ```text
 +-------------------------------------------------------------------+
-|                        MAIN PROCESS (Node.js)                     |
-|  - main.js : Cycle de vie, fenêtres, CSP globale                  |
-|  - src/main/ipc-auth.js : Proxy Mojang, tokens Microsoft          |
-|  - src/main/ipc-game.js : Préparation JVM, child_process spawn    |
-|  - src/main/ipc-fs.js : Service FS confiné (assertPathUnderSandbox)|
-|  - src/main/ipc-horizon.js : Bridge binaire Horizon               |
-|  - src/main/crypto-utils.js : safeStorage & PBKDF2 / AES-256-GCM  |
+|                   BACKEND RUST (src-tauri/src/)                   |
+|  - main.rs : Cycle de vie Tauri v2, tray, single-instance, IPC    |
+|  - game.rs & game_validation.rs : Moteur MC, gardes JVM/URL       |
+|  - sandbox.rs & fs_ops.rs : FS confiné (lexical + anti-symlink)   |
+|  - network.rs : OAuth2 Microsoft, proxy Mojang/Modrinth/CF        |
+|  - crypto.rs : DPAPI Windows, migration Electron, PBKDF2/AES-GCM  |
+|  - archive.rs, horizon.rs, updater.rs, system.rs, discord.rs,     |
+|    ping.rs, nbt.rs                                                |
 +---------------------------------+---------------------------------+
                                   |
-               IPC Asynchrone     | (ipcMain.handle / invoke)
-               Whitelist Stricte  |
+               IPC Asynchrone     | (__TAURI__.core.invoke / events)
+               Liste blanche      |
                                   v
 +-------------------------------------------------------------------+
-|                    SECURITY BRIDGE (preload.js)                   |
-|  - contextIsolation: true & sandbox: true                         |
-|  - enforceSandbox() / enforceReadSandbox() : Bloque Zip Slip      |
-|  - window.api : Seul point d'entrée exposé au DOM                 |
+|          PONT DE SÉCURITÉ (frontend/src/tauri-bridge.js)          |
+|  - Listes blanches statiques (SEND / INVOKE / RECEIVE)            |
+|  - Protocole asset:// confiné à $APPDATA/GensLauncher/**          |
+|  - window.api : Surface exclusive exposée au DOM                  |
 +---------------------------------+---------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
-|               RENDERER PROCESS (TypeScript Strict)                |
-|  - renderer.js (JSDoc TypeScript mode strict), HTML5, Vanilla CSS |
-|  - Aucune dépendance Node.js directe (require() interdit)         |
+|               FRONTEND WEBVIEW (TypeScript Strict)                |
+|  - frontend/renderer.js (checkJs + strict), HTML5, CSS natif      |
+|  - Zéro accès direct à l'OS ou Node.js                            |
 |  - Gestionnaires UI : AccountUI, InstancesUI, ModsUI, CloudUI     |
 +-------------------------------------------------------------------+
 ```
 
 ---
 
-## Description des Composants
+## Découpage des Composants
 
-### 1. Main Process (Processus Principal)
+### 1. Backend Natif Rust (`src-tauri/src/`)
 
-Il s'exécute dans un contexte Node.js complet avec accès au système de fichiers et au réseau bas niveau :
+Compilé nativement (Rust édition 2024, LTO + strip, binaire ~11 Mo) avec le runtime asynchrone Tokio :
 
-- **`main.js`** : Point d'entrée de l'application. Initialise les fenêtres `BrowserWindow`, installe la politique globale `Content-Security-Policy` (CSP) et charge les modules IPC via un `MainContext` typé.
-- **`src/main/ipc-auth.js`** : Gère les flux OAuth2 Device Code et agit comme proxy sécurisé pour interroger les API Mojang (skins et capes) en contournant les restrictions CORS sans exposer le Renderer.
-- **`src/main/ipc-game.js`** : Moteur de lancement. Assemble les arguments JVM, télécharge les bibliothèques et déclenche l'exécution via `child_process` sans évaluation de shell.
-- **`src/main/ipc-fs.js`** : Service de système de fichiers confiné validant à la fois le chemin lexical et la résolution réelle (`fs.realpathSync`) contre les évasions par liens symboliques ou jonctions.
-- **`src/main/ipc-horizon.js`** : Passerelle exclusive avec le binaire autonome `Horizon.exe` / `Horizon`. Valide le hash SHA-256 du binaire local par rapport aux releases GitHub officielles (avec cache mémoire de 2 heures) et filtre les arguments via une whitelist stricte.
-- **`src/main/crypto-utils.js`** : Primitives cryptographiques. Privilégie `safeStorage` (trousseau natif de l'OS) avec repli sur **PBKDF2** (600 000 itérations avec sel aléatoire de 16 octets dans `.key_salt`) et chiffrement **AES-256-GCM**.
+- **`main.rs`** : Point d'entrée Tauri v2. Initialise la barre d'état système, le verrou single-instance, le parsing `--auto-launch=`, `AppState` et le routeur IPC (`ipc_invoke` / `ipc_send`).
+- **`game.rs` & `game_validation.rs`** : Moteur de lancement Minecraft natif (Vanilla / Fabric / Quilt / Forge / NeoForge), ForgeWrapper, règles OS/arch Mojang, téléchargements parallèles vérifiés par SHA-1, scanner Java, installeur Adoptium vérifié par SHA-256 et validateurs JVM/URL/overrides.
+- **`sandbox.rs` & `fs_ops.rs`** : Service de fichiers confiné appliquant les bornes lexicales et la résolution canonique `realpath` (anti-symlink/junction), le blocage UNC, la denylist renderer et les écritures atomiques.
+- **`network.rs`** : Téléchargements streamés HTTPS (`reqwest` + `rustls`), OAuth2 Device Code Microsoft, proxy Mojang skins/profils, APIs Modrinth/CurseForge et validation Magic Bytes des fichiers importés.
+- **`horizon.rs`** : Pont exclusif vers `Horizon.exe` / `Horizon` avec vérification SHA-256 contre GitHub Releases et liste blanche stricte des arguments CLI.
+- **`crypto.rs`** : DPAPI Windows (FFI direct `crypt32.dll`), déchiffrement transparent de l'ancien format Electron `safeStorage:` (`Local State`), et chiffrement **PBKDF2 (600 000 itérations) + AES-256-GCM**.
+- **`updater.rs`** : Auto-updater natif compatible avec les manifestes `electron-updater` (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`) avec vérification SHA-512 obligatoire et support APT `.deb` sur Linux.
 
-### 2. Le Pont de Sécurité (Preload)
+### 2. Pont de Sécurité (`frontend/src/tauri-bridge.js`)
 
-- **`preload.js`** : S'exécute dans un contexte preload isolé avant de verrouiller l'accès aux API internes :
-  - Expose un objet scellé `window.api` au DOM via `contextBridge.exposeInMainWorld`.
-  - Implémente le bouclier **Software Security Shield** : les fonctions `enforceSandbox()` et `enforceReadSandbox()` valident mathématiquement tous les chemins pour prévenir les attaques de type `Zip Slip` et `Path Traversal`.
-  - L'écriture est strictement limitée à `%AppData%\GensLauncher`.
-  - La lecture hors sandbox est restreinte aux répertoires légitimes (`.minecraft/`, runtimes Java identifiés et dossiers temporaires autorisés).
+- Expose un objet `window.api` durci au-dessus de Tauri v2 (`__TAURI__.core.invoke` / `__TAURI__.event.listen`).
+- Applique des listes blanches statiques (`VALID_SEND_CHANNELS`, `VALID_INVOKE_CHANNELS`, `VALID_RECEIVE_CHANNELS`).
+- Restreint les écritures chiffrées (`window.api.security.writeJSON`) exclusivement à `accounts.json` et `cf_api_key.enc`.
+- Convertit les chemins locaux via `convertFileSrc` (`asset://`) dans le périmètre `$APPDATA/GensLauncher/**`.
 
-### 3. Renderer Process (Interface Utilisateur)
+### 3. Frontend WebView (`frontend/`)
 
-- **`renderer.js` / HTML / CSS** : Interface modulaire intégralement vérifiée par **TypeScript** (`checkJs: true`, `strict: true`), tout en conservant un démarrage instantané sans étape de compilation.
-- L'interface n'a aucun accès direct à `require()` ou à `process`.
-- Toutes les actions système (lancer le jeu, explorer un fichier, synchroniser le cloud) s'effectuent par appels asynchrones sur `window.api.invoke()`.
+- **`frontend/renderer.js` / HTML / CSS** : Interface modulaire légère vérifiée statiquement par **TypeScript** (`checkJs: true`, `strict: true`), sans étape de transpilation.
+- S'exécute dans la WebView native du système (WebView2 sous Windows, WebKitGTK sous Linux, WKWebView sous macOS) sans aucun runtime Node.js exposé.
 
 ---
 
 ## Cycle de Vie et Performance Asynchrone
 
-- **Interdiction de `sendSync` :** Toutes les opérations bloquantes sont asynchrones (`ipcRenderer.invoke` côté Renderer et `ipcMain.handle` côté Main). L'interface utilisateur ne se fige jamais, même lors du téléchargement d'un modpack de plusieurs gigaoctets.
-- **Injection Précoce d'Environnement :** Les métadonnées système (plateforme, architecture, version, appData) sont injectées via `BrowserWindow.additionalArguments` dès la création de la fenêtre, éliminant tout appel synchrone à l'initialisation.
+- **Runtime Tokio non bloquant :** Les opérations lourdes (disque, archives, chiffrement) tournent dans `tokio::task::spawn_blocking`, gardant l'interface fluide même lors d'extractions de gros modpacks.
+- **Injection initiale (`window.__GENS_BOOT__`) :** Les métadonnées système (`appData`, `platform`, `arch`, `version`, mémoire, `isAutoLaunch`, `isAppImage`) sont injectées dès la création de la fenêtre, éliminant tout appel IPC synchrone au démarrage.

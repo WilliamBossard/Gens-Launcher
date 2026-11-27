@@ -6,11 +6,11 @@
   <img src="https://img.shields.io/badge/Types-src%2Ftypes%2Fipc.ts-orange.svg" alt="Types" />
 </div>
 
-All communication between the Renderer Process (DOM) and the Main Process (Node.js) is gated behind a **static whitelist** enforced in `preload.js` and strictly typed in `src/types/ipc.ts` (verified by `tests/ipc-channels.test.js`). Invocations targeting unlisted channels are rejected immediately.
+All communication between the WebView Frontend (`frontend/`) and the Rust Backend (`src-tauri/src/main.rs`) is gated behind a **static whitelist** enforced in `frontend/src/tauri-bridge.js` and strictly typed in `frontend/src/types/ipc.ts`. Invocations targeting unlisted channels are rejected immediately.
 
 ---
 
-## 1. Authentication & Mojang Profile Channels (`src/main/ipc-auth.js`)
+## 1. Authentication & Mojang Profile Channels (`src-tauri/src/network.rs`)
 
 | IPC Channel | Direction | Arguments | Description |
 | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ All communication between the Renderer Process (DOM) and the Main Process (Node.
 
 ---
 
-## 2. Launch, Java Runtime & Server Ping Channels (`src/main/ipc-game.js`)
+## 2. Launch, Java Runtime & Server Ping Channels (`src-tauri/src/game.rs` & `ping.rs`)
 
 | IPC Channel | Direction | Arguments | Description |
 | --- | --- | --- | --- |
@@ -40,7 +40,7 @@ All communication between the Renderer Process (DOM) and the Main Process (Node.
 
 ---
 
-## 3. Sandboxed Filesystem & System Operations (`src/main/ipc-fs.js` & `src/main/ipc-system.js`)
+## 3. Sandboxed Filesystem & System Operations (`src-tauri/src/fs_ops.rs` & `system.rs`)
 
 | IPC Channel | Direction | Arguments | Description |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ All communication between the Renderer Process (DOM) and the Main Process (Node.
 
 ---
 
-## 4. Horizon Cloud Engine Channels (`src/main/ipc-horizon.js`)
+## 4. Horizon Cloud Engine Channels (`src-tauri/src/horizon.rs`)
 
 | IPC Channel | Direction | Arguments | Description |
 | --- | --- | --- | --- |
@@ -67,7 +67,7 @@ All communication between the Renderer Process (DOM) and the Main Process (Node.
 
 ---
 
-## 5. Auto-Updater Channels (`src/main/updater.js`)
+## 5. Auto-Updater Channels (`src-tauri/src/updater.rs`)
 
 | IPC Channel | Direction | Arguments | Description |
 | --- | --- | --- | --- |

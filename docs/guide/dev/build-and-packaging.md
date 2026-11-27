@@ -1,99 +1,72 @@
 # Build, Packaging, and CI/CD
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/Tool-electron--builder-blue.svg" alt="electron-builder" />
+  <img src="https://img.shields.io/badge/Tool-Tauri%20v2%20CLI-orange.svg" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-green.svg" alt="GitHub Actions" />
   <img src="https://img.shields.io/badge/Repository-Signed%20APT-red.svg" alt="APT" />
 </div>
 
-Gens-Launcher relies on **`electron-builder`** to produce production-grade installers for Windows, macOS, and Linux.
+Gens-Launcher uses **Cargo + Tauri v2 (`tauri-action`)** to produce lightweight native installers for Windows, macOS, and Linux.
 
 ---
 
 ## 1. Development Prerequisites
 
-- **Node.js:** Version 22 LTS or 24 recommended.
-- **Package Manager:** `npm` (version 10 or newer).
-- **Target OS Nuances:**
-  - Windows builds (`.exe` NSIS) can be generated natively on Windows or via Wine/Docker.
-  - macOS builds (`.dmg`) require macOS or GitHub Actions runners (`macos-latest`).
-  - Linux packages (`.AppImage`, `.deb`) build natively on Linux distributions.
+- **Rust Toolchain:** Stable Rust (edition 2024) via `rustup`, with `clippy` and `rustfmt`.
+- **Tauri CLI v2:** `cargo install tauri-cli --version "^2"`.
+- **Node.js:** Version 22+ (only required for frontend TypeScript checks and building VitePress docs).
+- **OS-Specific Dependencies:**
+  - **Windows:** Visual Studio C++ Build Tools + WebView2 (built into Windows 10/11).
+  - **Linux (Debian/Ubuntu):** `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev`.
+  - **macOS:** Xcode Command Line Tools.
 
 ---
 
-## 2. Local Build Scripts
-
-The root `package.json` provides standard automation commands:
+## 2. Local Build & Verification Commands
 
 ```bash
-# Start the launcher in development mode
-npm start
+# Start the launcher in development mode (hot-reloads Rust backend)
+cargo tauri dev
 
-# Static type checking (TypeScript strict mode)
-npm run typecheck
+# Strict Rust linting (0 warnings allowed)
+cd src-tauri && cargo clippy --all-targets -- -D warnings
 
-# Run unit tests (Node.js test runner)
-npm test
+# Run Rust unit & security tests
+cd src-tauri && cargo test
 
-# Build the Windows NSIS installer (.exe in dist/)
-npm run dist:win
+# Frontend TypeScript static analysis (0 errors allowed)
+cd frontend && npx -y typescript@latest -p tsconfig.json --noEmit
 
-# Build Linux packages (.deb and .AppImage in dist/)
-npm run dist:linux
-
-# Build the macOS disk image (.dmg in dist/)
-npx electron-builder --mac
-
-# Compile all available targets
-npm run dist:all
+# Build production installers for the current OS
+cargo tauri build
 ```
+
+Generated installers are placed in `src-tauri/target/release/bundle/`:
+- **Windows:** `nsis/*-setup.exe` (includes `src-tauri/nsis/hooks.nsh` to silently uninstall legacy Electron installations)
+- **Linux:** `deb/*.deb` and `appimage/*.AppImage`
+- **macOS:** `dmg/*.dmg`
 
 ---
 
-## 3. Packaging Configuration
+## 3. Packaging Configuration (`src-tauri/tauri.conf.json`)
 
-The `build` object in `package.json` defines metadata, targets, and strict ASAR file filtering (excluding tests, docs, and TypeScript declaration files from the production binary):
+The release profile in `src-tauri/Cargo.toml` optimizes for minimal binary size (`opt-level = "s"`, `lto = true`, `codegen-units = 1`, `strip = true`), yielding a ~11 MB Windows executable.
 
 ```json
 {
+  "productName": "Gens Launcher",
+  "identifier": "com.gens.launcher",
   "build": {
-    "appId": "com.gens.launcher",
-    "productName": "Gens Launcher",
-    "directories": {
-      "output": "dist"
-    },
-    "win": {
-      "target": ["nsis"],
-      "icon": "assets/icon.ico"
-    },
-    "linux": {
-      "target": ["AppImage", "deb"],
-      "category": "Game",
-      "icon": "assets/icon-512.png"
-    },
-    "mac": {
-      "target": ["dmg", "zip"],
-      "icon": "assets/icon-512.png",
-      "category": "public.app-category.games"
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "renderer.js",
-      "index.html",
-      "src/**/*",
-      "assets/**/*",
-      "!**/tests/**",
-      "!**/docs/**",
-      "!**/*.test.js",
-      "!**/*.map",
-      "!**/*.ts",
-      "!**/*.d.ts",
-      "!**/tsconfig*.json",
-      "!**/.git*",
-      "!**/.vscode*",
-      "!**/*.md"
-    ]
+    "frontendDist": "../frontend"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
   }
 }
 ```
@@ -104,15 +77,15 @@ The `build` object in `package.json` defines metadata, targets, and strict ASAR 
 
 Gens-Launcher uses three automated GitHub Actions workflows:
 
-1. **`ci.yml` (Continuous Integration):** Triggered on every `push` and `pull_request` to `main`/`master`. Runs `npm ci`, `npm run typecheck`, and `npm test` across Ubuntu and Windows (Node.js 22 & 24).
-2. **`release.yml` (Multi-OS Release Builder):** Tags the version from `package.json`, runs `npm run typecheck` and `npm test`, then builds and publishes Windows, Linux, and macOS installers to GitHub Releases.
-3. **`apt.yml` (Automated APT Repository & Docs Deployment):** When a new release is published on GitHub, `.github/workflows/apt.yml` deploys the documentation and signed Debian repository:
+1. **`ci.yml` (Continuous Integration):** Triggered on every `push` and `pull_request` to `main`/`master`. Runs `cargo clippy --all-targets -- -D warnings` and `cargo test` across `ubuntu-latest`, `windows-latest`, and `macos-latest`, plus frontend `tsc --noEmit`.
+2. **`release.yml` (Multi-OS Release Builder):** Runs Clippy and Rust tests, compiles Windows/Linux/macOS bundles via `tauri-apps/tauri-action@v0`, and generates/uploads `latest.yml`, `latest-linux.yml`, and `latest-mac.yml` manifests (SHA-512) for seamless Electron → Rust and Rust → Rust auto-updates.
+3. **`apt.yml` (Automated APT Repository & Docs Deployment):** Triggered on published release, compiles VitePress documentation (`npm --prefix docs run docs:build` → `website/`), downloads the `.deb` package, signs the APT repository with GPG (`Release.gpg`, `InRelease`), and deploys to GitHub Pages:
 
 ```text
 [ GitHub Release Event ]
             |
             v
- [ Compile VitePress Docs (docs:build -> website/) ]
+ [ Compile VitePress Docs (npm --prefix docs run docs:build -> website/) ]
             |
             v
  [ Download compiled .deb package ]
@@ -120,7 +93,7 @@ Gens-Launcher uses three automated GitHub Actions workflows:
             v
  [ Prepare apt-workspace/ staging area ]
    - Copy GPG public key (public.key)
-   - Copy showcase website and compiled docs (website/*)
+   - Copy compiled website & docs (website/*)
             |
             v
  [ Build Debian APT index ]
@@ -137,5 +110,3 @@ Gens-Launcher uses three automated GitHub Actions workflows:
  [ Deploy to GitHub Pages ]
    - Atomically published at williambossard.github.io/Gens-Launcher/
 ```
-
-This workflow ensures Debian and Ubuntu users receive updates directly via `apt upgrade`.

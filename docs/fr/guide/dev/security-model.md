@@ -1,106 +1,80 @@
-# Modèle de Sécurité et Sandbox
+# Modèle de Sécurité et Sandboxing
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
   <img src="https://img.shields.io/badge/Principe-D%C3%A9fense%20en%20Profondeur-blue.svg" alt="Défense en Profondeur" />
-  <img src="https://img.shields.io/badge/Chiffrement-PBKDF2%20%2B%20AES--256--GCM-red.svg" alt="Chiffrement" />
-  <img src="https://img.shields.io/badge/CSP-Double%20Couche-green.svg" alt="CSP" />
+  <img src="https://img.shields.io/badge/Chiffrement-DPAPI%20%2B%20AES--256--GCM-red.svg" alt="Chiffrement" />
+  <img src="https://img.shields.io/badge/CSP-Stricte%20Tauri%20v2-green.svg" alt="CSP" />
 </div>
 
-La conception de Gens-Launcher repose sur le principe fondamental de **Défense en Profondeur** (*Defense in Depth*). Plusieurs barrières indépendantes empêchent toute compromission de la machine hôte, même en cas d'injection malveillante dans un mod ou une ressource externe.
+La conception de Gens-Launcher repose sur le principe de **Défense en Profondeur**. Plusieurs barrières indépendantes dans le backend Rust (`src-tauri/src/`) et Tauri v2 protègent la machine hôte, même face à une ressource distante ou un mod tiers malveillant.
 
 ---
 
-## 1. Isolation de Contexte et Exposition Scellée
+## 1. Isolation WebView Native et Exposition Scellée
 
-- **`contextIsolation: true`** : Les prototypes JavaScript du Main Process et du Renderer Process sont totalement disjoints.
-- **`nodeIntegration: false`** : L'environnement Node.js natif est inaccessible depuis le DOM.
-- **Surface d'Exposition `window.api`** : Seules les fonctions strictement répertoriées dans `preload.js` sont accessibles par l'interface utilisateur.
+- **Aucun runtime Node.js dans l'UI :** Le frontend s'exécute dans la WebView native du système sans accès direct au système de fichiers, aux variables d'environnement ni au shell.
+- **Liste blanche IPC statique (`frontend/src/tauri-bridge.js`) :** Seuls les canaux déclarés dans `VALID_SEND_CHANNELS`, `VALID_INVOKE_CHANNELS` et `VALID_RECEIVE_CHANNELS` peuvent être invoqués.
+- **Protocole `asset://` confiné (`tauri.conf.json`) :** L'accès aux fichiers locaux via `asset://` est strictement limité à `$APPDATA/GensLauncher/**`.
 
 ---
 
-## 2. Le Bouclier Sandbox Preload (Anti-Traversal)
+## 2. Bouclier Sandbox Rust (Anti-Traversal & Anti-Symlink)
 
-Le fichier `preload.js` implémente un bouclier mathématique rigoureux :
+Chaque opération disque ou archive est validée dans `src-tauri/src/sandbox.rs` :
 
-```javascript
-// Validation stricte des chemins d'écriture
-function enforceSandbox(targetPath) {
-    const resolvedTarget = path.resolve(targetPath);
-    const resolvedSandbox = path.resolve(APP_DATA_DIR);
-    if (!resolvedTarget.startsWith(resolvedSandbox + path.sep) && resolvedTarget !== resolvedSandbox) {
-        throw new Error("Violation de sécurité Sandbox : Tentative d'écriture hors du répertoire autorisé.");
-    }
-    return resolvedTarget;
-}
+- **Double validation lexicale + canonique :** Les chemins sont normalisés lexicalement puis résolus via `realpath` afin de bloquer les traversées `..`, liens symboliques, jonctions Windows et partages réseau UNC (`\\serveur\partage`).
+- **Confinement en écriture :** Toute écriture disque est strictement confinée à `$APPDATA/GensLauncher`.
+- **Denylist Renderer :** Les fichiers sensibles (`.secret_key`, `.key_salt`, `horizon_seal.key`, `trusted_external_domains.json`, `github_release_cache.json`) et les répertoires critiques (`horizon`, `bin`, `java`, `runtime`, `msa-cache`) sont protégés contre la modification ou suppression par l'interface.
+- **Protection Zip-Slip & Tar-Slip (`archive.rs`) :** Chaque entrée d'archive est contrôlée contre `dst`, les symlinks Unix (`0o120000`) et hardlinks sont rejetés, et la taille décompressée totale est plafonnée à 4 Gio (anti-Zip-Bomb).
+
+---
+
+## 3. Content Security Policy (CSP) Stricte
+
+Appliquée globalement par Tauri v2 dans `src-tauri/tauri.conf.json` :
+
+- `script-src 'self'` et `style-src 'self'` (zéro `unsafe-inline` ou `unsafe-eval`).
+- `object-src 'none'`, `frame-src 'none'`, `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'none'`.
+- Listes blanches HTTPS explicites pour `img-src` et `connect-src` (Modrinth, CurseForge, Mojang, Fabric, Quilt, Forge, NeoForge, Adoptium, GitHub).
+
+---
+
+## 4. Cryptographie et Migration depuis Electron (`crypto.rs`)
+
+La persistance des jetons suit les recommandations NIST et OWASP :
+
+```text
+[ Windows ] -> CryptProtectData (DPAPI) -> safeStorage:<hex>
+               (déchiffre aussi l'ancien format Chromium/Electron Local State os_crypt v10/v11)
+
+[ Fallback / Multi-OS ]
+   .secret_key + sel aléatoire 16 octets (.key_salt)
+                     |
+                     v
+       +--------------------------+
+       |  PBKDF2-HMAC-SHA256      |
+       |  600 000 itérations      |
+       +--------------------------+
+                     |
+                     v
+            [ Clé 256 bits ]
+                     |
+                     v
+       +--------------------------+
+       |  AES-256-GCM (nonce 12o) |
+       +--------------------------+
+                     |
+                     v
+   aes-gcm:<iv>:<tag>:<ciphertext>
 ```
 
-- **Protection anti-Zip Slip :** Lors de l'extraction de modpacks ou de téléchargements zip, chaque chemin de destination est vérifié avant écriture sur disque.
-- **Contrôle d'accès en lecture (`enforceReadSandbox`) :** La lecture de fichiers en dehors du dossier de l'application est restreinte aux répertoires légitimes (`.minecraft/`, runtimes Java et dossiers temporaires autorisés). Toute tentative hors périmètre est neutralisée silencieusement.
+- **Migration Windows transparente :** Les utilisateurs venant d'Electron sous Windows conservent automatiquement leurs sessions Microsoft via `read_chromium_os_crypt_key()` + DPAPI.
+- **Mode GCM authentifié :** Le tag d'authentification 16 octets rejette toute altération du fichier chiffré.
 
 ---
 
-## 3. Architecture CSP à Double Couche
+## 5. Durcissement JVM, Téléchargements et Imports
 
-La politique de sécurité du contenu (**Content Security Policy**) est appliquée à deux niveaux distincts pour garantir une étanchéité absolue :
-
-1. **Couche Réseau (Header HTTP dans `main.js`) :**
-   Appliquée sur toutes les réponses des protocoles internes et fenêtres BrowserWindow via `session.defaultSession.webRequest.onHeadersReceived`.
-2. **Couche DOM (Balise Meta dans `index.html`) :**
-   Inscrite directement dans le balisage statique de l'application.
-
-```http
-default-src 'self';
-script-src 'self';
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-font-src 'self' https://fonts.gstatic.com;
-img-src 'self' data: https:;
-connect-src 'self' https:;
-```
-- **Zéro `unsafe-eval` :** L'évaluation dynamique de chaînes (`eval()`, `new Function()`) est physiquement impossible.
-- **Connexions HTTPS exclusives :** Toute requête non sécurisée en HTTP clair est automatiquement rejetée.
-
----
-
-## 4. Primitives Cryptographiques et Stockage Sécurisé
-
-Le stockage des jetons Microsoft et des clés cloud suit les recommandations du NIST et de l'OWASP :
-
-```
-[ Mot de passe / Clé Maître ]
-             |
-             v
-   +--------------------+
-   |  PBKDF2 (SHA-512)  | <--- Sel aléatoire 16 octets (.key_salt)
-   | 600 000 itérations |
-   +--------------------+
-             |
-             v
-     [ Clé 256 bits ]
-             |
-             v
-   +--------------------+
-   |    AES-256-GCM     | <--- Vecteur d'initialisation aléatoire 12 octets (IV)
-   +--------------------+
-             |
-             v
- [ Ciphertext + Tag d'authentification (16 octets) ]
-```
-
-- **Dérivation PBKDF2 :** 600 000 itérations avec sel cryptographique de 16 octets généré aléatoirement au premier démarrage dans `.key_salt`.
-- **Mode Authentifié GCM :** Protège contre les attaques par altération ou rejeu de données chiffrées grâce à un tag d'authentification de 16 octets.
-- **Migration Transparente :** Si un fichier chiffré avec l'ancien algorithme (simple clé SHA-256) est détecté, il est automatiquement et silencieusement rechiffré au nouveau standard PBKDF2 lors de la première lecture réussie.
-
----
-
-## 5. Validation Binaire des Images (Magic Bytes)
-
-Lorsqu'un utilisateur importe une image pour un fond d'écran ou l'icône d'une instance, Gens-Launcher ne se fie pas à l'extension du fichier :
-1. Le fichier est lu dans le Main Process (`src/main/fs-utils.js`).
-2. Les premiers octets (**Magic Bytes**) sont inspectés :
-   - **PNG :** `89 50 4E 47 0D 0A 1A 0A`
-   - **JPEG :** `FF D8 FF`
-   - **GIF :** `47 49 46 38`
-   - **WEBP :** `52 49 46 46 ... 57 45 42 50`
-   - **BMP :** `42 4D`
-   - **ICO :** `00 00 01 00`
-3. Si la signature ne correspond pas à une image valide, le fichier est immédiatement rejeté pour empêcher l'exécution d'exécutables masqués.
+- **Garde arguments JVM & lancement (`game_validation.rs`) :** Bloque les options JVM dangereuses (`-javaagent`, `-agentlib`, `-XX:OnOutOfMemoryError`, `--add-opens`, `-Djava.security.policy`, etc.) ainsi que les flags Minecraft sensibles (`--accessToken`, `--proxyHost`).
+- **Listes blanches HTTPS :** Tous les téléchargements imposent `https:` et des domaines autorisés ; les hôtes multi-locataires (`github.com`, `gitlab.com`) exigent une vérification de hash.
+- **Vérification binaire Magic Bytes (`network.rs`) :** Les images et archives importées sont validées à la fois par extension et par signature binaire (`PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `ICO`, `ZIP`) avant d'entrer dans le sandbox.

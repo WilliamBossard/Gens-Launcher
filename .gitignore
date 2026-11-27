@@ -1,5 +1,5 @@
 node_modules/
-instances/
+/instances/
 instances.json
 accounts.json
 *.log
@@ -11,3 +11,5 @@ scratch/
 .vscode
 test-results/
 playwright-report/
+src-tauri/target/
+src-tauri/web/

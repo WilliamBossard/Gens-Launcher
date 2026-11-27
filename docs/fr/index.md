@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Gens Launcher"
   text: "Redéfinissez votre expérience Minecraft."
-  tagline: "Lanceur open-source sécurisé et ultra-rapide propulsé par Gens-Horizon Delta Sync et une architecture TypeScript stricte"
+  tagline: "Lanceur Minecraft open-source ultra-léger propulsé par Rust + Tauri v2, Gens-Horizon Delta Sync et une interface TypeScript stricte"
   image:
     src: /icon.png
     alt: Logo Gens Launcher
@@ -28,15 +28,15 @@ features:
   - title: Multi-Modloaders Intégrés
     details: Lancez facilement vos instances Vanilla, Fabric, Forge, Quilt et NeoForge avec détection et téléchargement automatique de Java.
   - title: Sécurité de Niveau Entreprise
-    details: Isolation de contexte Electron stricte, bouclier sandbox anti-traversal, double couche CSP et chiffrement PBKDF2/AES-256-GCM.
+    details: Backend natif Rust + Tauri v2, bouclier sandbox anti-traversal & anti-symlink, CSP stricte et chiffrement DPAPI / PBKDF2 + AES-256-GCM.
   - title: Navigateur de Mods Direct
     details: Recherchez et installez vos mods, resource packs et shaders directement depuis Modrinth et CurseForge sans quitter l'interface.
   - title: Multi-Comptes & Mode Hors-Ligne
     details: Authentification officielle Microsoft Device Code et bascule dynamique en mode hors-ligne sans requêtes réseau fantômes.
   - title: Dépôt APT Linux Officiel
     details: Mises à jour automatisées sur Debian et Ubuntu via un dépôt APT officiel signé par clé GPG, avec paquets AppImage, Windows et macOS.
-  - title: Architecture TypeScript Stricte
-    details: Base de code 100% vérifiée statiquement (Main, Preload, Renderer et Gens-Core) garantissant la sûreté des canaux IPC sans étape de transpilation.
+  - title: Cœur Rust & Interface TypeScript Stricte
+    details: Backend Rust zéro-warning (~11 Mo, I/O asynchrone Tokio) couplé à un frontend vérifié statiquement à 100 % par TypeScript sans étape de transpilation.
 ---
 
 <LauncherMockup lang="fr" />

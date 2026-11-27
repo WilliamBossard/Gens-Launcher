@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Gens Launcher"
   text: "Redefining your Minecraft experience."
-  tagline: "High-performance, secure open-source launcher powered by Gens-Horizon Delta Sync and a strict TypeScript-checked architecture"
+  tagline: "High-performance, secure open-source Minecraft launcher built with Rust + Tauri v2, Gens-Horizon Delta Sync, and strict TypeScript frontend typing"
   image:
     src: /icon.png
     alt: Gens Launcher Logo
@@ -28,15 +28,15 @@ features:
   - title: Multi-Modloader Support
     details: Seamlessly configure and launch Vanilla, Fabric, Forge, Quilt, and NeoForge instances with automated Java runtime detection.
   - title: Enterprise-Grade Security
-    details: Strict Electron context isolation, sandboxed preload traversal shield, dual-layer CSP, and hardware-bound AES-256-GCM encryption.
+    details: Native Rust + Tauri v2 backend, lexical & anti-symlink sandbox shield, strict CSP, and DPAPI / PBKDF2 + AES-256-GCM encryption.
   - title: Integrated Content Catalog
     details: Search and install mods, resource packs, and shaders directly from Modrinth and CurseForge in one single click.
   - title: Multi-Account & Smart Offline
     details: Secure Microsoft Device Code authentication and a smart offline fallback system when disconnected from the Internet.
   - title: Native Linux APT Repository
     details: Automatically updated on Debian and Ubuntu via our official signed GPG APT repository, alongside AppImage, Windows .exe, and macOS .dmg.
-  - title: Strict TypeScript Architecture
-    details: 100% static type-checked codebase (Main, Preload, Renderer, and Gens-Core) enforcing IPC channel safety with zero build-step overhead.
+  - title: Rust Core & Strict TypeScript UI
+    details: Zero-warning Rust backend (~11 MB binary, Tokio async I/O) paired with a 100% static type-checked TypeScript frontend with zero build-step overhead.
 ---
 
 <LauncherMockup />

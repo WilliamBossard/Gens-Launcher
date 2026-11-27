@@ -6,11 +6,11 @@
   <img src="https://img.shields.io/badge/Types-src%2Ftypes%2Fipc.ts-orange.svg" alt="Types" />
 </div>
 
-Toutes les communications entre le Renderer Process (DOM) et le Main Process (Node.js) transitent par une **liste blanche statique** de canaux IPC validée dans `preload.js` et typée dans `src/types/ipc.ts` (vérifiée par `tests/ipc-channels.test.js`). Tout appel ciblant un canal non répertorié est immédiatement rejeté.
+Toutes les communications entre le Frontend WebView (`frontend/`) et le Backend Rust (`src-tauri/src/main.rs`) transitent par une **liste blanche statique** de canaux IPC validée dans `frontend/src/tauri-bridge.js` et typée dans `frontend/src/types/ipc.ts`. Tout appel ciblant un canal non répertorié est immédiatement rejeté.
 
 ---
 
-## 1. Canaux d'Authentification & Profil Mojang (`src/main/ipc-auth.js`)
+## 1. Canaux d'Authentification & Profil Mojang (`src-tauri/src/network.rs`)
 
 | Canal IPC | Direction | Paramètres | Description |
 | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ Toutes les communications entre le Renderer Process (DOM) et le Main Process (No
 
 ---
 
-## 2. Canaux de Lancement, Java & Ping Serveur (`src/main/ipc-game.js`)
+## 2. Canaux de Lancement, Java & Ping Serveur (`src-tauri/src/game.rs` & `ping.rs`)
 
 | Canal IPC | Direction | Paramètres | Description |
 | --- | --- | --- | --- |
@@ -40,7 +40,7 @@ Toutes les communications entre le Renderer Process (DOM) et le Main Process (No
 
 ---
 
-## 3. Système de Fichiers Confiné & Opérations OS (`src/main/ipc-fs.js` & `src/main/ipc-system.js`)
+## 3. Système de Fichiers Confiné & Opérations OS (`src-tauri/src/fs_ops.rs` & `system.rs`)
 
 | Canal IPC | Direction | Paramètres | Description |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ Toutes les communications entre le Renderer Process (DOM) et le Main Process (No
 
 ---
 
-## 4. Canaux du Moteur Cloud Horizon (`src/main/ipc-horizon.js`)
+## 4. Canaux du Moteur Cloud Horizon (`src-tauri/src/horizon.rs`)
 
 | Canal IPC | Direction | Paramètres | Description |
 | --- | --- | --- | --- |
@@ -67,7 +67,7 @@ Toutes les communications entre le Renderer Process (DOM) et le Main Process (No
 
 ---
 
-## 5. Canaux de Mise à Jour Automatique (`src/main/updater.js`)
+## 5. Canaux de Mise à Jour Automatique (`src-tauri/src/updater.rs`)
 
 | Canal IPC | Direction | Paramètres | Description |
 | --- | --- | --- | --- |

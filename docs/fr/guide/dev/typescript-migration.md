@@ -1,52 +1,48 @@
-# Architecture TypeScript & Typage Statique
+# Architecture de Typage Statique (Rust + TypeScript Strict)
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/TypeScript-Mode%20Strict-blue.svg" alt="TypeScript Strict" />
-  <img src="https://img.shields.io/badge/Runtime-Z%C3%A9ro%20Transpilation-green.svg" alt="Zéro Transpilation" />
-  <img src="https://img.shields.io/badge/Couverture-100%25%20V%C3%A9rifi%C3%A9-orange.svg" alt="100% Vérifié" />
+  <img src="https://img.shields.io/badge/Backend-Rust%202024%20(0%20Warning)-orange.svg" alt="Rust" />
+  <img src="https://img.shields.io/badge/Frontend-TypeScript%20Strict-blue.svg" alt="TypeScript Strict" />
+  <img src="https://img.shields.io/badge/UI-Z%C3%A9ro%20Build%20Step-green.svg" alt="Zéro Build Step" />
 </div>
 
-Gens-Launcher repose sur une **architecture TypeScript sans étape de compilation (Zero-Build-Step)**, combinant des contrats de types `.ts` / `.d.ts` avec une vérification statique stricte par annotations JSDoc (`checkJs: true`, `strict: true`) sur l'intégralité du code exécuté.
+Gens-Launcher combine un **backend Rust compilé statiquement à zéro warning** (`src-tauri/`) avec un **frontend vérifié statiquement par TypeScript sans étape de build** (`frontend/tsconfig.json` avec `allowJs: true`, `checkJs: true`, `strict: true`, `noEmit: true`).
 
 ---
 
-## 1. Philosophie d'Architecture
+## 1. Philosophie Architecturale
 
-1. **Zéro surcharge de transpilation :** Electron exécute directement les fichiers `.js` natifs sans bundler intermédiaire, garantissant un démarrage à froid instantané et des traces d'appels (*stack traces*) fidèles au code source.
-2. **Sûreté de bout en bout des canaux IPC :** Tous les canaux IPC (`send`, `invoke`, `receive`) entre `main.js`, `preload.js` et `renderer.js` sont définis dans une source unique de vérité (`src/types/ipc.ts`) et vérifiés automatiquement face à la whitelist de sécurité par les tests unitaires (`tests/ipc-channels.test.js`).
-3. **Mode Strict à 100 % :** Le fichier `tsconfig.json` active `"strict": true` et `"checkJs": true` sur l'ensemble des modules (`src/main/*`, `src/gens-core/*`, `src/ui/*`, `src/launch/*`, `src/archives/*`, `src/local/*`).
+1. **Sûreté mémoire et typage fort côté Backend :** Toute la logique système (fichiers, réseau, crypto, archives, lancement Java) est compilée par `rustc` et validée par `cargo clippy --all-targets -- -D warnings`.
+2. **Zéro surcharge de transpilation côté Frontend :** La WebView charge directement les modules ES `.js` depuis `frontend/`, conservant des temps d'itération instantanés et des stack traces fidèles au code source.
+3. **Couverture stricte à 100 % :** `frontend/tsconfig.json` impose `"strict": true` et `"checkJs": true` sur `renderer.js`, `src/tauri-bridge.js`, `src/ui/*`, `src/launch/*`, `src/archives/*` et `src/local/*`.
 
 ---
 
-## 2. Contrats de Types Centraux (`src/types/`)
+## 2. Contrats de Types Frontend (`frontend/src/types/`)
 
 | Fichier | Rôle |
 | --- | --- |
-| `src/types/ipc.ts` | Définit `SEND_CHANNELS`, `INVOKE_CHANNELS`, `RECEIVE_CHANNELS`, l'interface `WindowApi` ainsi que le protocole JSON complet `HorizonEvent`. |
-| `src/types/models.ts` | Modèles métier : `MinecraftInstance`, `MinecraftAccount` (`OfflineAccount` \| `MicrosoftAccount`), `GlobalSettings`, `ThemeSettings`, `MainContext`. |
-| `src/types/global.d.ts` | Typage strict de l'objet global `Window` (`window.api`, `window.store`, contrôleurs UI et utilitaires partagés). |
+| `frontend/src/types/ipc.ts` | Définit `SEND_CHANNELS`, `INVOKE_CHANNELS`, `RECEIVE_CHANNELS`, `WindowApi` et le protocole JSON `HorizonEvent`. |
+| `frontend/src/types/models.ts` | Interfaces métier : `MinecraftInstance`, `MinecraftAccount` (`OfflineAccount` \| `MicrosoftAccount`), `GlobalSettings`, `ThemeSettings`. |
+| `frontend/src/types/global.d.ts` | Déclare les globaux typés sur `Window` (`window.api`, `window.store`, gestionnaires UI et helpers). |
 
 ---
 
-## 3. Hygiène de Packaging
+## 3. Vérification et Workflow Contributeur
 
-Les fichiers `.ts` et `.d.ts` servant exclusivement à l'analyse statique en développement et en CI, `electron-builder` les exclut explicitement (`!**/*.ts`, `!**/*.d.ts`, `!**/tsconfig*.json`) lors de la génération de l'archive ASAR de production.
+Chaque commit et Pull Request est validé automatiquement par GitHub Actions (`.github/workflows/ci.yml`).
 
----
-
-## 4. Vérification & Règles de Contribution
-
-Chaque commit et Pull Request est contrôlé automatiquement par GitHub Actions (`.github/workflows/ci.yml` et `.github/workflows/release.yml`).
-
-Avant tout envoi, exécutez systématiquement en local :
+Avant de soumettre vos modifications, exécutez localement :
 
 ```bash
-# Analyse statique TypeScript complète (doit retourner 0 erreur)
-npm run typecheck
+# 1. Lint strict Rust (0 warning toléré)
+cd src-tauri
+cargo clippy --all-targets -- -D warnings
 
-# Mode surveillance continue pendant le développement
-npm run typecheck:watch
+# 2. Suite de tests unitaires et de sécurité Rust
+cargo test
 
-# Exécution de la suite de tests automatisés (41 tests unitaires et sécurité)
-npm test
+# 3. Analyse statique TypeScript du frontend (0 erreur tolérée)
+cd ../frontend
+npx -y typescript@latest -p tsconfig.json --noEmit
 ```

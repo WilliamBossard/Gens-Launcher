@@ -1,52 +1,48 @@
-# TypeScript & Static Typing Architecture
+# Static Typing Architecture (Rust + Strict TypeScript)
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/TypeScript-Strict%20Mode-blue.svg" alt="TypeScript Strict" />
-  <img src="https://img.shields.io/badge/Runtime-Zero%20Build%20Step-green.svg" alt="Zero Build Step" />
-  <img src="https://img.shields.io/badge/Coverage-100%25%20Checked-orange.svg" alt="100% Checked" />
+  <img src="https://img.shields.io/badge/Backend-Rust%202024%20(0%20Warnings)-orange.svg" alt="Rust" />
+  <img src="https://img.shields.io/badge/Frontend-TypeScript%20Strict-blue.svg" alt="TypeScript Strict" />
+  <img src="https://img.shields.io/badge/UI%20Runtime-Zero%20Build%20Step-green.svg" alt="Zero Build Step" />
 </div>
 
-Gens-Launcher uses a **Zero-Build-Step TypeScript Architecture** combining pure `.ts` / `.d.ts` contract definitions with strict JSDoc type checking (`checkJs: true`, `strict: true`) across the entire JavaScript runtime.
+Gens-Launcher combines a **statically compiled, zero-warning Rust backend** (`src-tauri/`) with a **Zero-Build-Step TypeScript-checked frontend** (`frontend/tsconfig.json` with `allowJs: true`, `checkJs: true`, `strict: true`, `noEmit: true`).
 
 ---
 
 ## 1. Architectural Philosophy
 
-1. **Zero Transpilation Overhead:** Electron executes `.js` files directly without bundlers or build steps, keeping cold startup instant and stack traces identical to source files.
-2. **End-to-End IPC Type Safety:** All IPC channels (`send`, `invoke`, `receive`) between `main.js`, `preload.js`, and `renderer.js` are typed in a single source of truth (`src/types/ipc.ts`) and cross-checked against the runtime security whitelist by automated unit tests (`tests/ipc-channels.test.js`).
-3. **100% Strict Mode:** `tsconfig.json` enforces `"strict": true` and `"checkJs": true` across all application modules (`src/main/*`, `src/gens-core/*`, `src/ui/*`, `src/launch/*`, `src/archives/*`, `src/local/*`).
+1. **Memory & Type Safety in the Backend:** All filesystem, network, crypto, archive, and process-spawning logic is compiled by `rustc` and verified by `cargo clippy --all-targets -- -D warnings`.
+2. **Zero Transpilation Overhead in the Frontend:** The WebView loads ES `.js` modules directly from `frontend/`, keeping UI iteration instant and stack traces identical to source files.
+3. **100% Strict Frontend Coverage:** `frontend/tsconfig.json` enforces `"strict": true` and `"checkJs": true` across `renderer.js`, `src/tauri-bridge.js`, `src/ui/*`, `src/launch/*`, `src/archives/*`, and `src/local/*`.
 
 ---
 
-## 2. Core Type Definitions (`src/types/`)
+## 2. Frontend Type Contracts (`frontend/src/types/`)
 
 | File | Role |
 | --- | --- |
-| `src/types/ipc.ts` | Defines `SEND_CHANNELS`, `INVOKE_CHANNELS`, `RECEIVE_CHANNELS`, `WindowApi`, and the complete `HorizonEvent` JSON protocol. |
-| `src/types/models.ts` | Domain interfaces: `MinecraftInstance`, `MinecraftAccount` (`OfflineAccount` \| `MicrosoftAccount`), `GlobalSettings`, `ThemeSettings`, `MainContext`. |
-| `src/types/global.d.ts` | Declares typed globals on `Window` (`window.api`, `window.store`, UI managers, and helper functions). |
+| `frontend/src/types/ipc.ts` | Defines `SEND_CHANNELS`, `INVOKE_CHANNELS`, `RECEIVE_CHANNELS`, `WindowApi`, and the `HorizonEvent` JSON protocol. |
+| `frontend/src/types/models.ts` | Domain interfaces: `MinecraftInstance`, `MinecraftAccount` (`OfflineAccount` \| `MicrosoftAccount`), `GlobalSettings`, `ThemeSettings`. |
+| `frontend/src/types/global.d.ts` | Declares typed globals on `Window` (`window.api`, `window.store`, UI managers, and helper functions). |
 
 ---
 
-## 3. Packaging Hygiene
+## 3. Verification & Contributor Workflow
 
-Because `.ts` and `.d.ts` files are only used for static verification during development and CI, `electron-builder` explicitly excludes them (`!**/*.ts`, `!**/*.d.ts`, `!**/tsconfig*.json`) when generating production ASAR archives.
+Every commit and Pull Request is automatically validated by GitHub Actions (`.github/workflows/ci.yml`).
 
----
-
-## 4. Verification & Contributor Workflow
-
-Every commit and Pull Request is automatically validated by GitHub Actions (`.github/workflows/ci.yml` and `.github/workflows/release.yml`).
-
-Before submitting changes, always run locally:
+Before submitting changes, run locally:
 
 ```bash
-# Run full TypeScript static analysis (must report 0 errors)
-npm run typecheck
+# 1. Rust strict lint (0 warnings allowed)
+cd src-tauri
+cargo clippy --all-targets -- -D warnings
 
-# Watch mode during development
-npm run typecheck:watch
+# 2. Rust automated unit & security tests
+cargo test
 
-# Run the automated test suite (41 unit & security tests)
-npm test
+# 3. Frontend TypeScript static analysis (0 errors allowed)
+cd ../frontend
+npx -y typescript@latest -p tsconfig.json --noEmit
 ```

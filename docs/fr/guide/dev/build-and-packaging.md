@@ -1,99 +1,72 @@
 # Compilation, Packaging et CI/CD
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/Outil-electron--builder-blue.svg" alt="electron-builder" />
+  <img src="https://img.shields.io/badge/Outil-Tauri%20v2%20CLI-orange.svg" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-green.svg" alt="GitHub Actions" />
   <img src="https://img.shields.io/badge/D%C3%A9p%C3%B4t-APT%20Sign%C3%A9-red.svg" alt="APT" />
 </div>
 
-Gens-Launcher utilise **`electron-builder`** pour générer les paquets de distribution officiels pour Windows, macOS et Linux.
+Gens-Launcher s'appuie sur **Cargo + Tauri v2 (`tauri-action`)** pour produire des installeurs natifs ultra-légers pour Windows, macOS et Linux.
 
 ---
 
 ## 1. Prérequis de Développement
 
-- **Node.js :** Version 22 LTS ou 24 recommandée.
-- **Gestionnaire de paquets :** `npm` (version 10 ou supérieure).
-- **Système d'exploitation :**
-  - La compilation Windows (`.exe` NSIS) s'effectue sous Windows ou via Wine/Docker.
-  - La compilation macOS (`.dmg`) requiert un environnement macOS (ou une machine virtuelle de build GitHub Actions `macos-latest`).
-  - La compilation Linux (`.AppImage`, `.deb`) s'effectue nativement sous Linux.
+- **Chaîne Rust :** Rust stable (édition 2024) via `rustup`, avec `clippy` et `rustfmt`.
+- **Tauri CLI v2 :** `cargo install tauri-cli --version "^2"`.
+- **Node.js :** Version 22+ (uniquement requis pour la vérification TypeScript du frontend et la compilation de la documentation VitePress).
+- **Dépendances spécifiques par OS :**
+  - **Windows :** Visual Studio C++ Build Tools + WebView2 (pré-installé sur Windows 10/11).
+  - **Linux (Debian/Ubuntu) :** `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev`.
+  - **macOS :** Xcode Command Line Tools.
 
 ---
 
-## 2. Commandes de Compilation Locale
-
-À la racine du projet, vous disposez des scripts suivants :
+## 2. Commandes Locales de Build et Vérification
 
 ```bash
-# Lancer le projet en mode développement
-npm start
+# Lancer le launcher en mode développement
+cargo tauri dev
 
-# Vérification statique du typage (TypeScript mode strict)
-npm run typecheck
+# Lint strict Rust (0 warning toléré)
+cd src-tauri && cargo clippy --all-targets -- -D warnings
 
-# Exécuter la suite de tests unitaires (Node.js test runner)
-npm test
+# Lancer les tests unitaires et de sécurité Rust
+cd src-tauri && cargo test
 
-# Générer l'installateur Windows (.exe NSIS dans dist/)
-npm run dist:win
+# Vérification TypeScript stricte du frontend (0 erreur tolérée)
+cd frontend && npx -y typescript@latest -p tsconfig.json --noEmit
 
-# Générer les paquets Linux (.deb et .AppImage dans dist/)
-npm run dist:linux
-
-# Générer l'image disque macOS (.dmg dans dist/)
-npx electron-builder --mac
-
-# Générer l'ensemble des cibles
-npm run dist:all
+# Générer les installeurs de production pour l'OS courant
+cargo tauri build
 ```
+
+Les installeurs générés se trouvent dans `src-tauri/target/release/bundle/` :
+- **Windows :** `nsis/*-setup.exe` (inclut le hook `src-tauri/nsis/hooks.nsh` qui désinstalle silencieusement l'ancienne version Electron sans perdre les données)
+- **Linux :** `deb/*.deb` et `appimage/*.AppImage`
+- **macOS :** `dmg/*.dmg`
 
 ---
 
-## 3. Configuration `electron-builder`
+## 3. Configuration du Packaging (`src-tauri/tauri.conf.json`)
 
-Dans le fichier `package.json`, la section `build` définit les métadonnées de packaging ainsi que le filtrage strict des fichiers embarqués dans l'archive ASAR (excluant les tests, la documentation et les fichiers de types `.ts` / `.d.ts`) :
+Le profil release de `src-tauri/Cargo.toml` optimise la taille du binaire (`opt-level = "s"`, `lto = true`, `codegen-units = 1`, `strip = true`), produisant un exécutable Windows d'environ 11 Mo.
 
 ```json
 {
+  "productName": "Gens Launcher",
+  "identifier": "com.gens.launcher",
   "build": {
-    "appId": "com.gens.launcher",
-    "productName": "Gens Launcher",
-    "directories": {
-      "output": "dist"
-    },
-    "win": {
-      "target": ["nsis"],
-      "icon": "assets/icon.ico"
-    },
-    "linux": {
-      "target": ["AppImage", "deb"],
-      "category": "Game",
-      "icon": "assets/icon-512.png"
-    },
-    "mac": {
-      "target": ["dmg", "zip"],
-      "icon": "assets/icon-512.png",
-      "category": "public.app-category.games"
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "renderer.js",
-      "index.html",
-      "src/**/*",
-      "assets/**/*",
-      "!**/tests/**",
-      "!**/docs/**",
-      "!**/*.test.js",
-      "!**/*.map",
-      "!**/*.ts",
-      "!**/*.d.ts",
-      "!**/tsconfig*.json",
-      "!**/.git*",
-      "!**/.vscode*",
-      "!**/*.md"
-    ]
+    "frontendDist": "../frontend"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
   }
 }
 ```
@@ -102,40 +75,38 @@ Dans le fichier `package.json`, la section `build` définit les métadonnées de
 
 ## 4. Pipelines CI/CD (`.github/workflows/`)
 
-Gens-Launcher s'appuie sur trois workflows GitHub Actions automatisés :
+Gens-Launcher utilise trois workflows GitHub Actions automatisés :
 
-1. **`ci.yml` (Intégration Continue) :** Déclenché à chaque `push` et `pull_request` sur `main`/`master`. Exécute `npm ci`, `npm run typecheck` et `npm test` sous Ubuntu et Windows (Node.js 22 & 24).
-2. **`release.yml` (Compilation & Publication Multi-OS) :** Crée le tag de version depuis `package.json`, vérifie `npm run typecheck` et `npm test`, puis compile et publie les installateurs Windows, Linux et macOS sur GitHub Releases.
-3. **`apt.yml` (Dépôt APT Automatisé & Documentation) :** Lorsqu'une nouvelle release est publiée sur GitHub, `.github/workflows/apt.yml` déploie la documentation et met à jour le dépôt Debian signé :
+1. **`ci.yml` (Intégration Continue) :** Déclenché sur chaque `push` et `pull_request` vers `main`/`master`. Exécute `cargo clippy --all-targets -- -D warnings` et `cargo test` sur `ubuntu-latest`, `windows-latest` et `macos-latest`, ainsi que `tsc --noEmit` sur `frontend/`.
+2. **`release.yml` (Release Multi-OS) :** Exécute Clippy et les tests Rust, compile les paquets Windows/Linux/macOS via `tauri-apps/tauri-action@v0`, puis génère et publie les manifestes `latest.yml`, `latest-linux.yml` et `latest-mac.yml` (SHA-512) compatibles avec la migration Electron → Rust et les mises à jour Rust → Rust.
+3. **`apt.yml` (Dépôt APT & Documentation) :** Déclenché lors de la publication d'une release, compile la documentation VitePress (`npm --prefix docs run docs:build` → `website/`), télécharge le `.deb`, signe le dépôt APT via GPG (`Release.gpg`, `InRelease`) et déploie sur GitHub Pages :
 
 ```text
-[ Déclencheur GitHub Release ]
-              |
-              v
- [ Compilation VitePress (docs:build -> website/) ]
-              |
-              v
- [ Téléchargement du .deb compilé ]
-              |
-              v
- [ Préparation du dossier de staging apt-workspace/ ]
+[ Événement Release GitHub ]
+            |
+            v
+ [ Compilation Docs VitePress (npm --prefix docs run docs:build -> website/) ]
+            |
+            v
+ [ Téléchargement du paquet .deb ]
+            |
+            v
+ [ Préparation de apt-workspace/ ]
    - Copie de la clé publique GPG (public.key)
-   - Copie de l'intégralité du site vitrine et documentation (website/*)
-              |
-              v
- [ Génération de l'index Debian ]
+   - Copie du site et de la doc compilée (website/*)
+            |
+            v
+ [ Génération de l'index APT Debian ]
    - dpkg-scanpackages --multiversion . > Packages
    - gzip -k -f Packages
    - apt-ftparchive release . > Release
-              |
-              v
- [ Signature Cryptographique GPG ]
+            |
+            v
+ [ Signatures Cryptographiques GPG ]
    - gpg -abs -o Release.gpg Release
    - gpg --clearsign -o InRelease Release
-              |
-              v
- [ Déploiement vers GitHub Pages ]
-   - Mise en ligne atomique sur williambossard.github.io/Gens-Launcher/
+            |
+            v
+ [ Déploiement GitHub Pages ]
+   - Publication atomique sur williambossard.github.io/Gens-Launcher/
 ```
-
-Grâce à cette organisation, les utilisateurs de Debian et Ubuntu bénéficient d'un canal de mise à jour sécurisé et automatisé via `apt upgrade`.

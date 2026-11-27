@@ -72,7 +72,7 @@ export default defineConfig({
               { text: 'System Architecture', link: '/guide/dev/architecture' },
               { text: 'TypeScript & Static Typing', link: '/guide/dev/typescript-migration' },
               { text: 'Security Model & Sandbox', link: '/guide/dev/security-model' },
-              { text: 'Native Gens-Core Modules', link: '/guide/dev/native-modules' },
+              { text: 'Native Rust Core Modules', link: '/guide/dev/native-modules' },
               { text: 'IPC Channel Reference', link: '/guide/dev/ipc-reference' },
               { text: 'Build & Packaging', link: '/guide/dev/build-and-packaging' }
             ]
@@ -127,7 +127,7 @@ export default defineConfig({
               { text: 'Architecture Système', link: '/fr/guide/dev/architecture' },
               { text: 'Architecture TypeScript', link: '/fr/guide/dev/typescript-migration' },
               { text: 'Modèle de Sécurité & Sandbox', link: '/fr/guide/dev/security-model' },
-              { text: 'Modules Natifs Gens-Core', link: '/fr/guide/dev/native-modules' },
+              { text: 'Modules Natifs Rust', link: '/fr/guide/dev/native-modules' },
               { text: 'Spécification Canaux IPC', link: '/fr/guide/dev/ipc-reference' },
               { text: 'Compilation & Packaging', link: '/fr/guide/dev/build-and-packaging' }
             ]

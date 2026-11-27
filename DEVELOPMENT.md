@@ -1,6 +1,6 @@
-# Gens-Launcher — Comprehensive Development Guide
+# Gens-Launcher — Comprehensive Development Guide (Rust + Tauri v2)
 
-This document describes the architecture, security model, data flows, and development best practices for the **Gens-Launcher** project. It serves as a technical reference (Single Source of Truth) for any contributor or security auditor.
+This document describes the architecture, security model, data flows, and development best practices for the **Gens-Launcher** project (**Rust + Tauri v2**). It serves as a technical reference (Single Source of Truth) for any contributor or security auditor.
 
 Detailed developer documentation is also available in `docs/guide/dev/` (English) and `docs/fr/guide/dev/` (French).
 
@@ -8,53 +8,48 @@ Detailed developer documentation is also available in `docs/guide/dev/` (English
 
 ## 1. Overview & Global Architecture
 
-Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on Electron, its role is to:
+Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on **Rust + Tauri v2** with a zero-build-step strict TypeScript-checked frontend, its role is to:
 
-1. Manage secure player authentication via the Microsoft/Xbox API.
-2. Download, verify, and launch the Minecraft game (via `gens-core`).
+1. Manage secure player authentication via the Microsoft/Xbox Live OAuth2 API.
+2. Download, verify, and launch Minecraft (Vanilla, Fabric, Quilt, Forge, NeoForge) natively in Rust.
 3. Asynchronously interact with **Gens-Horizon**, the headless cloud synchronization engine of the ecosystem.
 
-The architecture strictly follows Electron's native model by separating the application into isolated realms: the **Main Process**, the **Preload Security Bridge**, and the **Renderer Process**.
+The architecture separates responsibilities across three strict layers: the **Rust Core Backend (`src-tauri/src/`)**, the **Tauri IPC Security Bridge (`frontend/src/tauri-bridge.js`)**, and the **WebView Frontend (`frontend/`)**.
 
 ---
 
 ## 2. Component Topology
 
-### 2.1 Main Process
+### 2.1 Rust Backend (`src-tauri/src/`)
 
-It runs in a full Node.js context. It has access to the file system, low-level network, and controls the application's lifecycle.
+Compiled natively with Rust (edition 2024) and Tokio async runtime. It owns all filesystem, network, cryptographic, and child-process operations:
 
-- **`main.js`**: Application entry point. Initializes windows (`BrowserWindow`), sets up the global `Content-Security-Policy` (CSP), and centralizes IPC module imports via a typed `MainContext`.
-- **`src/main/ipc-auth.js`**: Manages Microsoft OAuth2 flows (Device Code flow) relying on the native in-house `auth.js` module. Encrypts and stores refresh tokens on disk, and acts as a secure HTTPS proxy to query the Mojang API (Skins/Capes), bypassing CORS restrictions.
-- **`src/main/ipc-game.js`**: Launch engine. Prepares JVM parameters, downloads assets via `gens-core`, and spawns the game process via `child_process` without shell evaluation to guarantee immunity against command injection.
-- **`src/main/ipc-fs.js` & `src/main/fs-utils.js`**: Confined filesystem service. Every file operation requested by the Renderer is validated in the Main Process via `assertPathUnderSandbox()` (enforcing both lexical path bounds and `fs.realpathSync` symlink/junction checks).
-- **`src/main/ipc-horizon.js`**: Exclusive communication bridge with `Horizon.exe` / `Horizon`.
-  - *Integrity*: Downloads the SHA-256 signature from the official GitHub release and validates the local Horizon executable before any launch. The hash is cached for 2h to avoid repeated network requests. *(Note: In a local development environment `!app.isPackaged`, hash errors are ignored to allow free testing of locally compiled versions).*
-  - *Security*: Validates arguments via a strict **Whitelist** (`--sync`, `--check`, `--upload`, etc.) coupled with a Regex filter limiting allowed characters.
-- **`src/main/ipc-system.js`**: Centralizes native OS interactions (Discord Rich Presence, worker-based ZIP extraction/compression, image Magic Bytes validation, Windows Jump List).
-- **`src/main/crypto-utils.js`**: Cryptographic primitives of the Main Process. Prioritizes OS-native `safeStorage` (DPAPI / Keychain / Libsecret) and falls back to **AES-256-GCM** with a key derived via **PBKDF2** (600,000 iterations, random 16-byte salt stored in `.key_salt`). Manages seamless migration of legacy SHA-256 encrypted tokens.
+- **`main.rs`**: Tauri v2 application entry point. Configures the system tray, single-instance lock, `--auto-launch=` deep-link parsing, `AppState`, and IPC command dispatchers (`ipc_invoke`, `ipc_send`).
+- **`game.rs`**: Full native Rust Minecraft launch engine (Vanilla / Fabric / Quilt / Forge / NeoForge), ForgeWrapper support, Mojang rule/arch evaluation, concurrent asset/library downloads with SHA-1 verification, Java scanner, SHA-256 verified Adoptium JRE installer, and Forge installer runner.
+- **`game_validation.rs`**: Security validators for launch overrides, Java executables, dangerous JVM arguments (`-javaagent`, `-agentlib`, `--add-opens`, etc.), sensitive Minecraft flags, and HTTPS download domain allowlists.
+- **`sandbox.rs`**: Dual-layer path confinement (lexical normalization + anti-symlink/junction canonicalization), UNC path blocking, renderer denylist (`.secret_key`, `.key_salt`, `horizon_seal.key`, `trusted_external_domains.json`, `github_release_cache.json`), protected delete roots, and atomic file writes with Windows lock retries.
+- **`fs_ops.rs`**: Confined filesystem IPC handlers (`fs:*`) enforcing `sandbox.rs`, encoding allowlists, and `MAX_IPC_READ_BYTES` (64 MiB anti-OOM) / `fs:readTail` bounds.
+- **`crypto.rs`**: Windows DPAPI (direct FFI to `crypt32.dll`), seamless Chromium/Electron `safeStorage:` (`Local State` + AES-256-GCM) decryption for Windows migration, `v2:` legacy support, PBKDF2 (600,000 iterations) + AES-256-GCM fallback, pure-Rust RFC 1321 MD5, and SHA-1 / SHA-256 / SHA-512 hashing.
+- **`network.rs`**: Streaming file downloads (`reqwest` + `rustls`), Modrinth & CurseForge proxies, Microsoft OAuth2 Device Code authentication & token refresh, Mojang profile/skin proxy, and Magic Bytes validation (`PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `ICO`, `ZIP`) for sandboxed uploads.
+- **`archive.rs`**: Zip-Slip-safe ZIP extraction/compression and pure-Rust USTAR / GNU LongName / PAX `.tar.gz` extraction rejecting symlinks, hardlinks, path traversal, and Zip Bombs (> 4 GiB).
+- **`horizon.rs`**: Exclusive communication bridge with `Horizon.exe` / `Horizon`. Verifies SHA-256 integrity against official GitHub releases, enforces a strict CLI flag whitelist, and manages E2E / selective sync settings.
+- **`updater.rs`**: Native auto-updater compatible with `electron-updater` manifests (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`) with mandatory SHA-512 verification, plus Linux APT `.deb` update support.
+- **`system.rs`**: Persistent main-process logging, OS memory inspection (`GlobalMemoryStatusEx` / `/proc/meminfo` / `sysctl`), trusted external URL opener with user confirmation dialog, passive-file whitelist for `open_path`, desktop shortcuts (Win32 COM `.lnk` / `.desktop`), and redacted diagnostic ZIP export.
+- **`discord.rs`**: Pure-Rust Discord Rich Presence IPC client (Named Pipes on Windows, Unix domain sockets on Linux/macOS) with PING/PONG/CLOSE opcodes, 15s rate limiting, and exponential backoff.
+- **`ping.rs`**: Pure-Rust Minecraft Server List Ping (TCP + VarInt framing + anti-SSRF private/reserved IP blocking + XSS-safe MOTD HTML renderer).
+- **`nbt.rs`**: Pure-Rust binary NBT parser (GZIP & uncompressed) with nesting depth and size bounds.
+- **`encoding.rs`**: Zero-dependency base64 and hex codecs.
 
-### 2.1.1 Internal Ecosystem (`src/gens-core/components/`)
+### 2.2 The Security Bridge (`frontend/src/tauri-bridge.js`)
 
-To limit the attack surface and drastically reduce application weight, heavy third-party dependencies are replaced by 100% native in-house implementations:
+- Exposes a 1:1 `window.api` contract over Tauri v2 (`__TAURI__.core.invoke` / `__TAURI__.event.listen`).
+- Enforces static channel whitelists (`VALID_SEND_CHANNELS`, `VALID_INVOKE_CHANNELS`, `VALID_RECEIVE_CHANNELS`).
+- Maps local image paths via Tauri's `asset://` protocol (`convertFileSrc`) scoped to `$APPDATA/GensLauncher/**`.
+- Restricts `window.api.security.writeJSON` to `accounts.json` and `cf_api_key.enc`.
 
-- **`discord.js`**: Native Named Pipes / Unix domain socket implementation for Discord Rich Presence. Includes a binary frame encoder, timeout handling, and a 15s rate limiter. Replaces `@xhayper/discord-rpc`.
-- **`nbt.js`**: Native binary NBT parser and builder (using `zlib`). Ensures lossless reading and writing of the Minecraft `servers.dat` file. Replaces `prismarine-nbt`.
-- **`auth.js`**: Native Microsoft authentication module (OAuth2 Device Code Flow). Manages `login.live.com` requests, Xbox Live exchange, XSTS token, and Minecraft Token acquisition. Replaces `prismarine-auth`.
-- **`ping.js`**: Native TCP Server List Ping (SLP) client with VarInt framing and DNS SRV (`_minecraft._tcp`) resolution.
-- **`launcher.js` & `handler.js`**: Core Minecraft asset downloader, SHA-1 verifier, ForgeWrapper integrator, and JVM argument builder.
+### 2.3 Frontend (`frontend/`)
 
-### 2.2 The Security Bridge (Preload)
-
-- **`preload.js`**: Runs in an isolated preload context (`contextIsolation: true`, `sandbox: true`).
-  - Exposes a hardened `window.api` object to the DOM via `contextBridge.exposeInMainWorld`.
-  - Enforces a **Static IPC Whitelist** (`SEND_CHANNELS`, `INVOKE_CHANNELS`, `RECEIVE_CHANNELS`). Any unlisted channel is blocked immediately.
-  - Implements lexical path sandboxing (`enforceSandbox` / `enforceReadSandbox`) before forwarding filesystem operations to `src/main/ipc-fs.js`.
-  - Exposes `window.api.copyImageToSandbox(srcPath, destName, subDir?)` and `window.api.copyFileToSandbox(srcPath, destName)` so the Main Process can validate extensions and binary **Magic Bytes** before copying external files into `%AppData%\GensLauncher`.
-
-### 2.3 Renderer Process
-
-- **`renderer.js` & `src/ui/*`, `src/launch/*`, `src/archives/*`, `src/local/*`**: Modular ES/CommonJS interface with no direct access to Node.js `require()` or `fs`. All system interactions pass through asynchronous `window.api.invoke()` calls.
+- **`frontend/renderer.js` & `frontend/src/ui/*`, `launch/*`, `archives/*`, `local/*`**: Lightweight modular ES interface with zero direct OS/Node access. All system interactions pass asynchronously through `window.api`.
 
 ---
 
@@ -62,62 +57,54 @@ To limit the attack surface and drastically reduce application weight, heavy thi
 
 The application follows the **Defense in Depth** principle:
 
-1. **Context Isolation & Preload Sandbox**: `contextIsolation: true` and `sandbox: true` isolate the Renderer from Node.js internals.
-2. **Dual-Layer Sandbox Validation**: Paths are validated lexically in `preload.js` and re-validated in the Main Process (`ipc-fs.js`) with `fs.realpathSync` to block symlink/junction escapes and `Zip Slip` attacks. Writing is strictly confined to `%AppData%\GensLauncher`.
-3. **Dual-Layer CSP Architecture**:
-   - *Layer 1 (`main.js`)*: HTTP response headers enforce `script-src 'self'` (no `unsafe-inline` or `unsafe-eval`).
-   - *Layer 2 (`index.html`)*: The `<meta http-equiv="Content-Security-Policy">` tag enforces the same restrictions in the DOM.
-4. **Encryption**: Local Microsoft authentication tokens are encrypted via `safeStorage` (OS Keychain) or **AES-256-GCM** with **PBKDF2** (600,000 iterations, random 16-byte salt in `.key_salt`).
-5. **Static IPC Whitelist**: All communication channels (`send`, `invoke`, `receive`) are statically listed in `preload.js` and verified against `src/types/ipc.ts` by automated unit tests (`tests/ipc-channels.test.js`).
-6. **HTTPS Only**: All remote downloads enforce `https:` and validate domains.
-7. **Binary Magic Bytes Verification**: `copy-image-to-sandbox` verifies both the file extension and its binary header signature (PNG, JPEG, GIF, WEBP, BMP, ICO).
-8. **Smart Offline Mode**: `src/uiCore.js` dynamically reacts to connectivity changes, locking network-dependent actions and suppressing background pings when offline.
+1. **Native WebView Isolation & Tauri Capabilities**: The WebView has no direct filesystem, shell, or Node.js access; every privileged operation is mediated by audited Rust handlers.
+2. **Anti-Traversal & Anti-Symlink Sandbox (`sandbox.rs`)**: All paths are validated lexically and via canonical `realpath` resolution to block symlink/junction escapes, UNC shares, and Zip/Tar Slip attacks. Writing is strictly confined to `$APPDATA/GensLauncher`.
+3. **Strict CSP (`tauri.conf.json`)**: Enforces `script-src 'self'`, `style-src 'self'`, `object-src 'none'`, `frame-src 'none'`, and explicit HTTPS allowlists for `img-src` and `connect-src`.
+4. **Encryption (`crypto.rs`)**: Local Microsoft tokens and CurseForge API keys are encrypted via Windows DPAPI or **PBKDF2 (600,000 iterations) + AES-256-GCM**, with automatic migration from Electron `safeStorage:` on Windows.
+5. **Static IPC Whitelist**: All channels (`send`, `invoke`, `receive`) are statically whitelisted in `frontend/src/tauri-bridge.js` and typed in `frontend/src/types/ipc.ts`.
+6. **HTTPS & Domain Allowlists (`game_validation.rs`)**: Remote downloads enforce `https:` and domain allowlists; multi-tenant hosts (GitHub/GitLab) require hash verification.
+7. **Binary Magic Bytes Verification (`network.rs`)**: Uploaded images and archives are verified by both extension and binary header signature before entering the sandbox.
+8. **Smart Offline Mode**: `frontend/src/uiCore.js` dynamically locks network-dependent actions and suppresses background pings when offline.
 
 ---
 
-## 4. IPC Communication (Best Practices)
+## 4. Verification & Static Analysis
 
-- **Asynchronicity**: Always use `ipcRenderer.invoke` (Renderer side) and `ipcMain.handle` (Main side) for I/O tasks so the UI thread never freezes.
-- **No `sendSync`**: System bootstrap paths (`appData`, `platform`, `arch`, `version`) are injected via `BrowserWindow.additionalArguments` at window creation, avoiding synchronous IPC calls.
+Gens-Launcher combines **zero-warning Rust** with a **zero-build-step TypeScript-checked frontend** (`frontend/tsconfig.json` with `allowJs: true`, `checkJs: true`, `strict: true`, `noEmit: true`):
 
----
+```bash
+# 1. Rust static lint (must pass with 0 warnings)
+cd src-tauri
+cargo clippy --all-targets -- -D warnings
 
-## 5. TypeScript & Static Type Safety Architecture
+# 2. Rust unit & security test suite
+cargo test
 
-Gens-Launcher uses a **zero-build-step TypeScript architecture** (`allowJs: true`, `checkJs: true`, `strict: true`, `noEmit: true` in `tsconfig.json`):
-
-- **Shared Type Contracts**:
-  - `src/types/ipc.ts`: Exhaustive definitions of all IPC channels (`SendChannel`, `InvokeChannel`, `ReceiveChannel`), Horizon JSON protocol events, and `WindowApi`.
-  - `src/types/models.ts`: Domain models (`MinecraftInstance`, `MinecraftAccount`, `GlobalSettings`, `ThemeSettings`, `MainContext`).
-  - `src/types/global.d.ts`: Strict typing for `Window` globals and UI controllers.
-- **100% Coverage**: Every `.js` file across `main.js`, `preload.js`, `renderer.js`, `src/main/*`, `src/gens-core/*`, and `src/ui/*` is type-checked via `// @ts-check` and JSDoc annotations.
-- **Required Checks**:
-
-  ```bash
-  npm run typecheck
-  npm test
-  ```
+# 3. Frontend TypeScript static analysis (must report 0 errors)
+cd ../frontend
+npx -y typescript@latest -p tsconfig.json --noEmit
+```
 
 ---
 
-## 6. Deployment and Multi-Distribution Pipelines
+## 5. Deployment and Multi-Distribution Pipelines
 
-The Launcher is packaged and distributed across multiple ecosystems through automated GitHub Actions:
+The Launcher is packaged and distributed across Windows, Linux, and macOS via GitHub Actions:
 
-### 6.1 Artifacts & Target Platforms
+### 5.1 Artifacts & Target Platforms
 
-- **Windows**: NSIS Installer (`.exe`) distributed via GitHub Releases.
+- **Windows**: NSIS Installer (`*-setup.exe`) with `src-tauri/nsis/hooks.nsh` pre-install hook to silently remove legacy Electron installations without losing user data.
 - **Linux**:
   - **APT Repository (Debian/Ubuntu)**: Official GPG-signed repository deployed to GitHub Pages (`apt.yml`).
-  - **AppImage**: Standalone portable executable with built-in `electron-updater`.
+  - **AppImage**: Standalone portable executable with built-in SHA-512 verified auto-updater.
 - **macOS**: DMG disk image (`.dmg`).
 
-### 6.2 GitHub Actions Workflows
+### 5.2 GitHub Actions Workflows
 
-1. **`ci.yml`**: Runs automatically on every push and pull request across Ubuntu and Windows (Node.js 22 & 24), executing `npm run typecheck` and `npm test`.
-2. **`release.yml`**: Runs `npm run typecheck` and `npm test`, then compiles cross-platform binaries using `electron-builder` and publishes releases to GitHub.
-3. **`apt.yml`**: Triggered on published release, compiles the VitePress documentation (`docs/`), pulls the `.deb` package, signs the APT repository with GPG (`Release.gpg`, `InRelease`), and deploys to GitHub Pages.
+1. **`ci.yml`**: Runs on every push and PR across `ubuntu-latest`, `windows-latest`, and `macos-latest`, executing `cargo clippy --all-targets -- -D warnings`, `cargo test`, and frontend `tsc --noEmit`.
+2. **`release.yml`**: Runs Clippy and tests, builds cross-platform bundles via `tauri-apps/tauri-action`, and generates/uploads `latest.yml`, `latest-linux.yml`, and `latest-mac.yml` manifests compatible with both Electron (`electron-updater`) and Rust (`updater.rs`).
+3. **`apt.yml`**: Triggered on published release, compiles VitePress documentation (`npm --prefix docs run docs:build`), pulls the `.deb` package, signs the APT repository with GPG (`Release.gpg`, `InRelease`), and deploys to GitHub Pages.
 
-### 6.3 Code Signing
+### 5.3 Code Signing
 
-*Not applicable — Gens Launcher is a free open-source project without a commercial corporate EV certificate. On Windows, SmartScreen may display an initial warning on unverified installers ("More info" → "Run anyway"). All source code and build workflows are 100% public and auditable.*
+*Not applicable — Gens Launcher is a free open-source project without a commercial EV certificate. On Windows, SmartScreen may display an initial warning on unverified installers ("More info" → "Run anyway"). All source code and build workflows are 100% public and auditable.*

@@ -1,49 +1,50 @@
 # Global System Architecture
 
 <div style="display: flex; gap: 8px; margin: 1rem 0; flex-wrap: wrap;">
-  <img src="https://img.shields.io/badge/Runtime-Electron-blue.svg" alt="Electron" />
-  <img src="https://img.shields.io/badge/Node.js-24+-green.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/Model-Isolated%20Processes-orange.svg" alt="Processes" />
+  <img src="https://img.shields.io/badge/Runtime-Rust%20%2B%20Tauri%20v2-orange.svg" alt="Rust + Tauri v2" />
+  <img src="https://img.shields.io/badge/Async-Tokio-blue.svg" alt="Tokio" />
+  <img src="https://img.shields.io/badge/Model-Isolated%20WebView-green.svg" alt="Isolated WebView" />
 </div>
 
-Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on **Electron**, its primary role is to orchestrate:
+Gens-Launcher is the official Graphical User Interface (GUI) of the Gens ecosystem. Built on **Rust + Tauri v2**, its primary role is to orchestrate:
 
 1. Secure player authentication via Microsoft and Xbox Live APIs.
-2. Asset verification, dependency downloading, and launching Minecraft via the in-house `gens-core` engine.
+2. Asset verification, dependency downloading, and launching Minecraft natively in Rust (`src-tauri/src/game.rs`).
 3. Asynchronous execution and communication with **Gens-Horizon**, the companion differential cloud sync engine.
 
 ---
 
 ## Isolated Process Model
 
-The architecture strictly follows Electron's process separation model by splitting responsibilities across three isolated realms:
+The architecture strictly separates privileged native operations from the UI across three isolated layers:
 
 ```text
 +-------------------------------------------------------------------+
-|                        MAIN PROCESS (Node.js)                     |
-|  - main.js: App lifecycle, windows, global CSP                   |
-|  - src/main/ipc-auth.js: Mojang proxy, Microsoft tokens           |
-|  - src/main/ipc-game.js: JVM preparation, child_process spawn     |
-|  - src/main/ipc-fs.js: Confined sandboxed file operations         |
-|  - src/main/ipc-horizon.js: Horizon binary bridge                 |
-|  - src/main/crypto-utils.js: safeStorage & PBKDF2 / AES-256-GCM   |
+|                   RUST BACKEND (src-tauri/src/)                   |
+|  - main.rs: Tauri v2 lifecycle, tray, single-instance, IPC router |
+|  - game.rs & game_validation.rs: MC launch engine, JVM/URL guards |
+|  - sandbox.rs & fs_ops.rs: Lexical + anti-symlink sandboxed FS    |
+|  - network.rs: Microsoft OAuth2, Mojang/Modrinth/CurseForge proxy |
+|  - crypto.rs: Windows DPAPI, Electron migration, PBKDF2/AES-GCM   |
+|  - archive.rs, horizon.rs, updater.rs, system.rs, discord.rs,     |
+|    ping.rs, nbt.rs                                                |
 +---------------------------------+---------------------------------+
                                   |
-               Async IPC          | (ipcMain.handle / invoke)
+               Async IPC          | (__TAURI__.core.invoke / events)
                Strict Whitelist   |
                                   v
 +-------------------------------------------------------------------+
-|                    SECURITY BRIDGE (preload.js)                   |
-|  - contextIsolation: true & sandbox: true                         |
-|  - enforceSandbox() / enforceReadSandbox(): Blocks Zip Slip       |
+|            SECURITY BRIDGE (frontend/src/tauri-bridge.js)         |
+|  - Static channel whitelists (SEND / INVOKE / RECEIVE)            |
+|  - asset:// protocol mapping scoped to $APPDATA/GensLauncher/**   |
 |  - window.api: Exclusive surface exposed to the DOM               |
 +---------------------------------+---------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
-|               RENDERER PROCESS (Strict TypeScript)                |
-|  - renderer.js (JSDoc TypeScript strict mode), HTML5, Vanilla CSS |
-|  - Zero direct Node.js access (require() forbidden)               |
+|               WEBVIEW FRONTEND (Strict TypeScript)                |
+|  - frontend/renderer.js (checkJs + strict), HTML5, Vanilla CSS    |
+|  - Zero direct OS/Node.js access                                  |
 |  - UI Managers: AccountUI, InstancesUI, ModsUI, CloudUI           |
 +-------------------------------------------------------------------+
 ```
@@ -52,34 +53,33 @@ The architecture strictly follows Electron's process separation model by splitti
 
 ## Component Breakdown
 
-### 1. Main Process
+### 1. Rust Core Backend (`src-tauri/src/`)
 
-Runs in a full Node.js environment with native file system and low-level network access:
+Compiled natively (Rust edition 2024, LTO + strip, ~11 MB binary) with Tokio async I/O:
 
-- **`main.js`**: Application entry point. Instantiates `BrowserWindow`, enforces global `Content-Security-Policy` (CSP) headers, and registers IPC handlers via a typed `MainContext`.
-- **`src/main/ipc-auth.js`**: Manages OAuth2 flows and acts as a secure reverse proxy for Mojang APIs (skins and capes), bypassing CORS without exposing the renderer.
-- **`src/main/ipc-game.js`**: Launch engine. Builds JVM startup arguments, downloads dependencies, and spawns the game via `child_process` without shell evaluation.
-- **`src/main/ipc-fs.js`**: Sandboxed filesystem service enforcing both lexical boundaries and `fs.realpathSync` symlink/junction verification (`assertPathUnderSandbox`).
-- **`src/main/ipc-horizon.js`**: Exclusive communication bridge for `Horizon.exe` / `Horizon`. Validates local binary SHA-256 hash against official GitHub releases (cached for 2 hours) and whitelists executable flags.
-- **`src/main/crypto-utils.js`**: Cryptographic routines. Uses OS-native `safeStorage` when available, falling back to **PBKDF2** (600,000 iterations with a dedicated 16-byte salt in `.key_salt`) and **AES-256-GCM**.
+- **`main.rs`**: Application entry point. Initializes Tauri v2, system tray, single-instance plugin, `--auto-launch=` handling, `AppState`, and async IPC dispatch (`ipc_invoke` / `ipc_send`).
+- **`game.rs` & `game_validation.rs`**: Native Minecraft launch engine (Vanilla / Fabric / Quilt / Forge / NeoForge), ForgeWrapper, Mojang OS/arch rules, concurrent SHA-1 verified downloads, Java scanner, SHA-256 verified Adoptium JRE installer, and strict JVM/URL/override validators.
+- **`sandbox.rs` & `fs_ops.rs`**: Sandboxed filesystem service enforcing both lexical boundaries and canonical `realpath` symlink/junction checks, UNC path blocking, renderer denylist, and atomic file writes.
+- **`network.rs`**: Streaming HTTPS downloads (`reqwest` + `rustls`), Microsoft Device Code OAuth2, Mojang profile/skin proxy, Modrinth/CurseForge APIs, and Magic Bytes upload validation.
+- **`horizon.rs`**: Exclusive communication bridge for `Horizon.exe` / `Horizon` with GitHub SHA-256 verification and strict CLI flag whitelisting.
+- **`crypto.rs`**: Windows DPAPI (direct FFI to `crypt32.dll`), transparent decryption of legacy Electron `safeStorage:` (`Local State`), and **PBKDF2 (600,000 iterations) + AES-256-GCM** encryption.
+- **`updater.rs`**: Native auto-updater compatible with `electron-updater` manifests (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`) with mandatory SHA-512 verification and Linux APT `.deb` support.
 
-### 2. The Security Bridge (Preload)
+### 2. The Security Bridge (`frontend/src/tauri-bridge.js`)
 
-- **`preload.js`**: Executes in an isolated preload context before locking down internal APIs:
-  - Exposes a hardened `window.api` object to the DOM via `contextBridge.exposeInMainWorld`.
-  - Implements the **Software Security Shield**: `enforceSandbox()` and `enforceReadSandbox()` mathematically inspect all path operations to prevent `Zip Slip` and `Path Traversal`.
-  - Disk write operations are strictly restricted to `%AppData%\GensLauncher`.
-  - File reading outside the sandbox is limited to verified paths (`.minecraft/`, detected Java runtimes, and temporary directories).
+- Exposes a hardened `window.api` object over Tauri v2 (`__TAURI__.core.invoke` / `__TAURI__.event.listen`).
+- Enforces static IPC whitelists (`VALID_SEND_CHANNELS`, `VALID_INVOKE_CHANNELS`, `VALID_RECEIVE_CHANNELS`).
+- Scopes encrypted JSON writes (`window.api.security.writeJSON`) exclusively to `accounts.json` and `cf_api_key.enc`.
+- Rewrites local asset paths via `convertFileSrc` (`asset://`) scoped to `$APPDATA/GensLauncher/**`.
 
-### 3. Renderer Process (User Interface)
+### 3. WebView Frontend (`frontend/`)
 
-- **`renderer.js` / HTML / CSS**: Lightweight modular interface strictly type-checked with **TypeScript** (`checkJs: true`, `strict: true`), preserving zero-build-step startup performance.
-- No direct access to `require()` or `process`.
-- All interactions with the underlying operating system go through asynchronous calls on `window.api.invoke()`.
+- **`frontend/renderer.js` / HTML / CSS**: Lightweight modular ES interface strictly type-checked with **TypeScript** (`checkJs: true`, `strict: true`), preserving zero-build-step startup performance.
+- Runs in the native OS WebView (WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS) with zero Node.js exposure.
 
 ---
 
 ## Lifecycle and Asynchronous Performance
 
-- **Zero `sendSync` Policy:** All blocking operations run asynchronously (`ipcRenderer.invoke` in renderer and `ipcMain.handle` in main). The user interface remains reactive even during multi-gigabyte modpack installations.
-- **Early Environment Injection:** Fundamental system metadata (platform, architecture, version, appData path) is injected into `BrowserWindow.additionalArguments` during window creation, eliminating synchronous IPC bootstrap calls.
+- **Non-Blocking Tokio Runtime:** Blocking disk/archive/crypto operations run on `tokio::task::spawn_blocking`, keeping the WebView UI thread responsive even during multi-gigabyte modpack extractions.
+- **Early Bootstrap Injection:** System metadata (`appData`, `platform`, `arch`, `version`, memory, `isAutoLaunch`, `isAppImage`) is injected via `window.__GENS_BOOT__` at window creation, eliminating synchronous startup IPC calls.
